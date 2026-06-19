@@ -24,6 +24,9 @@ from EvernightAI.infra.adapters.openai_compatible.instance import (
 )
 from EvernightAI.infra.bootstrap import (
     RuntimeKernel,
+    create_context_manager,
+    create_context_organizer,
+    create_context_register,
     create_provider_factory,
     create_provider_manager,
     create_runtime,
@@ -70,6 +73,19 @@ def test_bootstrap_creates_tool_manager() -> None:
     assert manager.list_tools() == []
 
 
+def test_bootstrap_creates_context_manager() -> None:
+    register = create_context_register()
+    manager = create_context_manager(register)
+
+    assert manager._register is register
+
+
+def test_bootstrap_creates_context_organizer() -> None:
+    organizer = create_context_organizer()
+
+    assert organizer.organize.__name__ == "organize"
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_provider_manager_creates_openai_instance() -> None:
     manager = create_provider_manager()
@@ -95,6 +111,8 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
     assert runtime.tools.list_tools() == []
+    assert await runtime.contexts.list_contexts() == []
+    assert runtime.context_organizer.organize
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")
@@ -210,6 +228,38 @@ async def test_openai_instance_chat_stream_maps_chunks_to_sse_events() -> None:
         "role": "assistant",
     }
     assert events[1].data == "[DONE]"
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_instance_chat_stream_allows_undeclared_model() -> None:
+    instance = OpenAICompatibleProviderInstance(make_openai_config_without_models())
+    completions = FakeCompletions()
+    fake_client = FakeClient(completions)
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(
+            model_id="provider-specific-model",
+            messages=[
+                Content(
+                    role=MessageRole.USER,
+                    content=[ContentPart(type=ContentPartType.TEXT, text="Hello")],
+                )
+            ],
+        )
+    )
+    events = [event async for event in stream]
+
+    assert completions.params == {
+        "model": "provider-specific-model",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "timeout": 30.0,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    assert [event.event for event in events] == ["chat.completion.chunk", "done"]
 
     await instance.close()
 

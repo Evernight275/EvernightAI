@@ -1,13 +1,4 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from EvernightAI.core.protocol.provider import (
-        ProviderFactoryProtocol,
-        ProviderManageProtocol,
-    )
-    from EvernightAI.core.protocol.tool import ToolManageProtocol, ToolRegisterProtocol
+from typing import Protocol
 
 
 class EvernightAIProtocol(Protocol):
@@ -32,26 +23,6 @@ class InstanceProtocol(EvernightAIProtocol):
     """
 
     ...
-
-
-class RuntimeProtocol(EvernightAIProtocol):
-    """
-    运行时协议
-    """
-
-    @property
-    def provider_factory(self) -> ProviderFactoryProtocol: ...
-
-    @property
-    def providers(self) -> ProviderManageProtocol: ...
-
-    @property
-    def tool_register(self) -> ToolRegisterProtocol: ...
-
-    @property
-    def tools(self) -> ToolManageProtocol: ...
-
-    async def close(self) -> None: ...
 
 
 class RegisterProtocol(ResponsibilityProtocol):

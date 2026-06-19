@@ -1,11 +1,24 @@
+from pathlib import Path
+
+from EvernightAI.core.domain.context import (
+    ContextManager,
+    ContextOrganizer,
+    ContextRegister,
+)
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
-from EvernightAI.core.protocol.base import RuntimeProtocol
+from EvernightAI.core.protocol.context import (
+    ContextManageProtocol,
+    ContextOrganizerProtocol,
+    ContextRegisterProtocol,
+)
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.tool import ToolManageProtocol, ToolRegisterProtocol
+from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.registrations.provider.openai_compatible import (
     register_openai_compatible_provider,
 )
@@ -30,15 +43,43 @@ def create_tool_manager(register: ToolRegisterProtocol | None = None) -> ToolMan
     return ToolManager(register or create_tool_register())
 
 
+def create_context_register() -> ContextRegister:
+    return ContextRegister()
+
+
+def create_context_manager(
+    register: ContextRegisterProtocol | None = None,
+) -> ContextManager:
+    return ContextManager(register or create_context_register())
+
+
+def create_context_organizer() -> ContextOrganizer:
+    return ContextOrganizer()
+
+
+def create_sqlite_context_register(database_path: str | Path) -> SQLiteContextRegister:
+    return SQLiteContextRegister(database_path)
+
+
+def create_sqlite_context_manager(database_path: str | Path) -> ContextManager:
+    return ContextManager(create_sqlite_context_register(database_path))
+
+
 def create_runtime() -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
     tool_register = create_tool_register()
     tools = ToolManager(tool_register)
+    context_register = create_context_register()
+    contexts = ContextManager(context_register)
+    context_organizer = create_context_organizer()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
         providers=providers,
         tool_register=tool_register,
         tools=tools,
+        context_register=context_register,
+        contexts=contexts,
+        context_organizer=context_organizer,
     )

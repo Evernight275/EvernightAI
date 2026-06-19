@@ -1,5 +1,5 @@
-from EvernightAI.core.protocol.base import RuntimeProtocol
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
+from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import ProviderConfig

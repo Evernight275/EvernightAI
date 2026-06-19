@@ -3,6 +3,11 @@ from collections.abc import AsyncIterator
 import pytest
 
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.core.domain.context import (
+    ContextManager,
+    ContextOrganizer,
+    ContextRegister,
+)
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
@@ -57,12 +62,16 @@ def make_runtime() -> RuntimeKernel:
     provider_factory = ProviderFactory()
     provider_factory.register(ProviderType.OPENAI, build_provider)
     tool_register = ToolRegister()
+    context_register = ContextRegister()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
         providers=ProviderManager(provider_factory),
         tool_register=tool_register,
         tools=ToolManager(tool_register),
+        context_register=context_register,
+        contexts=ContextManager(context_register),
+        context_organizer=ContextOrganizer(),
     )
 
 
