@@ -49,6 +49,14 @@ def make_openai_config() -> ProviderConfig:
     )
 
 
+def make_openai_config_without_models() -> ProviderConfig:
+    return ProviderConfig(
+        provider_id="openai-main",
+        name="OpenAI Main",
+        type=ProviderType.OPENAI,
+    )
+
+
 def test_bootstrap_registers_openai_compatible_builder() -> None:
     factory = create_provider_factory()
 
@@ -134,6 +142,38 @@ async def test_openai_instance_chat_maps_request_and_response() -> None:
 
     assert instance.is_closed is True
     assert fake_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_openai_instance_chat_allows_undeclared_model() -> None:
+    instance = OpenAICompatibleProviderInstance(make_openai_config_without_models())
+    completions = FakeCompletions()
+    fake_client = FakeClient(completions)
+    cast(Any, instance)._client = fake_client
+
+    response = await instance.chat(
+        ChatRequest(
+            model_id="provider-specific-model",
+            messages=[
+                Content(
+                    role=MessageRole.USER,
+                    content=[ContentPart(type=ContentPartType.TEXT, text="Hello")],
+                )
+            ],
+        )
+    )
+
+    assert completions.params == {
+        "model": "provider-specific-model",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "timeout": 30.0,
+    }
+    assert response.message == Content(
+        role=MessageRole.ASSISTANT,
+        content=[ContentPart(type=ContentPartType.TEXT, text="Hi")],
+    )
+
+    await instance.close()
 
 
 @pytest.mark.asyncio

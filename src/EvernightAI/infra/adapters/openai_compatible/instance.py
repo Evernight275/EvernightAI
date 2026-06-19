@@ -40,7 +40,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return self._closed
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        model = await self.get_model(request.model_id)
+        model = self._model_for_request(request.model_id)
         params: dict[str, Any] = {
             "model": model.model_id,
             "messages": to_openai_messages(request.messages),
@@ -58,7 +58,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return from_openai_chat_completion(response)
 
     async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
-        model = await self.get_model(request.model_id)
+        model = self._model_for_request(request.model_id)
         params: dict[str, Any] = {
             "model": model.model_id,
             "messages": to_openai_messages(request.messages),
@@ -92,6 +92,9 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
     async def close(self) -> None:
         await self._client.close()
         self._closed = True
+
+    def _model_for_request(self, model_id: str) -> ProviderModelConfig:
+        return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
 
 class OpenAICompatibleSSEStream:

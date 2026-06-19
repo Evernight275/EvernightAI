@@ -22,6 +22,14 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 include = ["EvernightAI*"]
 
+[tool.pytest.ini_options]
+addopts = [
+    "-ra",
+]
+markers = [
+    "real_openai: tests that call a real OpenAI-compatible provider",
+]
+
 [[index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
