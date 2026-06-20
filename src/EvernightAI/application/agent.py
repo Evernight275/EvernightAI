@@ -1,12 +1,14 @@
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from uuid import uuid4
 
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
+    AgentRunState,
+    AgentRunStatus,
     AgentStep,
     AgentStepType,
     AgentStopReason,
@@ -26,6 +28,7 @@ from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolCallResult,
     ToolDefinition,
+    ToolSafetyDecision,
 )
 
 
@@ -34,22 +37,63 @@ class AgentApplication:
         self._runtime = runtime
 
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResult:
-        state = _AgentRunState()
+        state = self._new_run_state(request)
         async for _ in self._run_agent_events(request, state):
             pass
 
-        return state.to_result(request)
+        return self._state_to_result(state)
+
+    async def run_agent_until_pause(self, request: AgentRunRequest) -> AgentRunState:
+        pause_request = (
+            request
+            if request.pause_on_approval
+            else request.model_copy(update={"pause_on_approval": True})
+        )
+        state = self._new_run_state(pause_request)
+        async for _ in self._run_agent_events(pause_request, state):
+            pass
+
+        return state
+
+    async def resume_agent(
+        self,
+        state: AgentRunState,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentRunResult:
+        async for _ in self._resume_agent_events(state, approvals):
+            pass
+
+        return self._state_to_result(state)
+
+    async def resume_agent_until_pause(
+        self,
+        state: AgentRunState,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentRunState:
+        async for _ in self._resume_agent_events(state, approvals):
+            pass
+
+        return state
 
     def run_agent_stream(
         self,
         request: AgentRunRequest,
     ) -> AgentTraceStreamProtocol:
-        return _AgentTraceStream(self._run_agent_events(request, _AgentRunState()))
+        return _AgentTraceStream(
+            self._run_agent_events(request, self._new_run_state(request))
+        )
+
+    def resume_agent_stream(
+        self,
+        state: AgentRunState,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentTraceStreamProtocol:
+        return _AgentTraceStream(self._resume_agent_events(state, approvals))
 
     async def _run_agent_events(
         self,
         request: AgentRunRequest,
-        state: "_AgentRunState",
+        state: AgentRunState,
     ) -> AsyncIterator[AgentTraceEvent]:
         start_step = AgentStep(
             step_type=AgentStepType.START,
@@ -60,7 +104,8 @@ class AgentApplication:
             },
         )
         state.steps.append(start_step)
-        yield state.add_trace(
+        yield self._add_trace(
+            state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_STARTED,
                 step_type=AgentStepType.START,
@@ -69,7 +114,7 @@ class AgentApplication:
                     "context_id": request.context_id,
                     "model_id": request.model_id,
                 },
-            )
+            ),
         )
 
         response = await self._chat(
@@ -89,132 +134,85 @@ class AgentApplication:
                 message=response.message,
             )
         )
-        yield state.add_trace(
+        yield self._add_trace(
+            state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.CHAT_COMPLETED,
                 step_type=AgentStepType.CHAT,
                 response=response,
                 message=response.message,
-            )
+            ),
         )
         for message in request.messages:
             await self._runtime.contexts.append(request.context_id, message)
         await self._runtime.contexts.append(request.context_id, response.message)
 
-        remaining_rounds = request.max_tool_rounds
-        state.stop_reason = AgentStopReason.FINISHED
-        approvals = self._tool_approvals_by_call_id(request.tool_approvals)
-        while response.message.tool_calls and remaining_rounds > 0:
-            for call in response.message.tool_calls:
-                call = self._apply_tool_approval(call, approvals.get(call.tool_call_id))
-                for event in self._trace_tool_approval(call, state):
-                    yield event
-                try:
-                    tool_result = await self._runtime.tools.execute(call)
-                    tool_message = self._tool_result_to_message(tool_result)
-                    state.steps.append(
-                        AgentStep(
-                            step_type=AgentStepType.TOOL,
-                            message=tool_message,
-                            tool_call=call,
-                            tool_result=tool_result,
-                        )
-                    )
-                    yield state.add_trace(
-                        AgentTraceEvent(
-                            event_type=AgentTraceEventType.TOOL_COMPLETED,
-                            step_type=AgentStepType.TOOL,
-                            message=tool_message,
-                            tool_call=call,
-                            tool_result=tool_result,
-                        )
-                    )
-                except Exception as exc:
-                    tool_message = self._tool_error_to_message(call, exc)
-                    state.steps.append(
-                        AgentStep(
-                            step_type=AgentStepType.TOOL_ERROR,
-                            message=tool_message,
-                            tool_call=call,
-                            error_type=exc.__class__.__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    yield state.add_trace(
-                        AgentTraceEvent(
-                            event_type=AgentTraceEventType.TOOL_FAILED,
-                            step_type=AgentStepType.TOOL_ERROR,
-                            message=tool_message,
-                            tool_call=call,
-                            error_type=exc.__class__.__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    if not request.recover_tool_errors:
-                        await self._runtime.contexts.append(
-                            request.context_id,
-                            tool_message,
-                        )
-                        state.stop_reason = AgentStopReason.TOOL_ERROR
-                        state.steps.append(
-                            AgentStep(
-                                step_type=AgentStepType.STOP,
-                                metadata={"reason": state.stop_reason.value},
-                            )
-                        )
-                        state.tool_rounds_used = (
-                            request.max_tool_rounds - remaining_rounds
-                        )
-                        async for event in self._write_memory_events(request, state):
-                            yield event
-                        yield state.add_trace(self._run_stopped_event(state.stop_reason))
-                        return
-
-                await self._runtime.contexts.append(request.context_id, tool_message)
-
-            remaining_rounds -= 1
-            if remaining_rounds < 0:
-                break
-
-            response = await self._chat(
-                request.provider_id,
-                request.context_id,
-                model_id=request.model_id,
-                messages=[],
-                tools=request.tools,
-                metadata=request.metadata,
-            )
-            state.response = response
-            state.steps.append(
-                AgentStep(
-                    step_type=AgentStepType.CHAT,
-                    response=response,
-                    message=response.message,
-                )
-            )
-            yield state.add_trace(
-                AgentTraceEvent(
-                    event_type=AgentTraceEventType.CHAT_COMPLETED,
-                    step_type=AgentStepType.CHAT,
-                    response=response,
-                    message=response.message,
-                )
-            )
-            await self._runtime.contexts.append(request.context_id, response.message)
-
-        if response.message.tool_calls:
-            state.stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
-
-        state.steps.append(
-            AgentStep(
-                step_type=AgentStepType.STOP,
-                metadata={"reason": state.stop_reason.value},
-            )
-        )
-        state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
-        async for event in self._write_memory_events(request, state):
+        async for event in self._continue_tool_loop(
+            request,
+            state,
+            response,
+            request.max_tool_rounds,
+            self._tool_approvals_by_call_id(request.tool_approvals),
+            already_requested_approval_call_ids=set(),
+        ):
             yield event
-        yield state.add_trace(self._run_stopped_event(state.stop_reason))
+
+    async def _resume_agent_events(
+        self,
+        state: AgentRunState,
+        approvals: list[ToolApprovalDecision],
+    ) -> AsyncIterator[AgentTraceEvent]:
+        if state.status is not AgentRunStatus.PAUSED:
+            raise RuntimeError("Agent run is not paused")
+        if state.response is None:
+            raise RuntimeError("Agent run did not produce a response")
+        if not state.pending_tool_calls:
+            raise RuntimeError("Agent run has no pending tool calls")
+
+        pending_approval_call_ids = {
+            request.tool_call_id for request in state.pending_approval_requests
+        }
+        merged_approvals = self._merge_tool_approvals(
+            state.request.tool_approvals,
+            approvals,
+        )
+        approvals_by_call_id = self._tool_approvals_by_call_id(merged_approvals)
+        missing_approval_call_ids = [
+            call_id
+            for call_id in pending_approval_call_ids
+            if call_id not in approvals_by_call_id
+        ]
+        if missing_approval_call_ids:
+            missing = ", ".join(sorted(missing_approval_call_ids))
+            raise RuntimeError(f"Missing approval for pending tool call: {missing}")
+
+        request = state.request.model_copy(
+            update={
+                "tool_approvals": merged_approvals,
+                "pause_on_approval": True,
+            }
+        )
+        pending_tool_calls = list(state.pending_tool_calls)
+        state.request = request
+        state.status = AgentRunStatus.RUNNING
+        state.stop_reason = AgentStopReason.FINISHED
+        state.pending_tool_calls = []
+        state.pending_approval_requests = []
+        state.metadata = {
+            **state.metadata,
+            "pending_approval_count": 0,
+        }
+
+        async for event in self._continue_tool_loop(
+            request,
+            state,
+            state.response,
+            state.remaining_tool_rounds,
+            approvals_by_call_id,
+            pending_tool_calls=pending_tool_calls,
+            already_requested_approval_call_ids=pending_approval_call_ids,
+        ):
+            yield event
 
     async def run(
         self,
@@ -242,6 +240,188 @@ class AgentApplication:
             )
         )
         return result.response
+
+    async def _continue_tool_loop(
+        self,
+        request: AgentRunRequest,
+        state: AgentRunState,
+        response: ChatResponse,
+        remaining_rounds: int,
+        approvals: dict[str, ToolApprovalDecision],
+        *,
+        already_requested_approval_call_ids: set[str],
+        pending_tool_calls: list[ToolCall] | None = None,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        current_response = response
+        current_tool_calls = (
+            pending_tool_calls
+            if pending_tool_calls is not None
+            else list(current_response.message.tool_calls or [])
+        )
+        state.remaining_tool_rounds = remaining_rounds
+        state.stop_reason = AgentStopReason.FINISHED
+
+        while current_tool_calls and remaining_rounds > 0:
+            state.remaining_tool_rounds = remaining_rounds
+            for index, raw_call in enumerate(current_tool_calls):
+                call = self._apply_tool_approval(
+                    raw_call,
+                    approvals.get(raw_call.tool_call_id),
+                )
+                decision = self._tool_safety_decision(call)
+                include_approval_request = (
+                    call.tool_call_id not in already_requested_approval_call_ids
+                )
+                for event in self._trace_tool_approval(
+                    call,
+                    state,
+                    decision,
+                    include_approval_request=include_approval_request,
+                ):
+                    yield event
+                if request.pause_on_approval and self._should_pause_for_approval(
+                    call,
+                    decision,
+                ):
+                    assert decision is not None
+                    yield self._add_trace(
+                        state,
+                        self._run_paused_event(
+                            request,
+                            state,
+                            [call, *current_tool_calls[index + 1 :]],
+                            decision,
+                            remaining_rounds,
+                        ),
+                    )
+                    return
+
+                try:
+                    tool_result = await self._runtime.tools.execute(call)
+                    tool_message = self._tool_result_to_message(tool_result)
+                    state.steps.append(
+                        AgentStep(
+                            step_type=AgentStepType.TOOL,
+                            message=tool_message,
+                            tool_call=call,
+                            tool_result=tool_result,
+                        )
+                    )
+                    yield self._add_trace(
+                        state,
+                        AgentTraceEvent(
+                            event_type=AgentTraceEventType.TOOL_COMPLETED,
+                            step_type=AgentStepType.TOOL,
+                            message=tool_message,
+                            tool_call=call,
+                            tool_result=tool_result,
+                        ),
+                    )
+                except Exception as exc:
+                    tool_message = self._tool_error_to_message(call, exc)
+                    state.steps.append(
+                        AgentStep(
+                            step_type=AgentStepType.TOOL_ERROR,
+                            message=tool_message,
+                            tool_call=call,
+                            error_type=exc.__class__.__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    yield self._add_trace(
+                        state,
+                        AgentTraceEvent(
+                            event_type=AgentTraceEventType.TOOL_FAILED,
+                            step_type=AgentStepType.TOOL_ERROR,
+                            message=tool_message,
+                            tool_call=call,
+                            error_type=exc.__class__.__name__,
+                            error_message=str(exc),
+                        ),
+                    )
+                    if not request.recover_tool_errors:
+                        await self._runtime.contexts.append(
+                            request.context_id,
+                            tool_message,
+                        )
+                        state.stop_reason = AgentStopReason.TOOL_ERROR
+                        state.status = AgentRunStatus.FAILED
+                        state.steps.append(
+                            AgentStep(
+                                step_type=AgentStepType.STOP,
+                                metadata={"reason": state.stop_reason.value},
+                            )
+                        )
+                        state.tool_rounds_used = (
+                            request.max_tool_rounds - remaining_rounds
+                        )
+                        async for event in self._write_memory_events(request, state):
+                            yield event
+                        yield self._add_trace(
+                            state,
+                            self._run_stopped_event(state.stop_reason),
+                        )
+                        return
+
+                await self._runtime.contexts.append(request.context_id, tool_message)
+
+            remaining_rounds -= 1
+            state.remaining_tool_rounds = remaining_rounds
+            if remaining_rounds < 0:
+                break
+
+            current_response = await self._chat(
+                request.provider_id,
+                request.context_id,
+                model_id=request.model_id,
+                messages=[],
+                tools=request.tools,
+                metadata=request.metadata,
+            )
+            state.response = current_response
+            state.steps.append(
+                AgentStep(
+                    step_type=AgentStepType.CHAT,
+                    response=current_response,
+                    message=current_response.message,
+                )
+            )
+            yield self._add_trace(
+                state,
+                AgentTraceEvent(
+                    event_type=AgentTraceEventType.CHAT_COMPLETED,
+                    step_type=AgentStepType.CHAT,
+                    response=current_response,
+                    message=current_response.message,
+                ),
+            )
+            await self._runtime.contexts.append(
+                request.context_id,
+                current_response.message,
+            )
+            current_tool_calls = list(current_response.message.tool_calls or [])
+            already_requested_approval_call_ids = set()
+
+        if current_tool_calls:
+            state.stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
+
+        state.status = AgentRunStatus.FINISHED
+        state.pending_tool_calls = []
+        state.pending_approval_requests = []
+        state.metadata = {
+            **state.metadata,
+            "pending_approval_count": 0,
+        }
+        state.steps.append(
+            AgentStep(
+                step_type=AgentStepType.STOP,
+                metadata={"reason": state.stop_reason.value},
+            )
+        )
+        state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
+        async for event in self._write_memory_events(request, state):
+            yield event
+        yield self._add_trace(state, self._run_stopped_event(state.stop_reason))
 
     async def _chat(
         self,
@@ -311,6 +491,15 @@ class AgentApplication:
     ) -> dict[str, ToolApprovalDecision]:
         return {approval.tool_call_id: approval for approval in approvals}
 
+    def _merge_tool_approvals(
+        self,
+        existing: list[ToolApprovalDecision],
+        new: list[ToolApprovalDecision],
+    ) -> list[ToolApprovalDecision]:
+        approvals = self._tool_approvals_by_call_id(existing)
+        approvals.update(self._tool_approvals_by_call_id(new))
+        return list(approvals.values())
+
     def _apply_tool_approval(
         self,
         call: ToolCall,
@@ -324,49 +513,72 @@ class AgentApplication:
     def _trace_tool_approval(
         self,
         call: ToolCall,
-        state: "_AgentRunState",
+        state: AgentRunState,
+        decision: ToolSafetyDecision | None,
+        *,
+        include_approval_request: bool = True,
     ) -> list[AgentTraceEvent]:
-        tool_name = self._tool_name(call)
-        if tool_name is None:
+        if decision is None:
             return []
-
-        try:
-            tool = self._runtime.tool_register.get(tool_name)
-            decision = self._runtime.tool_safety_policy.authorize(tool, call)
-        except Exception:
-            return []
-
         if decision.approval_request is None and not decision.requires_approval:
             return []
 
-        events = [
-            state.add_trace(
-                AgentTraceEvent(
-                    event_type=AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
-                    tool_call=call,
-                    approval_request=decision.approval_request,
-                    metadata={
-                        "allowed": decision.allowed,
-                        "requires_approval": decision.requires_approval,
-                        "reason": decision.reason,
-                    },
+        events: list[AgentTraceEvent] = []
+        if include_approval_request:
+            events.append(
+                self._add_trace(
+                    state,
+                    AgentTraceEvent(
+                        event_type=AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+                        tool_call=call,
+                        approval_request=decision.approval_request,
+                        metadata={
+                            "allowed": decision.allowed,
+                            "requires_approval": decision.requires_approval,
+                            "reason": decision.reason,
+                        },
+                    ),
                 )
             )
-        ]
         if call.approval is not None:
             events.append(
-                state.add_trace(
+                self._add_trace(
+                    state,
                     AgentTraceEvent(
                         event_type=AgentTraceEventType.TOOL_APPROVAL_DECIDED,
                         tool_call=call,
                         approval_request=decision.approval_request,
                         approval_decision=call.approval,
                         metadata={"allowed": decision.allowed},
-                    )
+                    ),
                 )
             )
 
         return events
+
+    def _tool_safety_decision(self, call: ToolCall) -> ToolSafetyDecision | None:
+        tool_name = self._tool_name(call)
+        if tool_name is None:
+            return None
+
+        try:
+            tool = self._runtime.tool_register.get(tool_name)
+            return self._runtime.tool_safety_policy.authorize(tool, call)
+        except Exception:
+            return None
+
+    def _should_pause_for_approval(
+        self,
+        call: ToolCall,
+        decision: ToolSafetyDecision | None,
+    ) -> bool:
+        return (
+            decision is not None
+            and decision.requires_approval
+            and not decision.allowed
+            and decision.approval_request is not None
+            and call.approval is None
+        )
 
     def _tool_name(self, call: ToolCall) -> str | None:
         tool_name = call.tool_call.get("tool_name") or call.tool_call.get("name")
@@ -382,12 +594,46 @@ class AgentApplication:
             metadata={"reason": stop_reason.value},
         )
 
+    def _run_paused_event(
+        self,
+        request: AgentRunRequest,
+        state: AgentRunState,
+        pending_tool_calls: list[ToolCall],
+        decision: ToolSafetyDecision,
+        remaining_rounds: int,
+    ) -> AgentTraceEvent:
+        approval_request = decision.approval_request
+        call = pending_tool_calls[0]
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.remaining_tool_rounds = remaining_rounds
+        state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
+        state.pending_tool_calls = pending_tool_calls
+        state.pending_approval_requests = (
+            [approval_request] if approval_request is not None else []
+        )
+        state.metadata = {
+            **state.metadata,
+            "tool_rounds_used": state.tool_rounds_used,
+            "pending_approval_count": len(state.pending_approval_requests),
+        }
+        return AgentTraceEvent(
+            event_type=AgentTraceEventType.RUN_PAUSED,
+            tool_call=call,
+            approval_request=approval_request,
+            metadata={
+                "reason": "tool_approval_required",
+                "remaining_tool_rounds": remaining_rounds,
+                "tool_rounds_used": state.tool_rounds_used,
+            },
+        )
+
     async def _write_memory_events(
         self,
         request: AgentRunRequest,
-        state: "_AgentRunState",
+        state: AgentRunState,
     ) -> AsyncIterator[AgentTraceEvent]:
-        result = state.to_result(request)
+        result = self._state_to_result(state)
         memories = self._runtime.memory_write_strategy.create_memories(
             request,
             result,
@@ -399,38 +645,51 @@ class AgentApplication:
                 metadata={"memory_id": memory.memory_id},
             )
             state.steps.append(memory_step)
-            yield state.add_trace(
+            yield self._add_trace(
+                state,
                 AgentTraceEvent(
                     event_type=AgentTraceEventType.MEMORY_WRITTEN,
                     step_type=AgentStepType.MEMORY_WRITE,
                     metadata={"memory_id": memory.memory_id},
-                )
+                ),
             )
 
-@dataclass
-class _AgentRunState:
-    steps: list[AgentStep] = field(default_factory=list)
-    trace: list[AgentTraceEvent] = field(default_factory=list)
-    response: ChatResponse | None = None
-    stop_reason: AgentStopReason = AgentStopReason.FINISHED
-    tool_rounds_used: int = 0
-
-    def add_trace(self, event: AgentTraceEvent) -> AgentTraceEvent:
-        self.trace.append(event)
+    def _add_trace(
+        self,
+        state: AgentRunState,
+        event: AgentTraceEvent,
+    ) -> AgentTraceEvent:
+        state.trace.append(event)
         return event
 
-    def to_result(self, request: AgentRunRequest) -> AgentRunResult:
-        if self.response is None:
+    def _new_run_state(self, request: AgentRunRequest) -> AgentRunState:
+        run_id = request.metadata.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            run_id = uuid4().hex
+
+        return AgentRunState(
+            run_id=run_id,
+            request=request,
+            remaining_tool_rounds=request.max_tool_rounds,
+            metadata=dict(request.metadata),
+        )
+
+    def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
+        if state.status is AgentRunStatus.PAUSED:
+            raise RuntimeError("Agent run paused for tool approval")
+        if state.response is None:
             raise RuntimeError("Agent run did not produce a response")
+        if state.stop_reason is None:
+            raise RuntimeError("Agent run did not stop")
 
         return AgentRunResult(
-            response=self.response,
-            stop_reason=self.stop_reason,
-            steps=list(self.steps),
-            trace=list(self.trace),
+            response=state.response,
+            stop_reason=state.stop_reason,
+            steps=list(state.steps),
+            trace=list(state.trace),
             metadata={
-                **request.metadata,
-                "tool_rounds_used": self.tool_rounds_used,
+                **state.request.metadata,
+                "tool_rounds_used": state.tool_rounds_used,
             },
         )
 

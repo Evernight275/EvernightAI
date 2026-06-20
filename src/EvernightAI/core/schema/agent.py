@@ -36,7 +36,17 @@ class AgentTraceEventType(StrEnum):
     TOOL_COMPLETED = "tool_completed"
     TOOL_FAILED = "tool_failed"
     MEMORY_WRITTEN = "memory_written"
+    RUN_PAUSED = "run_paused"
     RUN_STOPPED = "run_stopped"
+
+
+class AgentRunStatus(StrEnum):
+    """Agent运行状态"""
+
+    RUNNING = "running"
+    PAUSED = "paused"
+    FINISHED = "finished"
+    FAILED = "failed"
 
 
 class AgentStopReason(StrEnum):
@@ -60,6 +70,7 @@ class AgentRunRequest(EvernightAISchema):
     recover_tool_errors: bool = True
     write_memory: bool = False
     tool_approvals: list[ToolApprovalDecision] = Field(default_factory=list)
+    pause_on_approval: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -99,4 +110,21 @@ class AgentTraceEvent(EvernightAISchema):
     approval_decision: ToolApprovalDecision | None = None
     error_type: str | None = None
     error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRunState(EvernightAISchema):
+    """Agent运行状态快照"""
+
+    run_id: str
+    request: AgentRunRequest
+    status: AgentRunStatus = AgentRunStatus.RUNNING
+    response: ChatResponse | None = None
+    stop_reason: AgentStopReason | None = None
+    steps: list[AgentStep] = Field(default_factory=list)
+    trace: list[AgentTraceEvent] = Field(default_factory=list)
+    remaining_tool_rounds: int = 0
+    tool_rounds_used: int = 0
+    pending_tool_calls: list[ToolCall] = Field(default_factory=list)
+    pending_approval_requests: list[ToolApprovalRequest] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
