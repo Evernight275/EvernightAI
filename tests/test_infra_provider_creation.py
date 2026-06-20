@@ -27,6 +27,7 @@ from EvernightAI.infra.bootstrap import (
     create_context_manager,
     create_context_organizer,
     create_context_register,
+    create_context_strategy,
     create_memory_manager,
     create_memory_register,
     create_memory_strategy,
@@ -35,6 +36,7 @@ from EvernightAI.infra.bootstrap import (
     create_runtime,
     create_tool_manager,
     create_tool_register,
+    create_tool_safety_policy,
 )
 
 
@@ -74,9 +76,11 @@ def test_bootstrap_registers_openai_compatible_builder() -> None:
 
 def test_bootstrap_creates_tool_manager() -> None:
     register = create_tool_register()
-    manager = create_tool_manager(register)
+    policy = create_tool_safety_policy()
+    manager = create_tool_manager(register, policy)
 
     assert manager.list_tools() == []
+    assert policy.authorize.__name__ == "authorize"
 
 
 def test_bootstrap_creates_context_manager() -> None:
@@ -88,8 +92,10 @@ def test_bootstrap_creates_context_manager() -> None:
 
 def test_bootstrap_creates_context_organizer() -> None:
     organizer = create_context_organizer()
+    strategy = create_context_strategy(organizer)
 
     assert organizer.organize.__name__ == "organize"
+    assert strategy.compose_chat_request.__name__ == "compose_chat_request"
 
 
 def test_bootstrap_creates_memory_services() -> None:
@@ -126,8 +132,10 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
     assert runtime.tools.list_tools() == []
+    assert runtime.tool_safety_policy.authorize
     assert await runtime.contexts.list_contexts() == []
     assert runtime.context_organizer.organize
+    assert runtime.context_strategy.compose_chat_request
     assert await runtime.memories.list_memories() == []
     assert runtime.memory_strategy.select
 

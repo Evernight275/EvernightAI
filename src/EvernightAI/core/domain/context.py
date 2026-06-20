@@ -1,11 +1,19 @@
 from EvernightAI.core.error.context import ContextNotFoundError
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
+    ContextStrategyProtocol,
     ContextManageProtocol,
     ContextRegisterProtocol,
 )
-from EvernightAI.core.schema.content import ChatRequest, Content
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from EvernightAI.core.schema.context import Context, ContextWindow
+from EvernightAI.core.schema.memory import MemorySelection
 from EvernightAI.core.schema.tool import ToolDefinition
 
 
@@ -118,5 +126,63 @@ class ContextOrganizer(ContextOrganizerProtocol):
                 **window.metadata,
                 **(metadata or {}),
                 "context_id": window.context_id,
+            },
+        )
+
+
+class BasicContextStrategy(ContextStrategyProtocol):
+    def __init__(self, organizer: ContextOrganizerProtocol) -> None:
+        self._organizer = organizer
+
+    def compose_chat_request(
+        self,
+        context: Context,
+        *,
+        model_id: str,
+        messages: list[Content] | None = None,
+        memory_selection: MemorySelection | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatRequest:
+        """组合基础聊天请求"""
+        next_messages = list(messages or [])
+        request_metadata: dict[str, object] = dict(metadata or {})
+
+        if memory_selection is not None:
+            memory_message = self._compose_memory_message(memory_selection)
+            if memory_message is not None:
+                next_messages = [memory_message, *next_messages]
+            request_metadata["memory_ids"] = [
+                memory.memory_id for memory in memory_selection.memories
+            ]
+            request_metadata["memory_selection"] = dict(memory_selection.metadata)
+
+        return self._organizer.to_chat_request(
+            context,
+            model_id=model_id,
+            messages=next_messages,
+            tools=tools,
+            metadata=request_metadata,
+        )
+
+    def _compose_memory_message(self, selection: MemorySelection) -> Content | None:
+        if not selection.memories:
+            return None
+
+        lines = ["Relevant memory:"]
+        for memory in selection.memories:
+            lines.append(f"- {memory.kind.value}: {memory.content}")
+
+        return Content(
+            role=MessageRole.SYSTEM,
+            content=[
+                ContentPart(
+                    type=ContentPartType.TEXT,
+                    text="\n".join(lines),
+                )
+            ],
+            metadata={
+                "source": "memory",
+                "memory_ids": [memory.memory_id for memory in selection.memories],
             },
         )

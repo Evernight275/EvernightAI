@@ -6,6 +6,7 @@ from EvernightAI.core.protocol.base import (
 )
 from EvernightAI.core.schema.content import ChatRequest, Content
 from EvernightAI.core.schema.context import Context, ContextWindow
+from EvernightAI.core.schema.memory import MemorySelection
 from EvernightAI.core.schema.tool import ToolDefinition
 
 
@@ -57,6 +58,23 @@ class ContextOrganizerProtocol(ContextResponsibilityProtocol):
         *,
         model_id: str,
         messages: list[Content] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatRequest: ...
+
+
+class ContextStrategyProtocol(ContextResponsibilityProtocol):
+    """
+    上下文策略协议
+    """
+
+    def compose_chat_request(
+        self,
+        context: Context,
+        *,
+        model_id: str,
+        messages: list[Content] | None = None,
+        memory_selection: MemorySelection | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatRequest: ...

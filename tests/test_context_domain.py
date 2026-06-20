@@ -1,6 +1,7 @@
 import pytest
 
 from EvernightAI.core.domain.context import (
+    BasicContextStrategy,
     ContextManager,
     ContextOrganizer,
     ContextRegister,
@@ -13,6 +14,11 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.memory import (
+    MemoryItem,
+    MemoryKind,
+    MemorySelection,
+)
 from EvernightAI.core.schema.tool import ToolDefinition
 
 
@@ -144,5 +150,48 @@ def test_context_organizer_builds_chat_request() -> None:
     assert request.metadata == {
         "topic": "basic",
         "request_id": "req-1",
+        "context_id": "ctx-1",
+    }
+
+
+def test_basic_context_strategy_composes_memory_into_chat_request() -> None:
+    strategy = BasicContextStrategy(ContextOrganizer())
+    context = Context(
+        context_id="ctx-1",
+        messages=[make_message("Existing")],
+        metadata={"topic": "strategy"},
+    )
+    memory = MemoryItem(
+        memory_id="mem-1",
+        content="Prefer concise answers",
+        kind=MemoryKind.PREFERENCE,
+    )
+
+    request = strategy.compose_chat_request(
+        context,
+        model_id="model-1",
+        messages=[make_message("Current")],
+        memory_selection=MemorySelection(
+            memories=[memory],
+            metadata={"strategy": "test"},
+        ),
+        metadata={"request_id": "req-1"},
+    )
+
+    assert request.model_id == "model-1"
+    assert [message.content[0].text for message in request.messages if message.content] == [
+        "Existing",
+        "Relevant memory:\n- preference: Prefer concise answers",
+        "Current",
+    ]
+    assert request.messages[1].metadata == {
+        "source": "memory",
+        "memory_ids": ["mem-1"],
+    }
+    assert request.metadata == {
+        "topic": "strategy",
+        "request_id": "req-1",
+        "memory_ids": ["mem-1"],
+        "memory_selection": {"strategy": "test"},
         "context_id": "ctx-1",
     }

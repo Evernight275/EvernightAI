@@ -4,7 +4,12 @@ from EvernightAI.core.protocol.base import (
     ResponsibilityProtocol,
     ManageProtocol,
 )
-from EvernightAI.core.schema.tool import ToolCall, ToolCallResult, ToolDefinition
+from EvernightAI.core.schema.tool import (
+    ToolCall,
+    ToolCallResult,
+    ToolDefinition,
+    ToolSafetyDecision,
+)
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -25,6 +30,18 @@ class ToolExecuteProtocol(ToolProtocol, ResponsibilityProtocol):
     """
 
     async def execute(self, call: ToolCall) -> ToolCallResult: ...
+
+
+class ToolSafetyPolicyProtocol(ToolProtocol, ResponsibilityProtocol):
+    """
+    工具安全策略协议
+    """
+
+    def authorize(
+        self,
+        tool: ToolDefinition,
+        call: ToolCall,
+    ) -> ToolSafetyDecision: ...
 
 
 class ToolManageProtocol(ToolProtocol, ManageProtocol):

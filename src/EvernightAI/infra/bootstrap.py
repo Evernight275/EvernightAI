@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from EvernightAI.core.domain.context import (
+    BasicContextStrategy,
     ContextManager,
     ContextOrganizer,
     ContextRegister,
@@ -11,11 +12,16 @@ from EvernightAI.core.domain.memory import (
     MemoryRegister,
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
-from EvernightAI.core.domain.tool import ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
+    ContextStrategyProtocol,
 )
 from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
@@ -27,7 +33,11 @@ from EvernightAI.core.protocol.provider import (
     ProviderManageProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.tool import ToolManageProtocol, ToolRegisterProtocol
+from EvernightAI.core.protocol.tool import (
+    ToolManageProtocol,
+    ToolRegisterProtocol,
+    ToolSafetyPolicyProtocol,
+)
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
@@ -59,8 +69,18 @@ def create_tool_register() -> ToolRegister:
     return ToolRegister()
 
 
-def create_tool_manager(register: ToolRegisterProtocol | None = None) -> ToolManager:
-    return ToolManager(register or create_tool_register())
+def create_tool_safety_policy() -> BasicToolSafetyPolicy:
+    return BasicToolSafetyPolicy()
+
+
+def create_tool_manager(
+    register: ToolRegisterProtocol | None = None,
+    safety_policy: ToolSafetyPolicyProtocol | None = None,
+) -> ToolManager:
+    return ToolManager(
+        register or create_tool_register(),
+        safety_policy or create_tool_safety_policy(),
+    )
 
 
 def create_context_register() -> ContextRegister:
@@ -75,6 +95,12 @@ def create_context_manager(
 
 def create_context_organizer() -> ContextOrganizer:
     return ContextOrganizer()
+
+
+def create_context_strategy(
+    organizer: ContextOrganizerProtocol | None = None,
+) -> BasicContextStrategy:
+    return BasicContextStrategy(organizer or create_context_organizer())
 
 
 def create_memory_register() -> MemoryRegister:
@@ -103,10 +129,12 @@ def create_runtime() -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
     tool_register = create_tool_register()
-    tools = ToolManager(tool_register)
+    tool_safety_policy = create_tool_safety_policy()
+    tools = ToolManager(tool_register, tool_safety_policy)
     context_register = create_context_register()
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
+    context_strategy = create_context_strategy(context_organizer)
     memory_register = create_memory_register()
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
@@ -116,9 +144,11 @@ def create_runtime() -> RuntimeKernel:
         providers=providers,
         tool_register=tool_register,
         tools=tools,
+        tool_safety_policy=tool_safety_policy,
         context_register=context_register,
         contexts=contexts,
         context_organizer=context_organizer,
+        context_strategy=context_strategy,
         memory_register=memory_register,
         memories=memories,
         memory_strategy=memory_strategy,

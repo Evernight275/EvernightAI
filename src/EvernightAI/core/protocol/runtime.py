@@ -3,6 +3,7 @@ from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
+    ContextStrategyProtocol,
 )
 from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
@@ -13,7 +14,11 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
-from EvernightAI.core.protocol.tool import ToolManageProtocol, ToolRegisterProtocol
+from EvernightAI.core.protocol.tool import (
+    ToolManageProtocol,
+    ToolRegisterProtocol,
+    ToolSafetyPolicyProtocol,
+)
 
 
 class RuntimeProtocol(EvernightAIProtocol):
@@ -34,6 +39,9 @@ class RuntimeProtocol(EvernightAIProtocol):
     def tools(self) -> ToolManageProtocol: ...
 
     @property
+    def tool_safety_policy(self) -> ToolSafetyPolicyProtocol: ...
+
+    @property
     def context_register(self) -> ContextRegisterProtocol: ...
 
     @property
@@ -41,6 +49,9 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def context_organizer(self) -> ContextOrganizerProtocol: ...
+
+    @property
+    def context_strategy(self) -> ContextStrategyProtocol: ...
 
     @property
     def memory_register(self) -> MemoryRegisterProtocol: ...

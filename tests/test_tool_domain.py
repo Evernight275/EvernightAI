@@ -1,8 +1,18 @@
 import pytest
 
-from EvernightAI.core.domain.tool import ToolManager, ToolRegister
-from EvernightAI.core.error.tool import ToolExecutionError, ToolInputError, ToolNotFoundError
-from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.error.tool import (
+    ToolExecutionError,
+    ToolInputError,
+    ToolNotFoundError,
+    ToolPolicyError,
+)
+from EvernightAI.core.schema.tool import (
+    ToolCall,
+    ToolDefinition,
+    ToolPermission,
+    ToolSafetyLevel,
+)
 
 
 def make_tool() -> ToolDefinition:
@@ -43,6 +53,7 @@ async def test_tool_manager_executes_registered_tool() -> None:
     assert manager.list_tools() == [make_tool()]
     assert result.tool_call_id == "call-1"
     assert result.tool_call_result == {"result": 3}
+    assert result.metadata == {}
 
 
 def test_tool_register_raises_for_missing_tool() -> None:
@@ -83,3 +94,88 @@ async def test_tool_manager_wraps_executor_errors() -> None:
         )
 
     assert isinstance(exc_info.value.cause, RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_rejects_tool_calls_that_require_approval() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "write_file", "arguments": {}},
+            )
+        )
+
+    assert exc_info.value.detail == "Tool call requires approval"
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_executes_approved_sensitive_tool_call() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "write_file", "arguments": {}},
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_blocks_restricted_permissions() -> None:
+    async def shell(arguments: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="run_shell",
+            description="Run a shell command",
+            permissions=[ToolPermission.SHELL],
+            safety_level=ToolSafetyLevel.RESTRICTED,
+        ),
+        shell,
+    )
+    manager = ToolManager(register, BasicToolSafetyPolicy())
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "run_shell", "arguments": {}},
+                metadata={"approved": True},
+            )
+        )
+
+    assert exc_info.value.detail == "Blocked permissions: shell"

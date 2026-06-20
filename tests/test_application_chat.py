@@ -4,6 +4,7 @@ import pytest
 
 from EvernightAI.application.chat import ChatApplication
 from EvernightAI.core.domain.context import (
+    BasicContextStrategy,
     ContextManager,
     ContextOrganizer,
     ContextRegister,
@@ -16,6 +17,7 @@ from EvernightAI.core.domain.memory import (
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import BasicToolSafetyPolicy
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
@@ -154,17 +156,21 @@ def make_runtime() -> RuntimeKernel:
     provider_factory = ProviderFactory()
     provider_factory.register(ProviderType.OPENAI, build_provider)
     tool_register = ToolRegister()
+    tool_safety_policy = BasicToolSafetyPolicy()
     context_register = ContextRegister()
+    context_organizer = ContextOrganizer()
     memory_register = MemoryRegister()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
         providers=ProviderManager(provider_factory),
         tool_register=tool_register,
-        tools=ToolManager(tool_register),
+        tools=ToolManager(tool_register, tool_safety_policy),
+        tool_safety_policy=tool_safety_policy,
         context_register=context_register,
         contexts=ContextManager(context_register),
-        context_organizer=ContextOrganizer(),
+        context_organizer=context_organizer,
+        context_strategy=BasicContextStrategy(context_organizer),
         memory_register=memory_register,
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),

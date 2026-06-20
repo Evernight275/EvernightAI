@@ -5,9 +5,6 @@ from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
     Content,
-    ContentPart,
-    ContentPartType,
-    MessageRole,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
@@ -73,26 +70,19 @@ class ChatApplication:
         metadata: dict[str, object] | None = None,
     ) -> ChatRequest:
         context = await self._runtime.contexts.get(context_id)
-        selected_memories: MemorySelection | None = None
-        organized_messages = list(messages or [])
-        request_metadata: dict[str, object] = dict(metadata or {})
+        selected_memories = (
+            await self.select_memories(memory_query)
+            if memory_query is not None
+            else None
+        )
 
-        if memory_query is not None:
-            selected_memories = await self.select_memories(memory_query)
-            memory_message = self._compose_memory_message(selected_memories)
-            if memory_message is not None:
-                organized_messages = [memory_message, *organized_messages]
-            request_metadata["memory_ids"] = [
-                memory.memory_id for memory in selected_memories.memories
-            ]
-            request_metadata["memory_selection"] = dict(selected_memories.metadata)
-
-        return self._runtime.context_organizer.to_chat_request(
+        return self._runtime.context_strategy.compose_chat_request(
             context,
             model_id=model_id,
-            messages=organized_messages,
+            messages=messages,
+            memory_selection=selected_memories,
             tools=tools,
-            metadata=request_metadata,
+            metadata=metadata,
         )
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
@@ -130,25 +120,3 @@ class ChatApplication:
 
     async def close(self) -> None:
         await self._runtime.close()
-
-    def _compose_memory_message(self, selection: MemorySelection) -> Content | None:
-        if not selection.memories:
-            return None
-
-        lines = ["Relevant memory:"]
-        for memory in selection.memories:
-            lines.append(f"- {memory.kind.value}: {memory.content}")
-
-        return Content(
-            role=MessageRole.SYSTEM,
-            content=[
-                ContentPart(
-                    type=ContentPartType.TEXT,
-                    text="\n".join(lines),
-                )
-            ],
-            metadata={
-                "source": "memory",
-                "memory_ids": [memory.memory_id for memory in selection.memories],
-            },
-        )
