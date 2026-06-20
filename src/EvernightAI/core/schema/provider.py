@@ -11,6 +11,7 @@ class ProviderType(StrEnum):
     """提供商类型"""
 
     OPENAI = "openai"
+    OPENAI_RESPONSES = "openai_responses"
     GOOGLE = "google"
     ANTHROPIC = "anthropic"
 

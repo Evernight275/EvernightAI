@@ -67,6 +67,9 @@ def test_bootstrap_registers_openai_compatible_builder() -> None:
     factory = create_provider_factory()
 
     assert factory.has(ProviderType.OPENAI) is True
+    assert factory.has(ProviderType.OPENAI_RESPONSES) is True
+    assert factory.has(ProviderType.GOOGLE) is True
+    assert factory.has(ProviderType.ANTHROPIC) is True
 
 
 def test_bootstrap_creates_tool_manager() -> None:

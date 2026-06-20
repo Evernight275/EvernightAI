@@ -29,8 +29,15 @@ from EvernightAI.core.protocol.provider import (
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.tool import ToolManageProtocol, ToolRegisterProtocol
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
+from EvernightAI.infra.registrations.provider.anthropic import (
+    register_anthropic_provider,
+)
+from EvernightAI.infra.registrations.provider.gemini import register_gemini_provider
 from EvernightAI.infra.registrations.provider.openai_compatible import (
     register_openai_compatible_provider,
+)
+from EvernightAI.infra.registrations.provider.openai_responses import (
+    register_openai_responses_provider,
 )
 from EvernightAI.core.domain.runtime import RuntimeKernel
 
@@ -38,6 +45,9 @@ from EvernightAI.core.domain.runtime import RuntimeKernel
 def create_provider_factory() -> ProviderFactory:
     factory = ProviderFactory()
     register_openai_compatible_provider(factory)
+    register_openai_responses_provider(factory)
+    register_gemini_provider(factory)
+    register_anthropic_provider(factory)
     return factory
 
 
