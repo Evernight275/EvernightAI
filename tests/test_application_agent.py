@@ -7,6 +7,7 @@ from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentStepType,
     AgentStopReason,
+    AgentTraceEventType,
 )
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
@@ -42,6 +43,12 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalStatus,
+    ToolPermission,
+    ToolSafetyLevel,
+)
 
 
 @pytest.mark.asyncio
@@ -109,6 +116,60 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
         "run_id": "run-1",
         "tool_rounds_used": 1,
     }
+    assert [event.event_type for event in result.trace] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_streams_tool_loop_events() -> None:
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    runtime = make_runtime()
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    stream = app.run_agent_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+    events = [event async for event in stream]
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [event.event_type for event in events] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert events[2].tool_result is not None
+    assert events[-1].metadata["reason"] == AgentStopReason.FINISHED.value
+    assert [message.role for message in context.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.ASSISTANT,
+    ]
 
 
 @pytest.mark.asyncio
@@ -197,6 +258,185 @@ async def test_agent_can_stop_on_tool_error() -> None:
         AgentStepType.TOOL_ERROR,
         AgentStepType.STOP,
     ]
+    assert [event.event_type for event in result.trace] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_FAILED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_traces_tool_approval_decision() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(provider=SensitiveToolProvider())
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            tool_approvals=[
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.APPROVED,
+                    metadata={"approved_by": "test"},
+                )
+            ],
+        )
+    )
+
+    approval_requested = [
+        event
+        for event in result.trace
+        if event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED
+    ]
+    approval_decided = [
+        event
+        for event in result.trace
+        if event.event_type is AgentTraceEventType.TOOL_APPROVAL_DECIDED
+    ]
+
+    assert result.stop_reason is AgentStopReason.FINISHED
+    assert len(approval_requested) == 1
+    assert approval_requested[0].approval_request is not None
+    assert approval_requested[0].approval_request.tool_name == "write_file"
+    assert len(approval_decided) == 1
+    assert approval_decided[0].approval_decision is not None
+    assert approval_decided[0].approval_decision.status is ToolApprovalStatus.APPROVED
+    assert AgentTraceEventType.TOOL_COMPLETED in [
+        event.event_type for event in result.trace
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_streams_tool_approval_events() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(provider=SensitiveToolProvider())
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    events = [
+        event
+        async for event in app.run_agent_stream(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Write a file")],
+                tools=runtime.tools.list_tools(),
+                tool_approvals=[
+                    ToolApprovalDecision(
+                        approval_id="tool-call-1:approval",
+                        tool_call_id="tool-call-1",
+                        status=ToolApprovalStatus.APPROVED,
+                    )
+                ],
+            )
+        )
+    ]
+
+    assert [event.event_type for event in events] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert events[2].approval_request is not None
+    assert events[2].approval_request.tool_name == "write_file"
+    assert events[3].approval_decision is not None
+    assert events[3].approval_decision.status is ToolApprovalStatus.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_agent_records_denied_tool_approval_as_tool_error() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(provider=SensitiveToolProvider())
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            recover_tool_errors=False,
+            tool_approvals=[
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.DENIED,
+                    reason="Denied by test",
+                )
+            ],
+        )
+    )
+
+    assert result.stop_reason is AgentStopReason.TOOL_ERROR
+    assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
+        AgentStepType.CHAT,
+        AgentStepType.TOOL_ERROR,
+        AgentStepType.STOP,
+    ]
+    assert [event.event_type for event in result.trace] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_FAILED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert result.steps[2].error_type == "ToolPolicyError"
 
 
 @pytest.mark.asyncio
@@ -260,6 +500,12 @@ async def test_agent_can_write_memory_after_run() -> None:
         AgentStepType.CHAT,
         AgentStepType.STOP,
         AgentStepType.MEMORY_WRITE,
+    ]
+    assert [event.event_type for event in result.trace] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.MEMORY_WRITTEN,
+        AgentTraceEventType.RUN_STOPPED,
     ]
     assert memories[0].metadata["step_count"] == 3
 
@@ -368,6 +614,34 @@ class ToolCallingProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
+
+
+class SensitiveToolProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return ChatResponse(
+                model_id=request.model_id,
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id="tool-call-1",
+                            tool_call={
+                                "name": "write_file",
+                                "arguments": {"path": "note.txt"},
+                            },
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Written", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        )
 
 
 class RecoveringToolErrorProvider(ToolCallingProvider):

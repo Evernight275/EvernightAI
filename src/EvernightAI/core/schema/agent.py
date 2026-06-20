@@ -6,7 +6,13 @@ from pydantic import Field
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatResponse, Content
 from EvernightAI.core.schema.memory import MemoryQuery
-from EvernightAI.core.schema.tool import ToolCall, ToolCallResult, ToolDefinition
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalRequest,
+    ToolCall,
+    ToolCallResult,
+    ToolDefinition,
+)
 
 
 class AgentStepType(StrEnum):
@@ -18,6 +24,19 @@ class AgentStepType(StrEnum):
     TOOL_ERROR = "tool_error"
     MEMORY_WRITE = "memory_write"
     STOP = "stop"
+
+
+class AgentTraceEventType(StrEnum):
+    """Agent追踪事件类型"""
+
+    RUN_STARTED = "run_started"
+    CHAT_COMPLETED = "chat_completed"
+    TOOL_APPROVAL_REQUESTED = "tool_approval_requested"
+    TOOL_APPROVAL_DECIDED = "tool_approval_decided"
+    TOOL_COMPLETED = "tool_completed"
+    TOOL_FAILED = "tool_failed"
+    MEMORY_WRITTEN = "memory_written"
+    RUN_STOPPED = "run_stopped"
 
 
 class AgentStopReason(StrEnum):
@@ -40,6 +59,7 @@ class AgentRunRequest(EvernightAISchema):
     max_tool_rounds: int = Field(default=1, ge=0)
     recover_tool_errors: bool = True
     write_memory: bool = False
+    tool_approvals: list[ToolApprovalDecision] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -62,4 +82,21 @@ class AgentRunResult(EvernightAISchema):
     response: ChatResponse
     stop_reason: AgentStopReason = AgentStopReason.FINISHED
     steps: list[AgentStep] = Field(default_factory=list)
+    trace: list["AgentTraceEvent"] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentTraceEvent(EvernightAISchema):
+    """Agent运行追踪事件"""
+
+    event_type: AgentTraceEventType
+    step_type: AgentStepType | None = None
+    message: Content | None = None
+    response: ChatResponse | None = None
+    tool_call: ToolCall | None = None
+    tool_result: ToolCallResult | None = None
+    approval_request: ToolApprovalRequest | None = None
+    approval_decision: ToolApprovalDecision | None = None
+    error_type: str | None = None
+    error_message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
