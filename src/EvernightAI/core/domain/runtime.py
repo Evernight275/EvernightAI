@@ -3,6 +3,11 @@ from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
 )
+from EvernightAI.core.protocol.memory import (
+    MemoryManageProtocol,
+    MemoryRegisterProtocol,
+    MemoryStrategyProtocol,
+)
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
@@ -22,6 +27,9 @@ class RuntimeKernel(RuntimeProtocol):
         context_register: ContextRegisterProtocol,
         contexts: ContextManageProtocol,
         context_organizer: ContextOrganizerProtocol,
+        memory_register: MemoryRegisterProtocol,
+        memories: MemoryManageProtocol,
+        memory_strategy: MemoryStrategyProtocol,
     ) -> None:
         self._provider_factory = provider_factory
         self._providers = providers
@@ -30,6 +38,9 @@ class RuntimeKernel(RuntimeProtocol):
         self._context_register = context_register
         self._contexts = contexts
         self._context_organizer = context_organizer
+        self._memory_register = memory_register
+        self._memories = memories
+        self._memory_strategy = memory_strategy
 
     @property
     def provider_factory(self) -> ProviderFactoryProtocol:
@@ -58,6 +69,18 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def context_organizer(self) -> ContextOrganizerProtocol:
         return self._context_organizer
+
+    @property
+    def memory_register(self) -> MemoryRegisterProtocol:
+        return self._memory_register
+
+    @property
+    def memories(self) -> MemoryManageProtocol:
+        return self._memories
+
+    @property
+    def memory_strategy(self) -> MemoryStrategyProtocol:
+        return self._memory_strategy
 
     async def close(self) -> None:
         await self._providers.close()

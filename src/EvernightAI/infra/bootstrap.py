@@ -5,12 +5,22 @@ from EvernightAI.core.domain.context import (
     ContextOrganizer,
     ContextRegister,
 )
+from EvernightAI.core.domain.memory import (
+    BasicMemoryStrategy,
+    MemoryManager,
+    MemoryRegister,
+)
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
+)
+from EvernightAI.core.protocol.memory import (
+    MemoryManageProtocol,
+    MemoryRegisterProtocol,
+    MemoryStrategyProtocol,
 )
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
@@ -57,6 +67,20 @@ def create_context_organizer() -> ContextOrganizer:
     return ContextOrganizer()
 
 
+def create_memory_register() -> MemoryRegister:
+    return MemoryRegister()
+
+
+def create_memory_manager(
+    register: MemoryRegisterProtocol | None = None,
+) -> MemoryManager:
+    return MemoryManager(register or create_memory_register())
+
+
+def create_memory_strategy() -> BasicMemoryStrategy:
+    return BasicMemoryStrategy()
+
+
 def create_sqlite_context_register(database_path: str | Path) -> SQLiteContextRegister:
     return SQLiteContextRegister(database_path)
 
@@ -73,6 +97,9 @@ def create_runtime() -> RuntimeKernel:
     context_register = create_context_register()
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
+    memory_register = create_memory_register()
+    memories = MemoryManager(memory_register)
+    memory_strategy = create_memory_strategy()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
@@ -82,4 +109,7 @@ def create_runtime() -> RuntimeKernel:
         context_register=context_register,
         contexts=contexts,
         context_organizer=context_organizer,
+        memory_register=memory_register,
+        memories=memories,
+        memory_strategy=memory_strategy,
     )

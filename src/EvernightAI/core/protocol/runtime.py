@@ -4,6 +4,11 @@ from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
 )
+from EvernightAI.core.protocol.memory import (
+    MemoryManageProtocol,
+    MemoryRegisterProtocol,
+    MemoryStrategyProtocol,
+)
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
@@ -36,5 +41,14 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def context_organizer(self) -> ContextOrganizerProtocol: ...
+
+    @property
+    def memory_register(self) -> MemoryRegisterProtocol: ...
+
+    @property
+    def memories(self) -> MemoryManageProtocol: ...
+
+    @property
+    def memory_strategy(self) -> MemoryStrategyProtocol: ...
 
     async def close(self) -> None: ...

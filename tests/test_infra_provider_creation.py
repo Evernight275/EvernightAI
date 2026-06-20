@@ -27,6 +27,9 @@ from EvernightAI.infra.bootstrap import (
     create_context_manager,
     create_context_organizer,
     create_context_register,
+    create_memory_manager,
+    create_memory_register,
+    create_memory_strategy,
     create_provider_factory,
     create_provider_manager,
     create_runtime,
@@ -86,6 +89,15 @@ def test_bootstrap_creates_context_organizer() -> None:
     assert organizer.organize.__name__ == "organize"
 
 
+def test_bootstrap_creates_memory_services() -> None:
+    register = create_memory_register()
+    manager = create_memory_manager(register)
+    strategy = create_memory_strategy()
+
+    assert manager._register is register
+    assert strategy.select.__name__ == "select"
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_provider_manager_creates_openai_instance() -> None:
     manager = create_provider_manager()
@@ -113,6 +125,8 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert runtime.tools.list_tools() == []
     assert await runtime.contexts.list_contexts() == []
     assert runtime.context_organizer.organize
+    assert await runtime.memories.list_memories() == []
+    assert runtime.memory_strategy.select
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")

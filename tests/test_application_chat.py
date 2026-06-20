@@ -8,6 +8,11 @@ from EvernightAI.core.domain.context import (
     ContextOrganizer,
     ContextRegister,
 )
+from EvernightAI.core.domain.memory import (
+    BasicMemoryStrategy,
+    MemoryManager,
+    MemoryRegister,
+)
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
@@ -20,6 +25,13 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+)
+from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.memory import (
+    MemoryItem,
+    MemoryKind,
+    MemoryQuery,
+    MemoryScope,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -55,6 +67,86 @@ async def test_chat_application_commands_core_runtime() -> None:
     await app.close()
 
 
+@pytest.mark.asyncio
+async def test_chat_application_organizes_context_and_memory_flow() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(
+        Context(
+            context_id="ctx-1",
+            messages=[make_message("Stored context", role=MessageRole.SYSTEM)],
+            metadata={"topic": "application"},
+        )
+    )
+    await app.create_memory(
+        MemoryItem(
+            memory_id="mem-low",
+            content="Low priority memory",
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            priority=1,
+        )
+    )
+    await app.create_memory(
+        MemoryItem(
+            memory_id="mem-style",
+            content="Prefer concise answers",
+            kind=MemoryKind.PREFERENCE,
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            tags=["style"],
+            priority=10,
+        )
+    )
+
+    user_message = make_message("Current request")
+    response = await app.chat_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[user_message],
+        memory_query=MemoryQuery(
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            kinds=[MemoryKind.PREFERENCE],
+            tags=["style"],
+            limit=1,
+        ),
+        metadata={"request_id": "req-1"},
+    )
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Stored context",
+        "Relevant memory:\n- preference: Prefer concise answers",
+        "Current request",
+    ]
+    assert provider.last_request.metadata == {
+        "topic": "application",
+        "request_id": "req-1",
+        "memory_ids": ["mem-style"],
+        "memory_selection": {
+            "strategy": "BasicMemoryStrategy",
+            "total_candidates": 2,
+            "selected_count": 1,
+        },
+        "context_id": "ctx-1",
+    }
+
+    context = await app.get_context("ctx-1")
+
+    assert response.message == make_message("ok", role=MessageRole.ASSISTANT)
+    assert [message_text(message) for message in context.messages] == [
+        "Stored context",
+        "Current request",
+        "ok",
+    ]
+
+
 def make_runtime() -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return FakeProvider()
@@ -63,6 +155,7 @@ def make_runtime() -> RuntimeKernel:
     provider_factory.register(ProviderType.OPENAI, build_provider)
     tool_register = ToolRegister()
     context_register = ContextRegister()
+    memory_register = MemoryRegister()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
@@ -72,6 +165,9 @@ def make_runtime() -> RuntimeKernel:
         context_register=context_register,
         contexts=ContextManager(context_register),
         context_organizer=ContextOrganizer(),
+        memory_register=memory_register,
+        memories=MemoryManager(memory_register),
+        memory_strategy=BasicMemoryStrategy(),
     )
 
 
@@ -83,6 +179,20 @@ def make_config() -> ProviderConfig:
     )
 
 
+def make_message(text: str, *, role: MessageRole = MessageRole.USER) -> Content:
+    return Content(
+        role=role,
+        content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+    )
+
+
+def message_text(message: Content) -> str | None:
+    if not message.content:
+        return None
+
+    return message.content[0].text
+
+
 class FakeProvider(ProviderInstanceProtocol):
     def __init__(self) -> None:
         self._models = {
@@ -92,6 +202,7 @@ class FakeProvider(ProviderInstanceProtocol):
             )
         }
         self.closed = False
+        self.last_request: ChatRequest | None = None
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -103,15 +214,14 @@ class FakeProvider(ProviderInstanceProtocol):
         return any(capability in model.capabilities for model in self._models.values())
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.last_request = request
         return ChatResponse(
             model_id=request.model_id,
-            message=Content(
-                role=MessageRole.ASSISTANT,
-                content=[ContentPart(type=ContentPartType.TEXT, text="ok")],
-            ),
+            message=make_message("ok", role=MessageRole.ASSISTANT),
         )
 
     async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+        self.last_request = request
         return FakeSSEStream()
 
     async def close(self) -> None:
