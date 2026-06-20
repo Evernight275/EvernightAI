@@ -31,6 +31,13 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
   `chat_stream` can call it.
 - Keep context storage as a core protocol/domain concern only; database and ORM
   integrations belong in infra adapters.
+- Keep memory separate from context. Memory selects durable facts,
+  preferences, summaries, definitions, and episodic information; context
+  organizes the current model-visible window.
+- Use `ProviderFactory` / `ProviderFactoryProtocol` as the provider creation
+  boundary. Infra registration code supplies builders to that factory; concrete
+  adapter instances expose runtime behavior and should not own the higher-level
+  assembly flow.
 - Keep real provider tests opt-in and skipped by default.
 - Treat real provider unavailability as `pytest.skip`, not as a failed local
   integration test.
@@ -105,6 +112,9 @@ variables are already intentionally set for that purpose.
 - Basic context organization means preserving stored context messages first and
   appending current request messages after them. It should not perform retrieval,
   summarization, token trimming, or memory policy decisions.
+- Memory strategy should select memory candidates only. Application code is
+  responsible for explicitly composing selected memories into a context window
+  or chat request.
 
 ## Editing Style
 
