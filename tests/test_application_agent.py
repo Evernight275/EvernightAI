@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from EvernightAI.application.agent import AgentApplication
+from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunStatus,
@@ -650,7 +651,7 @@ async def test_agent_resume_requires_paused_state() -> None:
         )
     )
 
-    with pytest.raises(RuntimeError, match="not paused"):
+    with pytest.raises(AgentStateError, match="not paused"):
         await app.resume_agent_until_pause(state, [])
 
 
@@ -684,7 +685,7 @@ async def test_agent_resume_requires_pending_approval_decision() -> None:
         )
     )
 
-    with pytest.raises(RuntimeError, match="Missing approval"):
+    with pytest.raises(AgentStateError, match="Missing approval"):
         await app.resume_agent_until_pause(state, [])
 
 

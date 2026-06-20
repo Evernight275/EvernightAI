@@ -2,6 +2,7 @@ import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
+from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
 from EvernightAI.core.schema.agent import (
@@ -163,11 +164,11 @@ class AgentApplication:
         approvals: list[ToolApprovalDecision],
     ) -> AsyncIterator[AgentTraceEvent]:
         if state.status is not AgentRunStatus.PAUSED:
-            raise RuntimeError("Agent run is not paused")
+            raise AgentStateError("Agent run is not paused")
         if state.response is None:
-            raise RuntimeError("Agent run did not produce a response")
+            raise AgentStateError("Agent run did not produce a response")
         if not state.pending_tool_calls:
-            raise RuntimeError("Agent run has no pending tool calls")
+            raise AgentStateError("Agent run has no pending tool calls")
 
         pending_approval_call_ids = {
             request.tool_call_id for request in state.pending_approval_requests
@@ -184,7 +185,7 @@ class AgentApplication:
         ]
         if missing_approval_call_ids:
             missing = ", ".join(sorted(missing_approval_call_ids))
-            raise RuntimeError(f"Missing approval for pending tool call: {missing}")
+            raise AgentStateError(f"Missing approval for pending tool call: {missing}")
 
         request = state.request.model_copy(
             update={
@@ -676,11 +677,11 @@ class AgentApplication:
 
     def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
         if state.status is AgentRunStatus.PAUSED:
-            raise RuntimeError("Agent run paused for tool approval")
+            raise AgentStateError("Agent run paused for tool approval")
         if state.response is None:
-            raise RuntimeError("Agent run did not produce a response")
+            raise AgentStateError("Agent run did not produce a response")
         if state.stop_reason is None:
-            raise RuntimeError("Agent run did not stop")
+            raise AgentStateError("Agent run did not stop")
 
         return AgentRunResult(
             response=state.response,
