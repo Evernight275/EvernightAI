@@ -3,14 +3,23 @@ from collections.abc import AsyncIterator
 import pytest
 
 from EvernightAI.application.agent import AgentApplication
-from EvernightAI.core.schema.agent import AgentRunRequest, AgentStepType
+from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
+    AgentStepType,
+    AgentStopReason,
+)
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
     ContextManager,
     ContextOrganizer,
     ContextRegister,
 )
-from EvernightAI.core.domain.memory import BasicMemoryStrategy, MemoryManager, MemoryRegister
+from EvernightAI.core.domain.memory import (
+    BasicMemoryStrategy,
+    BasicMemoryWriteStrategy,
+    MemoryManager,
+    MemoryRegister,
+)
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
@@ -87,21 +96,179 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
     assert context.messages[2].tool_call_id == "tool-call-1"
     assert "result" in message_text(context.messages[2])
     assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
         AgentStepType.CHAT,
         AgentStepType.TOOL,
         AgentStepType.CHAT,
+        AgentStepType.STOP,
     ]
-    assert result.steps[1].tool_call is not None
-    assert result.steps[1].tool_result is not None
+    assert result.steps[2].tool_call is not None
+    assert result.steps[2].tool_result is not None
+    assert result.stop_reason is AgentStopReason.FINISHED
     assert result.metadata == {
         "run_id": "run-1",
         "tool_rounds_used": 1,
     }
 
 
-def make_runtime() -> RuntimeKernel:
+@pytest.mark.asyncio
+async def test_agent_recovers_from_tool_errors() -> None:
+    runtime = make_runtime(provider=RecoveringToolErrorProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Use missing tool")],
+            recover_tool_errors=True,
+        )
+    )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert result.stop_reason is AgentStopReason.FINISHED
+    assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
+        AgentStepType.CHAT,
+        AgentStepType.TOOL_ERROR,
+        AgentStepType.CHAT,
+        AgentStepType.STOP,
+    ]
+    assert context.messages[2].metadata["error"] is True
+    assert result.response.message == make_message(
+        "Recovered from tool error",
+        role=MessageRole.ASSISTANT,
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_sends_tool_error_message_to_follow_up_chat() -> None:
+    provider = RecoveringToolErrorProvider()
+    runtime = make_runtime(provider=provider)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Use missing tool")],
+            recover_tool_errors=True,
+        )
+    )
+
+    assert len(provider.requests) == 2
+    assert [message.role for message in provider.requests[1].messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+    ]
+    assert provider.requests[1].messages[2].tool_call_id == "tool-call-1"
+    assert provider.requests[1].messages[2].metadata["error"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_can_stop_on_tool_error() -> None:
+    runtime = make_runtime(provider=RecoveringToolErrorProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Use missing tool")],
+            recover_tool_errors=False,
+        )
+    )
+
+    assert result.stop_reason is AgentStopReason.TOOL_ERROR
+    assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
+        AgentStepType.CHAT,
+        AgentStepType.TOOL_ERROR,
+        AgentStepType.STOP,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_reports_tool_rounds_exhausted() -> None:
+    runtime = make_runtime(provider=EndlessToolCallingProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Keep using tools")],
+            max_tool_rounds=0,
+        )
+    )
+
+    assert result.stop_reason is AgentStopReason.TOOL_ROUNDS_EXHAUSTED
+    assert result.metadata["tool_rounds_used"] == 0
+    assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
+        AgentStepType.CHAT,
+        AgentStepType.STOP,
+    ]
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [message.role for message in context.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_can_write_memory_after_run() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Remember this")],
+            write_memory=True,
+        )
+    )
+
+    memories = await runtime.memories.list_memories()
+
+    assert len(memories) == 1
+    assert memories[0].scope_id == "ctx-1"
+    assert "Remember this" in memories[0].content
+    assert result.steps[-1].step_type is AgentStepType.MEMORY_WRITE
+    assert [step.step_type for step in result.steps] == [
+        AgentStepType.START,
+        AgentStepType.CHAT,
+        AgentStepType.STOP,
+        AgentStepType.MEMORY_WRITE,
+    ]
+    assert memories[0].metadata["step_count"] == 3
+
+
+def make_runtime(
+    provider: ProviderInstanceProtocol | None = None,
+) -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
-        return ToolCallingProvider()
+        return provider or ToolCallingProvider()
 
     provider_factory = ProviderFactory()
     provider_factory.register(ProviderType.OPENAI, build_provider)
@@ -124,6 +291,7 @@ def make_runtime() -> RuntimeKernel:
         memory_register=memory_register,
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),
+        memory_write_strategy=BasicMemoryWriteStrategy(),
     )
 
 
@@ -200,6 +368,65 @@ class ToolCallingProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
+
+
+class RecoveringToolErrorProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return ChatResponse(
+                model_id=request.model_id,
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id="tool-call-1",
+                            tool_call={
+                                "name": "missing",
+                                "arguments": {},
+                            },
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Recovered from tool error", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        )
+
+
+class EndlessToolCallingProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        return ChatResponse(
+            model_id=request.model_id,
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id=f"tool-call-{len(self.requests)}",
+                        tool_call={
+                            "name": "missing",
+                            "arguments": {},
+                        },
+                    )
+                ],
+            ),
+            finish_reason="tool_calls",
+        )
+
+
+class FinalAnswerProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Stored", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        )
 
 
 class EmptyStream:

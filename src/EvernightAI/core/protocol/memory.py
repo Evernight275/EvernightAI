@@ -4,6 +4,7 @@ from EvernightAI.core.protocol.base import (
     RegisterProtocol,
     ResponsibilityProtocol,
 )
+from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 
 
@@ -47,6 +48,18 @@ class MemoryStrategyProtocol(MemoryResponsibilityProtocol):
         memories: list[MemoryItem],
         query: MemoryQuery | None = None,
     ) -> MemorySelection: ...
+
+
+class MemoryWriteStrategyProtocol(MemoryResponsibilityProtocol):
+    """
+    记忆写入策略协议
+    """
+
+    def create_memories(
+        self,
+        request: AgentRunRequest,
+        result: AgentRunResult,
+    ) -> list[MemoryItem]: ...
 
 
 class MemoryManageProtocol(MemoryProtocol, ManageProtocol):

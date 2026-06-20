@@ -2,8 +2,17 @@ import pytest
 
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
+    BasicMemoryWriteStrategy,
     MemoryManager,
     MemoryRegister,
+)
+from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
+from EvernightAI.core.schema.content import (
+    ChatResponse,
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
 )
 from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.schema.memory import (
@@ -143,3 +152,126 @@ def test_basic_memory_strategy_sorts_by_priority_and_limits() -> None:
         "total_candidates": 3,
         "selected_count": 2,
     }
+
+
+def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> None:
+    strategy = BasicMemoryWriteStrategy()
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Remember this")],
+            )
+        ],
+        write_memory=True,
+    )
+    result = AgentRunResult(
+        response=ChatResponse(
+            model_id="model-1",
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Stored")],
+            ),
+        )
+    )
+
+    memories = strategy.create_memories(request, result)
+
+    assert len(memories) == 1
+    assert memories[0].kind is MemoryKind.SUMMARY
+    assert memories[0].scope is MemoryScope.CONTEXT
+    assert memories[0].scope_id == "ctx-1"
+    assert memories[0].tags == ["agent", "summary"]
+    assert "Remember this" in memories[0].content
+    assert "Stored" in memories[0].content
+    assert memories[0].metadata == {
+        "provider_id": "provider-1",
+        "model_id": "model-1",
+        "stop_reason": "finished",
+        "step_count": 0,
+    }
+
+
+def test_basic_memory_write_strategy_skips_when_disabled() -> None:
+    strategy = BasicMemoryWriteStrategy()
+
+    memories = strategy.create_memories(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+        AgentRunResult(
+            response=ChatResponse(
+                model_id="model-1",
+                message=Content(role=MessageRole.ASSISTANT),
+            )
+        ),
+    )
+
+    assert memories == []
+
+
+def test_basic_memory_write_strategy_skips_empty_text_content() -> None:
+    strategy = BasicMemoryWriteStrategy()
+
+    memories = strategy.create_memories(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[Content(role=MessageRole.USER)],
+            write_memory=True,
+        ),
+        AgentRunResult(
+            response=ChatResponse(
+                model_id="model-1",
+                message=Content(role=MessageRole.ASSISTANT),
+            )
+        ),
+    )
+
+    assert memories == []
+
+
+def test_basic_memory_write_strategy_ignores_non_text_parts() -> None:
+    strategy = BasicMemoryWriteStrategy()
+
+    memories = strategy.create_memories(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[
+                Content(
+                    role=MessageRole.USER,
+                    content=[
+                        ContentPart(
+                            type=ContentPartType.IMAGE,
+                            url="https://example.com/image.png",
+                        ),
+                        ContentPart(type=ContentPartType.TEXT, text="Keep this"),
+                    ],
+                )
+            ],
+            write_memory=True,
+        ),
+        AgentRunResult(
+            response=ChatResponse(
+                model_id="model-1",
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    content=[
+                        ContentPart(type=ContentPartType.TEXT, text="Got it"),
+                    ],
+                ),
+            )
+        ),
+    )
+
+    assert len(memories) == 1
+    assert "Keep this" in memories[0].content
+    assert "https://example.com/image.png" not in memories[0].content

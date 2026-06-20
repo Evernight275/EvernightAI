@@ -11,6 +11,7 @@ from EvernightAI.core.domain.context import (
 )
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
+    BasicMemoryWriteStrategy,
     MemoryManager,
     MemoryRegister,
 )
@@ -174,6 +175,7 @@ def make_runtime() -> RuntimeKernel:
         memory_register=memory_register,
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),
+        memory_write_strategy=BasicMemoryWriteStrategy(),
     )
 
 

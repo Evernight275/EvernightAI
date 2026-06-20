@@ -9,6 +9,7 @@ from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
     MemoryRegisterProtocol,
     MemoryStrategyProtocol,
+    MemoryWriteStrategyProtocol,
 )
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
@@ -61,5 +62,8 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def memory_strategy(self) -> MemoryStrategyProtocol: ...
+
+    @property
+    def memory_write_strategy(self) -> MemoryWriteStrategyProtocol: ...
 
     async def close(self) -> None: ...

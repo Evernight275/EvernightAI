@@ -1,10 +1,21 @@
+from uuid import uuid4
+
 from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
     MemoryRegisterProtocol,
     MemoryStrategyProtocol,
+    MemoryWriteStrategyProtocol,
 )
-from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
+from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
+from EvernightAI.core.schema.content import Content, ContentPartType, MessageRole
+from EvernightAI.core.schema.memory import (
+    MemoryItem,
+    MemoryKind,
+    MemoryQuery,
+    MemoryScope,
+    MemorySelection,
+)
 
 
 class MemoryRegister(MemoryRegisterProtocol):
@@ -110,3 +121,56 @@ class BasicMemoryStrategy(MemoryStrategyProtocol):
             return False
 
         return True
+
+
+class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
+    def create_memories(
+        self,
+        request: AgentRunRequest,
+        result: AgentRunResult,
+    ) -> list[MemoryItem]:
+        """按基础规则创建记忆"""
+        if not request.write_memory:
+            return []
+
+        user_text = self._join_messages(request.messages, MessageRole.USER)
+        assistant_text = self._join_messages([result.response.message], MessageRole.ASSISTANT)
+        if not user_text and not assistant_text:
+            return []
+
+        content = "\n".join(
+            part
+            for part in [
+                f"User: {user_text}" if user_text else "",
+                f"Assistant: {assistant_text}" if assistant_text else "",
+            ]
+            if part
+        )
+
+        return [
+            MemoryItem(
+                memory_id=f"agent-summary-{uuid4().hex}",
+                content=content,
+                kind=MemoryKind.SUMMARY,
+                scope=MemoryScope.CONTEXT,
+                scope_id=request.context_id,
+                tags=["agent", "summary"],
+                metadata={
+                    "provider_id": request.provider_id,
+                    "model_id": request.model_id,
+                    "stop_reason": result.stop_reason.value,
+                    "step_count": len(result.steps),
+                },
+            )
+        ]
+
+    def _join_messages(self, messages: list[Content], role: MessageRole) -> str:
+        texts: list[str] = []
+        for message in messages:
+            if message.role is not role:
+                continue
+            for part in message.content or []:
+                if part.type is ContentPartType.TEXT and part.text:
+                    texts.append(part.text)
+
+        return "\n".join(texts)

@@ -1,9 +1,12 @@
+import json
+
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
     AgentStep,
     AgentStepType,
+    AgentStopReason,
 )
 from EvernightAI.core.schema.content import (
     ChatResponse,
@@ -21,7 +24,16 @@ class AgentApplication:
         self._runtime = runtime
 
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResult:
-        steps: list[AgentStep] = []
+        steps: list[AgentStep] = [
+            AgentStep(
+                step_type=AgentStepType.START,
+                metadata={
+                    "provider_id": request.provider_id,
+                    "context_id": request.context_id,
+                    "model_id": request.model_id,
+                },
+            )
+        ]
 
         response = await self._chat(
             request.provider_id,
@@ -44,19 +56,62 @@ class AgentApplication:
         await self._runtime.contexts.append(request.context_id, response.message)
 
         remaining_rounds = request.max_tool_rounds
+        stop_reason = AgentStopReason.FINISHED
         while response.message.tool_calls and remaining_rounds > 0:
             for call in response.message.tool_calls:
-                tool_result = await self._runtime.tools.execute(call)
-                tool_message = self._tool_result_to_message(tool_result)
-                steps.append(
-                    AgentStep(
-                        step_type=AgentStepType.TOOL,
-                        message=tool_message,
-                        tool_call=call,
-                        tool_result=tool_result,
+                try:
+                    tool_result = await self._runtime.tools.execute(call)
+                    tool_message = self._tool_result_to_message(tool_result)
+                    steps.append(
+                        AgentStep(
+                            step_type=AgentStepType.TOOL,
+                            message=tool_message,
+                            tool_call=call,
+                            tool_result=tool_result,
+                        )
                     )
-                )
+                except Exception as exc:
+                    tool_message = self._tool_error_to_message(call, exc)
+                    steps.append(
+                        AgentStep(
+                            step_type=AgentStepType.TOOL_ERROR,
+                            message=tool_message,
+                            tool_call=call,
+                            error_type=exc.__class__.__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    if not request.recover_tool_errors:
+                        await self._runtime.contexts.append(
+                            request.context_id,
+                            tool_message,
+                        )
+                        stop_reason = AgentStopReason.TOOL_ERROR
+                        result = AgentRunResult(
+                            response=response,
+                            stop_reason=stop_reason,
+                            steps=[
+                                *steps,
+                                AgentStep(
+                                    step_type=AgentStepType.STOP,
+                                    metadata={"reason": stop_reason.value},
+                                ),
+                            ],
+                            metadata={
+                                **request.metadata,
+                                "tool_rounds_used": (
+                                    request.max_tool_rounds - remaining_rounds
+                                ),
+                            },
+                        )
+                        await self._write_memories(request, result, steps)
+                        return result
+
                 await self._runtime.contexts.append(request.context_id, tool_message)
+
+            remaining_rounds -= 1
+            if remaining_rounds < 0:
+                break
 
             response = await self._chat(
                 request.provider_id,
@@ -74,16 +129,27 @@ class AgentApplication:
                 )
             )
             await self._runtime.contexts.append(request.context_id, response.message)
-            remaining_rounds -= 1
 
-        return AgentRunResult(
+        if response.message.tool_calls:
+            stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
+
+        steps.append(
+            AgentStep(
+                step_type=AgentStepType.STOP,
+                metadata={"reason": stop_reason.value},
+            )
+        )
+        result = AgentRunResult(
             response=response,
+            stop_reason=stop_reason,
             steps=steps,
             metadata={
                 **request.metadata,
                 "tool_rounds_used": request.max_tool_rounds - remaining_rounds,
             },
         )
+        await self._write_memories(request, result, steps)
+        return result
 
     async def run(
         self,
@@ -106,6 +172,7 @@ class AgentApplication:
                 memory_query=memory_query,
                 tools=tools,
                 max_tool_rounds=max_tool_rounds,
+                recover_tool_errors=True,
                 metadata=dict(metadata or {}),
             )
         )
@@ -152,3 +219,47 @@ class AgentApplication:
                 )
             ],
         )
+
+    def _tool_error_to_message(self, call: ToolCall, exc: Exception) -> Content:
+        payload = {
+            "error_type": exc.__class__.__name__,
+            "error_message": str(exc),
+        }
+        return Content(
+            role=MessageRole.TOOL,
+            tool_call_id=call.tool_call_id,
+            content=[
+                ContentPart(
+                    type=ContentPartType.TEXT,
+                    text=json.dumps(payload, ensure_ascii=False),
+                )
+            ],
+            metadata={
+                "error": True,
+                "error_type": exc.__class__.__name__,
+            },
+        )
+
+    async def _write_memories(
+        self,
+        request: AgentRunRequest,
+        result: AgentRunResult,
+        steps: list[AgentStep],
+    ) -> None:
+        memories = self._runtime.memory_write_strategy.create_memories(
+            request,
+            result,
+        )
+        for memory in memories:
+            await self._runtime.memories.create(memory)
+            memory_step = AgentStep(
+                step_type=AgentStepType.MEMORY_WRITE,
+                metadata={"memory_id": memory.memory_id},
+            )
+            steps.append(memory_step)
+            result.steps.append(
+                AgentStep(
+                    step_type=memory_step.step_type,
+                    metadata=dict(memory_step.metadata),
+                )
+            )

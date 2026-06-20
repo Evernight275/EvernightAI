@@ -31,6 +31,7 @@ from EvernightAI.infra.bootstrap import (
     create_memory_manager,
     create_memory_register,
     create_memory_strategy,
+    create_memory_write_strategy,
     create_provider_factory,
     create_provider_manager,
     create_runtime,
@@ -102,9 +103,11 @@ def test_bootstrap_creates_memory_services() -> None:
     register = create_memory_register()
     manager = create_memory_manager(register)
     strategy = create_memory_strategy()
+    write_strategy = create_memory_write_strategy()
 
     assert manager._register is register
     assert strategy.select.__name__ == "select"
+    assert write_strategy.create_memories.__name__ == "create_memories"
 
 
 @pytest.mark.asyncio
@@ -138,6 +141,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert runtime.context_strategy.compose_chat_request
     assert await runtime.memories.list_memories() == []
     assert runtime.memory_strategy.select
+    assert runtime.memory_write_strategy.create_memories
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")

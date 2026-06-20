@@ -8,6 +8,7 @@ from EvernightAI.core.domain.context import (
 )
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
+    BasicMemoryWriteStrategy,
     MemoryManager,
     MemoryRegister,
 )
@@ -27,6 +28,7 @@ from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
     MemoryRegisterProtocol,
     MemoryStrategyProtocol,
+    MemoryWriteStrategyProtocol,
 )
 from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
@@ -117,6 +119,10 @@ def create_memory_strategy() -> BasicMemoryStrategy:
     return BasicMemoryStrategy()
 
 
+def create_memory_write_strategy() -> BasicMemoryWriteStrategy:
+    return BasicMemoryWriteStrategy()
+
+
 def create_sqlite_context_register(database_path: str | Path) -> SQLiteContextRegister:
     return SQLiteContextRegister(database_path)
 
@@ -138,6 +144,7 @@ def create_runtime() -> RuntimeKernel:
     memory_register = create_memory_register()
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
+    memory_write_strategy = create_memory_write_strategy()
 
     return RuntimeKernel(
         provider_factory=provider_factory,
@@ -152,4 +159,5 @@ def create_runtime() -> RuntimeKernel:
         memory_register=memory_register,
         memories=memories,
         memory_strategy=memory_strategy,
+        memory_write_strategy=memory_write_strategy,
     )
