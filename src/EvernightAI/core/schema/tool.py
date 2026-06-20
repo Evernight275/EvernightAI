@@ -26,6 +26,15 @@ class ToolSafetyLevel(StrEnum):
     RESTRICTED = "restricted"
 
 
+class ToolApprovalStatus(StrEnum):
+    """工具审批状态"""
+
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    DENIED = "denied"
+    EXPIRED = "expired"
+
+
 class ToolDefinition(EvernightAISchema):
     """
     工具定义schema
@@ -40,6 +49,33 @@ class ToolDefinition(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolApprovalRequest(EvernightAISchema):
+    """
+    工具审批请求schema
+    """
+
+    approval_id: str
+    tool_call_id: str
+    tool_name: str
+    tool_call: dict[str, Any] = Field(default_factory=dict)
+    permissions: list[ToolPermission] = Field(default_factory=list)
+    safety_level: ToolSafetyLevel = ToolSafetyLevel.SAFE
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolApprovalDecision(EvernightAISchema):
+    """
+    工具审批决策schema
+    """
+
+    approval_id: str
+    tool_call_id: str
+    status: ToolApprovalStatus
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolCall(EvernightAISchema):
     """
     工具调用schema
@@ -47,6 +83,7 @@ class ToolCall(EvernightAISchema):
 
     tool_call_id: str = Field(description="工具调用ID")
     tool_call: dict[str, Any] = Field(description="工具调用参数")
+    approval: ToolApprovalDecision | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -67,4 +104,6 @@ class ToolSafetyDecision(EvernightAISchema):
 
     allowed: bool
     reason: str | None = None
+    requires_approval: bool = False
+    approval_request: ToolApprovalRequest | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -14,6 +14,8 @@ from EvernightAI.core.protocol.tool import (
 )
 from EvernightAI.core.schema.tool import (
     ToolCall,
+    ToolApprovalRequest,
+    ToolApprovalStatus,
     ToolCallResult,
     ToolDefinition,
     ToolPermission,
@@ -153,19 +155,59 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             or tool.safety_level is not ToolSafetyLevel.SAFE
             or bool(permissions & self._approval_required_permissions)
         )
-        if requires_approval and call.metadata.get("approved") is not True:
+        approval = call.approval
+        approved = (
+            approval is not None
+            and approval.tool_call_id == call.tool_call_id
+            and approval.status is ToolApprovalStatus.APPROVED
+        ) or call.metadata.get("approved") is True
+        if requires_approval and not approved:
+            if approval is not None:
+                return ToolSafetyDecision(
+                    allowed=False,
+                    reason=approval.reason or f"Tool approval {approval.status.value}",
+                    requires_approval=True,
+                    approval_request=self._approval_request(tool, call),
+                    metadata={
+                        "approval_status": approval.status.value,
+                        "approval_id": approval.approval_id,
+                    },
+                )
+
             return ToolSafetyDecision(
                 allowed=False,
                 reason="Tool call requires approval",
+                requires_approval=True,
+                approval_request=self._approval_request(tool, call),
             )
 
         return ToolSafetyDecision(
             allowed=True,
+            requires_approval=requires_approval,
+            approval_request=(
+                self._approval_request(tool, call) if requires_approval else None
+            ),
             metadata={
                 "policy": self.__class__.__name__,
-                "approved": call.metadata.get("approved") is True,
+                "approved": approved,
+                "approval_id": approval.approval_id if approval is not None else None,
             },
         )
 
     def _format_permissions(self, permissions: set[ToolPermission]) -> str:
         return ", ".join(sorted(permission.value for permission in permissions))
+
+    def _approval_request(
+        self,
+        tool: ToolDefinition,
+        call: ToolCall,
+    ) -> ToolApprovalRequest:
+        return ToolApprovalRequest(
+            approval_id=f"{call.tool_call_id}:approval",
+            tool_call_id=call.tool_call_id,
+            tool_name=tool.name,
+            tool_call=dict(call.tool_call),
+            permissions=list(tool.permissions),
+            safety_level=tool.safety_level,
+            reason="Tool call requires approval",
+        )

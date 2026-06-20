@@ -8,6 +8,8 @@ from EvernightAI.core.error.tool import (
     ToolPolicyError,
 )
 from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalStatus,
     ToolCall,
     ToolDefinition,
     ToolPermission,
@@ -124,6 +126,32 @@ async def test_tool_manager_rejects_tool_calls_that_require_approval() -> None:
     assert exc_info.value.detail == "Tool call requires approval"
 
 
+def test_tool_safety_policy_returns_approval_request() -> None:
+    policy = BasicToolSafetyPolicy()
+    tool = ToolDefinition(
+        name="write_file",
+        description="Write a file",
+        permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+        safety_level=ToolSafetyLevel.SENSITIVE,
+    )
+    call = ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "write_file", "arguments": {"path": "note.txt"}},
+    )
+
+    decision = policy.authorize(tool, call)
+
+    assert decision.allowed is False
+    assert decision.requires_approval is True
+    assert decision.approval_request is not None
+    assert decision.approval_request.approval_id == "call-1:approval"
+    assert decision.approval_request.tool_name == "write_file"
+    assert decision.approval_request.permissions == [
+        ToolPermission.FILESYSTEM,
+        ToolPermission.WRITE,
+    ]
+
+
 @pytest.mark.asyncio
 async def test_tool_manager_executes_approved_sensitive_tool_call() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
@@ -150,6 +178,72 @@ async def test_tool_manager_executes_approved_sensitive_tool_call() -> None:
     )
 
     assert result.tool_call_result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_executes_with_approval_decision() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "write_file", "arguments": {}},
+            approval=ToolApprovalDecision(
+                approval_id="call-1:approval",
+                tool_call_id="call-1",
+                status=ToolApprovalStatus.APPROVED,
+            ),
+        )
+    )
+
+    assert result.tool_call_result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_rejects_denied_approval_decision() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "write_file", "arguments": {}},
+                approval=ToolApprovalDecision(
+                    approval_id="call-1:approval",
+                    tool_call_id="call-1",
+                    status=ToolApprovalStatus.DENIED,
+                    reason="User denied",
+                ),
+            )
+        )
+
+    assert exc_info.value.detail == "User denied"
 
 
 @pytest.mark.asyncio
