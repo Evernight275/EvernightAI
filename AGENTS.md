@@ -74,6 +74,42 @@ $env:EVERNIGHTAI_REAL_OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v
 `EVERNIGHTAI_REAL_OPENAI_BASE_URL` can be omitted for the default OpenAI API.
 `OPENAI_API_KEY` and `OPENAI_BASE_URL` are supported as fallbacks.
 
+Run the real OpenAI Responses smoke test:
+
+```powershell
+$env:EVERNIGHTAI_RUN_REAL_OPENAI_RESPONSES="1"
+$env:EVERNIGHTAI_REAL_OPENAI_RESPONSES_API_KEY="your-key"
+$env:EVERNIGHTAI_REAL_OPENAI_RESPONSES_MODEL="gpt-4.1-mini"
+.\.venv\Scripts\python.exe -m pytest tests\test_real_openai_responses_flow.py -m real_openai_responses
+```
+
+`EVERNIGHTAI_REAL_OPENAI_RESPONSES_BASE_URL` can be omitted for the default
+OpenAI API. `OPENAI_API_KEY` and `OPENAI_BASE_URL` are supported as fallbacks.
+
+Run the real Gemini smoke test:
+
+```powershell
+$env:EVERNIGHTAI_RUN_REAL_GEMINI="1"
+$env:EVERNIGHTAI_REAL_GEMINI_API_KEY="your-key"
+$env:EVERNIGHTAI_REAL_GEMINI_MODEL="gemini-2.0-flash"
+.\.venv\Scripts\python.exe -m pytest tests\test_real_gemini_flow.py -m real_gemini
+```
+
+`EVERNIGHTAI_REAL_GEMINI_BASE_URL` can be omitted for the default Gemini API.
+`GOOGLE_API_KEY` is supported as a fallback.
+
+Run the real Anthropic smoke test:
+
+```powershell
+$env:EVERNIGHTAI_RUN_REAL_ANTHROPIC="1"
+$env:EVERNIGHTAI_REAL_ANTHROPIC_API_KEY="your-key"
+$env:EVERNIGHTAI_REAL_ANTHROPIC_MODEL="claude-3-5-haiku-latest"
+.\.venv\Scripts\python.exe -m pytest tests\test_real_anthropic_flow.py -m real_anthropic
+```
+
+`EVERNIGHTAI_REAL_ANTHROPIC_BASE_URL` can be omitted for the default Anthropic
+API. `ANTHROPIC_API_KEY` is supported as a fallback.
+
 ## Test Expectations
 
 Before finishing code changes, run:
