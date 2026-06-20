@@ -76,6 +76,35 @@ class AgentApplication:
 
         return state
 
+    async def start_agent_run(self, request: AgentRunRequest) -> AgentRunState:
+        stored_request = (
+            request
+            if request.pause_on_approval
+            else request.model_copy(update={"pause_on_approval": True})
+        )
+        state = self._new_run_state(stored_request)
+        self._save_agent_state(state)
+
+        async for event in self._run_agent_events(stored_request, state):
+            self._append_agent_trace_event(state.run_id, event)
+            self._save_agent_state(state)
+
+        self._save_agent_state(state)
+        return state
+
+    async def resume_agent_run(
+        self,
+        run_id: str,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentRunState:
+        state = self._get_agent_state(run_id)
+        async for event in self._resume_agent_events(state, approvals):
+            self._append_agent_trace_event(state.run_id, event)
+            self._save_agent_state(state)
+
+        self._save_agent_state(state)
+        return state
+
     def run_agent_stream(
         self,
         request: AgentRunRequest,
@@ -693,6 +722,31 @@ class AgentApplication:
                 "tool_rounds_used": state.tool_rounds_used,
             },
         )
+
+    def _get_agent_state(self, run_id: str) -> AgentRunState:
+        register = self._runtime.agent_state_register
+        if register is None:
+            raise AgentStateError("Agent state register is not configured")
+
+        return register.get_state(run_id)
+
+    def _save_agent_state(self, state: AgentRunState) -> None:
+        register = self._runtime.agent_state_register
+        if register is None:
+            raise AgentStateError("Agent state register is not configured")
+
+        register.save_state(state)
+
+    def _append_agent_trace_event(
+        self,
+        run_id: str,
+        event: AgentTraceEvent,
+    ) -> None:
+        register = self._runtime.agent_trace_register
+        if register is None:
+            raise AgentStateError("Agent trace register is not configured")
+
+        register.append_event(run_id, event)
 
 
 class _AgentTraceStream:

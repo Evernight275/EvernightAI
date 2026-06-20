@@ -1,4 +1,8 @@
 from EvernightAI.core.protocol.base import EvernightAIProtocol
+from EvernightAI.core.protocol.agent import (
+    AgentRunStateRegisterProtocol,
+    AgentTraceRegisterProtocol,
+)
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
@@ -65,5 +69,11 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def memory_write_strategy(self) -> MemoryWriteStrategyProtocol: ...
+
+    @property
+    def agent_state_register(self) -> AgentRunStateRegisterProtocol | None: ...
+
+    @property
+    def agent_trace_register(self) -> AgentTraceRegisterProtocol | None: ...
 
     async def close(self) -> None: ...

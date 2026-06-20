@@ -1,3 +1,7 @@
+from EvernightAI.core.protocol.agent import (
+    AgentRunStateRegisterProtocol,
+    AgentTraceRegisterProtocol,
+)
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
@@ -39,6 +43,8 @@ class RuntimeKernel(RuntimeProtocol):
         memories: MemoryManageProtocol,
         memory_strategy: MemoryStrategyProtocol,
         memory_write_strategy: MemoryWriteStrategyProtocol,
+        agent_state_register: AgentRunStateRegisterProtocol | None = None,
+        agent_trace_register: AgentTraceRegisterProtocol | None = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._providers = providers
@@ -53,6 +59,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._memories = memories
         self._memory_strategy = memory_strategy
         self._memory_write_strategy = memory_write_strategy
+        self._agent_state_register = agent_state_register
+        self._agent_trace_register = agent_trace_register
 
     @property
     def provider_factory(self) -> ProviderFactoryProtocol:
@@ -105,6 +113,14 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def memory_write_strategy(self) -> MemoryWriteStrategyProtocol:
         return self._memory_write_strategy
+
+    @property
+    def agent_state_register(self) -> AgentRunStateRegisterProtocol | None:
+        return self._agent_state_register
+
+    @property
+    def agent_trace_register(self) -> AgentTraceRegisterProtocol | None:
+        return self._agent_trace_register
 
     async def close(self) -> None:
         await self._providers.close()

@@ -18,6 +18,10 @@ from EvernightAI.core.domain.tool import (
     ToolManager,
     ToolRegister,
 )
+from EvernightAI.core.protocol.agent import (
+    AgentRunStateRegisterProtocol,
+    AgentTraceRegisterProtocol,
+)
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
     ContextOrganizerProtocol,
@@ -39,6 +43,10 @@ from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
+)
+from EvernightAI.infra.adapters.agent.sqlite import (
+    SQLiteAgentRunStateRegister,
+    SQLiteAgentTraceRegister,
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
@@ -131,6 +139,18 @@ def create_sqlite_context_manager(database_path: str | Path) -> ContextManager:
     return ContextManager(create_sqlite_context_register(database_path))
 
 
+def create_sqlite_agent_state_register(
+    database_path: str | Path,
+) -> SQLiteAgentRunStateRegister:
+    return SQLiteAgentRunStateRegister(database_path)
+
+
+def create_sqlite_agent_trace_register(
+    database_path: str | Path,
+) -> SQLiteAgentTraceRegister:
+    return SQLiteAgentTraceRegister(database_path)
+
+
 def create_runtime() -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
@@ -160,4 +180,42 @@ def create_runtime() -> RuntimeKernel:
         memories=memories,
         memory_strategy=memory_strategy,
         memory_write_strategy=memory_write_strategy,
+    )
+
+
+def create_runtime_with_agent_storage(
+    *,
+    agent_state_register: AgentRunStateRegisterProtocol,
+    agent_trace_register: AgentTraceRegisterProtocol,
+) -> RuntimeKernel:
+    provider_factory = create_provider_factory()
+    providers = ProviderManager(provider_factory)
+    tool_register = create_tool_register()
+    tool_safety_policy = create_tool_safety_policy()
+    tools = ToolManager(tool_register, tool_safety_policy)
+    context_register = create_context_register()
+    contexts = ContextManager(context_register)
+    context_organizer = create_context_organizer()
+    context_strategy = create_context_strategy(context_organizer)
+    memory_register = create_memory_register()
+    memories = MemoryManager(memory_register)
+    memory_strategy = create_memory_strategy()
+    memory_write_strategy = create_memory_write_strategy()
+
+    return RuntimeKernel(
+        provider_factory=provider_factory,
+        providers=providers,
+        tool_register=tool_register,
+        tools=tools,
+        tool_safety_policy=tool_safety_policy,
+        context_register=context_register,
+        contexts=contexts,
+        context_organizer=context_organizer,
+        context_strategy=context_strategy,
+        memory_register=memory_register,
+        memories=memories,
+        memory_strategy=memory_strategy,
+        memory_write_strategy=memory_write_strategy,
+        agent_state_register=agent_state_register,
+        agent_trace_register=agent_trace_register,
     )

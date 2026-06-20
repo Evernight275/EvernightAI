@@ -6,9 +6,11 @@ from EvernightAI.application.agent import AgentApplication
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
+    AgentRunState,
     AgentRunStatus,
     AgentStepType,
     AgentStopReason,
+    AgentTraceEvent,
     AgentTraceEventType,
 )
 from EvernightAI.core.domain.context import (
@@ -26,6 +28,10 @@ from EvernightAI.core.domain.memory import (
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.protocol.agent import (
+    AgentRunStateRegisterProtocol,
+    AgentTraceRegisterProtocol,
+)
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
@@ -570,6 +576,103 @@ async def test_agent_resume_stream_continues_after_approved_tool() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_pause_keeps_current_and_remaining_tool_calls() -> None:
+    executed_tools: list[str] = []
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        executed_tools.append("write_file")
+        return {"written": True}
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        executed_tools.append("add")
+        return {"result": 3}
+
+    provider = SensitiveThenSafeToolProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    state = await app.run_agent_until_pause(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write and add")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+
+    assert state.status is AgentRunStatus.PAUSED
+    assert [call.tool_call_id for call in state.pending_tool_calls] == [
+        "tool-call-1",
+        "tool-call-2",
+    ]
+    assert len(state.pending_approval_requests) == 1
+    assert state.pending_approval_requests[0].tool_call_id == "tool-call-1"
+    assert executed_tools == []
+
+    events = [
+        event
+        async for event in app.resume_agent_stream(
+            state,
+            [
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.APPROVED,
+                )
+            ],
+        )
+    ]
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [event.event_type for event in events] == [
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert executed_tools == ["write_file", "add"]
+    assert state.status is AgentRunStatus.FINISHED
+    assert state.pending_tool_calls == []
+    assert state.pending_approval_requests == []
+    assert len(provider.requests) == 2
+    assert [message.role for message in provider.requests[1].messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.TOOL,
+    ]
+    assert [message.role for message in context.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.TOOL,
+        MessageRole.ASSISTANT,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_resume_stream_records_denied_approval_as_tool_error() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
         return {"written": True}
@@ -687,6 +790,96 @@ async def test_agent_resume_requires_pending_approval_decision() -> None:
 
     with pytest.raises(AgentStateError, match="Missing approval"):
         await app.resume_agent_until_pause(state, [])
+
+
+@pytest.mark.asyncio
+async def test_agent_start_and_resume_run_persist_state_and_trace() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    state = await app.start_agent_run(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "run-1"},
+        )
+    )
+
+    assert state.status is AgentRunStatus.PAUSED
+    assert state_register.get_state("run-1").status is AgentRunStatus.PAUSED
+    assert [event.event_type for event in trace_register.list_events("run-1")] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.RUN_PAUSED,
+    ]
+
+    resumed = await app.resume_agent_run(
+        "run-1",
+        [
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+    )
+
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert state_register.get_state("run-1").status is AgentRunStatus.FINISHED
+    assert [event.event_type for event in trace_register.list_events("run-1")] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.RUN_PAUSED,
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_start_run_requires_storage_registers() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+
+    with pytest.raises(AgentStateError, match="state register"):
+        await app.start_agent_run(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Hello")],
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -819,6 +1012,8 @@ async def test_agent_can_write_memory_after_run() -> None:
 
 def make_runtime(
     provider: ProviderInstanceProtocol | None = None,
+    agent_state_register: AgentRunStateRegisterProtocol | None = None,
+    agent_trace_register: AgentTraceRegisterProtocol | None = None,
 ) -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return provider or ToolCallingProvider()
@@ -845,6 +1040,8 @@ def make_runtime(
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),
         memory_write_strategy=BasicMemoryWriteStrategy(),
+        agent_state_register=agent_state_register,
+        agent_trace_register=agent_trace_register,
     )
 
 
@@ -959,6 +1156,41 @@ class SensitiveToolProvider(ToolCallingProvider):
         )
 
 
+class SensitiveThenSafeToolProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return ChatResponse(
+                model_id=request.model_id,
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id="tool-call-1",
+                            tool_call={
+                                "name": "write_file",
+                                "arguments": {"path": "note.txt"},
+                            },
+                        ),
+                        ToolCall(
+                            tool_call_id="tool-call-2",
+                            tool_call={
+                                "name": "add",
+                                "arguments": {"left": 1, "right": 2},
+                            },
+                        ),
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Done", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        )
+
+
 class RecoveringToolErrorProvider(ToolCallingProvider):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
@@ -1016,6 +1248,40 @@ class FinalAnswerProvider(ToolCallingProvider):
             message=make_message("Stored", role=MessageRole.ASSISTANT),
             finish_reason="stop",
         )
+
+
+class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
+    def __init__(self) -> None:
+        self.states: dict[str, AgentRunState] = {}
+
+    def save_state(self, state: AgentRunState) -> None:
+        self.states[state.run_id] = state
+
+    def get_state(self, run_id: str) -> AgentRunState:
+        try:
+            return self.states[run_id]
+        except KeyError as exc:
+            raise AgentStateError(f"The agent run state {run_id} is not found") from exc
+
+    def list_states(self) -> list[AgentRunState]:
+        return list(self.states.values())
+
+    def delete_state(self, run_id: str) -> None:
+        self.states.pop(run_id, None)
+
+
+class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
+    def __init__(self) -> None:
+        self.events: dict[str, list[AgentTraceEvent]] = {}
+
+    def append_event(self, run_id: str, event: AgentTraceEvent) -> None:
+        self.events.setdefault(run_id, []).append(event)
+
+    def list_events(self, run_id: str) -> list[AgentTraceEvent]:
+        return list(self.events.get(run_id, []))
+
+    def clear_events(self, run_id: str) -> None:
+        self.events.pop(run_id, None)
 
 
 class EmptyStream:
