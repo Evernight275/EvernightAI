@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
+evernight = "EvernightAI.cli:main"
 evernight-http = "EvernightAI.server:main"
 
 [build-system]
