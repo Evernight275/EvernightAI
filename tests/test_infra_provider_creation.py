@@ -13,6 +13,15 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
+from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
+    AgentRunState,
+    AgentRunStatus,
+    AgentTraceEvent,
+    AgentTraceEventType,
+)
+from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.memory import MemoryItem
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
@@ -35,9 +44,11 @@ from EvernightAI.infra.bootstrap import (
     create_provider_factory,
     create_provider_manager,
     create_runtime,
+    create_sqlite_runtime,
     create_tool_manager,
     create_tool_register,
     create_tool_safety_policy,
+    register_builtin_tools,
 )
 
 
@@ -82,6 +93,35 @@ def test_bootstrap_creates_tool_manager() -> None:
 
     assert manager.list_tools() == []
     assert policy.authorize.__name__ == "authorize"
+
+
+def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
+    register = create_tool_register()
+
+    register_builtin_tools(register)
+
+    assert register.list_tools() == []
+
+    register_builtin_tools(register, filesystem_root=tmp_path)
+
+    assert [tool.name for tool in register.list_tools()] == [
+        "read_text_file",
+        "write_text_file",
+        "list_directory",
+    ]
+
+    register_builtin_tools(
+        register,
+        shell_allowed_commands={"python"},
+        shell_working_directory=tmp_path,
+    )
+
+    assert [tool.name for tool in register.list_tools()] == [
+        "read_text_file",
+        "write_text_file",
+        "list_directory",
+        "restricted_shell",
+    ]
 
 
 def test_bootstrap_creates_context_manager() -> None:
@@ -153,6 +193,75 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
 
     assert instance.is_closed is True
 
+
+@pytest.mark.asyncio
+async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    tools_root = tmp_path / "tools"
+    tools_root.mkdir()
+
+    runtime = create_sqlite_runtime(
+        database_path,
+        filesystem_root=tools_root,
+        include_agent_storage=True,
+    )
+
+    assert isinstance(runtime, RuntimeKernel)
+    assert [tool.name for tool in runtime.tools.list_tools()] == [
+        "read_text_file",
+        "write_text_file",
+        "list_directory",
+    ]
+    assert runtime.agent_state_register is not None
+    assert runtime.agent_trace_register is not None
+
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.memories.create(
+        MemoryItem(memory_id="mem-1", content="Prefer concise answers")
+    )
+    runtime.agent_state_register.save_state(
+        AgentRunState(
+            run_id="run-1",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+            status=AgentRunStatus.PAUSED,
+        )
+    )
+    runtime.agent_trace_register.append_event(
+        "run-1",
+        AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED),
+    )
+    await runtime.close()
+
+    reopened = create_sqlite_runtime(database_path, include_agent_storage=True)
+
+    try:
+        assert await reopened.contexts.get("ctx-1") == Context(context_id="ctx-1")
+        assert (await reopened.memories.get("mem-1")).content == "Prefer concise answers"
+        assert reopened.agent_state_register is not None
+        assert reopened.agent_trace_register is not None
+        assert (
+            reopened.agent_state_register.get_state("run-1").status
+            is AgentRunStatus.PAUSED
+        )
+        assert reopened.agent_trace_register.list_events("run-1") == [
+            AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED)
+        ]
+    finally:
+        await reopened.close()
+
+
+def test_bootstrap_can_create_sqlite_runtime_without_agent_storage(tmp_path) -> None:
+    runtime = create_sqlite_runtime(
+        tmp_path / "runtime.sqlite3",
+        include_agent_storage=False,
+    )
+
+    assert runtime.agent_state_register is None
+    assert runtime.agent_trace_register is None
 
 @pytest.mark.asyncio
 async def test_openai_instance_chat_maps_request_and_response() -> None:

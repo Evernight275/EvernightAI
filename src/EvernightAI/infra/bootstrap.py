@@ -60,6 +60,12 @@ from EvernightAI.infra.registrations.provider.openai_compatible import (
 from EvernightAI.infra.registrations.provider.openai_responses import (
     register_openai_responses_provider,
 )
+from EvernightAI.infra.registrations.tool.restricted_filesystem import (
+    register_restricted_filesystem_tools,
+)
+from EvernightAI.infra.registrations.tool.restricted_shell import (
+    register_restricted_shell_tool,
+)
 from EvernightAI.core.domain.runtime import RuntimeKernel
 
 
@@ -92,6 +98,37 @@ def create_tool_manager(
         register or create_tool_register(),
         safety_policy or create_tool_safety_policy(),
     )
+
+
+def register_builtin_tools(
+    register: ToolRegisterProtocol,
+    *,
+    filesystem_root: str | Path | None = None,
+    max_read_chars: int = 12000,
+    max_directory_entries: int = 100,
+    allow_file_overwrite: bool = False,
+    shell_allowed_commands: set[str] | None = None,
+    shell_working_directory: str | Path | None = None,
+    shell_timeout_seconds: float = 10.0,
+    shell_max_output_chars: int = 12000,
+) -> None:
+    if filesystem_root is not None:
+        register_restricted_filesystem_tools(
+            register,
+            root_directory=filesystem_root,
+            max_read_chars=max_read_chars,
+            max_directory_entries=max_directory_entries,
+            allow_overwrite=allow_file_overwrite,
+        )
+
+    if shell_allowed_commands is not None:
+        register_restricted_shell_tool(
+            register,
+            allowed_commands=shell_allowed_commands,
+            working_directory=shell_working_directory or Path.cwd(),
+            timeout_seconds=shell_timeout_seconds,
+            max_output_chars=shell_max_output_chars,
+        )
 
 
 def create_context_register() -> ContextRegister:
@@ -161,34 +198,9 @@ def create_sqlite_agent_trace_register(
 
 
 def create_runtime() -> RuntimeKernel:
-    provider_factory = create_provider_factory()
-    providers = ProviderManager(provider_factory)
-    tool_register = create_tool_register()
-    tool_safety_policy = create_tool_safety_policy()
-    tools = ToolManager(tool_register, tool_safety_policy)
-    context_register = create_context_register()
-    contexts = ContextManager(context_register)
-    context_organizer = create_context_organizer()
-    context_strategy = create_context_strategy(context_organizer)
-    memory_register = create_memory_register()
-    memories = MemoryManager(memory_register)
-    memory_strategy = create_memory_strategy()
-    memory_write_strategy = create_memory_write_strategy()
-
-    return RuntimeKernel(
-        provider_factory=provider_factory,
-        providers=providers,
-        tool_register=tool_register,
-        tools=tools,
-        tool_safety_policy=tool_safety_policy,
-        context_register=context_register,
-        contexts=contexts,
-        context_organizer=context_organizer,
-        context_strategy=context_strategy,
-        memory_register=memory_register,
-        memories=memories,
-        memory_strategy=memory_strategy,
-        memory_write_strategy=memory_write_strategy,
+    return _create_runtime(
+        context_register=create_context_register(),
+        memory_register=create_memory_register(),
     )
 
 
@@ -197,16 +209,72 @@ def create_runtime_with_agent_storage(
     agent_state_register: AgentRunStateRegisterProtocol,
     agent_trace_register: AgentTraceRegisterProtocol,
 ) -> RuntimeKernel:
+    return _create_runtime(
+        context_register=create_context_register(),
+        memory_register=create_memory_register(),
+        agent_state_register=agent_state_register,
+        agent_trace_register=agent_trace_register,
+    )
+
+
+def create_sqlite_runtime(
+    database_path: str | Path,
+    *,
+    include_agent_storage: bool = True,
+    filesystem_root: str | Path | None = None,
+    max_read_chars: int = 12000,
+    max_directory_entries: int = 100,
+    allow_file_overwrite: bool = False,
+    shell_allowed_commands: set[str] | None = None,
+    shell_working_directory: str | Path | None = None,
+    shell_timeout_seconds: float = 10.0,
+    shell_max_output_chars: int = 12000,
+) -> RuntimeKernel:
+    tool_register = create_tool_register()
+    register_builtin_tools(
+        tool_register,
+        filesystem_root=filesystem_root,
+        max_read_chars=max_read_chars,
+        max_directory_entries=max_directory_entries,
+        allow_file_overwrite=allow_file_overwrite,
+        shell_allowed_commands=shell_allowed_commands,
+        shell_working_directory=shell_working_directory,
+        shell_timeout_seconds=shell_timeout_seconds,
+        shell_max_output_chars=shell_max_output_chars,
+    )
+
+    agent_state_register: AgentRunStateRegisterProtocol | None = None
+    agent_trace_register: AgentTraceRegisterProtocol | None = None
+    if include_agent_storage:
+        agent_state_register = create_sqlite_agent_state_register(database_path)
+        agent_trace_register = create_sqlite_agent_trace_register(database_path)
+
+    return _create_runtime(
+        tool_register=tool_register,
+        context_register=create_sqlite_context_register(database_path),
+        memory_register=create_sqlite_memory_register(database_path),
+        agent_state_register=agent_state_register,
+        agent_trace_register=agent_trace_register,
+    )
+
+
+def _create_runtime(
+    *,
+    tool_register: ToolRegisterProtocol | None = None,
+    tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
+    context_register: ContextRegisterProtocol,
+    memory_register: MemoryRegisterProtocol,
+    agent_state_register: AgentRunStateRegisterProtocol | None = None,
+    agent_trace_register: AgentTraceRegisterProtocol | None = None,
+) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
-    tool_register = create_tool_register()
-    tool_safety_policy = create_tool_safety_policy()
+    tool_register = tool_register or create_tool_register()
+    tool_safety_policy = tool_safety_policy or create_tool_safety_policy()
     tools = ToolManager(tool_register, tool_safety_policy)
-    context_register = create_context_register()
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
     context_strategy = create_context_strategy(context_organizer)
-    memory_register = create_memory_register()
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
     memory_write_strategy = create_memory_write_strategy()
