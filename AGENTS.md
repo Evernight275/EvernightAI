@@ -11,6 +11,7 @@ EvernightAI is a Python 3.12 package with a layered architecture:
 src/EvernightAI/core        domain models, schemas, protocols, errors
 src/EvernightAI/application thin application services
 src/EvernightAI/infra       concrete adapters and bootstrap wiring
+src/EvernightAI/interface   external communication boundaries
 tests                       unit, architecture, and opt-in real-flow tests
 ```
 
@@ -25,6 +26,7 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
 
 - Keep `core` independent from `application` and `infra`.
 - Keep `application` independent from `infra`.
+- Keep `interface` independent from `application` and `infra`.
 - Keep package `__init__.py` files comment-only.
 - Do not require OpenAI-compatible providers to support remote `/models`.
 - Do not require `ProviderConfig.model` to contain a model before `chat` or
@@ -38,6 +40,10 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
   boundary. Infra registration code supplies builders to that factory; concrete
   adapter instances expose runtime behavior and should not own the higher-level
   assembly flow.
+- Use `EvernightInterfaceProtocol` as the interface boundary. HTTP and CLI
+  layers receive an already assembled interface/runtime and must not create
+  application services, SQLite, in-memory, or other infra-backed runtimes
+  themselves.
 - Keep real provider tests opt-in and skipped by default.
 - Treat real provider unavailability as `pytest.skip`, not as a failed local
   integration test.
@@ -60,6 +66,18 @@ Run type checking:
 ```powershell
 .\.venv\Scripts\pyright.exe
 ```
+
+Start the local HTTP interface:
+
+```powershell
+$env:EVERNIGHTAI_DATABASE_PATH=".evernight\runtime.sqlite3"
+$env:EVERNIGHTAI_FILESYSTEM_ROOT=(Get-Location).Path
+.\.venv\Scripts\python.exe -m uvicorn EvernightAI.server:create_app --factory --reload
+```
+
+The HTTP startup module is a package-level composition root. Keep runtime and
+service assembly there or in application/infra bootstrap code, not in
+`interface/http`.
 
 Run the real OpenAI-compatible smoke test:
 
@@ -143,6 +161,9 @@ variables are already intentionally set for that purpose.
   into EvernightAI domain errors.
 - Keep `application` thin. It should coordinate through protocols and runtime,
   not know concrete infra classes.
+- Keep `interface` as an external communication boundary. It may depend on
+  core protocols/schemas and transport frameworks, but application service and
+  concrete runtime assembly belong outside interface.
 - Context protocols define behavior and data shape. They should not import ORM,
   database clients, or persistence frameworks.
 - Basic context organization means preserving stored context messages first and

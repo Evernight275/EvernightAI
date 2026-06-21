@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi",
     "httpx",
     "pydantic",
     "pytest",
@@ -13,7 +14,11 @@ dependencies = [
     "pytest-xdist",
     "pyright",
     "openai",
+    "uvicorn",
 ]
+
+[project.scripts]
+evernight-http = "EvernightAI.server:main"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
