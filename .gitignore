@@ -11,10 +11,12 @@ wheels/
 .coverage
 .pytest_cache/
 .agents/
+.pytest-tmp/
 
 .env
 .env.local
 .env.test
 .env.local.*
+
 
 .evernight/
