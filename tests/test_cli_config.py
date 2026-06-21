@@ -14,7 +14,6 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
         {
             "runtime": {
                 "database_path": ".evernight/test.sqlite3",
-                "filesystem_root": ".",
             },
             "http": {
                 "host": "0.0.0.0",
@@ -22,9 +21,17 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "reload": True,
             },
             "tools": {
-                "allow_file_overwrite": True,
-                "shell_allowed_commands": ["python", "pytest"],
-                "shell_timeout_seconds": 3.5,
+                "filesystem": {
+                    "enabled": True,
+                    "root": ".",
+                    "max_read_chars": 8000,
+                    "allow_write": True,
+                },
+                "shell": {
+                    "enabled": True,
+                    "allowed_commands": ["python", "pytest"],
+                    "timeout_seconds": 3.5,
+                },
             },
             "provider": {
                 "main": {
@@ -47,13 +54,16 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     model = provider.model["deepseek-chat"]
 
     assert config.runtime.database_path == ".evernight/test.sqlite3"
-    assert config.runtime.filesystem_root == "."
     assert config.http.host == "0.0.0.0"
     assert config.http.port == 8080
     assert config.http.reload is True
-    assert config.tools.allow_file_overwrite is True
-    assert config.tools.shell_allowed_commands == ["python", "pytest"]
-    assert config.tools.shell_timeout_seconds == 3.5
+    assert config.tools.filesystem.enabled is True
+    assert config.tools.filesystem.root == "."
+    assert config.tools.filesystem.max_read_chars == 8000
+    assert config.tools.filesystem.allow_write is True
+    assert config.tools.shell.enabled is True
+    assert config.tools.shell.allowed_commands == ["python", "pytest"]
+    assert config.tools.shell.timeout_seconds == 3.5
     assert provider.provider_id == "main"
     assert provider.name == "DeepSeek"
     assert provider.type is ProviderType.OPENAI
@@ -100,5 +110,6 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.runtime.database_path == ".evernight/runtime.sqlite3"
     assert config.http.host == "127.0.0.1"
     assert config.http.port == 8000
-    assert config.tools.shell_allowed_commands == []
+    assert config.tools.filesystem.enabled is False
+    assert config.tools.shell.allowed_commands == []
     assert config.providers == []

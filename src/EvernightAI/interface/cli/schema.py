@@ -5,7 +5,6 @@ from pydantic import Field
 
 class RuntimeConfig(EvernightAISchema):
     database_path: str = ".evernight/runtime.sqlite3"
-    filesystem_root: str | None = None
 
 
 class HttpConfig(EvernightAISchema):
@@ -14,12 +13,25 @@ class HttpConfig(EvernightAISchema):
     reload: bool = False
 
 
+class FilesystemToolConfig(EvernightAISchema):
+    enabled: bool = False
+    root: str = "."
+    max_read_chars: int = 12000
+    max_directory_entries: int = 100
+    allow_write: bool = False
+
+
+class ShellToolConfig(EvernightAISchema):
+    enabled: bool = False
+    allowed_commands: list[str] = Field(default_factory=list)
+    working_directory: str | None = None
+    timeout_seconds: float = 10.0
+    max_output_chars: int = 12000
+
+
 class ToolConfig(EvernightAISchema):
-    allow_file_overwrite: bool = False
-    shell_allowed_commands: list[str] = Field(default_factory=list)
-    shell_working_directory: str | None = None
-    shell_timeout_seconds: float = 10.0
-    shell_max_output_chars: int = 12000
+    filesystem: FilesystemToolConfig = Field(default_factory=FilesystemToolConfig)
+    shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
 
 
 class EvernightConfig(EvernightAISchema):
