@@ -825,6 +825,8 @@ async def test_agent_resume_requires_paused_state() -> None:
         )
     )
 
+    assert AgentRunMetadata.RUNTIME_KEY not in state.metadata
+
     with pytest.raises(AgentStateError, match="not paused"):
         await app.resume_agent_until_pause(state, [])
 
@@ -1105,6 +1107,28 @@ async def test_agent_records_denied_tool_approval_as_tool_error() -> None:
         AgentTraceEventType.RUN_STOPPED,
     ]
     assert result.steps[2].error_type == "ToolPolicyError"
+
+
+@pytest.mark.asyncio
+async def test_agent_metadata_hides_tool_runtime_without_tool_calls() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    result = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Hello")],
+            metadata={"run_id": "run-1", "source": "test"},
+        )
+    )
+
+    assert result.stop_reason is AgentStopReason.FINISHED
+    assert result.metadata == {"run_id": "run-1", "source": "test"}
+    assert AgentRunMetadata.RUNTIME_KEY not in result.metadata
 
 
 @pytest.mark.asyncio

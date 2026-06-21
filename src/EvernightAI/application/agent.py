@@ -344,10 +344,12 @@ class AgentApplication:
             if pending_tool_calls is not None
             else list(current_response.message.tool_calls or [])
         )
+        has_tool_runtime = bool(current_tool_calls)
         state.remaining_tool_rounds = remaining_rounds
         state.stop_reason = AgentStopReason.FINISHED
 
         while current_tool_calls and remaining_rounds > 0:
+            has_tool_runtime = True
             state.remaining_tool_rounds = remaining_rounds
             for index, raw_call in enumerate(current_tool_calls):
                 call = self._apply_tool_approval(
@@ -492,6 +494,7 @@ class AgentApplication:
             )
             current_tool_calls = list(current_response.message.tool_calls or [])
             already_requested_approval_call_ids = set()
+            has_tool_runtime = has_tool_runtime or bool(current_tool_calls)
 
         if current_tool_calls:
             state.stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
@@ -500,11 +503,12 @@ class AgentApplication:
         state.pending_tool_calls = []
         state.pending_approval_requests = []
         state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
-        state.metadata = AgentRunMetadata.with_tool_state(
-            state.metadata,
-            tool_rounds_used=state.tool_rounds_used,
-            pending_approval_count=0,
-        )
+        if has_tool_runtime:
+            state.metadata = AgentRunMetadata.with_tool_state(
+                state.metadata,
+                tool_rounds_used=state.tool_rounds_used,
+                pending_approval_count=0,
+            )
         state.steps.append(
             AgentStep(
                 step_type=AgentStepType.STOP,
@@ -763,11 +767,7 @@ class AgentApplication:
             run_id=run_id,
             request=request,
             remaining_tool_rounds=request.max_tool_rounds,
-            metadata=AgentRunMetadata.with_tool_state(
-                request.metadata,
-                tool_rounds_used=0,
-                pending_approval_count=0,
-            ),
+            metadata=dict(request.metadata),
         )
 
     def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
@@ -778,15 +778,30 @@ class AgentApplication:
         if state.stop_reason is None:
             raise AgentStateError("Agent run did not stop")
 
+        metadata = dict(state.request.metadata)
+        if self._has_tool_runtime(state):
+            metadata = AgentRunMetadata.with_runtime(
+                metadata,
+                **{AgentRunMetadata.TOOL_ROUNDS_USED_KEY: state.tool_rounds_used},
+            )
+
         return AgentRunResult(
             response=state.response,
             stop_reason=state.stop_reason,
             steps=list(state.steps),
             trace=list(state.trace),
-            metadata=AgentRunMetadata.with_runtime(
-                state.request.metadata,
-                **{AgentRunMetadata.TOOL_ROUNDS_USED_KEY: state.tool_rounds_used},
-            ),
+            metadata=metadata,
+        )
+
+    def _has_tool_runtime(self, state: AgentRunState) -> bool:
+        if state.pending_tool_calls or state.pending_approval_requests:
+            return True
+        if state.stop_reason is AgentStopReason.TOOL_ROUNDS_EXHAUSTED:
+            return True
+
+        return any(
+            step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
+            for step in state.steps
         )
 
     def _get_agent_state(self, run_id: str) -> AgentRunState:
