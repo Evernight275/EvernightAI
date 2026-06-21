@@ -3,6 +3,10 @@ from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.protocol.interface import (
+    AgentInterfaceProtocol,
+    AgentRunInterfaceProtocol,
+)
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -88,7 +92,7 @@ class AgentRunMetadata:
         )
 
 
-class AgentApplication:
+class AgentApplication(AgentInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
 
@@ -838,7 +842,7 @@ class _AgentTraceStream:
         return self._events
 
 
-class AgentRunApplication:
+class AgentRunApplication(AgentRunInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
         self._agent = AgentApplication(runtime)

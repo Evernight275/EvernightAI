@@ -1,4 +1,5 @@
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
+from EvernightAI.core.protocol.interface import ChatInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
@@ -12,7 +13,7 @@ from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.tool import ToolDefinition
 
 
-class ChatApplication:
+class ChatApplication(ChatInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
 
