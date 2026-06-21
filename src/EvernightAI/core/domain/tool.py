@@ -131,7 +131,6 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             ToolPermission.WRITE,
             ToolPermission.PROCESS,
             ToolPermission.NETWORK,
-            ToolPermission.FILESYSTEM,
             ToolPermission.DATABASE,
             ToolPermission.EXTERNAL_API,
         }

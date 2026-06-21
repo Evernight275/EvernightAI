@@ -152,6 +152,26 @@ def test_tool_safety_policy_returns_approval_request() -> None:
     ]
 
 
+def test_tool_safety_policy_allows_safe_filesystem_read() -> None:
+    policy = BasicToolSafetyPolicy()
+    tool = ToolDefinition(
+        name="read_file",
+        description="Read a file",
+        permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+        safety_level=ToolSafetyLevel.SAFE,
+    )
+    call = ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "read_file", "arguments": {"path": "note.txt"}},
+    )
+
+    decision = policy.authorize(tool, call)
+
+    assert decision.allowed is True
+    assert decision.requires_approval is False
+    assert decision.approval_request is None
+
+
 @pytest.mark.asyncio
 async def test_tool_manager_executes_approved_sensitive_tool_call() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
