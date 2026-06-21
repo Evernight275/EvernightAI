@@ -37,6 +37,57 @@ from EvernightAI.core.schema.tool import (
 )
 
 
+class AgentRunMetadata:
+    RUN_ID_KEY = "run_id"
+    RUNTIME_KEY = "agent_runtime"
+    PENDING_APPROVAL_COUNT_KEY = "pending_approval_count"
+    TOOL_ROUNDS_USED_KEY = "tool_rounds_used"
+
+    @classmethod
+    def run_id(cls, metadata: dict[str, object]) -> str | None:
+        run_id = metadata.get(cls.RUN_ID_KEY)
+        if isinstance(run_id, str) and run_id:
+            return run_id
+
+        return None
+
+    @classmethod
+    def with_runtime(
+        cls,
+        metadata: dict[str, object],
+        **runtime_values: object,
+    ) -> dict[str, object]:
+        next_metadata = dict(metadata)
+        runtime_metadata: dict[str, object] = {}
+        existing_runtime_metadata = next_metadata.get(cls.RUNTIME_KEY)
+        if isinstance(existing_runtime_metadata, dict):
+            runtime_metadata = {
+                key: value
+                for key, value in existing_runtime_metadata.items()
+                if isinstance(key, str)
+            }
+
+        runtime_metadata.update(runtime_values)
+        next_metadata[cls.RUNTIME_KEY] = runtime_metadata
+        return next_metadata
+
+    @classmethod
+    def with_tool_state(
+        cls,
+        metadata: dict[str, object],
+        *,
+        tool_rounds_used: int,
+        pending_approval_count: int,
+    ) -> dict[str, object]:
+        return cls.with_runtime(
+            metadata,
+            **{
+                cls.TOOL_ROUNDS_USED_KEY: tool_rounds_used,
+                cls.PENDING_APPROVAL_COUNT_KEY: pending_approval_count,
+            },
+        )
+
+
 class AgentApplication:
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
@@ -232,10 +283,11 @@ class AgentApplication:
         state.stop_reason = AgentStopReason.FINISHED
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = {
-            **state.metadata,
-            "pending_approval_count": 0,
-        }
+        state.metadata = AgentRunMetadata.with_tool_state(
+            state.metadata,
+            tool_rounds_used=state.tool_rounds_used,
+            pending_approval_count=0,
+        )
 
         async for event in self._continue_tool_loop(
             request,
@@ -389,6 +441,11 @@ class AgentApplication:
                         state.tool_rounds_used = (
                             request.max_tool_rounds - remaining_rounds
                         )
+                        state.metadata = AgentRunMetadata.with_tool_state(
+                            state.metadata,
+                            tool_rounds_used=state.tool_rounds_used,
+                            pending_approval_count=0,
+                        )
                         async for event in self._write_memory_events(request, state):
                             yield event
                         yield self._add_trace(
@@ -442,17 +499,18 @@ class AgentApplication:
         state.status = AgentRunStatus.FINISHED
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = {
-            **state.metadata,
-            "pending_approval_count": 0,
-        }
+        state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
+        state.metadata = AgentRunMetadata.with_tool_state(
+            state.metadata,
+            tool_rounds_used=state.tool_rounds_used,
+            pending_approval_count=0,
+        )
         state.steps.append(
             AgentStep(
                 step_type=AgentStepType.STOP,
                 metadata={"reason": state.stop_reason.value},
             )
         )
-        state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
         async for event in self._write_memory_events(request, state):
             yield event
         yield self._add_trace(state, self._run_stopped_event(state.stop_reason))
@@ -646,11 +704,11 @@ class AgentApplication:
         state.pending_approval_requests = (
             [approval_request] if approval_request is not None else []
         )
-        state.metadata = {
-            **state.metadata,
-            "tool_rounds_used": state.tool_rounds_used,
-            "pending_approval_count": len(state.pending_approval_requests),
-        }
+        state.metadata = AgentRunMetadata.with_tool_state(
+            state.metadata,
+            tool_rounds_used=state.tool_rounds_used,
+            pending_approval_count=len(state.pending_approval_requests),
+        )
         return AgentTraceEvent(
             event_type=AgentTraceEventType.RUN_PAUSED,
             tool_call=call,
@@ -697,15 +755,19 @@ class AgentApplication:
         return event
 
     def _new_run_state(self, request: AgentRunRequest) -> AgentRunState:
-        run_id = request.metadata.get("run_id")
-        if not isinstance(run_id, str) or not run_id:
+        run_id = AgentRunMetadata.run_id(request.metadata)
+        if run_id is None:
             run_id = uuid4().hex
 
         return AgentRunState(
             run_id=run_id,
             request=request,
             remaining_tool_rounds=request.max_tool_rounds,
-            metadata=dict(request.metadata),
+            metadata=AgentRunMetadata.with_tool_state(
+                request.metadata,
+                tool_rounds_used=0,
+                pending_approval_count=0,
+            ),
         )
 
     def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
@@ -721,10 +783,10 @@ class AgentApplication:
             stop_reason=state.stop_reason,
             steps=list(state.steps),
             trace=list(state.trace),
-            metadata={
-                **state.request.metadata,
-                "tool_rounds_used": state.tool_rounds_used,
-            },
+            metadata=AgentRunMetadata.with_runtime(
+                state.request.metadata,
+                **{AgentRunMetadata.TOOL_ROUNDS_USED_KEY: state.tool_rounds_used},
+            ),
         )
 
     def _get_agent_state(self, run_id: str) -> AgentRunState:

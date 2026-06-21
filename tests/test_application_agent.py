@@ -2,7 +2,11 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from EvernightAI.application.agent import AgentApplication, AgentRunApplication
+from EvernightAI.application.agent import (
+    AgentApplication,
+    AgentRunApplication,
+    AgentRunMetadata,
+)
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
@@ -122,7 +126,9 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
     assert result.stop_reason is AgentStopReason.FINISHED
     assert result.metadata == {
         "run_id": "run-1",
-        "tool_rounds_used": 1,
+        AgentRunMetadata.RUNTIME_KEY: {
+            AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 1,
+        },
     }
     assert [event.event_type for event in result.trace] == [
         AgentTraceEventType.RUN_STARTED,
@@ -488,7 +494,10 @@ async def test_agent_run_until_pause_returns_pending_approval_state() -> None:
     assert state.pending_tool_calls[0].tool_call_id == "tool-call-1"
     assert len(state.pending_approval_requests) == 1
     assert state.pending_approval_requests[0].tool_name == "write_file"
-    assert state.metadata["pending_approval_count"] == 1
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 1,
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 0,
+    }
     assert [event.event_type for event in state.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
@@ -573,6 +582,68 @@ async def test_agent_resume_stream_continues_after_approved_tool() -> None:
         MessageRole.TOOL,
         MessageRole.ASSISTANT,
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_state_metadata_namespaces_runtime_values() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(provider=SensitiveToolProvider())
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    state = await app.run_agent_until_pause(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            metadata={
+                "run_id": "run-1",
+                "pending_approval_count": "caller-value",
+                "tool_rounds_used": "caller-value",
+            },
+        )
+    )
+
+    assert state.metadata["pending_approval_count"] == "caller-value"
+    assert state.metadata["tool_rounds_used"] == "caller-value"
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 1,
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 0,
+    }
+
+    resumed = await app.resume_agent_until_pause(
+        state,
+        [
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+    )
+
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert resumed.metadata["pending_approval_count"] == "caller-value"
+    assert resumed.metadata["tool_rounds_used"] == "caller-value"
+    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY] == {
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 0,
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -1054,7 +1125,12 @@ async def test_agent_reports_tool_rounds_exhausted() -> None:
     )
 
     assert result.stop_reason is AgentStopReason.TOOL_ROUNDS_EXHAUSTED
-    assert result.metadata["tool_rounds_used"] == 0
+    assert (
+        result.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+        ]
+        == 0
+    )
     assert [step.step_type for step in result.steps] == [
         AgentStepType.START,
         AgentStepType.CHAT,
