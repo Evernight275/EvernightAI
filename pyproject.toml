@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "httpx",
+    "httpx2",
     "pydantic",
     "pytest",
     "pytest-asyncio",
