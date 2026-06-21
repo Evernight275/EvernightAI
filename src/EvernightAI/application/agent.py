@@ -3,6 +3,10 @@ from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.protocol.agent import (
+    AgentRunStateRegisterProtocol,
+    AgentTraceRegisterProtocol,
+)
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
 from EvernightAI.core.schema.agent import (
@@ -755,3 +759,42 @@ class _AgentTraceStream:
 
     def __aiter__(self) -> AsyncIterator[AgentTraceEvent]:
         return self._events
+
+
+class AgentRunApplication:
+    def __init__(self, runtime: RuntimeProtocol) -> None:
+        self._runtime = runtime
+        self._agent = AgentApplication(runtime)
+
+    async def start(self, request: AgentRunRequest) -> AgentRunState:
+        return await self._agent.start_agent_run(request)
+
+    async def resume(
+        self,
+        run_id: str,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentRunState:
+        return await self._agent.resume_agent_run(run_id, approvals)
+
+    def get_state(self, run_id: str) -> AgentRunState:
+        return self._state_register().get_state(run_id)
+
+    def list_states(self) -> list[AgentRunState]:
+        return self._state_register().list_states()
+
+    def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
+        return self._trace_register().list_events(run_id)
+
+    def _state_register(self) -> AgentRunStateRegisterProtocol:
+        register = self._runtime.agent_state_register
+        if register is None:
+            raise AgentStateError("Agent state register is not configured")
+
+        return register
+
+    def _trace_register(self) -> AgentTraceRegisterProtocol:
+        register = self._runtime.agent_trace_register
+        if register is None:
+            raise AgentStateError("Agent trace register is not configured")
+
+        return register

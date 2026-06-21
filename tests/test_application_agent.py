@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from EvernightAI.application.agent import AgentApplication
+from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
@@ -873,6 +873,103 @@ async def test_agent_start_run_requires_storage_registers() -> None:
 
     with pytest.raises(AgentStateError, match="state register"):
         await app.start_agent_run(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Hello")],
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_agent_run_application_facade_manages_persisted_runs() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    state = await app.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "run-1"},
+        )
+    )
+
+    assert state.status is AgentRunStatus.PAUSED
+    assert app.get_state("run-1") == state
+    assert app.list_states() == [state]
+    assert [event.event_type for event in app.list_trace("run-1")] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.RUN_PAUSED,
+    ]
+
+    resumed = await app.resume(
+        "run-1",
+        [
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+    )
+
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert app.get_state("run-1") == resumed
+    assert [event.event_type for event in app.list_trace("run-1")] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+        AgentTraceEventType.RUN_PAUSED,
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_run_application_requires_storage_registers() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+
+    with pytest.raises(AgentStateError, match="state register"):
+        app.get_state("missing")
+
+    with pytest.raises(AgentStateError, match="trace register"):
+        app.list_trace("missing")
+
+    with pytest.raises(AgentStateError, match="state register"):
+        await app.start(
             AgentRunRequest(
                 provider_id="provider-1",
                 context_id="ctx-1",
