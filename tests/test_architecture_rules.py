@@ -6,6 +6,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = PROJECT_ROOT / "src" / "EvernightAI"
 CORE_ROOT = PACKAGE_ROOT / "core"
 APPLICATION_ROOT = PACKAGE_ROOT / "application"
+INFRA_ROOT = PACKAGE_ROOT / "infra"
+INTERFACE_ROOT = PACKAGE_ROOT / "interface"
 
 
 def test_core_only_depends_on_core_modules() -> None:
@@ -37,6 +39,50 @@ def test_application_does_not_depend_on_infra_modules() -> None:
     violations: list[str] = []
 
     for path in _python_files(APPLICATION_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_infra_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if _is_infra_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_core_application_and_infra_do_not_depend_on_interface_modules() -> None:
+    violations: list[str] = []
+
+    for root in [CORE_ROOT, APPLICATION_ROOT, INFRA_ROOT]:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if _is_interface_dependency(alias.name):
+                            violations.append(f"{_rel(path)} imports {alias.name}")
+
+                if isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    if _is_interface_dependency(module):
+                        imported = ", ".join(alias.name for alias in node.names)
+                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_interface_communication_layers_do_not_depend_on_infra_modules() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(INTERFACE_ROOT):
+        if path == INTERFACE_ROOT / "bootstrap.py":
+            continue
+
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -95,6 +141,12 @@ def _is_forbidden_core_from_import(module: str, imported_names: list[str]) -> bo
 
 def _is_infra_dependency(module: str) -> bool:
     return module == "EvernightAI.infra" or module.startswith("EvernightAI.infra.")
+
+
+def _is_interface_dependency(module: str) -> bool:
+    return module == "EvernightAI.interface" or module.startswith(
+        "EvernightAI.interface."
+    )
 
 
 def _rel(path: Path) -> str:
