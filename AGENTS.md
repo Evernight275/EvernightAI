@@ -72,7 +72,7 @@ Start the local HTTP interface:
 ```powershell
 $env:EVERNIGHTAI_DATABASE_PATH=".evernight\runtime.sqlite3"
 $env:EVERNIGHTAI_FILESYSTEM_ROOT=(Get-Location).Path
-.\.venv\Scripts\python.exe -m uvicorn EvernightAI.server:create_app --factory --reload
+.\.venv\Scripts\python.exe -m uvicorn EvernightAI.entrypoint.server:create_app --factory --reload
 ```
 
 The HTTP startup module is a package-level composition root. Keep runtime and

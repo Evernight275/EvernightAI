@@ -8,6 +8,7 @@ CORE_ROOT = PACKAGE_ROOT / "core"
 APPLICATION_ROOT = PACKAGE_ROOT / "application"
 INFRA_ROOT = PACKAGE_ROOT / "infra"
 INTERFACE_ROOT = PACKAGE_ROOT / "interface"
+ENTRYPOINT_ROOT = PACKAGE_ROOT / "entrypoint"
 
 
 def test_core_only_depends_on_core_modules() -> None:
@@ -101,6 +102,57 @@ def test_interface_does_not_depend_on_application_or_infra_modules() -> None:
     assert violations == []
 
 
+def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
+    violations: list[str] = []
+
+    for root in [CORE_ROOT, APPLICATION_ROOT, INFRA_ROOT, INTERFACE_ROOT]:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if _is_entrypoint_dependency(alias.name):
+                            violations.append(f"{_rel(path)} imports {alias.name}")
+
+                if isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    if _is_entrypoint_dependency(module):
+                        imported = ", ".join(alias.name for alias in node.names)
+                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_entrypoint_does_not_depend_on_application_infra_or_interface_modules() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(ENTRYPOINT_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_application_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+                    if _is_infra_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+                    if _is_interface_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if _is_application_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+                if _is_infra_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+                if _is_interface_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
 def test_init_files_are_comment_only() -> None:
     violations: list[str] = []
 
@@ -154,6 +206,12 @@ def _is_application_dependency(module: str) -> bool:
 def _is_interface_dependency(module: str) -> bool:
     return module == "EvernightAI.interface" or module.startswith(
         "EvernightAI.interface."
+    )
+
+
+def _is_entrypoint_dependency(module: str) -> bool:
+    return module == "EvernightAI.entrypoint" or module.startswith(
+        "EvernightAI.entrypoint."
     )
 
 
