@@ -49,6 +49,7 @@ from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentTraceRegister,
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
+from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
 )
@@ -137,6 +138,14 @@ def create_sqlite_context_register(database_path: str | Path) -> SQLiteContextRe
 
 def create_sqlite_context_manager(database_path: str | Path) -> ContextManager:
     return ContextManager(create_sqlite_context_register(database_path))
+
+
+def create_sqlite_memory_register(database_path: str | Path) -> SQLiteMemoryRegister:
+    return SQLiteMemoryRegister(database_path)
+
+
+def create_sqlite_memory_manager(database_path: str | Path) -> MemoryManager:
+    return MemoryManager(create_sqlite_memory_register(database_path))
 
 
 def create_sqlite_agent_state_register(
