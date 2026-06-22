@@ -240,6 +240,13 @@ async def test_agent_streams_tool_loop_events() -> None:
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
+    assert [event.summary for event in events] == [
+        "Agent run started",
+        "Model response received",
+        "Tool add completed",
+        "Model response received",
+        "Agent run stopped: finished",
+    ]
     assert events[2].tool_result is not None
     assert events[-1].metadata["reason"] == AgentStopReason.FINISHED.value
     assert [message.role for message in context.messages] == [
@@ -342,6 +349,7 @@ async def test_agent_can_stop_on_tool_error() -> None:
         AgentTraceEventType.TOOL_FAILED,
         AgentTraceEventType.RUN_STOPPED,
     ]
+    assert result.trace[2].summary == "Tool missing failed with ToolNotFoundError"
 
 
 @pytest.mark.asyncio
@@ -397,9 +405,11 @@ async def test_agent_traces_tool_approval_decision() -> None:
     assert len(approval_requested) == 1
     assert approval_requested[0].approval_request is not None
     assert approval_requested[0].approval_request.tool_name == "write_file"
+    assert approval_requested[0].summary == "Tool approval requested for write_file"
     assert len(approval_decided) == 1
     assert approval_decided[0].approval_decision is not None
     assert approval_decided[0].approval_decision.status is ToolApprovalStatus.APPROVED
+    assert approval_decided[0].summary == "Tool approval approved for write_file"
     assert AgentTraceEventType.TOOL_COMPLETED in [
         event.event_type for event in result.trace
     ]

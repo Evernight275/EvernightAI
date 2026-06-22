@@ -102,6 +102,7 @@ class AgentTraceEvent(EvernightAISchema):
     """Agent运行追踪事件"""
 
     event_type: AgentTraceEventType
+    summary: str | None = None
     step_type: AgentStepType | None = None
     message: Content | None = None
     response: ChatResponse | None = None

@@ -440,6 +440,11 @@ def test_http_app_streams_agent_trace_events() -> None:
         "chat_completed",
         "run_stopped",
     ]
+    assert [event["summary"] for event in events] == [
+        "Agent run started",
+        "Model response received",
+        "Agent run stopped: finished",
+    ]
     assert events[-1]["metadata"]["reason"] == "finished"
     assert state_response.status_code == 200
     assert state_response.json()["status"] == "finished"
@@ -447,6 +452,11 @@ def test_http_app_streams_agent_trace_events() -> None:
         "run_started",
         "chat_completed",
         "run_stopped",
+    ]
+    assert [event["summary"] for event in trace_response.json()] == [
+        "Agent run started",
+        "Model response received",
+        "Agent run stopped: finished",
     ]
 
 
@@ -499,6 +509,12 @@ def test_http_app_streams_agent_pause_for_tool_approval() -> None:
         "chat_completed",
         "tool_approval_requested",
         "run_paused",
+    ]
+    assert [event["summary"] for event in events] == [
+        "Agent run started",
+        "Model response received",
+        "Tool approval requested for write_file",
+        "Agent run paused: tool_approval_required",
     ]
     assert events[2]["approval_request"]["tool_name"] == "write_file"
     assert events[3]["metadata"]["reason"] == "tool_approval_required"
