@@ -1,9 +1,10 @@
 from pathlib import Path
 
-from EvernightAI.cli import main
+from EvernightAI.cli import main as package_main
+from EvernightAI.entrypoint.cli import main as entrypoint_main
 
 
-def test_cli_config_check_prints_summary(
+def test_entrypoint_cli_config_check_prints_summary(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -17,7 +18,7 @@ type = "openai"
         encoding="utf-8",
     )
 
-    exit_code = main(["config", "check", "--config", str(config_path)])
+    exit_code = entrypoint_main(["config", "check", "--config", str(config_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -25,7 +26,7 @@ type = "openai"
     assert "providers: 1" in captured.out
 
 
-def test_cli_config_show_prints_redacted_json(
+def test_package_cli_wrapper_prints_redacted_config_json(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -40,7 +41,7 @@ api_key = "secret-key"
         encoding="utf-8",
     )
 
-    exit_code = main(["config", "show", "--config", str(config_path)])
+    exit_code = package_main(["config", "show", "--config", str(config_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
