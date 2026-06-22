@@ -272,7 +272,7 @@ type = "openai"
     )
 
     monkeypatch.setattr(
-        "EvernightAI.cli.create_runtime_from_config",
+        "EvernightAI.entrypoint.cli.create_runtime_from_config",
         lambda _config: make_runtime(),
     )
 
@@ -310,7 +310,7 @@ type = "openai"
     )
 
     monkeypatch.setattr(
-        "EvernightAI.cli.create_runtime_from_config",
+        "EvernightAI.entrypoint.cli.create_runtime_from_config",
         lambda _config: make_runtime(),
     )
 
@@ -349,7 +349,7 @@ is_enabled = false
     )
 
     monkeypatch.setattr(
-        "EvernightAI.cli.create_runtime_from_config",
+        "EvernightAI.entrypoint.cli.create_runtime_from_config",
         lambda _config: make_runtime(),
     )
 
