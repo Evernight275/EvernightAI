@@ -175,6 +175,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
     assert runtime.tools.list_tools() == []
+    assert runtime.skills.list_skills() == []
     assert runtime.tool_safety_policy.authorize
     assert await runtime.contexts.list_contexts() == []
     assert runtime.context_organizer.organize
@@ -212,6 +213,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         "write_text_file",
         "list_directory",
     ]
+    assert runtime.skills.list_skills() == []
     assert runtime.agent_state_register is not None
     assert runtime.agent_trace_register is not None
 

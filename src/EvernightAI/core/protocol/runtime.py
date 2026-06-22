@@ -19,6 +19,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
@@ -45,6 +46,12 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol: ...
+
+    @property
+    def skill_register(self) -> SkillRegisterProtocol: ...
+
+    @property
+    def skills(self) -> SkillManageProtocol: ...
 
     @property
     def context_register(self) -> ContextRegisterProtocol: ...

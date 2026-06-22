@@ -14,6 +14,7 @@ from EvernightAI.core.domain.memory import (
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.domain.skill import SkillManager, SkillRegister
 from EvernightAI.core.domain.tool import (
     BasicToolSafetyPolicy,
     ToolManager,
@@ -40,6 +41,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderManageProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
@@ -98,6 +100,16 @@ def create_tool_manager(
         register or create_tool_register(),
         safety_policy or create_tool_safety_policy(),
     )
+
+
+def create_skill_register() -> SkillRegister:
+    return SkillRegister()
+
+
+def create_skill_manager(
+    register: SkillRegisterProtocol | None = None,
+) -> SkillManager:
+    return SkillManager(register or create_skill_register())
 
 
 def register_builtin_tools(
@@ -264,6 +276,8 @@ def _create_runtime(
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
+    skill_register: SkillRegisterProtocol | None = None,
+    skills: SkillManageProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
 ) -> RuntimeKernel:
@@ -272,6 +286,8 @@ def _create_runtime(
     tool_register = tool_register or create_tool_register()
     tool_safety_policy = tool_safety_policy or create_tool_safety_policy()
     tools = ToolManager(tool_register, tool_safety_policy)
+    skill_register = skill_register or create_skill_register()
+    skills = skills or create_skill_manager(skill_register)
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
     context_strategy = create_context_strategy(context_organizer)
@@ -285,6 +301,8 @@ def _create_runtime(
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,
+        skill_register=skill_register,
+        skills=skills,
         context_register=context_register,
         contexts=contexts,
         context_organizer=context_organizer,

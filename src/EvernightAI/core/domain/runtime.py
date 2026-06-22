@@ -18,12 +18,14 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.domain.skill import SkillManager, SkillRegister
 
 
 class RuntimeKernel(RuntimeProtocol):
@@ -43,6 +45,8 @@ class RuntimeKernel(RuntimeProtocol):
         memories: MemoryManageProtocol,
         memory_strategy: MemoryStrategyProtocol,
         memory_write_strategy: MemoryWriteStrategyProtocol,
+        skill_register: SkillRegisterProtocol | None = None,
+        skills: SkillManageProtocol | None = None,
         agent_state_register: AgentRunStateRegisterProtocol | None = None,
         agent_trace_register: AgentTraceRegisterProtocol | None = None,
     ) -> None:
@@ -51,6 +55,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._tool_register = tool_register
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
+        self._skill_register = skill_register or SkillRegister()
+        self._skills = skills or SkillManager(self._skill_register)
         self._context_register = context_register
         self._contexts = contexts
         self._context_organizer = context_organizer
@@ -81,6 +87,14 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol:
         return self._tool_safety_policy
+
+    @property
+    def skill_register(self) -> SkillRegisterProtocol:
+        return self._skill_register
+
+    @property
+    def skills(self) -> SkillManageProtocol:
+        return self._skills
 
     @property
     def context_register(self) -> ContextRegisterProtocol:
