@@ -48,6 +48,7 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.memory import MemoryItem, MemoryScope
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
@@ -1279,6 +1280,74 @@ async def test_agent_can_write_memory_after_run() -> None:
         AgentTraceEventType.RUN_STOPPED,
     ]
     assert memories[0].metadata["step_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_agent_writes_memory_to_session_scope_when_session_id_is_present() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Remember this")],
+            write_memory=True,
+            metadata={"session_id": "session-1"},
+        )
+    )
+
+    memories = await runtime.memories.list_memories()
+
+    assert len(memories) == 1
+    assert memories[0].scope is MemoryScope.SESSION
+    assert memories[0].scope_id == "session-1"
+    assert memories[0].metadata["context_id"] == "ctx-1"
+
+
+@pytest.mark.asyncio
+async def test_agent_selects_session_memory_from_metadata() -> None:
+    provider = FinalAnswerProvider()
+    runtime = make_runtime(provider=provider)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.memories.create(
+        MemoryItem(
+            memory_id="session-memory",
+            content="This session prefers concise replies",
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+        )
+    )
+    await runtime.memories.create(
+        MemoryItem(
+            memory_id="other-session-memory",
+            content="Other session memory",
+            scope=MemoryScope.SESSION,
+            scope_id="session-2",
+        )
+    )
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Current request")],
+            metadata={"session_id": "session-1"},
+        )
+    )
+
+    assert [message_text(message) for message in provider.requests[0].messages] == [
+        "Relevant memory:\n- fact: This session prefers concise replies",
+        "Current request",
+    ]
+    assert provider.requests[0].metadata["memory_ids"] == ["session-memory"]
+    assert provider.requests[0].metadata["session_id"] == "session-1"
 
 
 def make_runtime(

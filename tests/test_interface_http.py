@@ -149,6 +149,182 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     assert tools_response.json() == []
 
 
+def test_http_app_exposes_session_routes() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/sessions",
+            json={
+                "session_id": "session-1",
+                "title": "First chat",
+                "context_id": "ctx-1",
+                "provider_id": "provider-1",
+                "model_id": "model-1",
+                "metadata": {"source": "test"},
+            },
+        )
+        list_response = client.get("/sessions")
+        get_response = client.get("/sessions/session-1")
+        created_context_response = client.get("/contexts/ctx-1")
+        replace_response = client.put(
+            "/sessions/session-1",
+            json={
+                "session_id": "ignored",
+                "title": "Renamed chat",
+                "context_id": "ctx-1",
+                "provider_id": "provider-1",
+                "model_id": "model-2",
+            },
+        )
+        archive_response = client.post("/sessions/session-1/archive")
+        delete_response = client.delete("/sessions/session-1")
+        missing_response = client.get("/sessions/session-1")
+
+    assert create_response.status_code == 201
+    assert create_response.json()["status"] == "active"
+    assert create_response.json()["context_id"] == "ctx-1"
+    assert list_response.status_code == 200
+    assert [session["session_id"] for session in list_response.json()] == [
+        "session-1"
+    ]
+    assert get_response.status_code == 200
+    assert get_response.json()["title"] == "First chat"
+    assert created_context_response.status_code == 200
+    assert created_context_response.json()["metadata"] == {"session_id": "session-1"}
+    assert replace_response.status_code == 200
+    assert replace_response.json()["session_id"] == "session-1"
+    assert replace_response.json()["title"] == "Renamed chat"
+    assert replace_response.json()["model_id"] == "model-2"
+    assert archive_response.status_code == 200
+    assert archive_response.json()["status"] == "archived"
+    assert delete_response.status_code == 204
+    assert missing_response.status_code == 404
+
+
+def test_http_app_chats_with_session_defaults_and_memory() -> None:
+    provider = FakeProvider()
+    runtime = make_runtime(provider=provider)
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post(
+            "/memories",
+            json={
+                "memory_id": "session-memory",
+                "content": "This session prefers concise replies",
+                "scope": "session",
+                "scope_id": "session-1",
+            },
+        )
+        client.post(
+            "/sessions",
+            json={
+                "session_id": "session-1",
+                "title": "First chat",
+                "context_id": "ctx-1",
+                "provider_id": "provider-1",
+                "model_id": "model-1",
+            },
+        )
+        chat_response = client.post(
+            "/sessions/session-1/chat",
+            json={
+                "messages": [message_json("Hello")],
+                "metadata": {"request_id": "req-1"},
+            },
+        )
+        context_response = client.get("/contexts/ctx-1")
+
+    assert chat_response.status_code == 200
+    assert chat_response.json()["session"]["session_id"] == "session-1"
+    assert chat_response.json()["response"]["message"]["content"][0]["text"] == "ok"
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Relevant memory:\n- fact: This session prefers concise replies",
+        "Hello",
+    ]
+    assert provider.last_request.metadata["session_id"] == "session-1"
+    assert provider.last_request.metadata["request_id"] == "req-1"
+    assert provider.last_request.metadata["context_id"] == "ctx-1"
+    assert provider.last_request.metadata["memory_ids"] == ["session-memory"]
+    assert [message["content"][0]["text"] for message in context_response.json()["messages"]] == [
+        "Hello",
+        "ok",
+    ]
+
+
+def test_http_app_starts_agent_run_from_session_defaults() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    provider = FakeProvider()
+    interface = create_interface(
+        make_runtime(
+            provider=provider,
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post(
+            "/sessions",
+            json={
+                "session_id": "session-1",
+                "title": "Agent chat",
+                "context_id": "ctx-1",
+                "provider_id": "provider-1",
+                "model_id": "model-1",
+            },
+        )
+        start_response = client.post(
+            "/sessions/session-1/agent-runs",
+            json={
+                "messages": [message_json("Use the session")],
+                "metadata": {"run_id": "run-1"},
+            },
+        )
+        stored_response = client.get("/agent-runs/run-1")
+        context_response = client.get("/contexts/ctx-1")
+
+    assert start_response.status_code == 201
+    assert start_response.json()["run_id"] == "run-1"
+    assert start_response.json()["request"]["provider_id"] == "provider-1"
+    assert start_response.json()["request"]["context_id"] == "ctx-1"
+    assert start_response.json()["request"]["model_id"] == "model-1"
+    assert start_response.json()["request"]["metadata"] == {
+        "run_id": "run-1",
+        "session_id": "session-1",
+    }
+    assert stored_response.status_code == 200
+    assert stored_response.json()["status"] == "finished"
+    assert provider.last_request is not None
+    assert provider.last_request.metadata["session_id"] == "session-1"
+    assert [message["content"][0]["text"] for message in context_response.json()["messages"]] == [
+        "Use the session",
+        "ok",
+    ]
+
+
 def test_http_app_exposes_skill_routes() -> None:
     async def summarize(request: SkillRenderRequest) -> RenderedSkill:
         return RenderedSkill(
@@ -588,6 +764,13 @@ def make_message(text: str, *, role: MessageRole = MessageRole.USER) -> Content:
         role=role,
         content=[ContentPart(type=ContentPartType.TEXT, text=text)],
     )
+
+
+def message_text(message: Content) -> str:
+    if not message.content or message.content[0].text is None:
+        return ""
+
+    return message.content[0].text
 
 
 def parse_sse_events(body: str) -> list[dict[str, Any]]:

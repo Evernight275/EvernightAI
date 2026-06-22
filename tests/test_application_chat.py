@@ -159,6 +159,92 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_application_selects_session_memory_from_metadata() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(Context(context_id="ctx-1"))
+    await app.create_memory(
+        MemoryItem(
+            memory_id="session-memory",
+            content="This session prefers terse replies",
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+        )
+    )
+    await app.create_memory(
+        MemoryItem(
+            memory_id="other-session-memory",
+            content="Other session memory",
+            scope=MemoryScope.SESSION,
+            scope_id="session-2",
+        )
+    )
+
+    await app.chat_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+        metadata={"session_id": "session-1"},
+    )
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Relevant memory:\n- fact: This session prefers terse replies",
+        "Current request",
+    ]
+    assert provider.last_request.metadata["memory_ids"] == ["session-memory"]
+    assert provider.last_request.metadata["session_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_application_respects_explicit_memory_query_over_session_metadata() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(Context(context_id="ctx-1"))
+    await app.create_memory(
+        MemoryItem(
+            memory_id="session-memory",
+            content="Session memory",
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+        )
+    )
+    await app.create_memory(
+        MemoryItem(
+            memory_id="context-memory",
+            content="Context memory",
+            scope=MemoryScope.CONTEXT,
+            scope_id="ctx-1",
+        )
+    )
+
+    await app.chat_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+        memory_query=MemoryQuery(scope=MemoryScope.CONTEXT, scope_id="ctx-1"),
+        metadata={"session_id": "session-1"},
+    )
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Relevant memory:\n- fact: Context memory",
+        "Current request",
+    ]
+    assert provider.last_request.metadata["memory_ids"] == ["context-memory"]
+
+
+@pytest.mark.asyncio
 async def test_chat_application_renders_skills_into_prompt_messages() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)

@@ -195,6 +195,46 @@ def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> N
     }
 
 
+def test_basic_memory_write_strategy_creates_session_summary_when_session_id_present() -> None:
+    strategy = BasicMemoryWriteStrategy()
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Remember this")],
+            )
+        ],
+        write_memory=True,
+        metadata={"session_id": "session-1"},
+    )
+    result = AgentRunResult(
+        response=ChatResponse(
+            model_id="model-1",
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Stored")],
+            ),
+        )
+    )
+
+    memories = strategy.create_memories(request, result)
+
+    assert len(memories) == 1
+    assert memories[0].scope is MemoryScope.SESSION
+    assert memories[0].scope_id == "session-1"
+    assert memories[0].tags == ["agent", "summary", "session"]
+    assert memories[0].metadata == {
+        "provider_id": "provider-1",
+        "model_id": "model-1",
+        "stop_reason": "finished",
+        "step_count": 0,
+        "context_id": "ctx-1",
+    }
+
+
 def test_basic_memory_write_strategy_skips_when_disabled() -> None:
     strategy = BasicMemoryWriteStrategy()
 

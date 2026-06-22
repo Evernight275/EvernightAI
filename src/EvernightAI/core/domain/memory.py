@@ -124,6 +124,8 @@ class BasicMemoryStrategy(MemoryStrategyProtocol):
 
 
 class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
+    SESSION_ID_METADATA_KEY = "session_id"
+
     def create_memories(
         self,
         request: AgentRunRequest,
@@ -146,21 +148,28 @@ class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
             ]
             if part
         )
+        session_id = self._session_id(request.metadata)
+        scope = MemoryScope.SESSION if session_id is not None else MemoryScope.CONTEXT
+        scope_id = session_id or request.context_id
+        tags = ["agent", "summary", "session"] if session_id else ["agent", "summary"]
+        metadata = {
+            "provider_id": request.provider_id,
+            "model_id": request.model_id,
+            "stop_reason": result.stop_reason.value,
+            "step_count": len(result.steps),
+        }
+        if session_id is not None:
+            metadata["context_id"] = request.context_id
 
         return [
             MemoryItem(
                 memory_id=f"agent-summary-{uuid4().hex}",
                 content=content,
                 kind=MemoryKind.SUMMARY,
-                scope=MemoryScope.CONTEXT,
-                scope_id=request.context_id,
-                tags=["agent", "summary"],
-                metadata={
-                    "provider_id": request.provider_id,
-                    "model_id": request.model_id,
-                    "stop_reason": result.stop_reason.value,
-                    "step_count": len(result.steps),
-                },
+                scope=scope,
+                scope_id=scope_id,
+                tags=tags,
+                metadata=metadata,
             )
         ]
 
@@ -174,3 +183,10 @@ class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
                     texts.append(part.text)
 
         return "\n".join(texts)
+
+    def _session_id(self, metadata: dict[str, object]) -> str | None:
+        session_id = metadata.get(self.SESSION_ID_METADATA_KEY)
+        if isinstance(session_id, str) and session_id:
+            return session_id
+
+        return None

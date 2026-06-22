@@ -9,7 +9,12 @@ from EvernightAI.core.schema.content import (
     Content,
 )
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
+from EvernightAI.core.schema.memory import (
+    MemoryItem,
+    MemoryQuery,
+    MemoryScope,
+    MemorySelection,
+)
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.tool import ToolDefinition
@@ -75,6 +80,7 @@ class ChatApplication(ChatInterfaceProtocol):
         metadata: dict[str, object] | None = None,
     ) -> ChatRequest:
         context = await self._runtime.contexts.get(context_id)
+        memory_query = memory_query or self._session_memory_query(metadata)
         selected_memories = (
             await self.select_memories(memory_query)
             if memory_query is not None
@@ -138,3 +144,13 @@ class ChatApplication(ChatInterfaceProtocol):
 
     async def close(self) -> None:
         await self._runtime.close()
+
+    def _session_memory_query(
+        self,
+        metadata: dict[str, object] | None,
+    ) -> MemoryQuery | None:
+        session_id = (metadata or {}).get("session_id")
+        if isinstance(session_id, str) and session_id:
+            return MemoryQuery(scope=MemoryScope.SESSION, scope_id=session_id)
+
+        return None

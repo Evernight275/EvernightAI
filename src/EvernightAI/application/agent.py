@@ -32,7 +32,7 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.memory import MemoryQuery
+from EvernightAI.core.schema.memory import MemoryQuery, MemoryScope
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
@@ -543,6 +543,7 @@ class AgentApplication(AgentInterfaceProtocol):
         metadata: dict[str, object] | None = None,
     ) -> ChatResponse:
         context = await self._runtime.contexts.get(context_id)
+        memory_query = memory_query or self._session_memory_query(metadata)
         memory_selection = (
             self._runtime.memory_strategy.select(
                 await self._runtime.memories.list_memories(),
@@ -578,6 +579,16 @@ class AgentApplication(AgentInterfaceProtocol):
                 )
             ],
         )
+
+    def _session_memory_query(
+        self,
+        metadata: dict[str, object] | None,
+    ) -> MemoryQuery | None:
+        session_id = (metadata or {}).get("session_id")
+        if isinstance(session_id, str) and session_id:
+            return MemoryQuery(scope=MemoryScope.SESSION, scope_id=session_id)
+
+        return None
 
     def _tool_error_to_message(self, call: ToolCall, exc: Exception) -> Content:
         payload = {
