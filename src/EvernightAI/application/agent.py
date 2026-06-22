@@ -26,12 +26,14 @@ from EvernightAI.core.schema.agent import (
 )
 from EvernightAI.core.schema.content import (
     ChatResponse,
+    ChatSkill,
     Content,
     ContentPart,
     ContentPartType,
     MessageRole,
 )
 from EvernightAI.core.schema.memory import MemoryQuery
+from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolCall,
@@ -39,6 +41,7 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolSafetyDecision,
 )
+from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 
 
 class AgentRunMetadata:
@@ -212,6 +215,7 @@ class AgentApplication(AgentInterfaceProtocol):
             model_id=request.model_id,
             messages=request.messages,
             memory_query=request.memory_query,
+            skills=request.skills,
             tools=request.tools,
             metadata=request.metadata,
         )
@@ -312,6 +316,7 @@ class AgentApplication(AgentInterfaceProtocol):
         model_id: str,
         messages: list[Content],
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
         max_tool_rounds: int = 1,
@@ -323,6 +328,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 model_id=model_id,
                 messages=messages,
                 memory_query=memory_query,
+                skills=skills,
                 tools=tools,
                 max_tool_rounds=max_tool_rounds,
                 recover_tool_errors=True,
@@ -472,6 +478,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 request.context_id,
                 model_id=request.model_id,
                 messages=[],
+                skills=request.skills,
                 tools=request.tools,
                 metadata=request.metadata,
             )
@@ -531,6 +538,7 @@ class AgentApplication(AgentInterfaceProtocol):
         model_id: str,
         messages: list[Content],
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatResponse:
@@ -550,6 +558,12 @@ class AgentApplication(AgentInterfaceProtocol):
             memory_selection=memory_selection,
             tools=tools,
             metadata=metadata,
+        )
+        request = request.model_copy(update={"skills": skills})
+        request = await compose_skill_prompted_chat_request(
+            self._runtime,
+            request,
+            SkillCapability.AGENT,
         )
         return await self._runtime.providers.chat(provider_id, request)
 

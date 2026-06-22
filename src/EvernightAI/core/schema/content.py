@@ -52,6 +52,15 @@ class Content(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChatSkill(EvernightAISchema):
+    """聊天请求中的技能提示词声明"""
+
+    skill_name: str
+    render_id: str | None = None
+    variables: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ChatUsage(EvernightAISchema):
     """聊天调用用量"""
 
@@ -66,6 +75,7 @@ class ChatRequest(EvernightAISchema):
 
     model_id: str
     messages: list[Content]
+    skills: list[ChatSkill] | None = None
     tools: list[ToolDefinition] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

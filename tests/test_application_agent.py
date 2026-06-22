@@ -41,6 +41,7 @@ from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
+    ChatSkill,
     Content,
     ContentPart,
     ContentPartType,
@@ -52,6 +53,12 @@ from EvernightAI.core.schema.provider import (
     ProviderModelCapability,
     ProviderModelConfig,
     ProviderType,
+)
+from EvernightAI.core.schema.skill import (
+    RenderedSkill,
+    SkillCapability,
+    SkillDefinition,
+    SkillRenderRequest,
 )
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
@@ -137,6 +144,63 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_renders_skills_for_each_chat_round() -> None:
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    runtime = make_runtime()
+    register_style_skill(runtime)
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+            skills=[
+                ChatSkill(
+                    skill_name="style",
+                    variables={"tone": "concise"},
+                )
+            ],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+    context = await runtime.contexts.get("ctx-1")
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, ToolCallingProvider)
+    assert len(provider.requests) == 2
+    assert [message_text(message) for message in provider.requests[0].messages] == [
+        "Use concise style",
+        "What is 1 + 2?",
+    ]
+    assert message_text(provider.requests[1].messages[0]) == "Use concise style"
+    assert provider.requests[0].skills is None
+    assert provider.requests[1].skills is None
+    assert [message.role for message in context.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.ASSISTANT,
+    ]
+    assert message_text(context.messages[0]) == "What is 1 + 2?"
+    assert "tool_call_result" in message_text(context.messages[2])
+    assert message_text(context.messages[3]) == "The result is 3"
 
 
 @pytest.mark.asyncio
@@ -1247,6 +1311,29 @@ def make_config() -> ProviderConfig:
         provider_id="provider-1",
         name="Fake",
         type=ProviderType.OPENAI,
+    )
+
+
+def register_style_skill(runtime: RuntimeKernel) -> None:
+    async def render_style(request: SkillRenderRequest) -> RenderedSkill:
+        return RenderedSkill(
+            render_id=request.render_id,
+            skill_name=request.skill_name,
+            messages=[
+                make_message(
+                    f"Use {request.variables['tone']} style",
+                    role=MessageRole.SYSTEM,
+                )
+            ],
+        )
+
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="style",
+            description="Render style instructions",
+            capabilities=[SkillCapability.AGENT],
+        ),
+        render_style,
     )
 
 

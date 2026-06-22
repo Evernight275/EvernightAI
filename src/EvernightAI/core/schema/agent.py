@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
-from EvernightAI.core.schema.content import ChatResponse, Content
+from EvernightAI.core.schema.content import ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
@@ -65,6 +65,7 @@ class AgentRunRequest(EvernightAISchema):
     model_id: str
     messages: list[Content] = Field(default_factory=list)
     memory_query: MemoryQuery | None = None
+    skills: list[ChatSkill] | None = None
     tools: list[ToolDefinition] | None = None
     max_tool_rounds: int = Field(default=1, ge=0)
     recover_tool_errors: bool = True

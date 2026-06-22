@@ -19,11 +19,13 @@ from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy
+from EvernightAI.core.error.skill import SkillInputError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
+    ChatSkill,
     Content,
     ContentPart,
     ContentPartType,
@@ -41,6 +43,12 @@ from EvernightAI.core.schema.provider import (
     ProviderModelCapability,
     ProviderModelConfig,
     ProviderType,
+)
+from EvernightAI.core.schema.skill import (
+    RenderedSkill,
+    SkillCapability,
+    SkillDefinition,
+    SkillRenderRequest,
 )
 from EvernightAI.core.schema.stream import SSEEvent
 
@@ -150,6 +158,93 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_chat_application_renders_skills_into_prompt_messages() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+    register_style_skill(runtime)
+
+    await app.create_provider(make_config())
+    await app.chat(
+        "provider-1",
+        ChatRequest(
+            model_id="model-1",
+            messages=[make_message("Current request")],
+            skills=[
+                ChatSkill(
+                    skill_name="style",
+                    variables={"tone": "concise"},
+                )
+            ],
+        ),
+    )
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Use concise style",
+        "Current request",
+    ]
+    assert provider.last_request.skills is None
+    assert provider.last_request.metadata["skill_names"] == ["style"]
+    assert provider.last_request.metadata["skill_render_ids"] == ["style-0"]
+
+
+@pytest.mark.asyncio
+async def test_chat_application_keeps_rendered_skills_out_of_context() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+    register_style_skill(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(Context(context_id="ctx-1"))
+    await app.chat_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+        skills=[
+            ChatSkill(
+                skill_name="style",
+                variables={"tone": "careful"},
+            )
+        ],
+    )
+    provider = await runtime.providers.get("provider-1")
+    context = await app.get_context("ctx-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Use careful style",
+        "Current request",
+    ]
+    assert [message_text(message) for message in context.messages] == [
+        "Current request",
+        "ok",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_application_rejects_unsupported_skill_capability() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+    register_style_skill(runtime, capability=SkillCapability.AGENT)
+
+    await app.create_provider(make_config())
+
+    with pytest.raises(SkillInputError, match="does not support chat"):
+        await app.chat(
+            "provider-1",
+            ChatRequest(
+                model_id="model-1",
+                messages=[make_message("Current request")],
+                skills=[ChatSkill(skill_name="style")],
+            ),
+        )
+
+
 def make_runtime() -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return FakeProvider()
@@ -176,6 +271,33 @@ def make_runtime() -> RuntimeKernel:
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),
         memory_write_strategy=BasicMemoryWriteStrategy(),
+    )
+
+
+def register_style_skill(
+    runtime: RuntimeKernel,
+    *,
+    capability: SkillCapability = SkillCapability.CHAT,
+) -> None:
+    async def render_style(request: SkillRenderRequest) -> RenderedSkill:
+        return RenderedSkill(
+            render_id=request.render_id,
+            skill_name=request.skill_name,
+            messages=[
+                make_message(
+                    f"Use {request.variables['tone']} style",
+                    role=MessageRole.SYSTEM,
+                )
+            ],
+        )
+
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="style",
+            description="Render style instructions",
+            capabilities=[capability],
+        ),
+        render_style,
     )
 
 

@@ -10,15 +10,15 @@ from EvernightAI.core.schema.agent import (
     AgentRunState,
     AgentTraceEvent,
 )
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, Content
+from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.skill import (
-    SkillCall,
+    RenderedSkill,
+    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
-    SkillResult,
 )
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
@@ -67,6 +67,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         model_id: str,
         messages: list[Content],
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatResponse: ...
@@ -124,6 +125,7 @@ class AgentInterfaceProtocol(InterfaceProtocol):
         model_id: str,
         messages: list[Content],
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
         max_tool_rounds: int = 1,
@@ -164,7 +166,7 @@ class SkillInterfaceProtocol(InterfaceProtocol):
 
     def skill_supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
 
-    async def execute_skill(self, call: SkillCall) -> SkillResult: ...
+    async def render_skill(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
 class EvernightInterfaceProtocol(InterfaceProtocol):

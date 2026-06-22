@@ -42,7 +42,12 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
-from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
+from EvernightAI.core.schema.skill import (
+    RenderedSkill,
+    SkillCapability,
+    SkillDefinition,
+    SkillRenderRequest,
+)
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import (
     ToolCall,
@@ -145,11 +150,13 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
 
 
 def test_http_app_exposes_skill_routes() -> None:
-    async def summarize(call: SkillCall) -> SkillResult:
-        return SkillResult(
-            skill_call_id=call.skill_call_id,
-            skill_name=call.skill_name,
-            result={"summary": call.arguments["text"]},
+    async def summarize(request: SkillRenderRequest) -> RenderedSkill:
+        return RenderedSkill(
+            render_id=request.render_id,
+            skill_name=request.skill_name,
+            messages=[
+                make_message(str(request.variables["text"]), role=MessageRole.SYSTEM)
+            ],
             metadata={"source": "fake"},
         )
 
@@ -175,11 +182,11 @@ def test_http_app_exposes_skill_routes() -> None:
             "/skills/summarize/supports",
             params={"capability": "chat"},
         )
-        execute_response = client.post(
-            "/skills/summarize/execute",
+        render_response = client.post(
+            "/skills/summarize/render",
             json={
-                "skill_call_id": "skill-call-1",
-                "arguments": {"text": "hello"},
+                "render_id": "skill-render-1",
+                "variables": {"text": "hello"},
             },
         )
         missing_response = client.get("/skills/missing")
@@ -190,14 +197,77 @@ def test_http_app_exposes_skill_routes() -> None:
     assert skill_response.json()["name"] == "summarize"
     assert supports_response.status_code == 200
     assert supports_response.json() is False
-    assert execute_response.status_code == 200
-    assert execute_response.json() == {
-        "skill_call_id": "skill-call-1",
-        "skill_name": "summarize",
-        "result": {"summary": "hello"},
-        "metadata": {"source": "fake"},
-    }
+    assert render_response.status_code == 200
+    rendered = render_response.json()
+    assert rendered["render_id"] == "skill-render-1"
+    assert rendered["skill_name"] == "summarize"
+    assert rendered["messages"][0]["role"] == "system"
+    assert rendered["messages"][0]["content"][0]["text"] == "hello"
+    assert rendered["metadata"] == {"source": "fake"}
     assert missing_response.status_code == 404
+
+
+def test_http_app_orchestrates_chat_skills() -> None:
+    async def render_style(request: SkillRenderRequest) -> RenderedSkill:
+        return RenderedSkill(
+            render_id=request.render_id,
+            skill_name=request.skill_name,
+            messages=[
+                make_message(
+                    f"Use {request.variables['tone']} style",
+                    role=MessageRole.SYSTEM,
+                )
+            ],
+        )
+
+    provider = FakeProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="style",
+            description="Render style instructions",
+            capabilities=[SkillCapability.CHAT],
+        ),
+        render_style,
+    )
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        chat_response = client.post(
+            "/chat",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "model-1",
+                    "messages": [message_json("Hello")],
+                    "skills": [
+                        {
+                            "skill_name": "style",
+                            "variables": {"tone": "concise"},
+                        }
+                    ],
+                },
+            },
+        )
+
+    assert chat_response.status_code == 200
+    assert provider.last_request is not None
+    assert [
+        message["content"][0]["text"]
+        for message in [
+            message.model_dump(mode="json") for message in provider.last_request.messages
+        ]
+    ] == ["Use concise style", "Hello"]
+    assert provider.last_request.skills is None
 
 
 def test_http_app_exposes_provider_management_routes() -> None:

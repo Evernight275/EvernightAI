@@ -5,12 +5,15 @@ from EvernightAI.core.protocol.stream import SSEProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
+    ChatSkill,
     Content,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 
 
 class ChatApplication(ChatInterfaceProtocol):
@@ -67,6 +70,7 @@ class ChatApplication(ChatInterfaceProtocol):
         model_id: str,
         messages: list[Content] | None = None,
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatRequest:
@@ -77,7 +81,7 @@ class ChatApplication(ChatInterfaceProtocol):
             else None
         )
 
-        return self._runtime.context_strategy.compose_chat_request(
+        request = self._runtime.context_strategy.compose_chat_request(
             context,
             model_id=model_id,
             messages=messages,
@@ -85,8 +89,14 @@ class ChatApplication(ChatInterfaceProtocol):
             tools=tools,
             metadata=metadata,
         )
+        return request.model_copy(update={"skills": skills})
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
+        request = await compose_skill_prompted_chat_request(
+            self._runtime,
+            request,
+            SkillCapability.CHAT,
+        )
         return await self._runtime.providers.chat(provider_id, request)
 
     async def chat_with_context(
@@ -97,6 +107,7 @@ class ChatApplication(ChatInterfaceProtocol):
         model_id: str,
         messages: list[Content],
         memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatResponse:
@@ -105,6 +116,7 @@ class ChatApplication(ChatInterfaceProtocol):
             model_id=model_id,
             messages=messages,
             memory_query=memory_query,
+            skills=skills,
             tools=tools,
             metadata=metadata,
         )
@@ -117,6 +129,11 @@ class ChatApplication(ChatInterfaceProtocol):
         return response
 
     async def chat_stream(self, provider_id: str, request: ChatRequest) -> SSEProtocol:
+        request = await compose_skill_prompted_chat_request(
+            self._runtime,
+            request,
+            SkillCapability.CHAT,
+        )
         return await self._runtime.providers.chat_stream(provider_id, request)
 
     async def close(self) -> None:
