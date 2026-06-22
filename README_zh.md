@@ -17,16 +17,22 @@ SQLite、provider builder 或具体 infra adapter；它们只接收已经组装�
 interface/runtime，把外部请求翻译成 core schema，再调用协议边界。
 
 应用层负责协调用例，核心层定义领域对象和协议，基础设施层负责具体适配器和
-启动装配。
+注册代码，`bootstrap` 负责具体装配。它是统一点名处：application service、
+具体 adapter 注册、runtime 存储、HTTP app factory 都在这里组合；`entrypoint`
+只向 `bootstrap` 请求已经装配好的对象。
 
 ```mermaid
 flowchart TD
+    Entrypoint["entrypoint process / commands"] --> Composition["bootstrap composition"]
     Client["HTTP / CLI client"] --> Interface["interface/http + interface/cli"]
+    Composition --> Interface
     Interface --> Boundary["EvernightInterfaceProtocol"]
+    Composition --> Boundary
     Boundary --> ChatApp["ChatApplication"]
     Boundary --> AgentApp["AgentApplication"]
     Boundary --> AgentRuns["AgentRunApplication"]
 
+    Composition --> Runtime
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
@@ -37,6 +43,10 @@ flowchart TD
     Runtime --> Tools["ToolManager"]
 
     Providers --> Factory["ProviderFactory"]
+    Composition --> Factory
+    Composition --> ContextStorage
+    Composition --> MemoryStorage
+    Composition --> ToolAdapters
     Factory --> Adapters["infra provider adapters"]
     Contexts --> ContextStorage["context register / SQLite adapter"]
     Memories --> MemoryStorage["memory register / SQLite adapter"]
@@ -73,7 +83,8 @@ flowchart TD
 interface -> core protocols/schemas
 application -> core protocols/schemas
 infra -> core protocols/schemas
-entrypoint/bootstrap -> application + infra + interface assembly
+bootstrap -> application + infra + interface assembly
+entrypoint -> bootstrap + interface command/process startup
 ```
 
 这意味着：
@@ -81,6 +92,11 @@ entrypoint/bootstrap -> application + infra + interface assembly
 - `core` 不依赖 `application` 或 `infra`
 - `application` 不依赖 `infra`
 - `interface` 不负责组装 application service 或具体 runtime
+- 内层模块不反向依赖 `bootstrap`
+- 只有 `bootstrap` 可以把 application service 和具体 runtime adapter/store
+  组装到一起
+- `entrypoint` 不依赖具体 infra 模块
+- 具体 infra import 只出现在 `infra` 自身和 package-level `bootstrap`
 - 具体 provider、SQLite、工具适配器都留在 `infra`
 - HTTP/CLI 只做外部通信边界和 schema 转换
 
@@ -89,8 +105,9 @@ entrypoint/bootstrap -> application + infra + interface assembly
 ```text
 src/EvernightAI/core        领域模型、schema、协议、错误
 src/EvernightAI/application 薄应用服务层
-src/EvernightAI/infra       provider、SQLite、工具等具体适配器和 bootstrap
+src/EvernightAI/infra       provider、SQLite、工具等具体适配器和注册
 src/EvernightAI/interface   HTTP / CLI 外部通信边界
+src/EvernightAI/bootstrap   package-level 具体装配
 src/EvernightAI/entrypoint  HTTP / CLI 启动入口
 tests                       单元、架构、HTTP/CLI、真实 provider opt-in 测试
 ```
@@ -117,6 +134,9 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 - `core` 不能依赖 `application` 或 `infra`
 - `application` 不能依赖 `infra`
 - `interface` 不能组装 application services 或具体 infra runtime
+- 内层模块不能 import package-level `bootstrap`
+- 只有 `bootstrap` 可以统一组装 application service、具体 adapter 和存储
+- 只有 `infra` 和 package-level `bootstrap` 可以 import 具体 infra 模块
 - package `__init__.py` 文件只保留注释
 - OpenAI-compatible provider 不能被要求必须支持远程 `/models`
 - `chat` 和 `chat_stream` 不能要求 `ProviderConfig.model` 预先声明模型
@@ -140,11 +160,11 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 ```powershell
 $env:EVERNIGHTAI_DATABASE_PATH=".evernight\runtime.sqlite3"
 $env:EVERNIGHTAI_FILESYSTEM_ROOT=(Get-Location).Path
-.\.venv\Scripts\python.exe -m uvicorn EvernightAI.entrypoint.server:create_app --factory --reload
+.\.venv\Scripts\python.exe -m uvicorn EvernightAI.bootstrap.http:create_app --factory --reload
 ```
 
-HTTP 启动模块是 package-level composition root。runtime 和服务装配应当留在
-`entrypoint`、`application` 或 `infra bootstrap`，不要放进 `interface/http`。
+HTTP app 的 composition root 是 `EvernightAI.bootstrap.http`。`entrypoint`
+只负责命令入口和进程启动，runtime 和服务装配不要放进 `interface/http`。
 
 ## CLI
 

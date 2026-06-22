@@ -15,16 +15,23 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
 EvernightAI keeps external interfaces very thin. HTTP and CLI code receive an
 already assembled interface/runtime and translate transport requests into core
 schemas. Application code coordinates use cases through protocols. Infra code
-owns concrete adapters and bootstrap wiring.
+owns concrete adapters and registrations. Bootstrap code owns concrete
+composition: it names application services, concrete adapter registrations,
+runtime stores, and HTTP app factories. Entrypoints ask bootstrap for assembled
+objects instead of wiring the graph themselves.
 
 ```mermaid
 flowchart TD
+    Entrypoint["entrypoint process / commands"] --> Composition["bootstrap composition"]
     Client["HTTP / CLI client"] --> Interface["interface/http + interface/cli"]
+    Composition --> Interface
     Interface --> Boundary["EvernightInterfaceProtocol"]
+    Composition --> Boundary
     Boundary --> ChatApp["ChatApplication"]
     Boundary --> AgentApp["AgentApplication"]
     Boundary --> AgentRuns["AgentRunApplication"]
 
+    Composition --> Runtime
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
@@ -35,6 +42,10 @@ flowchart TD
     Runtime --> Tools["ToolManager"]
 
     Providers --> Factory["ProviderFactory"]
+    Composition --> Factory
+    Composition --> ContextStorage
+    Composition --> MemoryStorage
+    Composition --> ToolAdapters
     Factory --> Adapters["infra provider adapters"]
     Contexts --> ContextStorage["context register / SQLite adapter"]
     Memories --> MemoryStorage["memory register / SQLite adapter"]
@@ -71,7 +82,8 @@ The dependency direction is intentionally one-way:
 interface -> core protocols/schemas
 application -> core protocols/schemas
 infra -> core protocols/schemas
-entrypoint/bootstrap -> application + infra + interface assembly
+bootstrap -> application + infra + interface assembly
+entrypoint -> bootstrap + interface command/process startup
 ```
 
 The current HTTP surface includes provider management, context and memory CRUD,
@@ -86,6 +98,12 @@ These rules are intentionally backed by tests.
 - Application code must not depend on infra code.
 - Interface code must not assemble application services or concrete infra
   runtimes.
+- Inner layers must not depend on bootstrap modules.
+- Only bootstrap may assemble application services with concrete runtime
+  adapters and stores.
+- Entrypoint code must not depend on concrete infra modules.
+- Concrete infra imports should stay inside `infra` and package-level
+  `bootstrap`.
 - Package `__init__.py` files stay comment-only.
 - OpenAI-compatible chat calls must not require a remote `/models` endpoint.
 - OpenAI-compatible chat and stream calls may use a request model id that was not

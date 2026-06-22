@@ -10,8 +10,10 @@ EvernightAI is a Python 3.12 package with a layered architecture:
 ```text
 src/EvernightAI/core        domain models, schemas, protocols, errors
 src/EvernightAI/application thin application services
-src/EvernightAI/infra       concrete adapters and bootstrap wiring
+src/EvernightAI/infra       concrete adapters and registrations
 src/EvernightAI/interface   external communication boundaries
+src/EvernightAI/bootstrap   package-level concrete composition
+src/EvernightAI/entrypoint  process and command entrypoints
 tests                       unit, architecture, and opt-in real-flow tests
 ```
 
@@ -44,6 +46,15 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
   layers receive an already assembled interface/runtime and must not create
   application services, SQLite, in-memory, or other infra-backed runtimes
   themselves.
+- Treat package-level `bootstrap` as the only concrete role-call layer. It names
+  application services, provider/tool registrations, runtime stores, and HTTP
+  app factories; inner layers consume assembled protocols and must not reach
+  back into bootstrap.
+- Keep entrypoint modules as process/command launchers only. Concrete runtime
+  composition, including SQLite defaults, belongs in package-level bootstrap,
+  not in `entrypoint`.
+- Keep concrete infra imports inside `infra` itself and package-level
+  `bootstrap`.
 - Keep real provider tests opt-in and skipped by default.
 - Treat real provider unavailability as `pytest.skip`, not as a failed local
   integration test.
@@ -72,12 +83,12 @@ Start the local HTTP interface:
 ```powershell
 $env:EVERNIGHTAI_DATABASE_PATH=".evernight\runtime.sqlite3"
 $env:EVERNIGHTAI_FILESYSTEM_ROOT=(Get-Location).Path
-.\.venv\Scripts\python.exe -m uvicorn EvernightAI.entrypoint.server:create_app --factory --reload
+.\.venv\Scripts\python.exe -m uvicorn EvernightAI.bootstrap.http:create_app --factory --reload
 ```
 
-The HTTP startup module is a package-level composition root. Keep runtime and
-service assembly there or in application/infra bootstrap code, not in
-`interface/http`.
+The HTTP app factory is a package-level composition root in
+`EvernightAI.bootstrap.http`. Keep entrypoint modules focused on process
+startup and keep runtime/service assembly out of `interface/http`.
 
 Run the real OpenAI-compatible smoke test:
 
