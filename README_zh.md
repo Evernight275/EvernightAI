@@ -165,7 +165,7 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 当前 HTTP 接口覆盖：
 
 - provider 创建、模型查询、能力查询、删除
-- skill 列表和执行
+- skill 列表、能力查询和提示词渲染
 - context 创建、查询、替换、追加消息、删除
 - memory 创建、查询、选择、删除
 - tool 列表
@@ -177,12 +177,17 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 - agent run resume
 
 `bootstrap` 默认注册一个很小的内置 `echo` skill，用来给 skill registry
-提供端到端 smoke path；后续再接外部 skill 来源。
+提供端到端 smoke path；后续再接外部 skill 来源。skill 的输出是可注入
+`ChatRequest.messages` 的提示词消息，不负责执行外部动作。
+
+chat 和 agent request 可以声明要使用的 skills。application 编排层会在调用
+provider 前把这些声明渲染成提示词消息并注入本次请求；渲染出来的 skill
+messages 不写回 context 历史。
 
 ## Skill / Tool / Agent 边界
 
 - `tool` 是原子动作，负责一次具体、可执行、可授权的外部操作
-- `skill` 是能力包或策略入口，负责把一组意图、约束和执行方式收束成稳定能力
+- `skill` 是能力包或策略入口，负责把一组意图、约束和提示词组织方式收束成稳定能力
 - `agent` 是多步执行器，负责在状态推进中选择模型、工具、技能和上下文
 
 `skill` 不应该退化成“大号 tool”。如果一个能力只是单次外部操作，它应当是

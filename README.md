@@ -135,12 +135,16 @@ Bootstrap has four explicit assembly points:
 - `bootstrap.http` turns an assembled interface into a FastAPI app.
 
 The current HTTP surface includes provider management, context and memory CRUD,
-skill listing and execution, tool listing, direct chat, context chat, SSE chat
+skill listing and rendering, tool listing, direct chat, context chat, SSE chat
 streaming, persisted agent runs, persisted agent trace streaming, and agent
 resume.
 
 Bootstrap registers a small built-in `echo` skill by default so the skill
 registry has an end-to-end smoke path before external skill sources are added.
+Skills render prompt messages; tools execute external actions.
+Chat and agent requests may declare skills. Application orchestration renders
+those declarations into prompt messages before the provider call and keeps the
+rendered messages out of stored context history.
 
 ## Project Rules
 
