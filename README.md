@@ -139,6 +139,9 @@ skill listing and execution, tool listing, direct chat, context chat, SSE chat
 streaming, persisted agent runs, persisted agent trace streaming, and agent
 resume.
 
+Bootstrap registers a small built-in `echo` skill by default so the skill
+registry has an end-to-end smoke path before external skill sources are added.
+
 ## Project Rules
 
 These rules are intentionally backed by tests.

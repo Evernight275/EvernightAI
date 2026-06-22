@@ -176,6 +176,19 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 - 持久化 agent trace streaming
 - agent run resume
 
+`bootstrap` 默认注册一个很小的内置 `echo` skill，用来给 skill registry
+提供端到端 smoke path；后续再接外部 skill 来源。
+
+## Skill / Tool / Agent 边界
+
+- `tool` 是原子动作，负责一次具体、可执行、可授权的外部操作
+- `skill` 是能力包或策略入口，负责把一组意图、约束和执行方式收束成稳定能力
+- `agent` 是多步执行器，负责在状态推进中选择模型、工具、技能和上下文
+
+`skill` 不应该退化成“大号 tool”。如果一个能力只是单次外部操作，它应当是
+`tool`；如果它表达的是可复用的策略、流程或领域能力入口，它才应该进入
+`skill`。
+
 ## 项目规则
 
 这些规则由测试保护。如果需要打破其中一条，应当同步更新规则和测试。
