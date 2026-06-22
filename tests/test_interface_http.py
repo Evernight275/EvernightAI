@@ -143,6 +143,79 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     assert tools_response.json() == []
 
 
+def test_http_app_exposes_provider_management_routes() -> None:
+    interface = create_interface(make_runtime(provider=FakeProvider()))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        models_response = client.get("/providers/provider-1/models")
+        model_response = client.get("/providers/provider-1/models/model-1")
+        supports_response = client.get(
+            "/providers/provider-1/supports",
+            params={"capability": "chat"},
+        )
+        delete_response = client.delete("/providers/provider-1")
+        missing_response = client.get("/providers/provider-1/models")
+
+    assert models_response.status_code == 200
+    assert [model["model_id"] for model in models_response.json()] == ["model-1"]
+    assert model_response.status_code == 200
+    assert model_response.json()["model_id"] == "model-1"
+    assert supports_response.status_code == 200
+    assert supports_response.json() is True
+    assert delete_response.status_code == 204
+    assert missing_response.status_code == 404
+
+
+def test_http_app_exposes_chat_stream_route() -> None:
+    provider = FakeProvider(
+        stream_events=[
+            SSEEvent(data='{"delta":"hello"}', event="message", id="evt-1"),
+            SSEEvent(data="[DONE]", event="done"),
+        ]
+    )
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        stream_response = client.post(
+            "/chat/stream",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "model-1",
+                    "messages": [message_json("Hello")],
+                },
+            },
+        )
+
+    assert stream_response.status_code == 200
+    assert stream_response.headers["content-type"].startswith("text/event-stream")
+    assert "event: message" in stream_response.text
+    assert "id: evt-1" in stream_response.text
+    assert 'data: {"delta":"hello"}' in stream_response.text
+    assert "event: done" in stream_response.text
+    assert "data: [DONE]" in stream_response.text
+    assert provider.last_request is not None
+    assert provider.last_request.model_id == "model-1"
+
+
 def test_http_app_exposes_persisted_agent_run_routes() -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
@@ -195,7 +268,15 @@ def test_http_app_exposes_persisted_agent_run_routes() -> None:
 
 
 def test_http_app_streams_agent_trace_events() -> None:
-    interface = create_interface(make_runtime(provider=FakeProvider()))
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FakeProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
     app = create_http_app(interface, close_on_shutdown=False)
 
     with TestClient(app) as client:
@@ -216,20 +297,30 @@ def test_http_app_streams_agent_trace_events() -> None:
                 "context_id": "ctx-1",
                 "model_id": "model-1",
                 "messages": [message_json("Hello")],
+                "metadata": {"run_id": "run-1"},
             },
         ) as stream_response:
             body = stream_response.read().decode("utf-8")
             content_type = stream_response.headers["content-type"]
+        state_response = client.get("/agent-runs/run-1")
+        trace_response = client.get("/agent-runs/run-1/trace")
 
-    events = parse_ndjson_events(body)
+    events = parse_sse_events(body)
 
-    assert content_type.startswith("application/x-ndjson")
+    assert content_type.startswith("text/event-stream")
     assert [event["event_type"] for event in events] == [
         "run_started",
         "chat_completed",
         "run_stopped",
     ]
     assert events[-1]["metadata"]["reason"] == "finished"
+    assert state_response.status_code == 200
+    assert state_response.json()["status"] == "finished"
+    assert [event["event_type"] for event in trace_response.json()] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
 
 
 def test_http_app_streams_agent_pause_for_tool_approval() -> None:
@@ -240,7 +331,11 @@ def test_http_app_streams_agent_pause_for_tool_approval() -> None:
         tool_executed = True
         return {"written": True}
 
-    runtime = make_runtime(provider=SensitiveToolProvider())
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
     tool = sensitive_tool_definition()
     runtime.tool_register.register(tool, write_file)
     interface = create_interface(runtime)
@@ -270,7 +365,7 @@ def test_http_app_streams_agent_pause_for_tool_approval() -> None:
         ) as stream_response:
             body = stream_response.read().decode("utf-8")
 
-    events = parse_ndjson_events(body)
+    events = parse_sse_events(body)
 
     assert [event["event_type"] for event in events] == [
         "run_started",
@@ -352,12 +447,18 @@ def make_message(text: str, *, role: MessageRole = MessageRole.USER) -> Content:
     )
 
 
-def parse_ndjson_events(body: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line)
-        for line in body.splitlines()
-        if line
-    ]
+def parse_sse_events(body: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for block in body.split("\n\n"):
+        data_lines = [
+            line.removeprefix("data: ")
+            for line in block.splitlines()
+            if line.startswith("data: ")
+        ]
+        if data_lines:
+            events.append(json.loads("\n".join(data_lines)))
+
+    return events
 
 
 def sensitive_tool_definition() -> ToolDefinition:
@@ -371,8 +472,9 @@ def sensitive_tool_definition() -> ToolDefinition:
 
 
 class FakeProvider(ProviderInstanceProtocol):
-    def __init__(self) -> None:
+    def __init__(self, stream_events: list[SSEEvent] | None = None) -> None:
         self.last_request: ChatRequest | None = None
+        self.stream_events = stream_events or []
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return [
@@ -401,7 +503,7 @@ class FakeProvider(ProviderInstanceProtocol):
 
     async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
         self.last_request = request
-        return EmptyStream()
+        return EventStream(self.stream_events)
 
     async def close(self) -> None:
         pass
@@ -462,10 +564,13 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
         self.events.pop(run_id, None)
 
 
-class EmptyStream:
+class EventStream:
+    def __init__(self, events: list[SSEEvent]) -> None:
+        self._events = events
+
     def __aiter__(self) -> AsyncIterator[SSEEvent]:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[SSEEvent]:
-        if False:
-            yield SSEEvent(data="")
+        for event in self._events:
+            yield event

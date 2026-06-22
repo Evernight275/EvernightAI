@@ -857,6 +857,37 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AgentRunState:
         return await self._agent.resume_agent_run(run_id, approvals)
 
+    def start_stream(
+        self,
+        request: AgentRunRequest,
+    ) -> AgentTraceStreamProtocol:
+        stored_request = (
+            request
+            if request.pause_on_approval
+            else request.model_copy(update={"pause_on_approval": True})
+        )
+        state = self._agent._new_run_state(stored_request)
+        self._state_register().save_state(state)
+        return _AgentTraceStream(
+            self._stream_and_store(
+                self._agent._run_agent_events(stored_request, state),
+                state,
+            )
+        )
+
+    def resume_stream(
+        self,
+        run_id: str,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentTraceStreamProtocol:
+        state = self.get_state(run_id)
+        return _AgentTraceStream(
+            self._stream_and_store(
+                self._agent._resume_agent_events(state, approvals),
+                state,
+            )
+        )
+
     def get_state(self, run_id: str) -> AgentRunState:
         return self._state_register().get_state(run_id)
 
@@ -865,6 +896,18 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
 
     def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
         return self._trace_register().list_events(run_id)
+
+    async def _stream_and_store(
+        self,
+        events: AsyncIterator[AgentTraceEvent],
+        state: AgentRunState,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        async for event in events:
+            self._trace_register().append_event(state.run_id, event)
+            self._state_register().save_state(state)
+            yield event
+
+        self._state_register().save_state(state)
 
     def _state_register(self) -> AgentRunStateRegisterProtocol:
         register = self._runtime.agent_state_register

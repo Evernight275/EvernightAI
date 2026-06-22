@@ -133,6 +133,17 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunState: ...
 
+    def start_stream(
+        self,
+        request: AgentRunRequest,
+    ) -> AgentTraceStreamProtocol: ...
+
+    def resume_stream(
+        self,
+        run_id: str,
+        approvals: list[ToolApprovalDecision],
+    ) -> AgentTraceStreamProtocol: ...
+
     def get_state(self, run_id: str) -> AgentRunState: ...
 
     def list_states(self) -> list[AgentRunState]: ...

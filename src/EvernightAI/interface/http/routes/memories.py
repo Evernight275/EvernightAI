@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Response, status
+from typing import Annotated
+
+from fastapi import APIRouter, Body, Response, status
 
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.interface.http.dependencies import InterfaceDependency
@@ -35,7 +37,7 @@ async def get_memory(
 @router.post("/select", response_model=MemorySelection)
 async def select_memories(
     interface: InterfaceDependency,
-    query: MemoryQuery | None = None,
+    query: Annotated[MemoryQuery | None, Body()] = None,
 ) -> MemorySelection:
     return await interface.chat.select_memories(query)
 

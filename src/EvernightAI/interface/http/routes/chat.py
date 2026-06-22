@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.schema.content import ChatResponse
 from EvernightAI.interface.http.dependencies import InterfaceDependency
@@ -6,6 +7,7 @@ from EvernightAI.interface.http.schema import (
     ChatWithContextRequest,
     DirectChatRequest,
 )
+from EvernightAI.interface.http.sse import sse_response_body
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -17,6 +19,18 @@ async def chat(
     interface: InterfaceDependency,
 ) -> ChatResponse:
     return await interface.chat.chat(request.provider_id, request.request)
+
+
+@router.post("/stream")
+async def chat_stream(
+    request: DirectChatRequest,
+    interface: InterfaceDependency,
+) -> StreamingResponse:
+    stream = await interface.chat.chat_stream(request.provider_id, request.request)
+    return StreamingResponse(
+        sse_response_body(stream),
+        media_type="text/event-stream",
+    )
 
 
 @router.post("/context", response_model=ChatResponse)
