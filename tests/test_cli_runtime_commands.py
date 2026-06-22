@@ -43,7 +43,7 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.interface.cli.commands import list_models, list_providers, run_chat
 from EvernightAI.interface.cli.config import parse_config
-from EvernightAI.server import (
+from EvernightAI.entrypoint.server import (
     create_app_from_config,
     create_runtime_from_config,
 )
