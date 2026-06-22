@@ -23,44 +23,72 @@ interface/runtime，把外部请求翻译成 core schema，再调用协议边界
 
 ```mermaid
 flowchart TD
-    Entrypoint["entrypoint process / commands"] --> Composition["bootstrap composition"]
-    Client["HTTP / CLI client"] --> Interface["interface/http + interface/cli"]
-    Composition --> Interface
-    Interface --> Boundary["EvernightInterfaceProtocol"]
-    Composition --> Boundary
-    Boundary --> ChatApp["ChatApplication"]
-    Boundary --> AgentApp["AgentApplication"]
-    Boundary --> AgentRuns["AgentRunApplication"]
+    Caller["HTTP / CLI caller"] --> Entrypoint["entrypoint cli.py / server.py"]
 
-    Composition --> Runtime
+    Entrypoint --> BootHTTP["bootstrap.http create_app"]
+    Entrypoint --> BootConfig["bootstrap.config create_interface_from_config"]
+    BootHTTP --> BootConfig
+    BootHTTP --> HTTPApp["interface.http create_http_app + routes"]
+
+    Entrypoint --> CLICommands["interface.cli commands"]
+    HTTPApp --> InterfaceBoundary["EvernightInterfaceProtocol"]
+    CLICommands --> InterfaceBoundary
+
+    BootConfig --> BootInterface["bootstrap.interface create_interface"]
+    BootConfig --> BootRuntime["bootstrap.runtime create_sqlite_runtime"]
+    BootInterface --> InterfaceImpl["core EvernightInterface"]
+    InterfaceImpl --> InterfaceBoundary
+
+    InterfaceBoundary --> ChatApp["ChatApplication"]
+    InterfaceBoundary --> AgentApp["AgentApplication"]
+    InterfaceBoundary --> AgentRuns["AgentRunApplication"]
+
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
+    BootRuntime --> Runtime
 
-    Runtime --> Providers["ProviderManager"]
-    Runtime --> Contexts["ContextManager"]
-    Runtime --> Memories["MemoryManager"]
-    Runtime --> Tools["ToolManager"]
+    Runtime --> Providers["ProviderManager + ProviderFactory"]
+    Runtime --> Contexts["ContextManager + ContextStrategy"]
+    Runtime --> Memories["MemoryManager + MemoryStrategy"]
+    Runtime --> Tools["ToolManager + ToolSafetyPolicy"]
+    Runtime --> AgentStore["Agent state + trace registers"]
 
-    Providers --> Factory["ProviderFactory"]
-    Composition --> Factory
-    Composition --> ContextStorage
-    Composition --> MemoryStorage
-    Composition --> ToolAdapters
-    Factory --> Adapters["infra provider adapters"]
-    Contexts --> ContextStorage["context register / SQLite adapter"]
-    Memories --> MemoryStorage["memory register / SQLite adapter"]
-    Tools --> ToolAdapters["restricted filesystem / shell tools"]
+    BootRuntime --> ProviderRegs["infra provider registrations"]
+    BootRuntime --> ToolRegs["infra tool registrations"]
+    BootRuntime --> SQLiteRegs["infra SQLite registers"]
+    ProviderRegs --> ProviderAdapters["provider adapters"]
+    ToolRegs --> ToolAdapters["restricted filesystem / shell tools"]
+    SQLiteRegs --> SQLiteAdapters["SQLite context / memory / agent storage"]
 
-    Adapters --> RealProviders["OpenAI-compatible / OpenAI Responses / Gemini / Anthropic"]
+    Providers --> ProviderAdapters
+    Tools --> ToolAdapters
+    Contexts --> SQLiteAdapters
+    Memories --> SQLiteAdapters
+    AgentStore --> SQLiteAdapters
+    ProviderAdapters --> RealProviders["OpenAI-compatible / OpenAI Responses / Gemini / Anthropic"]
+
+    subgraph Bootstrap["bootstrap"]
+        BootHTTP
+        BootConfig
+        BootInterface
+        BootRuntime
+    end
+
+    subgraph Interface["interface"]
+        HTTPApp
+        CLICommands
+    end
 
     subgraph Core["core"]
+        InterfaceBoundary
+        InterfaceImpl
         Runtime
         Providers
         Contexts
         Memories
         Tools
-        Factory
+        AgentStore
     end
 
     subgraph Application["application"]
@@ -70,10 +98,12 @@ flowchart TD
     end
 
     subgraph Infra["infra"]
-        Adapters
-        ContextStorage
-        MemoryStorage
+        ProviderRegs
+        ToolRegs
+        SQLiteRegs
+        ProviderAdapters
         ToolAdapters
+        SQLiteAdapters
     end
 ```
 
