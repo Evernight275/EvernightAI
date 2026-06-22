@@ -11,6 +11,32 @@ INTERFACE_ROOT = PACKAGE_ROOT / "interface"
 BOOTSTRAP_ROOT = PACKAGE_ROOT / "bootstrap"
 ENTRYPOINT_ROOT = PACKAGE_ROOT / "entrypoint"
 
+ENTRYPOINT_ALLOWED_EVERNIGHTAI_IMPORTS = (
+    "EvernightAI.bootstrap.",
+    "EvernightAI.core.error.",
+    "EvernightAI.core.protocol.interface",
+    "EvernightAI.interface.cli.",
+)
+ENTRYPOINT_FORBIDDEN_ASSEMBLY_CALLS = {
+    "AgentApplication",
+    "AgentRunApplication",
+    "ChatApplication",
+    "ContextManager",
+    "EvernightInterface",
+    "MemoryManager",
+    "ProviderFactory",
+    "ProviderManager",
+    "RuntimeKernel",
+    "SkillApplication",
+    "SkillManager",
+    "SkillRegister",
+    "ToolManager",
+    "create_http_app",
+    "create_interface",
+    "create_runtime",
+    "create_sqlite_runtime",
+}
+
 
 def test_core_only_depends_on_core_modules() -> None:
     violations: list[str] = []
@@ -155,6 +181,31 @@ def test_entrypoint_does_not_depend_on_application_or_infra_modules() -> None:
     assert violations == []
 
 
+def test_entrypoint_gets_assembled_runtime_interface_and_app_from_bootstrap() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(ENTRYPOINT_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_forbidden_entrypoint_import(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if _is_forbidden_entrypoint_import(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+            if isinstance(node, ast.Call):
+                call_name = _call_name(node.func)
+                if call_name in ENTRYPOINT_FORBIDDEN_ASSEMBLY_CALLS:
+                    violations.append(f"{_rel(path)} calls {call_name}")
+
+    assert violations == []
+
+
 def test_inner_layers_do_not_depend_on_bootstrap_modules() -> None:
     violations: list[str] = []
 
@@ -265,6 +316,22 @@ def _is_bootstrap_dependency(module: str) -> bool:
     return module == "EvernightAI.bootstrap" or module.startswith(
         "EvernightAI.bootstrap."
     )
+
+
+def _is_forbidden_entrypoint_import(module: str) -> bool:
+    if not module.startswith("EvernightAI."):
+        return False
+
+    return not module.startswith(ENTRYPOINT_ALLOWED_EVERNIGHTAI_IMPORTS)
+
+
+def _call_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+
+    return None
 
 
 def _is_under(path: Path, root: Path) -> bool:
