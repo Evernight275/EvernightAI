@@ -1,12 +1,82 @@
 # EvernightAI
 
-EvernightAI is a small layered runtime for chat providers. The current closed
-loop is:
+EvernightAI is a small layered runtime for chat providers, tools, context,
+memory, and agent runs.
+
+The main runtime loop is:
 
 ```text
 RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
 -> real provider -> response mapper -> ChatResponse
 ```
+
+## Architecture
+
+EvernightAI keeps external interfaces very thin. HTTP and CLI code receive an
+already assembled interface/runtime and translate transport requests into core
+schemas. Application code coordinates use cases through protocols. Infra code
+owns concrete adapters and bootstrap wiring.
+
+```mermaid
+flowchart TD
+    Client["HTTP / CLI client"] --> Interface["interface/http + interface/cli"]
+    Interface --> Boundary["EvernightInterfaceProtocol"]
+    Boundary --> ChatApp["ChatApplication"]
+    Boundary --> AgentApp["AgentApplication"]
+    Boundary --> AgentRuns["AgentRunApplication"]
+
+    ChatApp --> Runtime["RuntimeKernel"]
+    AgentApp --> Runtime
+    AgentRuns --> Runtime
+
+    Runtime --> Providers["ProviderManager"]
+    Runtime --> Contexts["ContextManager"]
+    Runtime --> Memories["MemoryManager"]
+    Runtime --> Tools["ToolManager"]
+
+    Providers --> Factory["ProviderFactory"]
+    Factory --> Adapters["infra provider adapters"]
+    Contexts --> ContextStorage["context register / SQLite adapter"]
+    Memories --> MemoryStorage["memory register / SQLite adapter"]
+    Tools --> ToolAdapters["restricted filesystem / shell tools"]
+
+    Adapters --> RealProviders["OpenAI-compatible / OpenAI Responses / Gemini / Anthropic"]
+
+    subgraph Core["core"]
+        Runtime
+        Providers
+        Contexts
+        Memories
+        Tools
+        Factory
+    end
+
+    subgraph Application["application"]
+        ChatApp
+        AgentApp
+        AgentRuns
+    end
+
+    subgraph Infra["infra"]
+        Adapters
+        ContextStorage
+        MemoryStorage
+        ToolAdapters
+    end
+```
+
+The dependency direction is intentionally one-way:
+
+```text
+interface -> core protocols/schemas
+application -> core protocols/schemas
+infra -> core protocols/schemas
+entrypoint/bootstrap -> application + infra + interface assembly
+```
+
+The current HTTP surface includes provider management, context and memory CRUD,
+tool listing, direct chat, context chat, SSE chat streaming, persisted agent
+runs, persisted agent trace streaming, and agent resume.
 
 ## Project Rules
 
@@ -14,6 +84,8 @@ These rules are intentionally backed by tests.
 
 - Core code must not depend on application or infra code.
 - Application code must not depend on infra code.
+- Interface code must not assemble application services or concrete infra
+  runtimes.
 - Package `__init__.py` files stay comment-only.
 - OpenAI-compatible chat calls must not require a remote `/models` endpoint.
 - OpenAI-compatible chat and stream calls may use a request model id that was not
