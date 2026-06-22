@@ -14,6 +14,12 @@ from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.session import (
+    Session,
+    SessionAgentRunRequest,
+    SessionChatRequest,
+    SessionChatResult,
+)
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
     SkillRenderRequest,
@@ -169,6 +175,32 @@ class SkillInterfaceProtocol(InterfaceProtocol):
     async def render_skill(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
+class SessionInterfaceProtocol(InterfaceProtocol):
+    async def create_session(self, session: Session) -> Session: ...
+
+    async def get_session(self, session_id: str) -> Session: ...
+
+    async def replace_session(self, session: Session) -> Session: ...
+
+    async def archive_session(self, session_id: str) -> Session: ...
+
+    async def list_sessions(self) -> list[Session]: ...
+
+    async def delete_session(self, session_id: str) -> None: ...
+
+    async def chat_with_session(
+        self,
+        session_id: str,
+        request: SessionChatRequest,
+    ) -> SessionChatResult: ...
+
+    async def start_agent_run_for_session(
+        self,
+        session_id: str,
+        request: SessionAgentRunRequest,
+    ) -> AgentRunState: ...
+
+
 class EvernightInterfaceProtocol(InterfaceProtocol):
     @property
     def runtime(self) -> RuntimeProtocol: ...
@@ -184,5 +216,8 @@ class EvernightInterfaceProtocol(InterfaceProtocol):
 
     @property
     def skills(self) -> SkillInterfaceProtocol: ...
+
+    @property
+    def sessions(self) -> SessionInterfaceProtocol: ...
 
     async def close(self) -> None: ...

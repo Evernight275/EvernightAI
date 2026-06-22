@@ -18,6 +18,11 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.session import (
+    SessionManageProtocol,
+    SessionRegisterProtocol,
+)
+from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
@@ -45,6 +50,8 @@ class RuntimeKernel(RuntimeProtocol):
         memories: MemoryManageProtocol,
         memory_strategy: MemoryStrategyProtocol,
         memory_write_strategy: MemoryWriteStrategyProtocol,
+        session_register: SessionRegisterProtocol | None = None,
+        sessions: SessionManageProtocol | None = None,
         skill_register: SkillRegisterProtocol | None = None,
         skills: SkillManageProtocol | None = None,
         agent_state_register: AgentRunStateRegisterProtocol | None = None,
@@ -65,6 +72,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._memories = memories
         self._memory_strategy = memory_strategy
         self._memory_write_strategy = memory_write_strategy
+        self._session_register = session_register or SessionRegister()
+        self._sessions = sessions or SessionManager(self._session_register)
         self._agent_state_register = agent_state_register
         self._agent_trace_register = agent_trace_register
 
@@ -127,6 +136,14 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def memory_write_strategy(self) -> MemoryWriteStrategyProtocol:
         return self._memory_write_strategy
+
+    @property
+    def session_register(self) -> SessionRegisterProtocol:
+        return self._session_register
+
+    @property
+    def sessions(self) -> SessionManageProtocol:
+        return self._sessions
 
     @property
     def agent_state_register(self) -> AgentRunStateRegisterProtocol | None:

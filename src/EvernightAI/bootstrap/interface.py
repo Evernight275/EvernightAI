@@ -1,5 +1,6 @@
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.skill import SkillApplication
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
@@ -12,4 +13,5 @@ def create_interface(runtime: RuntimeProtocol) -> EvernightInterface:
         agent=AgentApplication(runtime),
         agent_runs=AgentRunApplication(runtime),
         skills=SkillApplication(runtime),
+        sessions=SessionApplication(runtime),
     )

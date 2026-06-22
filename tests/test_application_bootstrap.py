@@ -1,5 +1,6 @@
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.skill import SkillApplication
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
@@ -19,3 +20,4 @@ def test_interface_bootstrap_wraps_existing_runtime() -> None:
     assert isinstance(interface.agent, AgentApplication)
     assert isinstance(interface.agent_runs, AgentRunApplication)
     assert isinstance(interface.skills, SkillApplication)
+    assert isinstance(interface.sessions, SessionApplication)

@@ -28,6 +28,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
@@ -45,6 +46,8 @@ from EvernightAI.bootstrap.runtime import (
     create_provider_factory,
     create_provider_manager,
     create_runtime,
+    create_session_manager,
+    create_session_register,
     create_skill_manager,
     create_skill_register,
     create_sqlite_runtime,
@@ -166,6 +169,13 @@ def test_bootstrap_creates_memory_services() -> None:
     assert write_strategy.create_memories.__name__ == "create_memories"
 
 
+def test_bootstrap_creates_session_manager() -> None:
+    register = create_session_register()
+    manager = create_session_manager(register)
+
+    assert manager._register is register
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_provider_manager_creates_openai_instance() -> None:
     manager = create_provider_manager()
@@ -199,6 +209,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert await runtime.memories.list_memories() == []
     assert runtime.memory_strategy.select
     assert runtime.memory_write_strategy.create_memories
+    assert await runtime.sessions.list_sessions() == []
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")
@@ -246,6 +257,15 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
     assert runtime.agent_trace_register is not None
 
     await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.sessions.create(
+        Session(
+            session_id="session-1",
+            title="Chat",
+            context_id="ctx-1",
+            provider_id="provider-1",
+            model_id="model-1",
+        )
+    )
     await runtime.memories.create(
         MemoryItem(memory_id="mem-1", content="Prefer concise answers")
     )
@@ -270,6 +290,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
 
     try:
         assert await reopened.contexts.get("ctx-1") == Context(context_id="ctx-1")
+        assert (await reopened.sessions.get("session-1")).context_id == "ctx-1"
         assert (await reopened.memories.get("mem-1")).content == "Prefer concise answers"
         assert reopened.agent_state_register is not None
         assert reopened.agent_trace_register is not None

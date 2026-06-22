@@ -14,6 +14,7 @@ from EvernightAI.core.domain.memory import (
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
 from EvernightAI.core.domain.tool import (
     BasicToolSafetyPolicy,
@@ -41,6 +42,10 @@ from EvernightAI.core.protocol.provider import (
     ProviderManageProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.protocol.session import (
+    SessionManageProtocol,
+    SessionRegisterProtocol,
+)
 from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
@@ -53,6 +58,7 @@ from EvernightAI.infra.adapters.agent.sqlite import (
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
+from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
 )
@@ -186,6 +192,16 @@ def create_memory_write_strategy() -> BasicMemoryWriteStrategy:
     return BasicMemoryWriteStrategy()
 
 
+def create_session_register() -> SessionRegister:
+    return SessionRegister()
+
+
+def create_session_manager(
+    register: SessionRegisterProtocol | None = None,
+) -> SessionManager:
+    return SessionManager(register or create_session_register())
+
+
 def create_sqlite_context_register(database_path: str | Path) -> SQLiteContextRegister:
     return SQLiteContextRegister(database_path)
 
@@ -200,6 +216,14 @@ def create_sqlite_memory_register(database_path: str | Path) -> SQLiteMemoryRegi
 
 def create_sqlite_memory_manager(database_path: str | Path) -> MemoryManager:
     return MemoryManager(create_sqlite_memory_register(database_path))
+
+
+def create_sqlite_session_register(database_path: str | Path) -> SQLiteSessionRegister:
+    return SQLiteSessionRegister(database_path)
+
+
+def create_sqlite_session_manager(database_path: str | Path) -> SessionManager:
+    return SessionManager(create_sqlite_session_register(database_path))
 
 
 def create_sqlite_agent_state_register(
@@ -218,6 +242,7 @@ def create_runtime() -> RuntimeKernel:
     return _create_runtime(
         context_register=create_context_register(),
         memory_register=create_memory_register(),
+        session_register=create_session_register(),
     )
 
 
@@ -229,6 +254,7 @@ def create_runtime_with_agent_storage(
     return _create_runtime(
         context_register=create_context_register(),
         memory_register=create_memory_register(),
+        session_register=create_session_register(),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
     )
@@ -270,6 +296,7 @@ def create_sqlite_runtime(
         tool_register=tool_register,
         context_register=create_sqlite_context_register(database_path),
         memory_register=create_sqlite_memory_register(database_path),
+        session_register=create_sqlite_session_register(database_path),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
     )
@@ -281,6 +308,8 @@ def _create_runtime(
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
+    session_register: SessionRegisterProtocol,
+    sessions: SessionManageProtocol | None = None,
     skill_register: SkillRegisterProtocol | None = None,
     skills: SkillManageProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
@@ -300,6 +329,7 @@ def _create_runtime(
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
     memory_write_strategy = create_memory_write_strategy()
+    sessions = sessions or create_session_manager(session_register)
 
     return RuntimeKernel(
         provider_factory=provider_factory,
@@ -317,6 +347,8 @@ def _create_runtime(
         memories=memories,
         memory_strategy=memory_strategy,
         memory_write_strategy=memory_write_strategy,
+        session_register=session_register,
+        sessions=sessions,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
     )

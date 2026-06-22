@@ -19,6 +19,10 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.session import (
+    SessionManageProtocol,
+    SessionRegisterProtocol,
+)
 from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
@@ -76,6 +80,12 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def memory_write_strategy(self) -> MemoryWriteStrategyProtocol: ...
+
+    @property
+    def session_register(self) -> SessionRegisterProtocol: ...
+
+    @property
+    def sessions(self) -> SessionManageProtocol: ...
 
     @property
     def agent_state_register(self) -> AgentRunStateRegisterProtocol | None: ...
