@@ -19,7 +19,9 @@ interface/runtime，把外部请求翻译成 core schema，再调用协议边界
 应用层负责协调用例，核心层定义领域对象和协议，基础设施层负责具体适配器和
 注册代码，`bootstrap` 负责具体装配。它是统一点名处：application service、
 具体 adapter 注册、runtime 存储、HTTP app factory 都在这里组合；`entrypoint`
-只向 `bootstrap` 请求已经装配好的对象。
+只向 `bootstrap` 请求已经装配好的对象。无论来自 application、infra 还是
+interface，只要进入 `bootstrap`，就服从 bootstrap 的装配边界；在
+`bootstrap` 面前，一视同仁。
 
 ```mermaid
 flowchart TD
@@ -125,6 +127,8 @@ entrypoint -> bootstrap + interface command/process startup
 - 内层模块不反向依赖 `bootstrap`
 - 只有 `bootstrap` 可以把 application service 和具体 runtime adapter/store
   组装到一起
+- 在 `bootstrap` 内，application、infra、interface 都作为被装配角色服从
+  bootstrap composition boundary，并被一视同仁地纳入统一装配
 - `entrypoint` 不依赖具体 infra 模块
 - 具体 infra import 只出现在 `infra` 自身和 package-level `bootstrap`
 - 具体 provider、SQLite、工具适配器都留在 `infra`
@@ -166,6 +170,8 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 - `interface` 不能组装 application services 或具体 infra runtime
 - 内层模块不能 import package-level `bootstrap`
 - 只有 `bootstrap` 可以统一组装 application service、具体 adapter 和存储
+- 进入 `bootstrap` 的 application、infra、interface 组件都服从 bootstrap
+  的统一装配职责，并被一视同仁地纳入统一编队
 - 只有 `infra` 和 package-level `bootstrap` 可以 import 具体 infra 模块
 - package `__init__.py` 文件只保留注释
 - OpenAI-compatible provider 不能被要求必须支持远程 `/models`

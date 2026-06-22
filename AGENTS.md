@@ -50,6 +50,10 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
   application services, provider/tool registrations, runtime stores, and HTTP
   app factories; inner layers consume assembled protocols and must not reach
   back into bootstrap.
+- Inside `bootstrap`, application, infra, and interface components are present
+  only as assembled roles. Their original layer identity is subordinate to the
+  bootstrap composition boundary, and bootstrap treats them uniformly while
+  composing the system.
 - Keep entrypoint modules as process/command launchers only. Concrete runtime
   composition, including SQLite defaults, belongs in package-level bootstrap,
   not in `entrypoint`.

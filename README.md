@@ -18,7 +18,10 @@ schemas. Application code coordinates use cases through protocols. Infra code
 owns concrete adapters and registrations. Bootstrap code owns concrete
 composition: it names application services, concrete adapter registrations,
 runtime stores, and HTTP app factories. Entrypoints ask bootstrap for assembled
-objects instead of wiring the graph themselves.
+objects instead of wiring the graph themselves. Inside bootstrap, application,
+infra, and interface components are treated as assembled roles under the
+composition boundary. Bootstrap treats them uniformly while composing the
+system.
 
 ```mermaid
 flowchart TD
@@ -131,6 +134,8 @@ These rules are intentionally backed by tests.
 - Inner layers must not depend on bootstrap modules.
 - Only bootstrap may assemble application services with concrete runtime
   adapters and stores.
+- Inside bootstrap, application, infra, and interface components follow the
+  bootstrap composition boundary and are treated uniformly as assembled roles.
 - Entrypoint code must not depend on concrete infra modules.
 - Concrete infra imports should stay inside `infra` and package-level
   `bootstrap`.
