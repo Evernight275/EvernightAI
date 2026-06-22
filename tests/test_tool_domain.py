@@ -6,6 +6,7 @@ from EvernightAI.core.error.tool import (
     ToolInputError,
     ToolNotFoundError,
     ToolPolicyError,
+    ToolResultError,
 )
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
@@ -96,6 +97,42 @@ async def test_tool_manager_wraps_executor_errors() -> None:
         )
 
     assert isinstance(exc_info.value.cause, RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_rejects_non_dictionary_results() -> None:
+    async def invalid_result(arguments: dict[str, object]) -> dict[str, object]:
+        return "not a dictionary"  # type: ignore[return-value]
+
+    register = ToolRegister()
+    register.register(make_tool(), invalid_result)
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolResultError, match="result must be a dictionary"):
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "add", "arguments": {"left": 1, "right": 2}},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_rejects_non_string_result_keys() -> None:
+    async def invalid_result(arguments: dict[str, object]) -> dict[str, object]:
+        return {1: "not a string"}  # type: ignore[dict-item]
+
+    register = ToolRegister()
+    register.register(make_tool(), invalid_result)
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolResultError, match="result keys must be strings"):
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "add", "arguments": {"left": 1, "right": 2}},
+            )
+        )
 
 
 @pytest.mark.asyncio

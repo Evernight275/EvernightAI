@@ -5,6 +5,7 @@ from EvernightAI.core.error.tool import (
     ToolInputError,
     ToolNotFoundError,
     ToolPolicyError,
+    ToolResultError,
 )
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
@@ -97,6 +98,7 @@ class ToolManager(ToolManageProtocol):
             raise ToolExecutionError(
                 f"The tool {tool_name} execution failed", cause=exc
             ) from exc
+        self._validate_result(tool_name, result)
 
         return ToolCallResult(
             tool_call_id=call.tool_call_id,
@@ -114,6 +116,16 @@ class ToolManager(ToolManageProtocol):
         if not isinstance(arguments, dict):
             raise ToolInputError("The tool call arguments must be a dictionary")
         return arguments
+
+    def _validate_result(self, tool_name: str, result: object) -> None:
+        if not isinstance(result, dict):
+            raise ToolResultError(
+                f"The tool {tool_name} result must be a dictionary"
+            )
+        if not all(isinstance(key, str) for key in result):
+            raise ToolResultError(
+                f"The tool {tool_name} result keys must be strings"
+            )
 
 
 class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
