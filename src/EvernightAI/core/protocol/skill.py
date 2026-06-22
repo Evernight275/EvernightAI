@@ -7,14 +7,14 @@ from EvernightAI.core.protocol.base import (
     ResponsibilityProtocol,
 )
 from EvernightAI.core.schema.skill import (
-    SkillCall,
+    RenderedSkill,
+    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
-    SkillResult,
 )
 
 
-SkillExecutorProtocol = Callable[[SkillCall], Awaitable[SkillResult]]
+SkillRendererProtocol = Callable[[SkillRenderRequest], Awaitable[RenderedSkill]]
 
 
 class SkillProtocol(EvernightAIProtocol):
@@ -25,12 +25,12 @@ class SkillProtocol(EvernightAIProtocol):
     ...
 
 
-class SkillExecuteProtocol(SkillProtocol, ResponsibilityProtocol):
+class SkillRenderProtocol(SkillProtocol, ResponsibilityProtocol):
     """
-    技能执行协议
+    技能渲染协议
     """
 
-    async def execute(self, call: SkillCall) -> SkillResult: ...
+    async def render(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
 class SkillManageProtocol(SkillProtocol, ManageProtocol):
@@ -44,7 +44,7 @@ class SkillManageProtocol(SkillProtocol, ManageProtocol):
 
     def supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
 
-    async def execute(self, call: SkillCall) -> SkillResult: ...
+    async def render(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
 class SkillRegisterProtocol(SkillProtocol, RegisterProtocol):
@@ -55,14 +55,14 @@ class SkillRegisterProtocol(SkillProtocol, RegisterProtocol):
     def register(
         self,
         skill: SkillDefinition,
-        executor: SkillExecutorProtocol,
+        renderer: SkillRendererProtocol,
     ) -> None: ...
 
     def unregister(self, skill_name: str) -> None: ...
 
     def get(self, skill_name: str) -> SkillDefinition: ...
 
-    def get_executor(self, skill_name: str) -> SkillExecutorProtocol: ...
+    def get_renderer(self, skill_name: str) -> SkillRendererProtocol: ...
 
     def has(self, skill_name: str) -> bool: ...
 

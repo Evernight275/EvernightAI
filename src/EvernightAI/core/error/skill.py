@@ -41,17 +41,17 @@ class SkillConfigurationError(SkillError, ConfigurationError):
     pass
 
 
-class SkillExecutionError(SkillError, RequestError):
+class SkillRenderError(SkillError, RequestError):
     """
-    技能执行错误
+    技能渲染错误
     """
 
     pass
 
 
-class SkillResultError(SkillError, ResponseError):
+class SkillPromptError(SkillError, ResponseError):
     """
-    技能结果错误
+    技能提示词错误
     """
 
     pass

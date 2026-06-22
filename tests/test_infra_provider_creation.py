@@ -28,7 +28,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
-from EvernightAI.core.schema.skill import SkillCall, SkillCapability
+from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
@@ -202,17 +202,21 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")
-    skill_result = await runtime.skills.execute(
-        SkillCall(
-            skill_call_id="skill-call-1",
+    rendered_skill = await runtime.skills.render(
+        SkillRenderRequest(
+            render_id="skill-render-1",
             skill_name="echo",
-            arguments={"text": "hello"},
+            variables={"text": "hello"},
         )
     )
 
     assert isinstance(instance, OpenAICompatibleProviderInstance)
     assert model.model_id == "gpt-test"
-    assert skill_result.result == {"echo": {"text": "hello"}}
+    assert rendered_skill.messages[0].role is MessageRole.SYSTEM
+    assert rendered_skill.messages[0].content is not None
+    assert rendered_skill.messages[0].content[0].text == (
+        'Echo skill variables: {"text": "hello"}'
+    )
 
     await runtime.close()
 

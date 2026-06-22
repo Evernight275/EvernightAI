@@ -1,10 +1,10 @@
 from EvernightAI.core.protocol.interface import SkillInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.skill import (
-    SkillCall,
+    RenderedSkill,
+    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
-    SkillResult,
 )
 
 
@@ -21,5 +21,5 @@ class SkillApplication(SkillInterfaceProtocol):
     def skill_supports(self, skill_name: str, capability: SkillCapability) -> bool:
         return self._runtime.skills.supports(skill_name, capability)
 
-    async def execute_skill(self, call: SkillCall) -> SkillResult:
-        return await self._runtime.skills.execute(call)
+    async def render_skill(self, request: SkillRenderRequest) -> RenderedSkill:
+        return await self._runtime.skills.render(request)

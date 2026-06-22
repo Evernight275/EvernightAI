@@ -1,13 +1,13 @@
 from fastapi import APIRouter
 
 from EvernightAI.core.schema.skill import (
-    SkillCall,
+    RenderedSkill,
+    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
-    SkillResult,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
-from EvernightAI.interface.http.schema import ExecuteSkillRequest
+from EvernightAI.interface.http.schema import RenderSkillRequest
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -35,17 +35,17 @@ async def skill_supports(
     return interface.skills.skill_supports(skill_name, capability)
 
 
-@router.post("/{skill_name}/execute", response_model=SkillResult)
-async def execute_skill(
+@router.post("/{skill_name}/render", response_model=RenderedSkill)
+async def render_skill(
     skill_name: str,
-    request: ExecuteSkillRequest,
+    request: RenderSkillRequest,
     interface: InterfaceDependency,
-) -> SkillResult:
-    return await interface.skills.execute_skill(
-        SkillCall(
-            skill_call_id=request.skill_call_id,
+) -> RenderedSkill:
+    return await interface.skills.render_skill(
+        SkillRenderRequest(
+            render_id=request.render_id,
             skill_name=skill_name,
-            arguments=request.arguments,
+            variables=request.variables,
             metadata=request.metadata,
         )
     )

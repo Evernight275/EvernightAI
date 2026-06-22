@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
+from EvernightAI.core.schema.content import Content
 
 
 class SkillCapability(StrEnum):
@@ -31,23 +32,23 @@ class SkillDefinition(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class SkillCall(EvernightAISchema):
+class SkillRenderRequest(EvernightAISchema):
     """
-    技能调用schema
+    技能渲染请求schema
     """
 
-    skill_call_id: str
+    render_id: str
     skill_name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    variables: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class SkillResult(EvernightAISchema):
+class RenderedSkill(EvernightAISchema):
     """
-    技能调用结果schema
+    渲染后的技能schema
     """
 
-    skill_call_id: str
+    render_id: str
     skill_name: str
-    result: dict[str, Any] = Field(default_factory=dict)
+    messages: list[Content] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
