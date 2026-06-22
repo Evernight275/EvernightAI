@@ -170,6 +170,11 @@ def test_http_app_exposes_skill_routes() -> None:
 
     with TestClient(app) as client:
         skills_response = client.get("/skills")
+        skill_response = client.get("/skills/summarize")
+        supports_response = client.get(
+            "/skills/summarize/supports",
+            params={"capability": "chat"},
+        )
         execute_response = client.post(
             "/skills/summarize/execute",
             json={
@@ -177,9 +182,14 @@ def test_http_app_exposes_skill_routes() -> None:
                 "arguments": {"text": "hello"},
             },
         )
+        missing_response = client.get("/skills/missing")
 
     assert skills_response.status_code == 200
     assert [skill["name"] for skill in skills_response.json()] == ["summarize"]
+    assert skill_response.status_code == 200
+    assert skill_response.json()["name"] == "summarize"
+    assert supports_response.status_code == 200
+    assert supports_response.json() is False
     assert execute_response.status_code == 200
     assert execute_response.json() == {
         "skill_call_id": "skill-call-1",
@@ -187,6 +197,7 @@ def test_http_app_exposes_skill_routes() -> None:
         "result": {"summary": "hello"},
         "metadata": {"source": "fake"},
     }
+    assert missing_response.status_code == 404
 
 
 def test_http_app_exposes_provider_management_routes() -> None:

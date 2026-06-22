@@ -8,7 +8,12 @@ from EvernightAI.core.protocol.skill import (
     SkillManageProtocol,
     SkillRegisterProtocol,
 )
-from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
+from EvernightAI.core.schema.skill import (
+    SkillCall,
+    SkillCapability,
+    SkillDefinition,
+    SkillResult,
+)
 
 
 class SkillRegister(SkillRegisterProtocol):
@@ -60,6 +65,15 @@ class SkillManager(SkillManageProtocol):
     def list_skills(self) -> list[SkillDefinition]:
         """列出所有技能定义"""
         return self._register.list_skills()
+
+    def get_skill(self, skill_name: str) -> SkillDefinition:
+        """获取技能定义"""
+        return self._register.get(skill_name)
+
+    def supports(self, skill_name: str, capability: SkillCapability) -> bool:
+        """检查技能能力"""
+        skill = self._register.get(skill_name)
+        return capability in skill.capabilities
 
     async def execute(self, call: SkillCall) -> SkillResult:
         """执行技能调用"""

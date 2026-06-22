@@ -14,7 +14,12 @@ from EvernightAI.core.schema.content import ChatRequest, ChatResponse, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
-from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
+from EvernightAI.core.schema.skill import (
+    SkillCall,
+    SkillCapability,
+    SkillDefinition,
+    SkillResult,
+)
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
 
@@ -154,6 +159,10 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
 
 class SkillInterfaceProtocol(InterfaceProtocol):
     def list_skills(self) -> list[SkillDefinition]: ...
+
+    def get_skill(self, skill_name: str) -> SkillDefinition: ...
+
+    def skill_supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
 
     async def execute_skill(self, call: SkillCall) -> SkillResult: ...
 

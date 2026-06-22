@@ -69,6 +69,23 @@ def test_skill_register_raises_for_missing_skill() -> None:
         register.get("missing")
 
 
+def test_skill_manager_gets_skill_and_checks_capability() -> None:
+    register = SkillRegister()
+    manager = SkillManager(register)
+
+    async def summarize(call: SkillCall) -> SkillResult:
+        return SkillResult(
+            skill_call_id=call.skill_call_id,
+            skill_name=call.skill_name,
+        )
+
+    register.register(make_skill(), summarize)
+
+    assert manager.get_skill("summarize") == make_skill()
+    assert manager.supports("summarize", SkillCapability.CHAT) is True
+    assert manager.supports("summarize", SkillCapability.AGENT) is False
+
+
 @pytest.mark.asyncio
 async def test_skill_manager_rejects_missing_skill_name() -> None:
     manager = SkillManager(SkillRegister())

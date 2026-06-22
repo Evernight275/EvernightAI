@@ -6,7 +6,12 @@ from EvernightAI.core.protocol.base import (
     RegisterProtocol,
     ResponsibilityProtocol,
 )
-from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
+from EvernightAI.core.schema.skill import (
+    SkillCall,
+    SkillCapability,
+    SkillDefinition,
+    SkillResult,
+)
 
 
 SkillExecutorProtocol = Callable[[SkillCall], Awaitable[SkillResult]]
@@ -34,6 +39,10 @@ class SkillManageProtocol(SkillProtocol, ManageProtocol):
     """
 
     def list_skills(self) -> list[SkillDefinition]: ...
+
+    def get_skill(self, skill_name: str) -> SkillDefinition: ...
+
+    def supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
 
     async def execute(self, call: SkillCall) -> SkillResult: ...
 
