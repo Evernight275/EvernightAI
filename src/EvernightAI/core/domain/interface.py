@@ -3,6 +3,7 @@ from EvernightAI.core.protocol.interface import (
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
     EvernightInterfaceProtocol,
+    SkillInterfaceProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 
@@ -14,11 +15,13 @@ class EvernightInterface(EvernightInterfaceProtocol):
         chat: ChatInterfaceProtocol,
         agent: AgentInterfaceProtocol,
         agent_runs: AgentRunInterfaceProtocol,
+        skills: SkillInterfaceProtocol,
     ) -> None:
         self._runtime = runtime
         self._chat = chat
         self._agent = agent
         self._agent_runs = agent_runs
+        self._skills = skills
 
     @property
     def runtime(self) -> RuntimeProtocol:
@@ -35,6 +38,10 @@ class EvernightInterface(EvernightInterfaceProtocol):
     @property
     def agent_runs(self) -> AgentRunInterfaceProtocol:
         return self._agent_runs
+
+    @property
+    def skills(self) -> SkillInterfaceProtocol:
+        return self._skills
 
     async def close(self) -> None:
         await self.runtime.close()

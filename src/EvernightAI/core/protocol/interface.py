@@ -14,6 +14,7 @@ from EvernightAI.core.schema.content import ChatRequest, ChatResponse, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
 
@@ -151,6 +152,12 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
     def list_trace(self, run_id: str) -> list[AgentTraceEvent]: ...
 
 
+class SkillInterfaceProtocol(InterfaceProtocol):
+    def list_skills(self) -> list[SkillDefinition]: ...
+
+    async def execute_skill(self, call: SkillCall) -> SkillResult: ...
+
+
 class EvernightInterfaceProtocol(InterfaceProtocol):
     @property
     def runtime(self) -> RuntimeProtocol: ...
@@ -163,5 +170,8 @@ class EvernightInterfaceProtocol(InterfaceProtocol):
 
     @property
     def agent_runs(self) -> AgentRunInterfaceProtocol: ...
+
+    @property
+    def skills(self) -> SkillInterfaceProtocol: ...
 
     async def close(self) -> None: ...
