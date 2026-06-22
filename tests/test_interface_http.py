@@ -1,4 +1,6 @@
+import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -41,6 +43,12 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.tool import (
+    ToolCall,
+    ToolDefinition,
+    ToolPermission,
+    ToolSafetyLevel,
+)
 from EvernightAI.application.bootstrap import create_interface
 from EvernightAI.interface.http.app import create_http_app
 
@@ -186,6 +194,95 @@ def test_http_app_exposes_persisted_agent_run_routes() -> None:
     ]
 
 
+def test_http_app_streams_agent_trace_events() -> None:
+    interface = create_interface(make_runtime(provider=FakeProvider()))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.stream(
+            "POST",
+            "/agent-runs/stream",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+            },
+        ) as stream_response:
+            body = stream_response.read().decode("utf-8")
+            content_type = stream_response.headers["content-type"]
+
+    events = parse_ndjson_events(body)
+
+    assert content_type.startswith("application/x-ndjson")
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert events[-1]["metadata"]["reason"] == "finished"
+
+
+def test_http_app_streams_agent_pause_for_tool_approval() -> None:
+    tool_executed = False
+
+    async def write_file(_arguments: dict[str, object]) -> dict[str, object]:
+        nonlocal tool_executed
+        tool_executed = True
+        return {"written": True}
+
+    runtime = make_runtime(provider=SensitiveToolProvider())
+    tool = sensitive_tool_definition()
+    runtime.tool_register.register(tool, write_file)
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.stream(
+            "POST",
+            "/agent-runs/stream",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Write a file")],
+                "tools": [tool.model_dump(mode="json")],
+                "pause_on_approval": True,
+            },
+        ) as stream_response:
+            body = stream_response.read().decode("utf-8")
+
+    events = parse_ndjson_events(body)
+
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "chat_completed",
+        "tool_approval_requested",
+        "run_paused",
+    ]
+    assert events[2]["approval_request"]["tool_name"] == "write_file"
+    assert events[3]["metadata"]["reason"] == "tool_approval_required"
+    assert tool_executed is False
+
+
 def test_http_app_maps_domain_errors() -> None:
     interface = create_interface(make_runtime())
     app = create_http_app(interface, close_on_shutdown=False)
@@ -255,6 +352,24 @@ def make_message(text: str, *, role: MessageRole = MessageRole.USER) -> Content:
     )
 
 
+def parse_ndjson_events(body: str) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in body.splitlines()
+        if line
+    ]
+
+
+def sensitive_tool_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="write_file",
+        description="Write a file",
+        parameters_schema={"type": "object"},
+        permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+        safety_level=ToolSafetyLevel.SENSITIVE,
+    )
+
+
 class FakeProvider(ProviderInstanceProtocol):
     def __init__(self) -> None:
         self.last_request: ChatRequest | None = None
@@ -290,6 +405,27 @@ class FakeProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
+
+
+class SensitiveToolProvider(FakeProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.last_request = request
+        return ChatResponse(
+            model_id=request.model_id,
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id="tool-call-1",
+                        tool_call={
+                            "name": "write_file",
+                            "arguments": {"path": "note.txt"},
+                        },
+                    )
+                ],
+            ),
+            finish_reason="tool_calls",
+        )
 
 
 class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):

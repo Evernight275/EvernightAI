@@ -1,4 +1,7 @@
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, status
+from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
@@ -22,6 +25,17 @@ async def start_agent_run(
     interface: InterfaceDependency,
 ) -> AgentRunState:
     return await interface.agent_runs.start(request)
+
+
+@router.post("/stream")
+async def stream_agent_run(
+    request: AgentRunRequest,
+    interface: InterfaceDependency,
+) -> StreamingResponse:
+    return StreamingResponse(
+        _agent_trace_lines(request, interface),
+        media_type="application/x-ndjson",
+    )
 
 
 @router.get("", response_model=list[AgentRunState])
@@ -52,3 +66,11 @@ async def list_agent_trace(
     interface: InterfaceDependency,
 ) -> list[AgentTraceEvent]:
     return interface.agent_runs.list_trace(run_id)
+
+
+async def _agent_trace_lines(
+    request: AgentRunRequest,
+    interface: InterfaceDependency,
+) -> AsyncIterator[str]:
+    async for event in interface.agent.run_agent_stream(request):
+        yield event.model_dump_json() + "\n"
