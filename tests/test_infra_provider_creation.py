@@ -28,6 +28,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.skill import SkillCall, SkillCapability
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
@@ -44,10 +45,13 @@ from EvernightAI.bootstrap.runtime import (
     create_provider_factory,
     create_provider_manager,
     create_runtime,
+    create_skill_manager,
+    create_skill_register,
     create_sqlite_runtime,
     create_tool_manager,
     create_tool_register,
     create_tool_safety_policy,
+    register_builtin_skills,
     register_builtin_tools,
 )
 
@@ -124,6 +128,18 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
     ]
 
 
+def test_bootstrap_registers_builtin_skills_explicitly() -> None:
+    register = create_skill_register()
+    manager = create_skill_manager(register)
+
+    register_builtin_skills(register)
+
+    skills = manager.list_skills()
+    assert [skill.name for skill in skills] == ["echo"]
+    assert skills[0].capabilities == [SkillCapability.AGENT]
+    assert skills[0].metadata == {"builtin": True}
+
+
 def test_bootstrap_creates_context_manager() -> None:
     register = create_context_register()
     manager = create_context_manager(register)
@@ -175,7 +191,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
     assert runtime.tools.list_tools() == []
-    assert runtime.skills.list_skills() == []
+    assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.tool_safety_policy.authorize
     assert await runtime.contexts.list_contexts() == []
     assert runtime.context_organizer.organize
@@ -186,9 +202,17 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
 
     instance = await runtime.providers.create(make_openai_config())
     model = await runtime.providers.get_model("openai-main", "gpt-test")
+    skill_result = await runtime.skills.execute(
+        SkillCall(
+            skill_call_id="skill-call-1",
+            skill_name="echo",
+            arguments={"text": "hello"},
+        )
+    )
 
     assert isinstance(instance, OpenAICompatibleProviderInstance)
     assert model.model_id == "gpt-test"
+    assert skill_result.result == {"echo": {"text": "hello"}}
 
     await runtime.close()
 
@@ -213,7 +237,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         "write_text_file",
         "list_directory",
     ]
-    assert runtime.skills.list_skills() == []
+    assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.agent_state_register is not None
     assert runtime.agent_trace_register is not None
 

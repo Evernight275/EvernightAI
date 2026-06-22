@@ -2,7 +2,12 @@ import pytest
 
 from EvernightAI.application.skill import SkillApplication
 from EvernightAI.bootstrap.runtime import create_runtime
-from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
+from EvernightAI.core.schema.skill import (
+    SkillCall,
+    SkillCapability,
+    SkillDefinition,
+    SkillResult,
+)
 
 
 @pytest.mark.asyncio
@@ -16,7 +21,11 @@ async def test_skill_application_lists_and_executes_runtime_skills() -> None:
 
     runtime = create_runtime()
     runtime.skill_register.register(
-        SkillDefinition(name="summarize", description="Summarize text"),
+        SkillDefinition(
+            name="summarize",
+            description="Summarize text",
+            capabilities=[SkillCapability.CHAT],
+        ),
         summarize,
     )
     application = SkillApplication(runtime)
@@ -29,7 +38,10 @@ async def test_skill_application_lists_and_executes_runtime_skills() -> None:
         )
     )
 
-    assert application.list_skills() == [
-        SkillDefinition(name="summarize", description="Summarize text")
+    assert [skill.name for skill in application.list_skills()] == [
+        "echo",
+        "summarize",
     ]
+    assert application.get_skill("summarize").name == "summarize"
+    assert application.skill_supports("summarize", SkillCapability.CHAT) is True
     assert result.result == {"summary": "hello"}

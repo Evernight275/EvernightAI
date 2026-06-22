@@ -63,6 +63,7 @@ from EvernightAI.infra.registrations.provider.openai_compatible import (
 from EvernightAI.infra.registrations.provider.openai_responses import (
     register_openai_responses_provider,
 )
+from EvernightAI.infra.registrations.skill.echo import register_echo_skill
 from EvernightAI.infra.registrations.tool.restricted_filesystem import (
     register_restricted_filesystem_tools,
 )
@@ -110,6 +111,10 @@ def create_skill_manager(
     register: SkillRegisterProtocol | None = None,
 ) -> SkillManager:
     return SkillManager(register or create_skill_register())
+
+
+def register_builtin_skills(register: SkillRegisterProtocol) -> None:
+    register_echo_skill(register)
 
 
 def register_builtin_tools(
@@ -287,6 +292,7 @@ def _create_runtime(
     tool_safety_policy = tool_safety_policy or create_tool_safety_policy()
     tools = ToolManager(tool_register, tool_safety_policy)
     skill_register = skill_register or create_skill_register()
+    register_builtin_skills(skill_register)
     skills = skills or create_skill_manager(skill_register)
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
