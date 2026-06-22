@@ -13,6 +13,7 @@ from EvernightAI.core.domain.memory import (
     MemoryRegister,
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
+from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import (
     BasicToolSafetyPolicy,
     ToolManager,
@@ -66,7 +67,6 @@ from EvernightAI.infra.registrations.tool.restricted_filesystem import (
 from EvernightAI.infra.registrations.tool.restricted_shell import (
     register_restricted_shell_tool,
 )
-from EvernightAI.core.domain.runtime import RuntimeKernel
 
 
 def create_provider_factory() -> ProviderFactory:

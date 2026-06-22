@@ -6,7 +6,7 @@ from EvernightAI.core.domain.memory import MemoryManager
 from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.schema.memory import MemoryItem, MemoryKind, MemoryScope
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
-from EvernightAI.infra.bootstrap import (
+from EvernightAI.bootstrap.runtime import (
     create_sqlite_memory_manager,
     create_sqlite_memory_register,
 )

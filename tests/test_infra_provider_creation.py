@@ -31,7 +31,7 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
-from EvernightAI.infra.bootstrap import (
+from EvernightAI.bootstrap.runtime import (
     RuntimeKernel,
     create_context_manager,
     create_context_organizer,

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from EvernightAI.application.bootstrap import create_interface
+from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.cli import main
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
@@ -41,12 +41,13 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import SSEEvent
-from EvernightAI.interface.cli.commands import list_models, list_providers, run_chat
-from EvernightAI.interface.cli.config import parse_config
-from EvernightAI.entrypoint.server import (
-    create_app_from_config,
+from EvernightAI.bootstrap.config import (
+    create_interface_from_config,
     create_runtime_from_config,
 )
+from EvernightAI.bootstrap.http import create_app_from_config
+from EvernightAI.interface.cli.commands import list_models, list_providers, run_chat
+from EvernightAI.interface.cli.config import parse_config
 
 
 def test_list_providers_formats_declared_providers() -> None:
@@ -272,8 +273,8 @@ type = "openai"
     )
 
     monkeypatch.setattr(
-        "EvernightAI.entrypoint.cli.create_runtime_from_config",
-        lambda _config: make_runtime(),
+        "EvernightAI.entrypoint.cli.create_interface_from_config",
+        lambda _config: create_interface(make_runtime()),
     )
 
     exit_code = main(
@@ -310,8 +311,8 @@ type = "openai"
     )
 
     monkeypatch.setattr(
-        "EvernightAI.entrypoint.cli.create_runtime_from_config",
-        lambda _config: make_runtime(),
+        "EvernightAI.entrypoint.cli.create_interface_from_config",
+        lambda _config: create_interface(make_runtime()),
     )
 
     exit_code = main(
@@ -349,8 +350,8 @@ is_enabled = false
     )
 
     monkeypatch.setattr(
-        "EvernightAI.entrypoint.cli.create_runtime_from_config",
-        lambda _config: make_runtime(),
+        "EvernightAI.entrypoint.cli.create_interface_from_config",
+        lambda _config: create_interface(make_runtime()),
     )
 
     exit_code = main(
@@ -396,6 +397,33 @@ def test_create_runtime_from_config_registers_filesystem_tools_only(
         import asyncio
 
         asyncio.run(runtime.close())
+
+
+def test_create_interface_from_config_wraps_configured_runtime(
+    tmp_path: Path,
+) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "filesystem": {"enabled": True, "root": str(tmp_path)},
+                "shell": {"enabled": False},
+            },
+        }
+    )
+
+    interface = create_interface_from_config(config)
+
+    try:
+        assert [tool.name for tool in interface.runtime.tools.list_tools()] == [
+            "read_text_file",
+            "write_text_file",
+            "list_directory",
+        ]
+    finally:
+        import asyncio
+
+        asyncio.run(interface.close())
 
 
 def test_create_runtime_from_config_registers_shell_tool_when_enabled(

@@ -8,6 +8,7 @@ CORE_ROOT = PACKAGE_ROOT / "core"
 APPLICATION_ROOT = PACKAGE_ROOT / "application"
 INFRA_ROOT = PACKAGE_ROOT / "infra"
 INTERFACE_ROOT = PACKAGE_ROOT / "interface"
+BOOTSTRAP_ROOT = PACKAGE_ROOT / "bootstrap"
 ENTRYPOINT_ROOT = PACKAGE_ROOT / "entrypoint"
 
 
@@ -105,7 +106,13 @@ def test_interface_does_not_depend_on_application_or_infra_modules() -> None:
 def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
     violations: list[str] = []
 
-    for root in [CORE_ROOT, APPLICATION_ROOT, INFRA_ROOT, INTERFACE_ROOT]:
+    for root in [
+        CORE_ROOT,
+        APPLICATION_ROOT,
+        INFRA_ROOT,
+        INTERFACE_ROOT,
+        BOOTSTRAP_ROOT,
+    ]:
         for path in _python_files(root):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -119,6 +126,75 @@ def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
                     if _is_entrypoint_dependency(module):
                         imported = ", ".join(alias.name for alias in node.names)
                         violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_entrypoint_does_not_depend_on_application_or_infra_modules() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(ENTRYPOINT_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_application_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+                    if _is_infra_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if _is_application_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+                if _is_infra_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_inner_layers_do_not_depend_on_bootstrap_modules() -> None:
+    violations: list[str] = []
+
+    for root in [CORE_ROOT, APPLICATION_ROOT, INFRA_ROOT, INTERFACE_ROOT]:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if _is_bootstrap_dependency(alias.name):
+                            violations.append(f"{_rel(path)} imports {alias.name}")
+
+                if isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    if _is_bootstrap_dependency(module):
+                        imported = ", ".join(alias.name for alias in node.names)
+                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+
+    assert violations == []
+
+
+def test_only_bootstrap_and_infra_depend_on_infra_modules() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(PACKAGE_ROOT):
+        if _is_under(path, BOOTSTRAP_ROOT) or _is_under(path, INFRA_ROOT):
+            continue
+
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_infra_dependency(alias.name):
+                        violations.append(f"{_rel(path)} imports {alias.name}")
+
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if _is_infra_dependency(module):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    violations.append(f"{_rel(path)} imports {imported} from {module}")
 
     assert violations == []
 
@@ -183,6 +259,16 @@ def _is_entrypoint_dependency(module: str) -> bool:
     return module == "EvernightAI.entrypoint" or module.startswith(
         "EvernightAI.entrypoint."
     )
+
+
+def _is_bootstrap_dependency(module: str) -> bool:
+    return module == "EvernightAI.bootstrap" or module.startswith(
+        "EvernightAI.bootstrap."
+    )
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
 
 
 def _rel(path: Path) -> str:

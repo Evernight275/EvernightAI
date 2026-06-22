@@ -12,7 +12,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
-from EvernightAI.infra.bootstrap import (
+from EvernightAI.bootstrap.runtime import (
     create_sqlite_context_manager,
     create_sqlite_context_register,
 )

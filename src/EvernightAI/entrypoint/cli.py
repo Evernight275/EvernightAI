@@ -4,13 +4,10 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from EvernightAI.application.bootstrap import create_interface
+from EvernightAI.bootstrap.config import create_interface_from_config
+from EvernightAI.bootstrap.http import create_app_from_config
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
-from EvernightAI.entrypoint.server import (
-    create_app_from_config,
-    create_runtime_from_config,
-)
 from EvernightAI.interface.cli.commands import (
     check_config,
     list_models,
@@ -201,8 +198,7 @@ def _handle_serve(args: argparse.Namespace) -> str:
 
 
 def _build_interface(config: EvernightConfig) -> EvernightInterfaceProtocol:
-    runtime = create_runtime_from_config(config)
-    return create_interface(runtime)
+    return create_interface_from_config(config)
 
 
 if __name__ == "__main__":

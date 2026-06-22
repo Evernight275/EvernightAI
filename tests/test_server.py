@@ -1,11 +1,11 @@
 from fastapi.testclient import TestClient
 
-from EvernightAI.entrypoint.server import create_app as create_entrypoint_app
+from EvernightAI.bootstrap.http import create_app as create_http_app
 from EvernightAI.server import main as package_server_main
 
 
-def test_entrypoint_server_factory_creates_http_app(tmp_path) -> None:
-    app = create_entrypoint_app(
+def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
+    app = create_http_app(
         database_path=tmp_path / "entrypoint.sqlite3",
         filesystem_root=tmp_path,
         close_on_shutdown=False,

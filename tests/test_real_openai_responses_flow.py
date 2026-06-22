@@ -12,7 +12,7 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
-from EvernightAI.infra.bootstrap import create_runtime
+from EvernightAI.bootstrap.runtime import create_runtime
 
 
 RUN_REAL_OPENAI_RESPONSES = os.getenv("EVERNIGHTAI_RUN_REAL_OPENAI_RESPONSES") == "1"

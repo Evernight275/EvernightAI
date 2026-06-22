@@ -1,12 +1,12 @@
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
-from EvernightAI.application.bootstrap import create_interface
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.bootstrap.interface import create_interface
+from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
-from EvernightAI.infra.bootstrap import create_runtime
 
 
-def test_application_bootstrap_wraps_existing_runtime() -> None:
+def test_interface_bootstrap_wraps_existing_runtime() -> None:
     runtime = create_runtime()
 
     interface = create_interface(runtime)

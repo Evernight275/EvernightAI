@@ -49,7 +49,7 @@ from EvernightAI.core.schema.tool import (
     ToolPermission,
     ToolSafetyLevel,
 )
-from EvernightAI.application.bootstrap import create_interface
+from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.interface.http.app import create_http_app
 
 

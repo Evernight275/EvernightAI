@@ -20,7 +20,7 @@ from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
     SQLiteAgentTraceRegister,
 )
-from EvernightAI.infra.bootstrap import (
+from EvernightAI.bootstrap.runtime import (
     create_sqlite_agent_state_register,
     create_sqlite_agent_trace_register,
 )
