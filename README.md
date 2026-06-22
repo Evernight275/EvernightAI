@@ -1,7 +1,7 @@
 # EvernightAI
 
-EvernightAI is a small layered runtime for chat providers, tools, context,
-memory, and agent runs.
+EvernightAI is a small layered runtime for chat providers, skills, tools,
+context, memory, and agent runs.
 
 The main runtime loop is:
 
@@ -44,15 +44,18 @@ flowchart TD
     InterfaceBoundary --> ChatApp["ChatApplication"]
     InterfaceBoundary --> AgentApp["AgentApplication"]
     InterfaceBoundary --> AgentRuns["AgentRunApplication"]
+    InterfaceBoundary --> SkillApp["SkillApplication"]
 
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
+    SkillApp --> Runtime
     BootRuntime --> Runtime
 
     Runtime --> Providers["ProviderManager + ProviderFactory"]
     Runtime --> Contexts["ContextManager + ContextStrategy"]
     Runtime --> Memories["MemoryManager + MemoryStrategy"]
+    Runtime --> Skills["SkillManager + SkillRegister"]
     Runtime --> Tools["ToolManager + ToolSafetyPolicy"]
     Runtime --> AgentStore["Agent state + trace registers"]
 
@@ -89,6 +92,7 @@ flowchart TD
         Providers
         Contexts
         Memories
+        Skills
         Tools
         AgentStore
     end
@@ -97,6 +101,7 @@ flowchart TD
         ChatApp
         AgentApp
         AgentRuns
+        SkillApp
     end
 
     subgraph Infra["infra"]
@@ -119,9 +124,20 @@ bootstrap -> application + infra + interface assembly
 entrypoint -> bootstrap + interface command/process startup
 ```
 
+Bootstrap has four explicit assembly points:
+
+- `bootstrap.runtime` assembles `RuntimeKernel`, skill/tool managers,
+  provider/tool registrations, and concrete storage registers.
+- `bootstrap.interface` wraps a runtime with application services and
+  `EvernightInterface`, including `SkillApplication`.
+- `bootstrap.config` turns an `EvernightConfig` into an assembled runtime or
+  interface.
+- `bootstrap.http` turns an assembled interface into a FastAPI app.
+
 The current HTTP surface includes provider management, context and memory CRUD,
-tool listing, direct chat, context chat, SSE chat streaming, persisted agent
-runs, persisted agent trace streaming, and agent resume.
+skill listing and execution, tool listing, direct chat, context chat, SSE chat
+streaming, persisted agent runs, persisted agent trace streaming, and agent
+resume.
 
 ## Project Rules
 

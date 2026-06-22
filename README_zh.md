@@ -1,7 +1,7 @@
 # EvernightAI
 
-EvernightAI 是一个小型分层 AI runtime，用来组织聊天模型提供商、工具、
-上下文、记忆和 agent run。
+EvernightAI 是一个小型分层 AI runtime，用来组织聊天模型提供商、技能、
+工具、上下文、记忆和 agent run。
 
 当前主链路是：
 
@@ -44,15 +44,18 @@ flowchart TD
     InterfaceBoundary --> ChatApp["ChatApplication"]
     InterfaceBoundary --> AgentApp["AgentApplication"]
     InterfaceBoundary --> AgentRuns["AgentRunApplication"]
+    InterfaceBoundary --> SkillApp["SkillApplication"]
 
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
+    SkillApp --> Runtime
     BootRuntime --> Runtime
 
     Runtime --> Providers["ProviderManager + ProviderFactory"]
     Runtime --> Contexts["ContextManager + ContextStrategy"]
     Runtime --> Memories["MemoryManager + MemoryStrategy"]
+    Runtime --> Skills["SkillManager + SkillRegister"]
     Runtime --> Tools["ToolManager + ToolSafetyPolicy"]
     Runtime --> AgentStore["Agent state + trace registers"]
 
@@ -89,6 +92,7 @@ flowchart TD
         Providers
         Contexts
         Memories
+        Skills
         Tools
         AgentStore
     end
@@ -97,6 +101,7 @@ flowchart TD
         ChatApp
         AgentApp
         AgentRuns
+        SkillApp
     end
 
     subgraph Infra["infra"]
@@ -118,6 +123,15 @@ infra -> core protocols/schemas
 bootstrap -> application + infra + interface assembly
 entrypoint -> bootstrap + interface command/process startup
 ```
+
+`bootstrap` 现在有四个明确装配点：
+
+- `bootstrap.runtime` 组装 `RuntimeKernel`、skill/tool managers、
+  provider/tool registrations 和具体 storage registers
+- `bootstrap.interface` 把 runtime 包成 application services 和
+  `EvernightInterface`，包括 `SkillApplication`
+- `bootstrap.config` 把 `EvernightConfig` 转成已经装配好的 runtime 或 interface
+- `bootstrap.http` 把已经装配好的 interface 转成 FastAPI app
 
 这意味着：
 
@@ -151,6 +165,7 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 当前 HTTP 接口覆盖：
 
 - provider 创建、模型查询、能力查询、删除
+- skill 列表和执行
 - context 创建、查询、替换、追加消息、删除
 - memory 创建、查询、选择、删除
 - tool 列表
