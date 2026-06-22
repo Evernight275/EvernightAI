@@ -42,6 +42,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.skill import SkillCall, SkillDefinition, SkillResult
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import (
     ToolCall,
@@ -141,6 +142,51 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     ]
     assert tools_response.status_code == 200
     assert tools_response.json() == []
+
+
+def test_http_app_exposes_skill_routes() -> None:
+    async def summarize(call: SkillCall) -> SkillResult:
+        return SkillResult(
+            skill_call_id=call.skill_call_id,
+            skill_name=call.skill_name,
+            result={"summary": call.arguments["text"]},
+            metadata={"source": "fake"},
+        )
+
+    runtime = make_runtime()
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="summarize",
+            description="Summarize text",
+            input_schema={
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+            },
+        ),
+        summarize,
+    )
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        skills_response = client.get("/skills")
+        execute_response = client.post(
+            "/skills/summarize/execute",
+            json={
+                "skill_call_id": "skill-call-1",
+                "arguments": {"text": "hello"},
+            },
+        )
+
+    assert skills_response.status_code == 200
+    assert [skill["name"] for skill in skills_response.json()] == ["summarize"]
+    assert execute_response.status_code == 200
+    assert execute_response.json() == {
+        "skill_call_id": "skill-call-1",
+        "skill_name": "summarize",
+        "result": {"summary": "hello"},
+        "metadata": {"source": "fake"},
+    }
 
 
 def test_http_app_exposes_provider_management_routes() -> None:

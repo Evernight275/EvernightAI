@@ -1,3 +1,5 @@
+from pydantic import Field
+
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatRequest, Content
 from EvernightAI.core.schema.memory import MemoryQuery
@@ -21,3 +23,9 @@ class DirectChatRequest(EvernightAISchema):
 
 class ResumeAgentRunRequest(EvernightAISchema):
     approvals: list[ToolApprovalDecision]
+
+
+class ExecuteSkillRequest(EvernightAISchema):
+    skill_call_id: str
+    arguments: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
