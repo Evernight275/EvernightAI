@@ -11,14 +11,38 @@ from EvernightAI.core.error.base import ConfigurationError, EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.interface.cli.commands import (
     SkillCapability,
+    append_context_message,
+    archive_session,
     check_config,
+    chat_with_session,
+    create_context,
+    create_memory,
+    create_session,
+    delete_context,
+    delete_memory,
+    delete_session,
+    get_agent_run,
+    get_context,
+    get_memory,
+    get_session,
+    list_agent_runs,
+    list_agent_trace,
+    list_contexts,
+    list_memories,
     list_models,
     list_providers,
+    list_sessions,
     list_skills,
     render_skill,
+    replace_context,
+    replace_session,
+    resume_agent_run,
     run_chat,
+    select_memories,
     show_skill,
     show_config,
+    start_agent_run,
+    start_session_agent_run,
     skill_supports,
 )
 from EvernightAI.interface.cli.config import load_config
@@ -52,6 +76,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_provider_subparser(subparsers)
     _add_model_subparser(subparsers)
     _add_skill_subparser(subparsers)
+    _add_context_subparser(subparsers)
+    _add_memory_subparser(subparsers)
+    _add_session_subparser(subparsers)
+    _add_agent_run_subparser(subparsers)
     _add_chat_subparser(subparsers)
     _add_serve_subparser(subparsers)
 
@@ -176,6 +204,176 @@ def _add_skill_subparser(subparsers: argparse._SubParsersAction) -> None:
     render_parser.set_defaults(handler=_handle_skill_render)
 
 
+def _add_context_subparser(subparsers: argparse._SubParsersAction) -> None:
+    context_parser = subparsers.add_parser("context")
+    context_parser.set_defaults(handler=_print_help(context_parser))
+    context_subparsers = context_parser.add_subparsers(dest="context_command")
+
+    list_parser = context_subparsers.add_parser("list")
+    _add_config_argument(list_parser)
+    list_parser.set_defaults(handler=_handle_context_list)
+
+    get_parser = context_subparsers.add_parser("get")
+    get_parser.add_argument("context_id")
+    _add_config_argument(get_parser)
+    get_parser.set_defaults(handler=_handle_context_get)
+
+    create_parser = context_subparsers.add_parser("create")
+    create_parser.add_argument("--json", required=True, help="Context JSON object.")
+    _add_config_argument(create_parser)
+    create_parser.set_defaults(handler=_handle_context_create)
+
+    append_parser = context_subparsers.add_parser("append")
+    append_parser.add_argument("context_id")
+    append_parser.add_argument(
+        "--message-json",
+        required=True,
+        help="Content JSON object to append.",
+    )
+    _add_config_argument(append_parser)
+    append_parser.set_defaults(handler=_handle_context_append)
+
+    replace_parser = context_subparsers.add_parser("replace")
+    replace_parser.add_argument("context_id")
+    replace_parser.add_argument("--json", required=True, help="Context JSON object.")
+    _add_config_argument(replace_parser)
+    replace_parser.set_defaults(handler=_handle_context_replace)
+
+    delete_parser = context_subparsers.add_parser("delete")
+    delete_parser.add_argument("context_id")
+    _add_config_argument(delete_parser)
+    delete_parser.set_defaults(handler=_handle_context_delete)
+
+
+def _add_memory_subparser(subparsers: argparse._SubParsersAction) -> None:
+    memory_parser = subparsers.add_parser("memory")
+    memory_parser.set_defaults(handler=_print_help(memory_parser))
+    memory_subparsers = memory_parser.add_subparsers(dest="memory_command")
+
+    list_parser = memory_subparsers.add_parser("list")
+    _add_config_argument(list_parser)
+    list_parser.set_defaults(handler=_handle_memory_list)
+
+    get_parser = memory_subparsers.add_parser("get")
+    get_parser.add_argument("memory_id")
+    _add_config_argument(get_parser)
+    get_parser.set_defaults(handler=_handle_memory_get)
+
+    create_parser = memory_subparsers.add_parser("create")
+    create_parser.add_argument("--json", required=True, help="Memory JSON object.")
+    _add_config_argument(create_parser)
+    create_parser.set_defaults(handler=_handle_memory_create)
+
+    select_parser = memory_subparsers.add_parser("select")
+    select_parser.add_argument(
+        "--query-json",
+        default=None,
+        help="Optional memory query JSON object.",
+    )
+    _add_config_argument(select_parser)
+    select_parser.set_defaults(handler=_handle_memory_select)
+
+    delete_parser = memory_subparsers.add_parser("delete")
+    delete_parser.add_argument("memory_id")
+    _add_config_argument(delete_parser)
+    delete_parser.set_defaults(handler=_handle_memory_delete)
+
+
+def _add_session_subparser(subparsers: argparse._SubParsersAction) -> None:
+    session_parser = subparsers.add_parser("session")
+    session_parser.set_defaults(handler=_print_help(session_parser))
+    session_subparsers = session_parser.add_subparsers(dest="session_command")
+
+    list_parser = session_subparsers.add_parser("list")
+    _add_config_argument(list_parser)
+    list_parser.set_defaults(handler=_handle_session_list)
+
+    get_parser = session_subparsers.add_parser("get")
+    get_parser.add_argument("session_id")
+    _add_config_argument(get_parser)
+    get_parser.set_defaults(handler=_handle_session_get)
+
+    create_parser = session_subparsers.add_parser("create")
+    create_parser.add_argument("--json", required=True, help="Session JSON object.")
+    _add_config_argument(create_parser)
+    create_parser.set_defaults(handler=_handle_session_create)
+
+    replace_parser = session_subparsers.add_parser("replace")
+    replace_parser.add_argument("session_id")
+    replace_parser.add_argument("--json", required=True, help="Session JSON object.")
+    _add_config_argument(replace_parser)
+    replace_parser.set_defaults(handler=_handle_session_replace)
+
+    archive_parser = session_subparsers.add_parser("archive")
+    archive_parser.add_argument("session_id")
+    _add_config_argument(archive_parser)
+    archive_parser.set_defaults(handler=_handle_session_archive)
+
+    delete_parser = session_subparsers.add_parser("delete")
+    delete_parser.add_argument("session_id")
+    _add_config_argument(delete_parser)
+    delete_parser.set_defaults(handler=_handle_session_delete)
+
+    chat_parser = session_subparsers.add_parser("chat")
+    chat_parser.add_argument("session_id")
+    chat_parser.add_argument(
+        "--request-json",
+        required=True,
+        help="SessionChatRequest JSON object.",
+    )
+    _add_config_argument(chat_parser)
+    chat_parser.set_defaults(handler=_handle_session_chat)
+
+    agent_run_parser = session_subparsers.add_parser("agent-run")
+    agent_run_parser.add_argument("session_id")
+    agent_run_parser.add_argument(
+        "--request-json",
+        required=True,
+        help="SessionAgentRunRequest JSON object.",
+    )
+    _add_config_argument(agent_run_parser)
+    agent_run_parser.set_defaults(handler=_handle_session_agent_run)
+
+
+def _add_agent_run_subparser(subparsers: argparse._SubParsersAction) -> None:
+    agent_run_parser = subparsers.add_parser("agent-run")
+    agent_run_parser.set_defaults(handler=_print_help(agent_run_parser))
+    agent_run_subparsers = agent_run_parser.add_subparsers(dest="agent_run_command")
+
+    list_parser = agent_run_subparsers.add_parser("list")
+    _add_config_argument(list_parser)
+    list_parser.set_defaults(handler=_handle_agent_run_list)
+
+    get_parser = agent_run_subparsers.add_parser("get")
+    get_parser.add_argument("run_id")
+    _add_config_argument(get_parser)
+    get_parser.set_defaults(handler=_handle_agent_run_get)
+
+    trace_parser = agent_run_subparsers.add_parser("trace")
+    trace_parser.add_argument("run_id")
+    _add_config_argument(trace_parser)
+    trace_parser.set_defaults(handler=_handle_agent_run_trace)
+
+    start_parser = agent_run_subparsers.add_parser("start")
+    start_parser.add_argument(
+        "--request-json",
+        required=True,
+        help="AgentRunRequest JSON object.",
+    )
+    _add_config_argument(start_parser)
+    start_parser.set_defaults(handler=_handle_agent_run_start)
+
+    resume_parser = agent_run_subparsers.add_parser("resume")
+    resume_parser.add_argument("run_id")
+    resume_parser.add_argument(
+        "--approvals-json",
+        required=True,
+        help="JSON array of ToolApprovalDecision objects.",
+    )
+    _add_config_argument(resume_parser)
+    resume_parser.set_defaults(handler=_handle_agent_run_resume)
+
+
 def _add_chat_subparser(subparsers: argparse._SubParsersAction) -> None:
     chat_parser = subparsers.add_parser("chat")
     chat_parser.add_argument(
@@ -208,6 +406,14 @@ def _add_serve_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Path to the EvernightAI TOML config file.",
     )
     serve_parser.set_defaults(handler=_handle_serve)
+
+
+def _add_config_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Path to the EvernightAI TOML config file.",
+    )
 
 
 def _print_help(parser: argparse.ArgumentParser) -> Callable[[argparse.Namespace], str]:
@@ -267,6 +473,178 @@ def _handle_skill_render(args: argparse.Namespace) -> str:
         )
 
     return _run_async_interface_command(args.config, _flow)
+
+
+def _handle_context_list(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(args.config, list_contexts)
+
+
+def _handle_context_get(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: get_context(interface, args.context_id),
+    )
+
+
+def _handle_context_create(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: create_context(interface, args.json),
+    )
+
+
+def _handle_context_append(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: append_context_message(
+            interface,
+            args.context_id,
+            args.message_json,
+        ),
+    )
+
+
+def _handle_context_replace(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: replace_context(interface, args.context_id, args.json),
+    )
+
+
+def _handle_context_delete(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: delete_context(interface, args.context_id),
+    )
+
+
+def _handle_memory_list(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(args.config, list_memories)
+
+
+def _handle_memory_get(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: get_memory(interface, args.memory_id),
+    )
+
+
+def _handle_memory_create(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: create_memory(interface, args.json),
+    )
+
+
+def _handle_memory_select(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: select_memories(interface, args.query_json),
+    )
+
+
+def _handle_memory_delete(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: delete_memory(interface, args.memory_id),
+    )
+
+
+def _handle_session_list(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(args.config, list_sessions)
+
+
+def _handle_session_get(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: get_session(interface, args.session_id),
+    )
+
+
+def _handle_session_create(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: create_session(interface, args.json),
+    )
+
+
+def _handle_session_replace(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: replace_session(interface, args.session_id, args.json),
+    )
+
+
+def _handle_session_archive(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: archive_session(interface, args.session_id),
+    )
+
+
+def _handle_session_delete(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: delete_session(interface, args.session_id),
+    )
+
+
+def _handle_session_chat(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: chat_with_session(
+            interface,
+            args.session_id,
+            args.request_json,
+        ),
+    )
+
+
+def _handle_session_agent_run(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: start_session_agent_run(
+            interface,
+            args.session_id,
+            args.request_json,
+        ),
+    )
+
+
+def _handle_agent_run_list(args: argparse.Namespace) -> str:
+    return _run_interface_command(args.config, list_agent_runs)
+
+
+def _handle_agent_run_get(args: argparse.Namespace) -> str:
+    return _run_interface_command(
+        args.config,
+        lambda interface: get_agent_run(interface, args.run_id),
+    )
+
+
+def _handle_agent_run_trace(args: argparse.Namespace) -> str:
+    return _run_interface_command(
+        args.config,
+        lambda interface: list_agent_trace(interface, args.run_id),
+    )
+
+
+def _handle_agent_run_start(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: start_agent_run(interface, args.request_json),
+    )
+
+
+def _handle_agent_run_resume(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: resume_agent_run(
+            interface,
+            args.run_id,
+            args.approvals_json,
+        ),
+    )
 
 
 def _handle_chat(args: argparse.Namespace) -> str:
