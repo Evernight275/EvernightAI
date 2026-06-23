@@ -17,6 +17,11 @@ from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.provider import (
+    ProviderInfo,
+    ProviderModelCapability,
+    ProviderModelConfig,
+)
 from EvernightAI.core.schema.session import (
     Session,
     SessionAgentRunRequest,
@@ -99,6 +104,33 @@ class ChatInterfaceProtocol(InterfaceProtocol):
     ) -> ChatStreamProtocol: ...
 
     async def close(self) -> None: ...
+
+
+class ProviderInterfaceProtocol(InterfaceProtocol):
+    async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...
+
+    async def list_provider_models(
+        self,
+        provider_id: str,
+    ) -> list[ProviderModelConfig]: ...
+
+    async def get_provider_model(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> ProviderModelConfig: ...
+
+    async def provider_supports(
+        self,
+        provider_id: str,
+        capability: ProviderModelCapability,
+    ) -> bool: ...
+
+    async def delete_provider(self, provider_id: str) -> None: ...
+
+
+class ToolInterfaceProtocol(InterfaceProtocol):
+    def list_tools(self) -> list[ToolDefinition]: ...
 
 
 class AgentInterfaceProtocol(InterfaceProtocol):
@@ -229,6 +261,12 @@ class EvernightInterfaceProtocol(InterfaceProtocol):
 
     @property
     def agent_runs(self) -> AgentRunInterfaceProtocol: ...
+
+    @property
+    def providers(self) -> ProviderInterfaceProtocol: ...
+
+    @property
+    def tools(self) -> ToolInterfaceProtocol: ...
 
     @property
     def skills(self) -> SkillInterfaceProtocol: ...

@@ -21,15 +21,7 @@ async def create_provider(
     config: ProviderConfig,
     interface: InterfaceDependency,
 ) -> ProviderInfo:
-    await interface.chat.create_provider(config)
-    return ProviderInfo(
-        provider_id=config.provider_id,
-        name=config.name,
-        type=config.type,
-        is_enabled=config.is_enabled,
-        model=config.model,
-        metadata=dict(config.metadata),
-    )
+    return await interface.providers.create_provider(config)
 
 
 @router.get("/{provider_id}/models", response_model=list[ProviderModelConfig])
@@ -37,7 +29,7 @@ async def list_provider_models(
     provider_id: str,
     interface: InterfaceDependency,
 ) -> list[ProviderModelConfig]:
-    return await interface.runtime.providers.list_models(provider_id)
+    return await interface.providers.list_provider_models(provider_id)
 
 
 @router.get("/{provider_id}/models/{model_id}", response_model=ProviderModelConfig)
@@ -46,7 +38,7 @@ async def get_provider_model(
     model_id: str,
     interface: InterfaceDependency,
 ) -> ProviderModelConfig:
-    return await interface.runtime.providers.get_model(provider_id, model_id)
+    return await interface.providers.get_provider_model(provider_id, model_id)
 
 
 @router.get("/{provider_id}/supports", response_model=bool)
@@ -55,7 +47,7 @@ async def provider_supports(
     capability: ProviderModelCapability,
     interface: InterfaceDependency,
 ) -> bool:
-    return await interface.runtime.providers.supports(provider_id, capability)
+    return await interface.providers.provider_supports(provider_id, capability)
 
 
 @router.delete(
@@ -67,4 +59,4 @@ async def delete_provider(
     provider_id: str,
     interface: InterfaceDependency,
 ) -> None:
-    await interface.runtime.providers.delete(provider_id)
+    await interface.providers.delete_provider(provider_id)
