@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterable, AsyncIterator
 import json
 
+from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.schema.stream import (
     ChatStreamEvent,
     ChatStreamEventType,
@@ -19,15 +20,21 @@ def chat_stream_response_body(
 
 
 async def _iter_sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
-    async for event in events:
-        yield format_sse_event(event)
+    try:
+        async for event in events:
+            yield format_sse_event(event)
+    except EvernightAIError as error:
+        yield format_sse_event(error_to_sse_event(error))
 
 
 async def _iter_chat_stream_response_body(
     events: AsyncIterable[ChatStreamEvent],
 ) -> AsyncIterator[str]:
-    async for event in events:
-        yield format_sse_event(chat_stream_event_to_sse_event(event))
+    try:
+        async for event in events:
+            yield format_sse_event(chat_stream_event_to_sse_event(event))
+    except EvernightAIError as error:
+        yield format_sse_event(chat_stream_event_to_sse_event(error_to_chat_stream_event(error)))
 
 
 def chat_stream_event_to_sse_event(event: ChatStreamEvent) -> SSEEvent:
@@ -49,6 +56,34 @@ def chat_stream_event_to_sse_event(event: ChatStreamEvent) -> SSEEvent:
         data=event.model_dump_json(),
         event=f"chat.{event.event_type.value}",
         id=event.response_id,
+    )
+
+
+def error_to_chat_stream_event(error: EvernightAIError) -> ChatStreamEvent:
+    return ChatStreamEvent(
+        event_type=ChatStreamEventType.ERROR,
+        error_type=error.error_type,
+        error_message=str(error),
+        metadata={
+            "detail": error.detail,
+        },
+    )
+
+
+def error_to_sse_event(error: EvernightAIError) -> SSEEvent:
+    return SSEEvent(
+        event="error",
+        data=json.dumps(
+            {
+                "error": {
+                    "type": error.error_type,
+                    "message": str(error),
+                    "detail": error.detail,
+                }
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
     )
 
 

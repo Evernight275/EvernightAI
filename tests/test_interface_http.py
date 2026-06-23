@@ -20,6 +20,7 @@ from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -595,6 +596,36 @@ def test_http_chat_stream_events_are_encoded_as_sse() -> None:
     assert json.loads(sse_event.data)["text_delta"] == "hello"
 
 
+def test_http_chat_stream_encodes_provider_errors_as_sse() -> None:
+    interface = create_interface(make_runtime(provider=FailingStreamProvider()))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        stream_response = client.post(
+            "/chat/stream",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "model-1",
+                    "messages": [message_json("Hello")],
+                },
+            },
+        )
+
+    assert stream_response.status_code == 200
+    assert "event: chat.error" in stream_response.text
+    assert "ProviderUnavailableError" in stream_response.text
+    assert "provider stream failed" in stream_response.text
+
+
 def test_http_app_exposes_persisted_agent_run_routes() -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
@@ -710,6 +741,45 @@ def test_http_app_streams_agent_trace_events() -> None:
         "Model response received",
         "Agent run stopped: finished",
     ]
+
+
+def test_http_agent_stream_encodes_provider_errors_as_sse() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FailingChatProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        stream_response = client.post(
+            "/agent-runs/stream",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+            },
+        )
+
+    assert stream_response.status_code == 200
+    assert "event: run_started" in stream_response.text
+    assert "event: error" in stream_response.text
+    assert "ProviderUnavailableError" in stream_response.text
+    assert "provider chat failed" in stream_response.text
 
 
 def test_http_app_streams_agent_pause_for_tool_approval() -> None:
@@ -911,6 +981,20 @@ class FakeProvider(ProviderInstanceProtocol):
         pass
 
 
+class FailingStreamProvider(FakeProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        self.last_request = request
+        return FailingChatStream(
+            ProviderUnavailableError("provider stream failed")
+        )
+
+
+class FailingChatProvider(FakeProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.last_request = request
+        raise ProviderUnavailableError("provider chat failed")
+
+
 class SensitiveToolProvider(FakeProvider):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.last_request = request
@@ -976,3 +1060,15 @@ class EventStream:
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         for event in self._events:
             yield event
+
+
+class FailingChatStream:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
+        return self._iter_events()
+
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        raise self._error
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
