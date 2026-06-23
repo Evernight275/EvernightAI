@@ -525,6 +525,62 @@ def test_http_app_exposes_chat_stream_route() -> None:
     assert provider.last_request.model_id == "model-1"
 
 
+def test_http_app_exposes_chat_context_stream_route() -> None:
+    provider = FakeProvider(
+        stream_events=[
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_DELTA,
+                response_id="resp-1",
+                text_delta="hello",
+            ),
+            ChatStreamEvent(event_type=ChatStreamEventType.DONE),
+        ]
+    )
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post(
+            "/contexts",
+            json={
+                "context_id": "ctx-1",
+                "messages": [message_json("Stored", role="system")],
+            },
+        )
+        stream_response = client.post(
+            "/chat/context/stream",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+            },
+        )
+        context_response = client.get("/contexts/ctx-1")
+
+    assert stream_response.status_code == 200
+    assert stream_response.headers["content-type"].startswith("text/event-stream")
+    assert "event: chat.message_delta" in stream_response.text
+    assert "event: done" in stream_response.text
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Stored",
+        "Hello",
+    ]
+    assert [
+        message["content"][0]["text"]
+        for message in context_response.json()["messages"]
+    ] == ["Stored", "Hello"]
+
+
 def test_http_chat_stream_events_are_encoded_as_sse() -> None:
     sse_event = chat_stream_event_to_sse_event(
         ChatStreamEvent(

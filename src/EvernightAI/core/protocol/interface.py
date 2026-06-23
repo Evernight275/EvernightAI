@@ -85,6 +85,19 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         self, provider_id: str, request: ChatRequest
     ) -> ChatStreamProtocol: ...
 
+    async def chat_stream_with_context(
+        self,
+        provider_id: str,
+        context_id: str,
+        *,
+        model_id: str,
+        messages: list[Content],
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatStreamProtocol: ...
+
     async def close(self) -> None: ...
 
 

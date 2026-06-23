@@ -48,3 +48,24 @@ async def chat_with_context(
         tools=request.tools,
         metadata=request.metadata,
     )
+
+
+@router.post("/context/stream")
+async def chat_context_stream(
+    request: ChatWithContextRequest,
+    interface: InterfaceDependency,
+) -> StreamingResponse:
+    stream = await interface.chat.chat_stream_with_context(
+        request.provider_id,
+        request.context_id,
+        model_id=request.model_id,
+        messages=request.messages,
+        memory_query=request.memory_query,
+        skills=request.skills,
+        tools=request.tools,
+        metadata=request.metadata,
+    )
+    return StreamingResponse(
+        chat_stream_response_body(stream),
+        media_type="text/event-stream",
+    )

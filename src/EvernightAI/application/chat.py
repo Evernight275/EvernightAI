@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.interface import ChatInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
@@ -17,6 +19,7 @@ from EvernightAI.core.schema.memory import (
 )
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.skill import SkillCapability
+from EvernightAI.core.schema.stream import ChatStreamEvent
 from EvernightAI.core.schema.tool import ToolDefinition
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 
@@ -144,6 +147,35 @@ class ChatApplication(ChatInterfaceProtocol):
         )
         return await self._runtime.providers.chat_stream(provider_id, request)
 
+    async def chat_stream_with_context(
+        self,
+        provider_id: str,
+        context_id: str,
+        *,
+        model_id: str,
+        messages: list[Content],
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatStreamProtocol:
+        request = await self.organize_chat_request(
+            context_id,
+            model_id=model_id,
+            messages=messages,
+            memory_query=memory_query,
+            skills=skills,
+            tools=tools,
+            metadata=metadata,
+        )
+        stream = await self.chat_stream(provider_id, request)
+        return _ContextAppendingChatStream(
+            stream,
+            self._runtime,
+            context_id,
+            messages,
+        )
+
     async def close(self) -> None:
         await self._runtime.close()
 
@@ -156,3 +188,27 @@ class ChatApplication(ChatInterfaceProtocol):
             return MemoryQuery(scope=MemoryScope.SESSION, scope_id=session_id)
 
         return None
+
+
+class _ContextAppendingChatStream:
+    def __init__(
+        self,
+        stream: ChatStreamProtocol,
+        runtime: RuntimeProtocol,
+        context_id: str,
+        messages: list[Content],
+    ) -> None:
+        self._stream = stream
+        self._runtime = runtime
+        self._context_id = context_id
+        self._messages = messages
+
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
+        return self._iter_events()
+
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        async for event in self._stream:
+            yield event
+
+        for message in self._messages:
+            await self._runtime.contexts.append(self._context_id, message)

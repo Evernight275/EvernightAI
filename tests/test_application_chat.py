@@ -162,6 +162,45 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_application_streams_with_context_and_persists_user_messages() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(
+        Context(
+            context_id="ctx-1",
+            messages=[make_message("Stored context", role=MessageRole.SYSTEM)],
+        )
+    )
+
+    stream = await app.chat_stream_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+    )
+    events = [event async for event in stream]
+    provider = await runtime.providers.get("provider-1")
+    context = await app.get_context("ctx-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Stored context",
+        "Current request",
+    ]
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.RAW,
+        ChatStreamEventType.DONE,
+    ]
+    assert [message_text(message) for message in context.messages] == [
+        "Stored context",
+        "Current request",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_chat_application_selects_session_memory_from_metadata() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
