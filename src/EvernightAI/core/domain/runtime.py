@@ -1,3 +1,6 @@
+import inspect
+from typing import Any
+
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -155,3 +158,24 @@ class RuntimeKernel(RuntimeProtocol):
 
     async def close(self) -> None:
         await self._providers.close()
+        for resource in [
+            self._context_register,
+            self._memory_register,
+            self._session_register,
+            self._agent_state_register,
+            self._agent_trace_register,
+        ]:
+            await _close_if_supported(resource)
+
+
+async def _close_if_supported(resource: Any) -> None:
+    if resource is None:
+        return
+
+    close = getattr(resource, "close", None)
+    if not callable(close):
+        return
+
+    result = close()
+    if inspect.isawaitable(result):
+        await result
