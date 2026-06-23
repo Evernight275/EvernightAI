@@ -74,7 +74,7 @@ async def test_chat_application_commands_core_runtime() -> None:
         content=[ContentPart(type=ContentPartType.TEXT, text="ok")],
     )
     assert [event.event_type for event in events] == [
-        ChatStreamEventType.RAW,
+        ChatStreamEventType.MESSAGE_DELTA,
         ChatStreamEventType.DONE,
     ]
 
@@ -162,7 +162,7 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_application_streams_with_context_and_persists_user_messages() -> None:
+async def test_chat_application_streams_with_context_and_persists_messages() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
@@ -191,12 +191,13 @@ async def test_chat_application_streams_with_context_and_persists_user_messages(
         "Current request",
     ]
     assert [event.event_type for event in events] == [
-        ChatStreamEventType.RAW,
+        ChatStreamEventType.MESSAGE_DELTA,
         ChatStreamEventType.DONE,
     ]
     assert [message_text(message) for message in context.messages] == [
         "Stored context",
         "Current request",
+        "ok",
     ]
 
 
@@ -492,8 +493,9 @@ class FakeChatStream:
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         yield ChatStreamEvent(
-            event_type=ChatStreamEventType.RAW,
-            raw_event="message",
-            raw_data={"delta": "ok"},
+            event_type=ChatStreamEventType.MESSAGE_DELTA,
+            role=MessageRole.ASSISTANT,
+            text_delta="ok",
+            content_part=ContentPart(type=ContentPartType.TEXT, text="ok"),
         )
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

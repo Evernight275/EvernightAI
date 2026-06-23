@@ -578,7 +578,7 @@ def test_http_app_exposes_chat_context_stream_route() -> None:
     assert [
         message["content"][0]["text"]
         for message in context_response.json()["messages"]
-    ] == ["Stored", "Hello"]
+    ] == ["Stored", "Hello", "hello"]
 
 
 def test_http_chat_stream_events_are_encoded_as_sse() -> None:

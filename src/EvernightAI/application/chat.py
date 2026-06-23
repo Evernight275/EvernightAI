@@ -9,6 +9,9 @@ from EvernightAI.core.schema.content import (
     ChatResponse,
     ChatSkill,
     Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (
@@ -19,8 +22,8 @@ from EvernightAI.core.schema.memory import (
 )
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.skill import SkillCapability
-from EvernightAI.core.schema.stream import ChatStreamEvent
-from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 
 
@@ -202,13 +205,50 @@ class _ContextAppendingChatStream:
         self._runtime = runtime
         self._context_id = context_id
         self._messages = messages
+        self._text_deltas: list[str] = []
+        self._tool_calls: list[ToolCall] = []
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         async for event in self._stream:
+            self._accumulate_assistant_event(event)
             yield event
 
         for message in self._messages:
             await self._runtime.contexts.append(self._context_id, message)
+        assistant_message = self._assistant_message()
+        if assistant_message is not None:
+            await self._runtime.contexts.append(self._context_id, assistant_message)
+
+    def _accumulate_assistant_event(self, event: ChatStreamEvent) -> None:
+        if event.event_type is ChatStreamEventType.MESSAGE_DELTA:
+            text = event.text_delta
+            if text is None and event.content_part is not None:
+                text = event.content_part.text
+            if text:
+                self._text_deltas.append(text)
+
+        if (
+            event.event_type is ChatStreamEventType.TOOL_CALL_COMPLETED
+            and event.tool_call is not None
+        ):
+            self._tool_calls.append(event.tool_call)
+
+    def _assistant_message(self) -> Content | None:
+        text = "".join(self._text_deltas)
+        content = (
+            [ContentPart(type=ContentPartType.TEXT, text=text)]
+            if text
+            else None
+        )
+        tool_calls = self._tool_calls or None
+        if content is None and tool_calls is None:
+            return None
+
+        return Content(
+            role=MessageRole.ASSISTANT,
+            content=content,
+            tool_calls=tool_calls,
+        )
