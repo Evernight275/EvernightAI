@@ -1,6 +1,8 @@
 from typing import cast
 
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from EvernightAI.core.error.base import (
@@ -33,6 +35,23 @@ async def handle_evernight_error(
                 "type": error.error_type,
                 "message": str(error),
                 "detail": error.detail,
+            }
+        },
+    )
+
+
+async def handle_request_validation_error(
+    _request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    error = cast(RequestValidationError, exc)
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "error": {
+                "type": "ValidationError",
+                "message": "Invalid request",
+                "detail": jsonable_encoder(error.errors()),
             }
         },
     )

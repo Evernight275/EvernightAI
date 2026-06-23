@@ -2,10 +2,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
-from EvernightAI.interface.http.errors import handle_evernight_error
+from EvernightAI.interface.http.errors import (
+    handle_evernight_error,
+    handle_request_validation_error,
+)
 from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_router
 from EvernightAI.interface.http.routes.chat import router as chat_router
 from EvernightAI.interface.http.routes.contexts import router as contexts_router
@@ -33,6 +37,7 @@ def create_http_app(
     app = FastAPI(title="EvernightAI", lifespan=lifespan)
     app.state.interface = interface
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
+    app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
     app.include_router(providers_router)
     app.include_router(contexts_router)

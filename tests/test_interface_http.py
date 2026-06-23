@@ -203,6 +203,62 @@ def test_http_app_exposes_session_routes() -> None:
     assert archive_response.json()["status"] == "archived"
     assert delete_response.status_code == 204
     assert missing_response.status_code == 404
+    assert_error_response(missing_response.json(), "SessionNotFoundError")
+
+
+def test_http_validation_errors_use_error_response_shape() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+            },
+        )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert_error_response(body, "ValidationError", message="Invalid request")
+    assert body["error"]["detail"][0]["loc"] == ["body", "type"]
+
+
+def test_http_domain_errors_use_error_response_shape() -> None:
+    provider = FailingChatProvider()
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        chat_response = client.post(
+            "/chat",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "model-1",
+                    "messages": [message_json("Hello")],
+                },
+            },
+        )
+        skill_response = client.get("/skills/missing")
+
+    assert chat_response.status_code == 503
+    assert_error_response(
+        chat_response.json(),
+        "ProviderUnavailableError",
+        message="provider chat failed",
+    )
+    assert skill_response.status_code == 404
+    assert_error_response(skill_response.json(), "SkillNotFoundError")
 
 
 def test_http_app_chats_with_session_defaults_and_memory() -> None:
@@ -938,6 +994,19 @@ def parse_sse_events(body: str) -> list[dict[str, Any]]:
             events.append(json.loads("\n".join(data_lines)))
 
     return events
+
+
+def assert_error_response(
+    body: dict[str, Any],
+    error_type: str,
+    *,
+    message: str | None = None,
+) -> None:
+    assert set(body) == {"error"}
+    assert body["error"]["type"] == error_type
+    if message is not None:
+        assert body["error"]["message"] == message
+    assert "detail" in body["error"]
 
 
 def sensitive_tool_definition() -> ToolDefinition:
