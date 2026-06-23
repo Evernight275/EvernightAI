@@ -6,6 +6,10 @@ import pytest
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
+    ResponseFunctionCallArgumentsDeltaEvent,
+    ResponseFunctionCallArgumentsDoneEvent,
+    ResponseFunctionToolCall,
+    ResponseOutputItemAddedEvent,
     ResponseOutputMessage,
     ResponseOutputText,
 )
@@ -23,7 +27,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.openai_responses.instance import (
     OpenAIResponsesProviderInstance,
 )
@@ -56,13 +60,13 @@ def make_messages() -> list[Content]:
     ]
 
 
-def make_response(model_id: str = "gpt-test") -> Response:
+def make_response(model_id: str = "gpt-test", output: list[Any] | None = None) -> Response:
     return Response(
         id="resp-1",
         created_at=123.0,
         model=model_id,
         object="response",
-        output=[
+        output=output or [
             ResponseOutputMessage(
                 id="msg-1",
                 content=[
@@ -97,6 +101,39 @@ def test_maps_messages_to_openai_response_input() -> None:
     ]
 
 
+def test_maps_assistant_tool_calls_to_openai_response_input() -> None:
+    messages = [
+        Content(
+            role=MessageRole.ASSISTANT,
+            tool_calls=[
+                ToolCall(
+                    tool_call_id="call-1",
+                    tool_call={"name": "add", "arguments": {"left": 1}},
+                )
+            ],
+        ),
+        Content(
+            role=MessageRole.TOOL,
+            tool_call_id="call-1",
+            content=[ContentPart(type=ContentPartType.TEXT, text='{"result": 1}')],
+        ),
+    ]
+
+    assert to_openai_response_input(messages) == [
+        {
+            "type": "function_call",
+            "call_id": "call-1",
+            "name": "add",
+            "arguments": '{"left": 1}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call-1",
+            "output": '{"result": 1}',
+        },
+    ]
+
+
 def test_maps_tool_definition_to_openai_response_tool() -> None:
     tool = ToolDefinition(
         name="lookup",
@@ -122,6 +159,29 @@ def test_maps_openai_response_to_chat_response() -> None:
     assert mapped.finish_reason == "completed"
     assert mapped.message.content == [
         ContentPart(type=ContentPartType.TEXT, text="Hi")
+    ]
+
+
+def test_maps_openai_response_function_call_to_chat_response() -> None:
+    mapped = from_openai_response(
+        make_response(
+            output=[
+                ResponseFunctionToolCall(
+                    arguments='{"left": 1}',
+                    call_id="call-1",
+                    name="add",
+                    type="function_call",
+                )
+            ]
+        )
+    )
+
+    assert mapped.message.content is None
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "add", "arguments": {"left": 1}},
+        )
     ]
 
 
@@ -182,22 +242,80 @@ async def test_openai_responses_instance_stream_allows_undeclared_model() -> Non
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_openai_responses_stream_maps_function_call_events() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses(
+        stream_events=[
+            ResponseOutputItemAddedEvent(
+                item=ResponseFunctionToolCall(
+                    arguments="",
+                    call_id="call-1",
+                    id="item-1",
+                    name="add",
+                    type="function_call",
+                ),
+                output_index=0,
+                sequence_number=0,
+                type="response.output_item.added",
+            ),
+            ResponseFunctionCallArgumentsDeltaEvent(
+                delta='{"left":',
+                item_id="item-1",
+                output_index=0,
+                sequence_number=1,
+                type="response.function_call_arguments.delta",
+            ),
+            ResponseFunctionCallArgumentsDoneEvent(
+                arguments='{"left": 1}',
+                item_id="item-1",
+                name="add",
+                output_index=0,
+                sequence_number=2,
+                type="response.function_call_arguments.done",
+            ),
+        ]
+    )
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(model_id="gpt-test", messages=make_messages())
+    )
+    events = [event async for event in stream]
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.TOOL_CALL_START,
+        ChatStreamEventType.TOOL_CALL_DELTA,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+        ChatStreamEventType.DONE,
+    ]
+    assert events[0].tool_call_id == "call-1"
+    assert events[1].tool_call_id == "call-1"
+    assert events[2].tool_call == ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "add", "arguments": {"left": 1}},
+    )
+
+    await instance.close()
+
+
 class FakeResponses:
-    def __init__(self) -> None:
+    def __init__(self, stream_events: list[Any] | None = None) -> None:
         self.params: dict[str, object] | None = None
+        self._stream_events = stream_events
 
     async def create(self, **params: object) -> Response | FakeResponseStream:
         self.params = params
         if params.get("stream") is True:
-            return FakeResponseStream(
-                [
+            events = self._stream_events or [
                     ResponseCompletedEvent(
                         response=make_response("provider-model"),
                         sequence_number=0,
                         type="response.completed",
                     )
                 ]
-            )
+            return FakeResponseStream(events)
 
         return make_response()
 

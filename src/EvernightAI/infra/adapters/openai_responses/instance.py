@@ -18,8 +18,8 @@ from EvernightAI.infra.adapters.openai_compatible.errors import (
     raise_openai_compatible_error,
 )
 from EvernightAI.infra.adapters.openai_responses.mapper import (
+    OpenAIResponsesStreamNormalizer,
     from_openai_response,
-    from_openai_response_stream_event,
     to_openai_response_input,
     to_openai_response_tools,
 )
@@ -101,6 +101,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 class OpenAIResponsesChatStream:
     def __init__(self, stream: AsyncIterable[ResponseStreamEvent]) -> None:
         self._stream = stream
+        self._normalizer = OpenAIResponsesStreamNormalizer()
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
@@ -108,7 +109,7 @@ class OpenAIResponsesChatStream:
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         try:
             async for event in self._stream:
-                yield from_openai_response_stream_event(event)
+                yield self._normalizer.map_event(event)
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
