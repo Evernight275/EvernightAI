@@ -5,17 +5,17 @@ import httpx
 
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
     ProviderModelConfig,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.infra.adapters.anthropic.mapper import (
+    AnthropicStreamNormalizer,
     from_anthropic_response,
-    from_anthropic_stream_event,
     to_anthropic_request,
 )
 from EvernightAI.infra.adapters.http_errors import raise_httpx_provider_error
@@ -54,7 +54,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
         return from_anthropic_response(response.json())
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = {
             **to_anthropic_request(request.messages, model.model_id),
@@ -71,7 +71,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
-        return AnthropicSSEStream(response.text)
+        return AnthropicChatStream(response.text)
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -93,18 +93,20 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
 
-class AnthropicSSEStream:
+class AnthropicChatStream:
     def __init__(self, text: str) -> None:
         self._text = text
+        self._normalizer = AnthropicStreamNormalizer()
 
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         for event, chunk in _iter_sse_json(self._text):
-            yield from_anthropic_stream_event(event, chunk)
+            for stream_event in self._normalizer.map_event(event, chunk):
+                yield stream_event
 
-        yield SSEEvent(data="[DONE]", event="done")
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
 def _iter_sse_json(text: str) -> list[tuple[str | None, dict[str, Any]]]:

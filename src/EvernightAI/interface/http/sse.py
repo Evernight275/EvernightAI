@@ -1,15 +1,55 @@
 from collections.abc import AsyncIterable, AsyncIterator
+import json
 
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import (
+    ChatStreamEvent,
+    ChatStreamEventType,
+    SSEEvent,
+)
 
 
 def sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
     return _iter_sse_response_body(events)
 
 
+def chat_stream_response_body(
+    events: AsyncIterable[ChatStreamEvent],
+) -> AsyncIterator[str]:
+    return _iter_chat_stream_response_body(events)
+
+
 async def _iter_sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
     async for event in events:
         yield format_sse_event(event)
+
+
+async def _iter_chat_stream_response_body(
+    events: AsyncIterable[ChatStreamEvent],
+) -> AsyncIterator[str]:
+    async for event in events:
+        yield format_sse_event(chat_stream_event_to_sse_event(event))
+
+
+def chat_stream_event_to_sse_event(event: ChatStreamEvent) -> SSEEvent:
+    if event.event_type is ChatStreamEventType.DONE:
+        return SSEEvent(data="[DONE]", event="done")
+
+    if event.event_type is ChatStreamEventType.RAW:
+        return SSEEvent(
+            data=json.dumps(
+                event.raw_data or {},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            event=event.raw_event or "provider.raw",
+            id=event.response_id,
+        )
+
+    return SSEEvent(
+        data=event.model_dump_json(),
+        event=f"chat.{event.event_type.value}",
+        id=event.response_id,
+    )
 
 
 def format_sse_event(event: SSEEvent) -> str:

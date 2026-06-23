@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -14,7 +13,7 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolDefinition
 
 
@@ -95,12 +94,48 @@ def from_openai_response(response: Response) -> ChatResponse:
     )
 
 
-def from_openai_response_stream_event(event: ResponseStreamEvent) -> SSEEvent:
+def from_openai_response_stream_event(event: ResponseStreamEvent) -> ChatStreamEvent:
     payload = event.model_dump(mode="json", exclude_none=True)
-    return SSEEvent(
-        data=json.dumps(payload, ensure_ascii=False),
-        event=payload.get("type", "response.event"),
-        id=payload.get("id"),
+    event_type = payload.get("type")
+    if event_type == "response.output_text.delta":
+        delta = payload.get("delta")
+        if isinstance(delta, str) and delta:
+            return ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_DELTA,
+                response_id=_string_value(payload.get("response_id")),
+                text_delta=delta,
+                content_part=ContentPart(type=ContentPartType.TEXT, text=delta),
+                raw_event=event_type,
+                raw_data=payload,
+                metadata=_without_none(
+                    {
+                        "item_id": payload.get("item_id"),
+                        "output_index": payload.get("output_index"),
+                        "content_index": payload.get("content_index"),
+                    }
+                ),
+            )
+
+    if event_type == "response.completed":
+        response = payload.get("response")
+        if isinstance(response, dict):
+            return ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                response_id=_string_value(response.get("id")),
+                model_id=_string_value(response.get("model")),
+                finish_reason=_string_value(response.get("status")),
+                usage=_usage_from_openai_response_mapping(response),
+                raw_event=event_type,
+                raw_data=payload,
+            )
+
+    response_id = payload.get("id")
+    raw_event = event_type or "response.event"
+    return ChatStreamEvent(
+        event_type=ChatStreamEventType.RAW,
+        response_id=response_id if isinstance(response_id, str) else None,
+        raw_event=raw_event if isinstance(raw_event, str) else None,
+        raw_data=payload,
     )
 
 
@@ -185,6 +220,31 @@ def _usage_from_openai_response(response: Response) -> ChatUsage | None:
         total_tokens=usage.total_tokens,
         metadata=metadata,
     )
+
+
+def _usage_from_openai_response_mapping(response: dict[str, Any]) -> ChatUsage | None:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    total_tokens = usage.get("total_tokens")
+
+    return ChatUsage(
+        prompt_tokens=input_tokens if isinstance(input_tokens, int) else None,
+        completion_tokens=output_tokens if isinstance(output_tokens, int) else None,
+        total_tokens=total_tokens if isinstance(total_tokens, int) else None,
+        metadata={
+            key: value
+            for key, value in usage.items()
+            if key not in {"input_tokens", "output_tokens", "total_tokens"}
+        },
+    )
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:

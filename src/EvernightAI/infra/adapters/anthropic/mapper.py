@@ -12,7 +12,230 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall
+
+
+class AnthropicStreamNormalizer:
+    def __init__(self) -> None:
+        self._response_id: str | None = None
+        self._model_id: str | None = None
+        self._tool_calls: dict[int, dict[str, Any]] = {}
+
+    def map_event(self, event: str | None, data: dict[str, Any]) -> list[ChatStreamEvent]:
+        raw_event = event or data.get("type") or "anthropic.message.chunk"
+        if raw_event == "message_start":
+            return self._map_message_start(raw_event, data)
+        if raw_event == "content_block_start":
+            return self._map_content_block_start(raw_event, data)
+        if raw_event == "content_block_delta":
+            return self._map_content_block_delta(raw_event, data)
+        if raw_event == "content_block_stop":
+            return self._map_content_block_stop(raw_event, data)
+        if raw_event == "message_delta":
+            return self._map_message_delta(raw_event, data)
+
+        return [from_anthropic_stream_event(event, data)]
+
+    def _map_message_start(
+        self,
+        raw_event: str,
+        data: dict[str, Any],
+    ) -> list[ChatStreamEvent]:
+        message = data.get("message")
+        if not isinstance(message, dict):
+            return [from_anthropic_stream_event(raw_event, data)]
+
+        response_id = message.get("id")
+        model_id = message.get("model")
+        self._response_id = response_id if isinstance(response_id, str) else None
+        self._model_id = model_id if isinstance(model_id, str) else None
+
+        events = [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_START,
+                response_id=self._response_id,
+                model_id=self._model_id,
+                role=MessageRole.ASSISTANT,
+                raw_event=raw_event,
+                raw_data=data,
+            )
+        ]
+        usage = _usage_from_anthropic(message)
+        if usage is not None:
+            events.append(
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.USAGE,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    usage=usage,
+                    raw_event=raw_event,
+                    raw_data=data,
+                )
+            )
+
+        return events
+
+    def _map_content_block_start(
+        self,
+        raw_event: str,
+        data: dict[str, Any],
+    ) -> list[ChatStreamEvent]:
+        index = data.get("index")
+        content_block = data.get("content_block")
+        if not isinstance(index, int) or not isinstance(content_block, dict):
+            return [from_anthropic_stream_event(raw_event, data)]
+        if content_block.get("type") != "tool_use":
+            return []
+
+        tool_call_id = content_block.get("id")
+        tool_name = content_block.get("name")
+        if not isinstance(tool_call_id, str) or not isinstance(tool_name, str):
+            return [from_anthropic_stream_event(raw_event, data)]
+
+        self._tool_calls[index] = {
+            "id": tool_call_id,
+            "name": tool_name,
+            "arguments": "",
+        }
+        initial_input = content_block.get("input")
+        if isinstance(initial_input, dict) and initial_input:
+            self._tool_calls[index]["arguments"] = json.dumps(
+                initial_input,
+                ensure_ascii=False,
+            )
+
+        return [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.TOOL_CALL_START,
+                response_id=self._response_id,
+                model_id=self._model_id,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                raw_event=raw_event,
+                raw_data=data,
+                metadata={"content_block_index": index},
+            )
+        ]
+
+    def _map_content_block_delta(
+        self,
+        raw_event: str,
+        data: dict[str, Any],
+    ) -> list[ChatStreamEvent]:
+        delta = data.get("delta")
+        index = data.get("index")
+        if not isinstance(delta, dict):
+            return [from_anthropic_stream_event(raw_event, data)]
+
+        delta_type = delta.get("type")
+        if delta_type == "text_delta":
+            text = delta.get("text")
+            if not isinstance(text, str) or not text:
+                return []
+            return [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    role=MessageRole.ASSISTANT,
+                    text_delta=text,
+                    content_part=ContentPart(type=ContentPartType.TEXT, text=text),
+                    raw_event=raw_event,
+                    raw_data=data,
+                    metadata=_without_none({"content_block_index": index}),
+                )
+            ]
+
+        if delta_type == "input_json_delta":
+            partial_json = delta.get("partial_json")
+            if not isinstance(index, int) or not isinstance(partial_json, str):
+                return []
+            call_state = self._tool_calls.get(index)
+            if call_state is None:
+                return [from_anthropic_stream_event(raw_event, data)]
+            call_state["arguments"] = str(call_state.get("arguments", "")) + partial_json
+            return [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.TOOL_CALL_DELTA,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    tool_call_id=call_state.get("id"),
+                    tool_name=call_state.get("name"),
+                    arguments_delta=partial_json,
+                    raw_event=raw_event,
+                    raw_data=data,
+                    metadata={"content_block_index": index},
+                )
+            ]
+
+        return [from_anthropic_stream_event(raw_event, data)]
+
+    def _map_content_block_stop(
+        self,
+        raw_event: str,
+        data: dict[str, Any],
+    ) -> list[ChatStreamEvent]:
+        index = data.get("index")
+        if not isinstance(index, int):
+            return [from_anthropic_stream_event(raw_event, data)]
+
+        call_state = self._tool_calls.pop(index, None)
+        if call_state is None:
+            return []
+
+        tool_call = _tool_call_from_anthropic_state(call_state)
+        if tool_call is None:
+            return []
+
+        return [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.TOOL_CALL_COMPLETED,
+                response_id=self._response_id,
+                model_id=self._model_id,
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_call.get("name"),
+                tool_call=tool_call,
+                raw_event=raw_event,
+                raw_data=data,
+                metadata={"content_block_index": index},
+            )
+        ]
+
+    def _map_message_delta(
+        self,
+        raw_event: str,
+        data: dict[str, Any],
+    ) -> list[ChatStreamEvent]:
+        events: list[ChatStreamEvent] = []
+        usage = _usage_from_anthropic(data)
+        if usage is not None:
+            events.append(
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.USAGE,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    usage=usage,
+                    raw_event=raw_event,
+                    raw_data=data,
+                )
+            )
+
+        delta = data.get("delta")
+        finish_reason = delta.get("stop_reason") if isinstance(delta, dict) else None
+        if isinstance(finish_reason, str) and finish_reason:
+            events.append(
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    finish_reason=finish_reason,
+                    raw_event=raw_event,
+                    raw_data=data,
+                )
+            )
+
+        return events or [from_anthropic_stream_event(raw_event, data)]
 
 
 def to_anthropic_request(messages: Iterable[Content], model_id: str) -> dict[str, Any]:
@@ -81,11 +304,16 @@ def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
     )
 
 
-def from_anthropic_stream_event(event: str | None, data: dict[str, Any]) -> SSEEvent:
-    return SSEEvent(
-        data=json.dumps(data, ensure_ascii=False),
-        event=event or data.get("type") or "anthropic.message.chunk",
-        id=data.get("id"),
+def from_anthropic_stream_event(
+    event: str | None, data: dict[str, Any]
+) -> ChatStreamEvent:
+    response_id = data.get("id")
+    raw_event = event or data.get("type") or "anthropic.message.chunk"
+    return ChatStreamEvent(
+        event_type=ChatStreamEventType.RAW,
+        response_id=response_id if isinstance(response_id, str) else None,
+        raw_event=raw_event if isinstance(raw_event, str) else None,
+        raw_data=data,
     )
 
 
@@ -159,3 +387,35 @@ def _usage_from_anthropic(response: dict[str, Any]) -> ChatUsage | None:
             if key not in {"input_tokens", "output_tokens"}
         },
     )
+
+
+def _tool_call_from_anthropic_state(call_state: dict[str, Any]) -> ToolCall | None:
+    call_id = call_state.get("id")
+    name = call_state.get("name")
+    arguments = call_state.get("arguments", "")
+    if not isinstance(call_id, str) or not call_id:
+        return None
+    if not isinstance(name, str) or not name:
+        return None
+    if not isinstance(arguments, str):
+        arguments = ""
+
+    try:
+        parsed_arguments = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(parsed_arguments, dict):
+        return None
+
+    return ToolCall(
+        tool_call_id=call_id,
+        tool_call={
+            "name": name,
+            "arguments": parsed_arguments,
+        },
+    )
+
+
+def _without_none(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}

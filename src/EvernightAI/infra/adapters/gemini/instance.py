@@ -5,14 +5,14 @@ import httpx
 
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
     ProviderModelConfig,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.infra.adapters.gemini.mapper import (
     from_gemini_response,
     from_gemini_stream_chunk,
@@ -51,7 +51,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
         return from_gemini_response(response.json(), model.model_id)
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages)
 
@@ -66,7 +66,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
-        return GeminiSSEStream(response.text)
+        return GeminiChatStream(response.text)
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -88,18 +88,19 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
 
-class GeminiSSEStream:
+class GeminiChatStream:
     def __init__(self, text: str) -> None:
         self._text = text
 
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         for chunk in _iter_sse_json(self._text):
-            yield from_gemini_stream_chunk(chunk)
+            for event in from_gemini_stream_chunk(chunk):
+                yield event
 
-        yield SSEEvent(data="[DONE]", event="done")
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
 def _iter_sse_json(text: str) -> list[dict[str, Any]]:

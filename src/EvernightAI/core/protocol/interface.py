@@ -3,7 +3,10 @@ from typing import Protocol, runtime_checkable
 from EvernightAI.core.protocol.base import EvernightAIProtocol
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, SSEProtocol
+from EvernightAI.core.protocol.stream import (
+    AgentTraceStreamProtocol,
+    ChatStreamProtocol,
+)
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
@@ -80,7 +83,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
 
     async def chat_stream(
         self, provider_id: str, request: ChatRequest
-    ) -> SSEProtocol: ...
+    ) -> ChatStreamProtocol: ...
 
     async def close(self) -> None: ...
 

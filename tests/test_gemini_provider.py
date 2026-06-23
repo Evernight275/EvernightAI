@@ -15,9 +15,12 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.stream import ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.adapters.gemini.instance import GeminiProviderInstance
 from EvernightAI.infra.adapters.gemini.mapper import (
     from_gemini_response,
+    from_gemini_stream_chunk,
     to_gemini_request,
 )
 
@@ -87,6 +90,41 @@ def test_maps_gemini_response_to_chat_response() -> None:
     assert mapped.usage.total_tokens == 5
 
 
+def test_normalizes_gemini_text_and_function_call_chunks() -> None:
+    events = from_gemini_stream_chunk(
+        {
+            "responseId": "resp-1",
+            "modelVersion": "gemini-test",
+            "candidates": [
+                {
+                    "index": 0,
+                    "content": {
+                        "parts": [
+                            {"text": "Hi"},
+                            {
+                                "functionCall": {
+                                    "name": "add",
+                                    "args": {"left": 1},
+                                }
+                            },
+                        ]
+                    },
+                }
+            ],
+        }
+    )
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+    ]
+    assert events[0].text_delta == "Hi"
+    assert events[1].tool_call == ToolCall(
+        tool_call_id="resp-1:tool:0:1",
+        tool_call={"name": "add", "arguments": {"left": 1}},
+    )
+
+
 @pytest.mark.asyncio
 async def test_gemini_instance_chat_maps_request_and_response() -> None:
     instance = GeminiProviderInstance(make_config())
@@ -139,9 +177,13 @@ async def test_gemini_instance_stream_allows_undeclared_model() -> None:
             "timeout": 30.0,
         }
     ]
-    assert [event.event for event in events] == [
+    assert [event.raw_event for event in events] == [
         "gemini.generate_content.chunk",
-        "done",
+        None,
+    ]
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.RAW,
+        ChatStreamEventType.DONE,
     ]
 
     await instance.close()

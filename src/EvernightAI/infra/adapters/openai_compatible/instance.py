@@ -6,20 +6,20 @@ from openai.types.chat import ChatCompletionChunk
 
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
     ProviderModelConfig,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.infra.adapters.openai_compatible.errors import (
     raise_openai_compatible_error,
 )
 from EvernightAI.infra.adapters.openai_compatible.mapper import (
+    OpenAIChatStreamNormalizer,
     from_openai_chat_completion,
-    from_openai_chat_completion_chunk,
     to_openai_messages,
     to_openai_tools,
 )
@@ -57,7 +57,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
 
         return from_openai_chat_completion(response)
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         params: dict[str, Any] = {
             "model": model.model_id,
@@ -75,7 +75,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
-        return OpenAICompatibleSSEStream(stream)
+        return OpenAICompatibleChatStream(stream)
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -97,18 +97,20 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
 
-class OpenAICompatibleSSEStream:
+class OpenAICompatibleChatStream:
     def __init__(self, stream: AsyncIterable[ChatCompletionChunk]) -> None:
         self._stream = stream
+        self._normalizer = OpenAIChatStreamNormalizer()
 
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         try:
             async for chunk in self._stream:
-                yield from_openai_chat_completion_chunk(chunk)
+                for event in self._normalizer.map_chunk(chunk):
+                    yield event
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
-        yield SSEEvent(data="[DONE]", event="done")
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

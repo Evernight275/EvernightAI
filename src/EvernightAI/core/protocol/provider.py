@@ -6,7 +6,7 @@ from EvernightAI.core.protocol.base import (
     RegisterProtocol,
     ResponsibilityProtocol,
 )
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderInfo,
@@ -45,7 +45,7 @@ class ProviderInstanceProtocol(ProviderProtocol, InstanceProtocol):
         """聊天"""
         ...
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         """流式聊天"""
         ...
 
@@ -102,7 +102,9 @@ class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
 
-    async def chat_stream(self, provider_id: str, request: ChatRequest) -> SSEProtocol: ...
+    async def chat_stream(
+        self, provider_id: str, request: ChatRequest
+    ) -> ChatStreamProtocol: ...
 
     async def delete(self, provider_id: str) -> None: ...
 

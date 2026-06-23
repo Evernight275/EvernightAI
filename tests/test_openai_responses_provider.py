@@ -22,6 +22,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolDefinition
 from EvernightAI.infra.adapters.openai_responses.instance import (
     OpenAIResponsesProviderInstance,
@@ -173,7 +174,10 @@ async def test_openai_responses_instance_stream_allows_undeclared_model() -> Non
         "timeout": 30.0,
         "stream": True,
     }
-    assert [event.event for event in events] == ["response.completed", "done"]
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_COMPLETED,
+        ChatStreamEventType.DONE,
+    ]
 
     await instance.close()
 

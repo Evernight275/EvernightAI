@@ -37,7 +37,7 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -61,7 +61,7 @@ from EvernightAI.core.schema.skill import (
     SkillDefinition,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
@@ -1484,7 +1484,7 @@ class ToolCallingProvider(ProviderInstanceProtocol):
             finish_reason="stop",
         )
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         return EmptyStream()
 
     async def close(self) -> None:
@@ -1648,9 +1648,9 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
 
 
 class EmptyStream:
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         if False:
-            yield SSEEvent(data="")
+            yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

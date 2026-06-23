@@ -21,7 +21,7 @@ from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy
 from EvernightAI.core.error.skill import SkillInputError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -50,7 +50,7 @@ from EvernightAI.core.schema.skill import (
     SkillDefinition,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 
 
 @pytest.mark.asyncio
@@ -73,7 +73,10 @@ async def test_chat_application_commands_core_runtime() -> None:
         role=MessageRole.ASSISTANT,
         content=[ContentPart(type=ContentPartType.TEXT, text="ok")],
     )
-    assert [event.data for event in events] == ["ok", "[DONE]"]
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.RAW,
+        ChatStreamEventType.DONE,
+    ]
 
     await app.close()
 
@@ -436,18 +439,22 @@ class FakeProvider(ProviderInstanceProtocol):
             message=make_message("ok", role=MessageRole.ASSISTANT),
         )
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         self.last_request = request
-        return FakeSSEStream()
+        return FakeChatStream()
 
     async def close(self) -> None:
         self.closed = True
 
 
-class FakeSSEStream:
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+class FakeChatStream:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
-        yield SSEEvent(data="ok")
-        yield SSEEvent(data="[DONE]", event="done")
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        yield ChatStreamEvent(
+            event_type=ChatStreamEventType.RAW,
+            raw_event="message",
+            raw_data={"delta": "ok"},
+        )
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

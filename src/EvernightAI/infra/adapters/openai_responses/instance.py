@@ -6,14 +6,14 @@ from openai.types.responses import ResponseStreamEvent
 
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
     ProviderModelConfig,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.infra.adapters.openai_compatible.errors import (
     raise_openai_compatible_error,
 )
@@ -57,7 +57,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 
         return from_openai_response(response)
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         params: dict[str, Any] = {
             "model": model.model_id,
@@ -74,7 +74,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
-        return OpenAIResponsesSSEStream(
+        return OpenAIResponsesChatStream(
             cast(AsyncIterable[ResponseStreamEvent], stream)
         )
 
@@ -98,18 +98,18 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
 
-class OpenAIResponsesSSEStream:
+class OpenAIResponsesChatStream:
     def __init__(self, stream: AsyncIterable[ResponseStreamEvent]) -> None:
         self._stream = stream
 
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         try:
             async for event in self._stream:
                 yield from_openai_response_stream_event(event)
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
-        yield SSEEvent(data="[DONE]", event="done")
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

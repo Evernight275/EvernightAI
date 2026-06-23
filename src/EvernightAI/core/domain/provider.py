@@ -5,7 +5,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderBuilderProtocol,
 )
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 
 from EvernightAI.core.schema.provider import (
@@ -123,7 +123,9 @@ class ProviderManager(ProviderManageProtocol):
         instance = await self.get(provider_id)
         return await instance.chat(request)
 
-    async def chat_stream(self, provider_id: str, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(
+        self, provider_id: str, request: ChatRequest
+    ) -> ChatStreamProtocol:
         """执行流式聊天请求"""
         instance = await self.get(provider_id)
         return await instance.chat_stream(request)

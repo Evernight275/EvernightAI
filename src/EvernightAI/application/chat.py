@@ -1,7 +1,7 @@
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.interface import ChatInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -134,7 +134,9 @@ class ChatApplication(ChatInterfaceProtocol):
 
         return response
 
-    async def chat_stream(self, provider_id: str, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(
+        self, provider_id: str, request: ChatRequest
+    ) -> ChatStreamProtocol:
         request = await compose_skill_prompted_chat_request(
             self._runtime,
             request,

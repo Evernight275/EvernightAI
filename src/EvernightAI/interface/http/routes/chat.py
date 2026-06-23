@@ -7,7 +7,7 @@ from EvernightAI.interface.http.schema import (
     ChatWithContextRequest,
     DirectChatRequest,
 )
-from EvernightAI.interface.http.sse import sse_response_body
+from EvernightAI.interface.http.sse import chat_stream_response_body
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -28,7 +28,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     stream = await interface.chat.chat_stream(request.provider_id, request.request)
     return StreamingResponse(
-        sse_response_body(stream),
+        chat_stream_response_body(stream),
         media_type="text/event-stream",
     )
 

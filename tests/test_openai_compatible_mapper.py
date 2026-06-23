@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from typing import Any, cast
 
@@ -10,8 +8,10 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
+from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.openai_compatible.mapper import (
+    OpenAIChatStreamNormalizer,
     from_openai_chat_completion,
     from_openai_chat_completion_chunk,
     to_openai_content_part,
@@ -204,7 +204,7 @@ def test_maps_chat_completion_response_to_chat_response() -> None:
     assert mapped.usage.total_tokens == 15
 
 
-def test_maps_chat_completion_chunk_to_sse_event() -> None:
+def test_maps_chat_completion_chunk_to_chat_stream_event() -> None:
     chunk = ChatCompletionChunk(
         id="chatcmpl-1",
         choices=cast(
@@ -224,9 +224,11 @@ def test_maps_chat_completion_chunk_to_sse_event() -> None:
 
     event = from_openai_chat_completion_chunk(chunk)
 
-    assert event.event == "chat.completion.chunk"
-    assert event.event_id == "chatcmpl-1"
-    assert json.loads(event.data) == {
+    assert event.event_type is ChatStreamEventType.RAW
+    assert event.raw_event == "chat.completion.chunk"
+    assert event.response_id == "chatcmpl-1"
+    assert event.model_id == "gpt-test"
+    assert event.raw_data == {
         "id": "chatcmpl-1",
         "choices": [
             {
@@ -238,6 +240,106 @@ def test_maps_chat_completion_chunk_to_sse_event() -> None:
         "model": "gpt-test",
         "object": "chat.completion.chunk",
     }
+
+
+def test_normalizes_chat_completion_text_chunk() -> None:
+    normalizer = OpenAIChatStreamNormalizer()
+    chunk = ChatCompletionChunk(
+        id="chatcmpl-1",
+        choices=cast(
+            Any,
+            [
+                {
+                    "delta": {"role": "assistant", "content": "Hel"},
+                    "finish_reason": None,
+                    "index": 0,
+                }
+            ],
+        ),
+        created=123,
+        model="gpt-test",
+        object="chat.completion.chunk",
+    )
+
+    events = normalizer.map_chunk(chunk)
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.MESSAGE_DELTA,
+    ]
+    assert events[1].text_delta == "Hel"
+
+
+def test_normalizes_chat_completion_tool_call_chunks() -> None:
+    normalizer = OpenAIChatStreamNormalizer()
+    chunks = [
+        ChatCompletionChunk(
+            id="chatcmpl-1",
+            choices=cast(
+                Any,
+                [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "add",
+                                        "arguments": "{\"left\":",
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                        "index": 0,
+                    }
+                ],
+            ),
+            created=123,
+            model="gpt-test",
+            object="chat.completion.chunk",
+        ),
+        ChatCompletionChunk(
+            id="chatcmpl-1",
+            choices=cast(
+                Any,
+                [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {
+                                        "arguments": "1}",
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                        "index": 0,
+                    }
+                ],
+            ),
+            created=123,
+            model="gpt-test",
+            object="chat.completion.chunk",
+        ),
+    ]
+
+    events = [event for chunk in chunks for event in normalizer.map_chunk(chunk)]
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.TOOL_CALL_START,
+        ChatStreamEventType.TOOL_CALL_DELTA,
+        ChatStreamEventType.TOOL_CALL_DELTA,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+    ]
+    assert events[-1].tool_call == ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "add", "arguments": {"left": 1}},
+    )
 
 
 def test_rejects_unsupported_content_part() -> None:

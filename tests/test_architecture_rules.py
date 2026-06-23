@@ -264,6 +264,30 @@ def test_init_files_are_comment_only() -> None:
     assert violations == []
 
 
+def test_provider_chat_stream_uses_domain_stream_protocol() -> None:
+    violations: list[str] = []
+
+    for root in [CORE_ROOT, APPLICATION_ROOT, INFRA_ROOT]:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    if node.name != "chat_stream":
+                        continue
+                    annotation = node.returns
+                    if annotation is None:
+                        violations.append(f"{_rel(path)} chat_stream lacks return type")
+                        continue
+
+                    annotation_name = _annotation_name(annotation)
+                    if annotation_name != "ChatStreamProtocol":
+                        violations.append(
+                            f"{_rel(path)} chat_stream returns {annotation_name}"
+                        )
+
+    assert violations == []
+
+
 def _python_files(root: Path) -> list[Path]:
     return [
         path
@@ -332,6 +356,17 @@ def _call_name(func: ast.expr) -> str | None:
         return func.attr
 
     return None
+
+
+def _annotation_name(annotation: ast.expr) -> str:
+    if isinstance(annotation, ast.Name):
+        return annotation.id
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr
+    if isinstance(annotation, ast.Constant):
+        return str(annotation.value)
+
+    return annotation.__class__.__name__
 
 
 def _is_under(path: Path, root: Path) -> bool:

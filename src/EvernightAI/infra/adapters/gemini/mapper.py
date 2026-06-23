@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -12,7 +11,8 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall
 
 
 def to_gemini_request(messages: Iterable[Content]) -> dict[str, Any]:
@@ -81,11 +81,166 @@ def from_gemini_response(response: dict[str, Any], model_id: str) -> ChatRespons
     )
 
 
-def from_gemini_stream_chunk(chunk: dict[str, Any]) -> SSEEvent:
-    return SSEEvent(
-        data=json.dumps(chunk, ensure_ascii=False),
-        event="gemini.generate_content.chunk",
-        id=chunk.get("responseId"),
+def from_gemini_stream_chunk(chunk: dict[str, Any]) -> list[ChatStreamEvent]:
+    response_id = chunk.get("responseId")
+    model_id = chunk.get("modelVersion")
+    response_id = response_id if isinstance(response_id, str) else None
+    model_id = model_id if isinstance(model_id, str) else None
+    events: list[ChatStreamEvent] = []
+
+    usage = _usage_from_gemini(chunk)
+    if usage is not None:
+        events.append(
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.USAGE,
+                response_id=response_id,
+                model_id=model_id,
+                usage=usage,
+                raw_event="gemini.generate_content.chunk",
+                raw_data=chunk,
+            )
+        )
+
+    candidates = chunk.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                events.extend(
+                    _gemini_candidate_stream_events(
+                        candidate,
+                        response_id=response_id,
+                        model_id=model_id,
+                        raw_data=chunk,
+                    )
+                )
+
+    return events or [_raw_gemini_stream_event(chunk, response_id, model_id)]
+
+
+def _gemini_candidate_stream_events(
+    candidate: dict[str, Any],
+    *,
+    response_id: str | None,
+    model_id: str | None,
+    raw_data: dict[str, Any],
+) -> list[ChatStreamEvent]:
+    events: list[ChatStreamEvent] = []
+    candidate_index = candidate.get("index", 0)
+    metadata = {"candidate_index": candidate_index}
+    content = candidate.get("content")
+    if isinstance(content, dict):
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            for part_index, part in enumerate(parts):
+                if not isinstance(part, dict):
+                    continue
+                part_metadata = {
+                    **metadata,
+                    "part_index": part_index,
+                }
+                if isinstance(part.get("text"), str) and part["text"]:
+                    events.append(
+                        ChatStreamEvent(
+                            event_type=ChatStreamEventType.MESSAGE_DELTA,
+                            response_id=response_id,
+                            model_id=model_id,
+                            role=MessageRole.ASSISTANT,
+                            text_delta=part["text"],
+                            content_part=ContentPart(
+                                type=ContentPartType.TEXT,
+                                text=part["text"],
+                            ),
+                            raw_event="gemini.generate_content.chunk",
+                            raw_data=raw_data,
+                            metadata=part_metadata,
+                        )
+                    )
+                function_call = part.get("functionCall")
+                if isinstance(function_call, dict):
+                    tool_event = _gemini_function_call_event(
+                        function_call,
+                        response_id=response_id,
+                        model_id=model_id,
+                        raw_data=raw_data,
+                        metadata=part_metadata,
+                    )
+                    if tool_event is not None:
+                        events.append(tool_event)
+
+    finish_reason = candidate.get("finishReason")
+    if isinstance(finish_reason, str) and finish_reason:
+        events.append(
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                response_id=response_id,
+                model_id=model_id,
+                finish_reason=finish_reason,
+                raw_event="gemini.generate_content.chunk",
+                raw_data=raw_data,
+                metadata=metadata,
+            )
+        )
+
+    return events
+
+
+def _gemini_function_call_event(
+    function_call: dict[str, Any],
+    *,
+    response_id: str | None,
+    model_id: str | None,
+    raw_data: dict[str, Any],
+    metadata: dict[str, Any],
+) -> ChatStreamEvent | None:
+    name = function_call.get("name")
+    args = function_call.get("args")
+    if not isinstance(name, str) or not name:
+        return None
+    if not isinstance(args, dict):
+        return None
+
+    tool_call_id = _gemini_tool_call_id(response_id, metadata)
+    tool_call = ToolCall(
+        tool_call_id=tool_call_id,
+        tool_call={
+            "name": name,
+            "arguments": args,
+        },
+    )
+    return ChatStreamEvent(
+        event_type=ChatStreamEventType.TOOL_CALL_COMPLETED,
+        response_id=response_id,
+        model_id=model_id,
+        tool_call_id=tool_call_id,
+        tool_name=name,
+        tool_call=tool_call,
+        raw_event="gemini.generate_content.chunk",
+        raw_data=raw_data,
+        metadata=metadata,
+    )
+
+
+def _gemini_tool_call_id(
+    response_id: str | None,
+    metadata: dict[str, Any],
+) -> str:
+    return (
+        f"{response_id or 'gemini'}:"
+        f"tool:{metadata['candidate_index']}:{metadata['part_index']}"
+    )
+
+
+def _raw_gemini_stream_event(
+    chunk: dict[str, Any],
+    response_id: str | None,
+    model_id: str | None,
+) -> ChatStreamEvent:
+    return ChatStreamEvent(
+        event_type=ChatStreamEventType.RAW,
+        response_id=response_id,
+        model_id=model_id,
+        raw_event="gemini.generate_content.chunk",
+        raw_data=chunk,
     )
 
 

@@ -25,7 +25,7 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -48,7 +48,7 @@ from EvernightAI.core.schema.skill import (
     SkillDefinition,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolDefinition,
@@ -57,6 +57,7 @@ from EvernightAI.core.schema.tool import (
 )
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.interface.http.app import create_http_app
+from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
 
 
 def test_http_app_exposes_chat_context_flow() -> None:
@@ -481,8 +482,13 @@ def test_http_app_exposes_provider_management_routes() -> None:
 def test_http_app_exposes_chat_stream_route() -> None:
     provider = FakeProvider(
         stream_events=[
-            SSEEvent(data='{"delta":"hello"}', event="message", id="evt-1"),
-            SSEEvent(data="[DONE]", event="done"),
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.RAW,
+                response_id="evt-1",
+                raw_event="message",
+                raw_data={"delta": "hello"},
+            ),
+            ChatStreamEvent(event_type=ChatStreamEventType.DONE),
         ]
     )
     interface = create_interface(make_runtime(provider=provider))
@@ -517,6 +523,20 @@ def test_http_app_exposes_chat_stream_route() -> None:
     assert "data: [DONE]" in stream_response.text
     assert provider.last_request is not None
     assert provider.last_request.model_id == "model-1"
+
+
+def test_http_chat_stream_events_are_encoded_as_sse() -> None:
+    sse_event = chat_stream_event_to_sse_event(
+        ChatStreamEvent(
+            event_type=ChatStreamEventType.MESSAGE_DELTA,
+            response_id="resp-1",
+            text_delta="hello",
+        )
+    )
+
+    assert sse_event.event == "chat.message_delta"
+    assert sse_event.event_id == "resp-1"
+    assert json.loads(sse_event.data)["text_delta"] == "hello"
 
 
 def test_http_app_exposes_persisted_agent_run_routes() -> None:
@@ -798,7 +818,7 @@ def sensitive_tool_definition() -> ToolDefinition:
 
 
 class FakeProvider(ProviderInstanceProtocol):
-    def __init__(self, stream_events: list[SSEEvent] | None = None) -> None:
+    def __init__(self, stream_events: list[ChatStreamEvent] | None = None) -> None:
         self.last_request: ChatRequest | None = None
         self.stream_events = stream_events or []
 
@@ -827,7 +847,7 @@ class FakeProvider(ProviderInstanceProtocol):
             finish_reason="stop",
         )
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         self.last_request = request
         return EventStream(self.stream_events)
 
@@ -891,12 +911,12 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
 
 
 class EventStream:
-    def __init__(self, events: list[SSEEvent]) -> None:
+    def __init__(self, events: list[ChatStreamEvent]) -> None:
         self._events = events
 
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         for event in self._events:
             yield event

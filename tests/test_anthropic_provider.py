@@ -15,8 +15,11 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
+from EvernightAI.core.schema.stream import ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.adapters.anthropic.instance import AnthropicProviderInstance
 from EvernightAI.infra.adapters.anthropic.mapper import (
+    AnthropicStreamNormalizer,
     from_anthropic_response,
     to_anthropic_request,
 )
@@ -81,6 +84,66 @@ def test_maps_anthropic_response_to_chat_response() -> None:
     assert mapped.usage.total_tokens == 5
 
 
+def test_normalizes_anthropic_tool_use_stream_events() -> None:
+    normalizer = AnthropicStreamNormalizer()
+
+    events = [
+        event
+        for raw_event, data in [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg-1",
+                        "model": "claude-test",
+                    },
+                },
+            ),
+            (
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "toolu-1",
+                        "name": "add",
+                        "input": {},
+                    },
+                },
+            ),
+            (
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": "{\"left\": 1}",
+                    },
+                },
+            ),
+            (
+                "content_block_stop",
+                {"type": "content_block_stop", "index": 0},
+            ),
+        ]
+        for event in normalizer.map_event(raw_event, data)
+    ]
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.TOOL_CALL_START,
+        ChatStreamEventType.TOOL_CALL_DELTA,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+    ]
+    assert events[-1].tool_call == ToolCall(
+        tool_call_id="toolu-1",
+        tool_call={"name": "add", "arguments": {"left": 1}},
+    )
+
+
 @pytest.mark.asyncio
 async def test_anthropic_instance_chat_maps_request_and_response() -> None:
     instance = AnthropicProviderInstance(make_config())
@@ -134,9 +197,9 @@ async def test_anthropic_instance_stream_allows_undeclared_model() -> None:
             "timeout": 30.0,
         }
     ]
-    assert [event.event for event in events] == [
-        "message_start",
-        "done",
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.DONE,
     ]
 
     await instance.close()
@@ -164,7 +227,11 @@ class FakeAnthropicClient:
         if json.get("stream") is True:
             return httpx.Response(
                 200,
-                text='event: message_start\ndata: {"type": "message_start"}\n\n',
+                text=(
+                    'event: message_start\n'
+                    'data: {"type": "message_start", '
+                    '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
+                ),
                 request=httpx.Request("POST", url),
             )
 

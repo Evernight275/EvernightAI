@@ -25,7 +25,7 @@ from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
-from EvernightAI.core.protocol.stream import SSEProtocol
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -40,7 +40,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
-from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.bootstrap.config import (
     create_interface_from_config,
     create_runtime_from_config,
@@ -548,7 +548,7 @@ class FakeProvider(ProviderInstanceProtocol):
             finish_reason="stop",
         )
 
-    async def chat_stream(self, request: ChatRequest) -> SSEProtocol:
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         self.last_request = request
         return EmptyStream()
 
@@ -557,9 +557,9 @@ class FakeProvider(ProviderInstanceProtocol):
 
 
 class EmptyStream:
-    def __aiter__(self) -> AsyncIterator[SSEEvent]:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
-    async def _iter_events(self) -> AsyncIterator[SSEEvent]:
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         if False:
-            yield SSEEvent(data="")
+            yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

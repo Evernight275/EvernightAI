@@ -30,6 +30,7 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
+from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
@@ -384,7 +385,7 @@ async def test_openai_instance_chat_allows_undeclared_model() -> None:
 
 
 @pytest.mark.asyncio
-async def test_openai_instance_chat_stream_maps_chunks_to_sse_events() -> None:
+async def test_openai_instance_chat_stream_maps_chunks_to_chat_stream_events() -> None:
     config = make_openai_config()
     instance = OpenAICompatibleProviderInstance(config)
     completions = FakeCompletions()
@@ -411,12 +412,12 @@ async def test_openai_instance_chat_stream_maps_chunks_to_sse_events() -> None:
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-    assert [event.event for event in events] == ["chat.completion.chunk", "done"]
-    assert json.loads(events[0].data)["choices"][0]["delta"] == {
-        "content": "Hi",
-        "role": "assistant",
-    }
-    assert events[1].data == "[DONE]"
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.DONE,
+    ]
+    assert events[1].text_delta == "Hi"
 
     await instance.close()
 
@@ -448,7 +449,11 @@ async def test_openai_instance_chat_stream_allows_undeclared_model() -> None:
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-    assert [event.event for event in events] == ["chat.completion.chunk", "done"]
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.DONE,
+    ]
 
     await instance.close()
 
