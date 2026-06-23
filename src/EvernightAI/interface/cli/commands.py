@@ -12,6 +12,7 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
 
@@ -72,6 +73,69 @@ def list_models(config: EvernightConfig, provider_id: str) -> str:
         for model in provider.model.values()
     ]
     return _format_table(["MODEL ID", "CAPABILITIES"], rows)
+
+
+def list_skills(interface: EvernightInterfaceProtocol) -> str:
+    skills = interface.skills.list_skills()
+    if not skills:
+        return "No skills registered."
+
+    rows = [
+        [
+            skill.name,
+            ", ".join(capability.value for capability in skill.capabilities) or "-",
+            ", ".join(skill.required_tools) or "-",
+            skill.description,
+        ]
+        for skill in skills
+    ]
+    return _format_table(
+        ["SKILL", "CAPABILITIES", "TOOLS", "DESCRIPTION"],
+        rows,
+    )
+
+
+def show_skill(interface: EvernightInterfaceProtocol, skill_name: str) -> str:
+    skill = interface.skills.get_skill(skill_name)
+    return json.dumps(
+        skill.model_dump(mode="json"),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+
+
+def skill_supports(
+    interface: EvernightInterfaceProtocol,
+    skill_name: str,
+    capability: SkillCapability,
+) -> str:
+    supported = interface.skills.skill_supports(skill_name, capability)
+    return "yes" if supported else "no"
+
+
+async def render_skill(
+    interface: EvernightInterfaceProtocol,
+    *,
+    skill_name: str,
+    render_id: str,
+    variables: dict[str, object] | None = None,
+    metadata: dict[str, object] | None = None,
+) -> str:
+    rendered = await interface.skills.render_skill(
+        SkillRenderRequest(
+            render_id=render_id,
+            skill_name=skill_name,
+            variables=variables or {},
+            metadata=metadata or {},
+        )
+    )
+    return json.dumps(
+        rendered.model_dump(mode="json"),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
 
 
 async def run_chat(
