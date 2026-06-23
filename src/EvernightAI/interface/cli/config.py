@@ -3,6 +3,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelConfig,
@@ -16,16 +19,28 @@ from EvernightAI.interface.cli.schema import (
 
 
 def load_config(path: str | Path) -> EvernightConfig:
-    return parse_config(_read_toml(path))
+    try:
+        data = _read_toml(path)
+    except FileNotFoundError as exc:
+        raise ConfigurationError(f"Config file not found: {path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigurationError("Invalid TOML config", detail=str(exc)) from exc
+    except OSError as exc:
+        raise ConfigurationError(f"Could not read config file: {path}") from exc
+
+    return parse_config(data)
 
 
 def parse_config(data: dict[str, Any]) -> EvernightConfig:
-    return EvernightConfig(
-        runtime=RuntimeConfig.model_validate(data.get("runtime", {})),
-        http=HttpConfig.model_validate(data.get("http", {})),
-        tools=ToolConfig.model_validate(data.get("tools", {})),
-        providers=_parse_providers(data.get("provider", {})),
-    )
+    try:
+        return EvernightConfig(
+            runtime=RuntimeConfig.model_validate(data.get("runtime", {})),
+            http=HttpConfig.model_validate(data.get("http", {})),
+            tools=ToolConfig.model_validate(data.get("tools", {})),
+            providers=_parse_providers(data.get("provider", {})),
+        )
+    except (KeyError, PydanticValidationError, TypeError, ValueError) as exc:
+        raise ConfigurationError("Invalid EvernightAI config", detail=str(exc)) from exc
 
 
 def _read_toml(path: str | Path) -> dict[str, Any]:

@@ -129,6 +129,24 @@ def test_interface_does_not_depend_on_application_or_infra_modules() -> None:
     assert violations == []
 
 
+def test_interface_and_entrypoint_do_not_reach_through_interface_runtime() -> None:
+    violations: list[str] = []
+
+    for root in [INTERFACE_ROOT, ENTRYPOINT_ROOT]:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "runtime"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "interface"
+                ):
+                    violations.append(f"{_rel(path)} reads interface.runtime")
+
+    assert violations == []
+
+
 def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
     violations: list[str] = []
 
