@@ -139,6 +139,13 @@ skill listing and rendering, tool listing, direct chat, context chat, SSE chat
 streaming, persisted agent runs, persisted agent trace streaming, and agent
 resume.
 
+Chat streaming has an internal `ChatStreamProtocol` and `ChatStreamEvent`
+schema. SSE is only the HTTP transport encoding used by the current HTTP route;
+provider adapters first map provider-specific stream chunks into chat stream
+events, normalizing text deltas, tool-call deltas, completed tool calls, usage,
+and completion events when possible. Chunks that cannot be safely normalized are
+kept as raw events. The HTTP layer serializes chat stream events to SSE.
+
 Bootstrap registers a small built-in `echo` skill by default so the skill
 registry has an end-to-end smoke path before external skill sources are added.
 Skills render prompt messages; tools execute external actions.

@@ -176,6 +176,12 @@ tests                       单元、架构、HTTP/CLI、真实 provider opt-in 
 - 持久化 agent trace streaming
 - agent run resume
 
+chat streaming 在内部使用 `ChatStreamProtocol` 和 `ChatStreamEvent` 表达
+模型流式语义。SSE 只是当前 HTTP route 的传输编码；provider adapter 先把
+各 provider 的流式 chunk 映射成 chat stream event，HTTP 层再序列化为
+SSE。adapter 会优先把文本增量、工具调用增量、完整工具调用、用量和完成
+状态归一化；不能安全识别的 chunk 才保留为 raw event。
+
 `bootstrap` 默认注册一个很小的内置 `echo` skill，用来给 skill registry
 提供端到端 smoke path；后续再接外部 skill 来源。skill 的输出是可注入
 `ChatRequest.messages` 的提示词消息，不负责执行外部动作。
@@ -209,6 +215,8 @@ messages 不写回 context 历史。
 - package `__init__.py` 文件只保留注释
 - OpenAI-compatible provider 不能被要求必须支持远程 `/models`
 - `chat` 和 `chat_stream` 不能要求 `ProviderConfig.model` 预先声明模型
+- chat streaming 的内部协议是 `ChatStreamProtocol` / `ChatStreamEvent`；
+  SSE 只能作为 HTTP 传输编码存在，不能作为 provider/domain 流式协议本体
 - context storage 是 core protocol/domain concern
 - memory 和 context 保持分离
 - provider 创建边界使用 `ProviderFactory` / `ProviderFactoryProtocol`
