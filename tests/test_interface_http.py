@@ -367,6 +367,10 @@ def test_http_app_exposes_skill_routes() -> None:
                 "variables": {"text": "hello"},
             },
         )
+        default_render_response = client.post(
+            "/skills/summarize/render",
+            json={"variables": {"text": "default"}},
+        )
         missing_response = client.get("/skills/missing")
 
     assert skills_response.status_code == 200
@@ -382,6 +386,9 @@ def test_http_app_exposes_skill_routes() -> None:
     assert rendered["messages"][0]["role"] == "system"
     assert rendered["messages"][0]["content"][0]["text"] == "hello"
     assert rendered["metadata"] == {"source": "fake"}
+    assert default_render_response.status_code == 200
+    assert default_render_response.json()["render_id"] == "summarize-0"
+    assert default_render_response.json()["messages"][0]["content"][0]["text"] == "default"
     assert missing_response.status_code == 404
 
 

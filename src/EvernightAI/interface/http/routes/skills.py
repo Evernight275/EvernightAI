@@ -43,7 +43,7 @@ async def render_skill(
 ) -> RenderedSkill:
     return await interface.skills.render_skill(
         SkillRenderRequest(
-            render_id=request.render_id,
+            render_id=request.render_id or f"{skill_name}-0",
             skill_name=skill_name,
             variables=request.variables,
             metadata=request.metadata,

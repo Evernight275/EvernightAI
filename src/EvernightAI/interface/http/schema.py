@@ -27,6 +27,6 @@ class ResumeAgentRunRequest(EvernightAISchema):
 
 
 class RenderSkillRequest(EvernightAISchema):
-    render_id: str
+    render_id: str | None = None
     variables: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
