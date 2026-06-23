@@ -3,6 +3,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -189,10 +190,32 @@ async def test_gemini_instance_stream_allows_undeclared_model() -> None:
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_gemini_instance_stream_translates_network_errors() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient(
+        stream_error=httpx.ConnectError(
+            "network down",
+            request=httpx.Request("POST", "https://gemini.test/stream"),
+        )
+    )
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(model_id="gemini-test", messages=make_messages())
+    )
+
+    with pytest.raises(ProviderUnavailableError, match="network down"):
+        _ = [event async for event in stream]
+
+    await instance.close()
+
+
 class FakeGeminiClient:
-    def __init__(self) -> None:
+    def __init__(self, stream_error: httpx.HTTPError | None = None) -> None:
         self.requests: list[dict[str, object]] = []
         self.closed = False
+        self._stream_error = stream_error
 
     async def post(
         self,
@@ -233,5 +256,51 @@ class FakeGeminiClient:
             request=httpx.Request("POST", url),
         )
 
+    def stream(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: dict[str, object],
+        params: dict[str, str],
+        timeout: float,
+    ) -> "FakeGeminiStreamContext":
+        self.requests.append(
+            {
+                "url": url,
+                "json": json,
+                "params": params,
+                "timeout": timeout,
+            }
+        )
+        return FakeGeminiStreamContext(
+            httpx.Response(
+                200,
+                text='data: {"responseId": "resp-1", "candidates": []}\n\n',
+                request=httpx.Request(method, url),
+            ),
+            error=self._stream_error,
+        )
+
     async def aclose(self) -> None:
         self.closed = True
+
+
+class FakeGeminiStreamContext:
+    def __init__(
+        self,
+        response: httpx.Response,
+        *,
+        error: httpx.HTTPError | None = None,
+    ) -> None:
+        self._response = response
+        self._error = error
+
+    async def __aenter__(self) -> httpx.Response:
+        if self._error is not None:
+            raise self._error
+
+        return self._response
+
+    async def __aexit__(self, *args: object) -> None:
+        return None

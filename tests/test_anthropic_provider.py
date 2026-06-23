@@ -3,6 +3,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -205,10 +206,32 @@ async def test_anthropic_instance_stream_allows_undeclared_model() -> None:
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_anthropic_instance_stream_translates_network_errors() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient(
+        stream_error=httpx.ConnectError(
+            "network down",
+            request=httpx.Request("POST", "https://anthropic.test/stream"),
+        )
+    )
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(model_id="claude-test", messages=make_messages())
+    )
+
+    with pytest.raises(ProviderUnavailableError, match="network down"):
+        _ = [event async for event in stream]
+
+    await instance.close()
+
+
 class FakeAnthropicClient:
-    def __init__(self) -> None:
+    def __init__(self, stream_error: httpx.HTTPError | None = None) -> None:
         self.requests: list[dict[str, object]] = []
         self.closed = False
+        self._stream_error = stream_error
 
     async def post(
         self,
@@ -248,5 +271,53 @@ class FakeAnthropicClient:
             request=httpx.Request("POST", url),
         )
 
+    def stream(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: dict[str, object],
+        timeout: float,
+    ) -> "FakeAnthropicStreamContext":
+        self.requests.append(
+            {
+                "url": url,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
+        return FakeAnthropicStreamContext(
+            httpx.Response(
+                200,
+                text=(
+                    'event: message_start\n'
+                    'data: {"type": "message_start", '
+                    '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
+                ),
+                request=httpx.Request(method, url),
+            ),
+            error=self._stream_error,
+        )
+
     async def aclose(self) -> None:
         self.closed = True
+
+
+class FakeAnthropicStreamContext:
+    def __init__(
+        self,
+        response: httpx.Response,
+        *,
+        error: httpx.HTTPError | None = None,
+    ) -> None:
+        self._response = response
+        self._error = error
+
+    async def __aenter__(self) -> httpx.Response:
+        if self._error is not None:
+            raise self._error
+
+        return self._response
+
+    async def __aexit__(self, *args: object) -> None:
+        return None

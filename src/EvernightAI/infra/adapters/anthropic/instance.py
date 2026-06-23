@@ -60,18 +60,12 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
             **to_anthropic_request(request.messages, model.model_id),
             "stream": True,
         }
-
-        try:
-            response = await self._client.post(
-                "/v1/messages",
-                json=payload,
-                timeout=model.timeout.total_seconds(),
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as error:
-            raise_httpx_provider_error(error)
-
-        return AnthropicChatStream(response.text)
+        return AnthropicChatStream(
+            self._client,
+            "/v1/messages",
+            payload,
+            model.timeout.total_seconds(),
+        )
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -94,26 +88,46 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
 
 class AnthropicChatStream:
-    def __init__(self, text: str) -> None:
-        self._text = text
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        payload: dict[str, Any],
+        timeout: float,
+    ) -> None:
+        self._client = client
+        self._url = url
+        self._payload = payload
+        self._timeout = timeout
         self._normalizer = AnthropicStreamNormalizer()
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
-        for event, chunk in _iter_sse_json(self._text):
-            for stream_event in self._normalizer.map_event(event, chunk):
-                yield stream_event
+        try:
+            async with self._client.stream(
+                "POST",
+                self._url,
+                json=self._payload,
+                timeout=self._timeout,
+            ) as response:
+                response.raise_for_status()
+                async for event, chunk in _iter_sse_json(response):
+                    for stream_event in self._normalizer.map_event(event, chunk):
+                        yield stream_event
+        except httpx.HTTPError as error:
+            raise_httpx_provider_error(error)
 
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
-def _iter_sse_json(text: str) -> list[tuple[str | None, dict[str, Any]]]:
-    chunks: list[tuple[str | None, dict[str, Any]]] = []
+async def _iter_sse_json(
+    response: httpx.Response,
+) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
     event: str | None = None
 
-    for line in text.splitlines():
+    async for line in response.aiter_lines():
         line = line.strip()
         if not line:
             event = None
@@ -130,6 +144,4 @@ def _iter_sse_json(text: str) -> list[tuple[str | None, dict[str, Any]]]:
 
         parsed = httpx.Response(200, content=data).json()
         if isinstance(parsed, dict):
-            chunks.append((event, parsed))
-
-    return chunks
+            yield event, parsed

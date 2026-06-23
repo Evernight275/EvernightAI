@@ -54,19 +54,12 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages)
-
-        try:
-            response = await self._client.post(
-                f"/v1beta/models/{model.model_id}:streamGenerateContent",
-                params={"alt": "sse"},
-                json=payload,
-                timeout=model.timeout.total_seconds(),
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as error:
-            raise_httpx_provider_error(error)
-
-        return GeminiChatStream(response.text)
+        return GeminiChatStream(
+            self._client,
+            f"/v1beta/models/{model.model_id}:streamGenerateContent",
+            payload,
+            model.timeout.total_seconds(),
+        )
 
     async def list_models(self) -> list[ProviderModelConfig]:
         return list(self._models.values())
@@ -89,23 +82,42 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
 
 class GeminiChatStream:
-    def __init__(self, text: str) -> None:
-        self._text = text
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        payload: dict[str, Any],
+        timeout: float,
+    ) -> None:
+        self._client = client
+        self._url = url
+        self._payload = payload
+        self._timeout = timeout
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
-        for chunk in _iter_sse_json(self._text):
-            for event in from_gemini_stream_chunk(chunk):
-                yield event
+        try:
+            async with self._client.stream(
+                "POST",
+                self._url,
+                params={"alt": "sse"},
+                json=self._payload,
+                timeout=self._timeout,
+            ) as response:
+                response.raise_for_status()
+                async for chunk in _iter_sse_json(response):
+                    for event in from_gemini_stream_chunk(chunk):
+                        yield event
+        except httpx.HTTPError as error:
+            raise_httpx_provider_error(error)
 
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
-def _iter_sse_json(text: str) -> list[dict[str, Any]]:
-    chunks: list[dict[str, Any]] = []
-    for line in text.splitlines():
+async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+    async for line in response.aiter_lines():
         line = line.strip()
         if not line.startswith("data:"):
             continue
@@ -116,6 +128,4 @@ def _iter_sse_json(text: str) -> list[dict[str, Any]]:
 
         parsed = httpx.Response(200, content=data).json()
         if isinstance(parsed, dict):
-            chunks.append(parsed)
-
-    return chunks
+            yield parsed
