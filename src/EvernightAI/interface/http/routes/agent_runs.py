@@ -15,6 +15,8 @@ from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatu
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.schema import ResumeAgentRunRequest
 from EvernightAI.interface.http.template import (
+    AGENT_RUN_STATE_RESPONSE_EXAMPLE,
+    AGENT_TRACE_SSE_EXAMPLE,
     AGENT_RUN_EXAMPLES,
     RESUME_AGENT_RUN_EXAMPLES,
 )
@@ -35,6 +37,7 @@ router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
         "`max_tool_rounds` to 0 for a single plain chat step."
     ),
     operation_id="start_agent_run",
+    responses={201: AGENT_RUN_STATE_RESPONSE_EXAMPLE},
 )
 async def start_agent_run(
     request: Annotated[
@@ -51,6 +54,7 @@ async def start_agent_run(
     summary="Stream an agent run",
     description="SSE transport for a new agent run trace.",
     operation_id="stream_agent_run",
+    responses={200: AGENT_TRACE_SSE_EXAMPLE},
 )
 async def stream_agent_run(
     request: Annotated[
@@ -98,6 +102,7 @@ async def get_agent_run(
     summary="Resume a paused agent run",
     description="Supply approval decisions for pending tool calls, then continue the run.",
     operation_id="resume_agent_run",
+    responses={200: AGENT_RUN_STATE_RESPONSE_EXAMPLE},
 )
 async def resume_agent_run(
     run_id: str,
@@ -117,6 +122,7 @@ async def resume_agent_run(
     summary="Approve all pending tool calls",
     description="Convenience endpoint for approving every pending tool approval request.",
     operation_id="approve_pending_agent_run",
+    responses={200: AGENT_RUN_STATE_RESPONSE_EXAMPLE},
 )
 async def approve_pending_agent_run(
     run_id: str,
@@ -134,6 +140,7 @@ async def approve_pending_agent_run(
     summary="Stream resume of a paused agent run",
     description="SSE transport for resuming a paused run after approval decisions.",
     operation_id="resume_agent_run_stream",
+    responses={200: AGENT_TRACE_SSE_EXAMPLE},
 )
 async def resume_agent_run_stream(
     run_id: str,
@@ -169,7 +176,7 @@ async def _agent_trace_sse_events(
 ) -> AsyncIterator[SSEEvent]:
     async for event in stream:
         yield SSEEvent(
-            data=event.model_dump_json(),
+            data=event.model_dump_json(exclude_none=True),
             event=event.event_type.value,
         )
 

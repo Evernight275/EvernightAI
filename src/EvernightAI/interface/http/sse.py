@@ -53,7 +53,7 @@ def chat_stream_event_to_sse_event(event: ChatStreamEvent) -> SSEEvent:
         )
 
     return SSEEvent(
-        data=event.model_dump_json(),
+        data=event.model_dump_json(exclude_none=True),
         event=f"chat.{event.event_type.value}",
         id=event.response_id,
     )

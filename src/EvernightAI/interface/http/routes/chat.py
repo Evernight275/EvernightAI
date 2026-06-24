@@ -11,6 +11,8 @@ from EvernightAI.interface.http.schema import (
 )
 from EvernightAI.interface.http.template import (
     CHAT_WITH_CONTEXT_EXAMPLES,
+    CHAT_RESPONSE_EXAMPLE,
+    CHAT_STREAM_ERROR_SSE_EXAMPLE,
     DIRECT_CHAT_EXAMPLES,
 )
 from EvernightAI.interface.http.sse import chat_stream_response_body
@@ -29,6 +31,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
         "stored context."
     ),
     operation_id="chat",
+    responses={200: CHAT_RESPONSE_EXAMPLE},
 )
 async def chat(
     request: Annotated[
@@ -45,6 +48,7 @@ async def chat(
     summary="Stream a one-off chat request",
     description="SSE transport for `POST /chat`; events contain normalized chat stream data.",
     operation_id="chat_stream",
+    responses={200: CHAT_STREAM_ERROR_SSE_EXAMPLE},
 )
 async def chat_stream(
     request: Annotated[
@@ -70,6 +74,7 @@ async def chat_stream(
         "call the provider, then persist the new user and assistant messages."
     ),
     operation_id="chat_with_context",
+    responses={200: CHAT_RESPONSE_EXAMPLE},
 )
 async def chat_with_context(
     request: Annotated[
@@ -98,6 +103,7 @@ async def chat_with_context(
         "message is persisted to the context."
     ),
     operation_id="chat_context_stream",
+    responses={200: CHAT_STREAM_ERROR_SSE_EXAMPLE},
 )
 async def chat_context_stream(
     request: Annotated[

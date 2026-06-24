@@ -94,6 +94,116 @@ def _openapi_examples(examples: dict[str, object]) -> dict[str, Example]:
     return cast(dict[str, Example], examples)
 
 
+CHAT_RESPONSE_EXAMPLE = {
+    "description": "Successful chat response.",
+    "content": {
+        "application/json": {
+            "example": {
+                "response_id": "resp-1",
+                "model_id": "gpt-4.1-mini",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Hello."}],
+                    "metadata": {},
+                },
+                "finish_reason": "stop",
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 20,
+                    "total_tokens": 32,
+                    "metadata": {},
+                },
+                "metadata": {},
+            }
+        }
+    },
+}
+
+
+SESSION_CHAT_RESPONSE_EXAMPLE = {
+    "description": "Successful session chat response.",
+    "content": {
+        "application/json": {
+            "example": {
+                "session": {
+                    "session_id": "session-1",
+                    "title": "Planning chat",
+                    "context_id": "ctx-1",
+                    "provider_id": "main",
+                    "model_id": "gpt-4.1-mini",
+                    "status": "active",
+                    "metadata": {},
+                },
+                "response": CHAT_RESPONSE_EXAMPLE["content"]["application/json"][
+                    "example"
+                ],
+            }
+        }
+    },
+}
+
+
+AGENT_RUN_STATE_RESPONSE_EXAMPLE = {
+    "description": "Agent run state.",
+    "content": {
+        "application/json": {
+            "example": {
+                "run_id": "run-1",
+                "request": {
+                    "provider_id": "main",
+                    "context_id": "ctx-1",
+                    "model_id": "gpt-4.1-mini",
+                    "messages": [_text_message("Answer and stop.")],
+                    "max_tool_rounds": 0,
+                    "recover_tool_errors": True,
+                    "write_memory": False,
+                    "tool_approvals": [],
+                    "pause_on_approval": False,
+                    "metadata": {"run_id": "run-1"},
+                },
+                "status": "finished",
+                "remaining_tool_rounds": 0,
+                "tool_rounds_used": 0,
+                "pending_tool_calls": [],
+                "pending_approval_requests": [],
+                "metadata": {"run_id": "run-1"},
+            }
+        }
+    },
+}
+
+
+CHAT_STREAM_ERROR_SSE_EXAMPLE = {
+    "description": "SSE stream. Provider errors are emitted as `chat.error` events.",
+    "content": {
+        "text/event-stream": {
+            "example": (
+                "event: chat.error\n"
+                'data: {"event_type":"error","error_type":"ProviderUnavailableError",'
+                '"error_message":"provider unavailable",'
+                '"metadata":{"detail":"status_code=503"}}\n\n'
+            )
+        }
+    },
+}
+
+
+AGENT_TRACE_SSE_EXAMPLE = {
+    "description": "SSE stream of agent trace events.",
+    "content": {
+        "text/event-stream": {
+            "example": (
+                "event: run_started\n"
+                'data: {"event_type":"run_started","summary":"Agent run started"}\n\n'
+                "event: run_stopped\n"
+                'data: {"event_type":"run_stopped","summary":"Agent run stopped: finished",'
+                '"metadata":{"reason":"finished"}}\n\n'
+            )
+        }
+    },
+}
+
+
 PROVIDER_CONFIG_EXAMPLES = _openapi_examples({
     "openaiCompatible": {
         "summary": "OpenAI-compatible provider",

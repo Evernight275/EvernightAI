@@ -77,6 +77,12 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     agent_stream_examples = schema["paths"]["/agent-runs/stream"]["post"][
         "requestBody"
     ]["content"]["application/json"]["examples"]
+    chat_response_example = schema["paths"]["/chat"]["post"]["responses"]["200"][
+        "content"
+    ]["application/json"]["example"]
+    chat_stream_example = schema["paths"]["/chat/stream"]["post"]["responses"]["200"][
+        "content"
+    ]["text/event-stream"]["example"]
 
     assert chat_examples["minimal"]["value"] == {
         "provider_id": "main",
@@ -100,6 +106,13 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
         "max_tool_rounds": 0,
         "metadata": {"request_id": "agent-stream-1"},
     }
+    assert chat_response_example["message"]["content"] == [
+        {"type": "text", "text": "Hello."}
+    ]
+    assert "url" not in chat_response_example["message"]["content"][0]
+    assert "tool_calls" not in chat_response_example["message"]
+    assert "event: chat.error" in chat_stream_example
+    assert '"response_id":null' not in chat_stream_example
 
 
 def test_http_app_exposes_chat_context_flow() -> None:
@@ -733,6 +746,8 @@ def test_http_chat_stream_encodes_provider_errors_as_sse() -> None:
     assert "event: chat.error" in stream_response.text
     assert "ProviderUnavailableError" in stream_response.text
     assert "provider stream failed" in stream_response.text
+    assert '"response_id":null' not in stream_response.text
+    assert '"model_id":null' not in stream_response.text
 
 
 def test_http_app_exposes_persisted_agent_run_routes() -> None:

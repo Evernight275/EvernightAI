@@ -11,7 +11,9 @@ from EvernightAI.core.schema.session import (
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.template import (
+    AGENT_RUN_STATE_RESPONSE_EXAMPLE,
     SESSION_AGENT_RUN_EXAMPLES,
+    SESSION_CHAT_RESPONSE_EXAMPLE,
     SESSION_CHAT_EXAMPLES,
     SESSION_EXAMPLES,
 )
@@ -77,6 +79,7 @@ async def get_session(
         "messages are persisted to the session context."
     ),
     operation_id="chat_with_session",
+    responses={200: SESSION_CHAT_RESPONSE_EXAMPLE},
 )
 async def chat_with_session(
     session_id: str,
@@ -97,6 +100,7 @@ async def chat_with_session(
     summary="Start a session agent run",
     description="Start a multi-step agent run using the session's provider, model, and context.",
     operation_id="start_agent_run_for_session",
+    responses={201: AGENT_RUN_STATE_RESPONSE_EXAMPLE},
 )
 async def start_agent_run_for_session(
     session_id: str,
