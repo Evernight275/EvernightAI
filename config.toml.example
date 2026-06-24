@@ -13,7 +13,8 @@ reload = false
 
 [auth]
 # Disabled by default for local development. When enabled, HTTP requests use
-# Authorization/X-Evernight-API-Key.
+# Authorization/X-Evernight-API-Key. CLI commands use the single configured
+# principal, or EVERNIGHTAI_CLI_API_KEY when multiple principals are present.
 enabled = false
 
 [auth.principal.admin]

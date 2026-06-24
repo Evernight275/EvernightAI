@@ -1,9 +1,11 @@
 from typing import Any
 
-from EvernightAI.bootstrap.interface import create_interface
+from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
+from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
+from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
 from EvernightAI.interface.cli.schema import EvernightConfig
 
 
@@ -17,14 +19,22 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
 def create_interface_from_config(
     config: EvernightConfig,
 ) -> EvernightInterfaceProtocol:
-    runtime = create_runtime_from_config(config)
-    return create_interface(runtime)
+    interface = create_unsecured_interface_from_config(config)
+    if not config.auth.enabled:
+        return interface
+
+    return create_authorized_interface(
+        interface,
+        Authorizer(PermissionAuthPolicy()),
+        ConfigCliAuthDevice().principal_for_config(config),
+    )
 
 
 def create_unsecured_interface_from_config(
     config: EvernightConfig,
 ) -> EvernightInterfaceProtocol:
-    return create_interface_from_config(config)
+    runtime = create_runtime_from_config(config)
+    return create_interface(runtime)
 
 
 def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:

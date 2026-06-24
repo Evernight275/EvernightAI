@@ -435,6 +435,95 @@ def test_entrypoint_cli_context_memory_session_and_agent_run_commands(
     assert '"status": "finished"' in capsys.readouterr().out
 
 
+def test_entrypoint_cli_runtime_command_requires_cli_auth(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[auth]
+enabled = true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    exit_code = entrypoint_main(["context", "list", "--config", str(config_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "AuthRequiredError" in captured.err
+
+
+def test_entrypoint_cli_runtime_command_checks_permissions(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[auth]
+enabled = true
+
+[auth.principal.reader]
+api_key = "secret"
+permissions = ["contexts:list"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    exit_code = entrypoint_main(
+        [
+            "context",
+            "create",
+            "--json",
+            '{"context_id": "ctx-1"}',
+            "--config",
+            str(config_path),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "AuthPermissionDeniedError" in captured.err
+
+
+def test_entrypoint_cli_runtime_command_uses_configured_cli_principal(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+[runtime]
+database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
+
+[auth]
+enabled = true
+
+[auth.principal.writer]
+api_key = "secret"
+permissions = ["contexts:create"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    exit_code = entrypoint_main(
+        [
+            "context",
+            "create",
+            "--json",
+            '{"context_id": "ctx-1"}',
+            "--config",
+            str(config_path),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert '"context_id": "ctx-1"' in captured.out
+
+
 def create_skill_interface():
     async def summarize(request: SkillRenderRequest) -> RenderedSkill:
         return RenderedSkill(
