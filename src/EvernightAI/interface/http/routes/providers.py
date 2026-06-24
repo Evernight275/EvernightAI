@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Response, status
+from typing import Annotated
+
+from fastapi import APIRouter, Body, Response, status
 
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -7,6 +9,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
+from EvernightAI.interface.http.template import PROVIDER_CONFIG_EXAMPLES
 
 
 router = APIRouter(prefix="/providers", tags=["providers"])
@@ -16,15 +19,33 @@ router = APIRouter(prefix="/providers", tags=["providers"])
     "",
     response_model=ProviderInfo,
     status_code=status.HTTP_201_CREATED,
+    summary="Register a provider",
+    description=(
+        "Create a runtime provider instance. Use the returned `provider_id` in "
+        "chat, session, and agent requests."
+    ),
+    operation_id="create_provider",
 )
 async def create_provider(
-    config: ProviderConfig,
+    config: Annotated[
+        ProviderConfig,
+        Body(openapi_examples=PROVIDER_CONFIG_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> ProviderInfo:
     return await interface.providers.create_provider(config)
 
 
-@router.get("/{provider_id}/models", response_model=list[ProviderModelConfig])
+@router.get(
+    "/{provider_id}/models",
+    response_model=list[ProviderModelConfig],
+    summary="List declared provider models",
+    description=(
+        "Return the models declared locally for this provider. OpenAI-compatible "
+        "providers are not required to support remote `/models` discovery."
+    ),
+    operation_id="list_provider_models",
+)
 async def list_provider_models(
     provider_id: str,
     interface: InterfaceDependency,
@@ -32,7 +53,12 @@ async def list_provider_models(
     return await interface.providers.list_provider_models(provider_id)
 
 
-@router.get("/{provider_id}/models/{model_id}", response_model=ProviderModelConfig)
+@router.get(
+    "/{provider_id}/models/{model_id}",
+    response_model=ProviderModelConfig,
+    summary="Get one declared provider model",
+    operation_id="get_provider_model",
+)
 async def get_provider_model(
     provider_id: str,
     model_id: str,
@@ -41,7 +67,13 @@ async def get_provider_model(
     return await interface.providers.get_provider_model(provider_id, model_id)
 
 
-@router.get("/{provider_id}/supports", response_model=bool)
+@router.get(
+    "/{provider_id}/supports",
+    response_model=bool,
+    summary="Check provider capability",
+    description="Check whether the provider has a declared model with this capability.",
+    operation_id="provider_supports",
+)
 async def provider_supports(
     provider_id: str,
     capability: ProviderModelCapability,
@@ -54,6 +86,8 @@ async def provider_supports(
     "/{provider_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    summary="Delete a provider",
+    operation_id="delete_provider",
 )
 async def delete_provider(
     provider_id: str,

@@ -19,6 +19,7 @@ from EvernightAI.interface.http.routes.providers import router as providers_rout
 from EvernightAI.interface.http.routes.sessions import router as sessions_router
 from EvernightAI.interface.http.routes.skills import router as skills_router
 from EvernightAI.interface.http.routes.tools import router as tools_router
+from EvernightAI.interface.http.template import API_DESCRIPTION, OPENAPI_TAGS
 
 
 def create_http_app(
@@ -37,7 +38,12 @@ def create_http_app(
             if close_on_shutdown:
                 await interface.close()
 
-    app = FastAPI(title="EvernightAI", lifespan=lifespan)
+    app = FastAPI(
+        title="EvernightAI",
+        description=API_DESCRIPTION,
+        openapi_tags=OPENAPI_TAGS,
+        lifespan=lifespan,
+    )
     app.state.interface = interface
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)

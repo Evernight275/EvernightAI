@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Response, status
+from typing import Annotated
+
+from fastapi import APIRouter, Body, Response, status
 
 from EvernightAI.core.schema.content import Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.interface.http.dependencies import InterfaceDependency
+from EvernightAI.interface.http.template import (
+    CONTENT_MESSAGE_EXAMPLES,
+    CONTEXT_EXAMPLES,
+)
 
 
 router = APIRouter(prefix="/contexts", tags=["contexts"])
@@ -12,20 +18,39 @@ router = APIRouter(prefix="/contexts", tags=["contexts"])
     "",
     response_model=Context,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a context",
+    description=(
+        "Create stored conversation history. For a new conversation, an empty "
+        "`messages` list is enough."
+    ),
+    operation_id="create_context",
 )
 async def create_context(
-    context: Context,
+    context: Annotated[
+        Context,
+        Body(openapi_examples=CONTEXT_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> Context:
     return await interface.chat.create_context(context)
 
 
-@router.get("", response_model=list[Context])
+@router.get(
+    "",
+    response_model=list[Context],
+    summary="List contexts",
+    operation_id="list_contexts",
+)
 async def list_contexts(interface: InterfaceDependency) -> list[Context]:
     return await interface.chat.list_contexts()
 
 
-@router.get("/{context_id}", response_model=Context)
+@router.get(
+    "/{context_id}",
+    response_model=Context,
+    summary="Get a context",
+    operation_id="get_context",
+)
 async def get_context(
     context_id: str,
     interface: InterfaceDependency,
@@ -33,19 +58,37 @@ async def get_context(
     return await interface.chat.get_context(context_id)
 
 
-@router.post("/{context_id}/messages", response_model=Context)
+@router.post(
+    "/{context_id}/messages",
+    response_model=Context,
+    summary="Append one context message",
+    description="Append a single user, assistant, system, or tool message.",
+    operation_id="append_context",
+)
 async def append_context(
     context_id: str,
-    message: Content,
+    message: Annotated[
+        Content,
+        Body(openapi_examples=CONTENT_MESSAGE_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> Context:
     return await interface.chat.append_context(context_id, message)
 
 
-@router.put("/{context_id}", response_model=Context)
+@router.put(
+    "/{context_id}",
+    response_model=Context,
+    summary="Replace a context",
+    description="Replace all stored messages and metadata for this context id.",
+    operation_id="replace_context",
+)
 async def replace_context(
     context_id: str,
-    context: Context,
+    context: Annotated[
+        Context,
+        Body(openapi_examples=CONTEXT_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> Context:
     updated = context if context.context_id == context_id else context.model_copy(
@@ -58,6 +101,8 @@ async def replace_context(
     "/{context_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    summary="Delete a context",
+    operation_id="delete_context",
 )
 async def delete_context(
     context_id: str,

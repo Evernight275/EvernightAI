@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
+from typing import Annotated
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Body, status
 from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
@@ -13,6 +14,10 @@ from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.schema import ResumeAgentRunRequest
+from EvernightAI.interface.http.template import (
+    AGENT_RUN_EXAMPLES,
+    RESUME_AGENT_RUN_EXAMPLES,
+)
 from EvernightAI.interface.http.sse import sse_response_body
 
 
@@ -23,17 +28,34 @@ router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
     "",
     response_model=AgentRunState,
     status_code=status.HTTP_201_CREATED,
+    summary="Start an agent run",
+    description=(
+        "Run a model against a context, optionally allowing tool rounds. Set "
+        "`max_tool_rounds` to 0 for a single plain chat step."
+    ),
+    operation_id="start_agent_run",
 )
 async def start_agent_run(
-    request: AgentRunRequest,
+    request: Annotated[
+        AgentRunRequest,
+        Body(openapi_examples=AGENT_RUN_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> AgentRunState:
     return await interface.agent_runs.start(request)
 
 
-@router.post("/stream")
+@router.post(
+    "/stream",
+    summary="Stream an agent run",
+    description="SSE transport for a new agent run trace.",
+    operation_id="stream_agent_run",
+)
 async def stream_agent_run(
-    request: AgentRunRequest,
+    request: Annotated[
+        AgentRunRequest,
+        Body(openapi_examples=AGENT_RUN_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> StreamingResponse:
     stream = interface.agent_runs.start_stream(request)
@@ -43,12 +65,22 @@ async def stream_agent_run(
     )
 
 
-@router.get("", response_model=list[AgentRunState])
+@router.get(
+    "",
+    response_model=list[AgentRunState],
+    summary="List agent run states",
+    operation_id="list_agent_runs",
+)
 async def list_agent_runs(interface: InterfaceDependency) -> list[AgentRunState]:
     return interface.agent_runs.list_states()
 
 
-@router.get("/{run_id}", response_model=AgentRunState)
+@router.get(
+    "/{run_id}",
+    response_model=AgentRunState,
+    summary="Get an agent run state",
+    operation_id="get_agent_run",
+)
 async def get_agent_run(
     run_id: str,
     interface: InterfaceDependency,
@@ -56,16 +88,31 @@ async def get_agent_run(
     return interface.agent_runs.get_state(run_id)
 
 
-@router.post("/{run_id}/resume", response_model=AgentRunState)
+@router.post(
+    "/{run_id}/resume",
+    response_model=AgentRunState,
+    summary="Resume a paused agent run",
+    description="Supply approval decisions for pending tool calls, then continue the run.",
+    operation_id="resume_agent_run",
+)
 async def resume_agent_run(
     run_id: str,
-    request: ResumeAgentRunRequest,
+    request: Annotated[
+        ResumeAgentRunRequest,
+        Body(openapi_examples=RESUME_AGENT_RUN_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> AgentRunState:
     return await interface.agent_runs.resume(run_id, request.approvals)
 
 
-@router.post("/{run_id}/approve-pending", response_model=AgentRunState)
+@router.post(
+    "/{run_id}/approve-pending",
+    response_model=AgentRunState,
+    summary="Approve all pending tool calls",
+    description="Convenience endpoint for approving every pending tool approval request.",
+    operation_id="approve_pending_agent_run",
+)
 async def approve_pending_agent_run(
     run_id: str,
     interface: InterfaceDependency,
@@ -77,10 +124,18 @@ async def approve_pending_agent_run(
     )
 
 
-@router.post("/{run_id}/resume/stream")
+@router.post(
+    "/{run_id}/resume/stream",
+    summary="Stream resume of a paused agent run",
+    description="SSE transport for resuming a paused run after approval decisions.",
+    operation_id="resume_agent_run_stream",
+)
 async def resume_agent_run_stream(
     run_id: str,
-    request: ResumeAgentRunRequest,
+    request: Annotated[
+        ResumeAgentRunRequest,
+        Body(openapi_examples=RESUME_AGENT_RUN_EXAMPLES),
+    ],
     interface: InterfaceDependency,
 ) -> StreamingResponse:
     stream = interface.agent_runs.resume_stream(run_id, request.approvals)
@@ -90,7 +145,12 @@ async def resume_agent_run_stream(
     )
 
 
-@router.get("/{run_id}/trace", response_model=list[AgentTraceEvent])
+@router.get(
+    "/{run_id}/trace",
+    response_model=list[AgentTraceEvent],
+    summary="List agent trace events",
+    operation_id="list_agent_trace",
+)
 async def list_agent_trace(
     run_id: str,
     interface: InterfaceDependency,
