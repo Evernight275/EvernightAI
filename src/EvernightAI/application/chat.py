@@ -207,15 +207,24 @@ class _ContextAppendingChatStream:
         self._messages = messages
         self._text_deltas: list[str] = []
         self._tool_calls: list[ToolCall] = []
+        self._persisted = False
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
-        async for event in self._stream:
-            self._accumulate_assistant_event(event)
-            yield event
+        try:
+            async for event in self._stream:
+                self._accumulate_assistant_event(event)
+                yield event
+        finally:
+            await self._persist_context_messages()
 
+    async def _persist_context_messages(self) -> None:
+        if self._persisted:
+            return
+
+        self._persisted = True
         for message in self._messages:
             await self._runtime.contexts.append(self._context_id, message)
         assistant_message = self._assistant_message()

@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 import pytest
 
@@ -196,6 +197,32 @@ async def test_chat_application_streams_with_context_and_persists_messages() -> 
     ]
     assert [message_text(message) for message in context.messages] == [
         "Stored context",
+        "Current request",
+        "ok",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_application_stream_with_context_persists_partial_message_on_close() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(Context(context_id="ctx-1"))
+
+    stream = await app.chat_stream_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+    )
+    iterator = stream.__aiter__()
+    event = await anext(iterator)
+    await cast(Any, iterator).aclose()
+    context = await app.get_context("ctx-1")
+
+    assert event.event_type is ChatStreamEventType.MESSAGE_DELTA
+    assert [message_text(message) for message in context.messages] == [
         "Current request",
         "ok",
     ]

@@ -1,8 +1,12 @@
+import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from weakref import WeakKeyDictionary
 from uuid import uuid4
 
-from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
@@ -42,6 +46,114 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyDecision,
 )
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
+
+
+LOGGER = logging.getLogger("EvernightAI.application.agent")
+_AGENT_RUN_LIFECYCLES: WeakKeyDictionary[object, "_AgentRunLifecycle"] = (
+    WeakKeyDictionary()
+)
+
+
+def _agent_run_lifecycle(runtime: RuntimeProtocol) -> "_AgentRunLifecycle":
+    key = runtime
+    lifecycle = _AGENT_RUN_LIFECYCLES.get(key)
+    if lifecycle is None:
+        lifecycle = _AgentRunLifecycle()
+        _AGENT_RUN_LIFECYCLES[key] = lifecycle
+
+    return lifecycle
+
+
+class _AgentRunLifecycle:
+    def __init__(self) -> None:
+        self._closing = False
+        self._active_count = 0
+        self._condition = asyncio.Condition()
+
+    @asynccontextmanager
+    async def active_run(self) -> AsyncIterator[None]:
+        await self._enter_run()
+        try:
+            yield
+        finally:
+            await self._exit_run()
+
+    async def track_stream(
+        self,
+        events: AsyncIterator[AgentTraceEvent],
+    ) -> AsyncIterator[AgentTraceEvent]:
+        async with self.active_run():
+            async for event in events:
+                yield event
+
+    async def close(
+        self,
+        *,
+        state_register: AgentRunStateRegisterProtocol | None,
+        trace_register: AgentTraceRegisterProtocol | None,
+    ) -> None:
+        async with self._condition:
+            if not self._closing:
+                LOGGER.info("EvernightAI agent shutdown: blocking new agent runs")
+                self._closing = True
+
+            if self._active_count:
+                LOGGER.info(
+                    "EvernightAI agent shutdown: waiting for %s active agent run(s)",
+                    self._active_count,
+                )
+
+            while self._active_count:
+                await self._condition.wait()
+
+        LOGGER.info("EvernightAI agent shutdown: active agent runs drained")
+        self._pause_running_states(
+            state_register=state_register,
+            trace_register=trace_register,
+        )
+        LOGGER.info("EvernightAI agent shutdown: persisted running states reconciled")
+
+    async def _enter_run(self) -> None:
+        async with self._condition:
+            if self._closing:
+                raise AgentShutdownError("Agent runs are shutting down")
+            self._active_count += 1
+
+    async def _exit_run(self) -> None:
+        async with self._condition:
+            self._active_count -= 1
+            if self._active_count <= 0:
+                self._active_count = 0
+                self._condition.notify_all()
+
+    def _pause_running_states(
+        self,
+        *,
+        state_register: AgentRunStateRegisterProtocol | None,
+        trace_register: AgentTraceRegisterProtocol | None,
+    ) -> None:
+        if state_register is None:
+            return
+
+        for state in state_register.list_states():
+            if state.status is not AgentRunStatus.RUNNING:
+                continue
+
+            event = AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_PAUSED,
+                summary="Agent run paused: shutdown",
+                metadata={"reason": "shutdown"},
+            )
+            state.status = AgentRunStatus.PAUSED
+            state.stop_reason = None
+            state.metadata = AgentRunMetadata.with_runtime(
+                state.metadata,
+                shutdown_reason="shutdown",
+            )
+            state.trace.append(event)
+            state_register.save_state(state)
+            if trace_register is not None:
+                trace_register.append_event(state.run_id, event)
 
 
 class AgentRunMetadata:
@@ -98,81 +210,96 @@ class AgentRunMetadata:
 class AgentApplication(AgentInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
+        self._lifecycle = _agent_run_lifecycle(runtime)
 
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResult:
-        state = self._new_run_state(request)
-        async for _ in self._run_agent_events(request, state):
-            pass
+        async with self._lifecycle.active_run():
+            state = self._new_run_state(request)
+            async for _ in self._run_agent_events(request, state):
+                pass
 
-        return self._state_to_result(state)
+            return self._state_to_result(state)
 
     async def run_agent_until_pause(self, request: AgentRunRequest) -> AgentRunState:
-        pause_request = (
-            request
-            if request.pause_on_approval
-            else request.model_copy(update={"pause_on_approval": True})
-        )
-        state = self._new_run_state(pause_request)
-        async for _ in self._run_agent_events(pause_request, state):
-            pass
+        async with self._lifecycle.active_run():
+            pause_request = (
+                request
+                if request.pause_on_approval
+                else request.model_copy(update={"pause_on_approval": True})
+            )
+            state = self._new_run_state(pause_request)
+            async for _ in self._run_agent_events(pause_request, state):
+                pass
 
-        return state
+            return state
 
     async def resume_agent(
         self,
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunResult:
-        async for _ in self._resume_agent_events(state, approvals):
-            pass
+        async with self._lifecycle.active_run():
+            async for _ in self._resume_agent_events(state, approvals):
+                pass
 
-        return self._state_to_result(state)
+            return self._state_to_result(state)
 
     async def resume_agent_until_pause(
         self,
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunState:
-        async for _ in self._resume_agent_events(state, approvals):
-            pass
+        async with self._lifecycle.active_run():
+            async for _ in self._resume_agent_events(state, approvals):
+                pass
 
-        return state
+            return state
 
     async def start_agent_run(self, request: AgentRunRequest) -> AgentRunState:
-        stored_request = (
-            request
-            if request.pause_on_approval
-            else request.model_copy(update={"pause_on_approval": True})
-        )
-        state = self._new_run_state(stored_request)
-        self._save_agent_state(state)
-
-        async for event in self._run_agent_events(stored_request, state):
-            self._append_agent_trace_event(state.run_id, event)
+        async with self._lifecycle.active_run():
+            stored_request = (
+                request
+                if request.pause_on_approval
+                else request.model_copy(update={"pause_on_approval": True})
+            )
+            state = self._new_run_state(stored_request)
             self._save_agent_state(state)
 
-        self._save_agent_state(state)
-        return state
+            async for event in self._run_agent_events(stored_request, state):
+                self._append_agent_trace_event(state.run_id, event)
+                self._save_agent_state(state)
+
+            self._save_agent_state(state)
+            return state
 
     async def resume_agent_run(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunState:
-        state = self._get_agent_state(run_id)
-        async for event in self._resume_agent_events(state, approvals):
-            self._append_agent_trace_event(state.run_id, event)
-            self._save_agent_state(state)
+        async with self._lifecycle.active_run():
+            state = self._get_agent_state(run_id)
+            async for event in self._resume_agent_events(state, approvals):
+                self._append_agent_trace_event(state.run_id, event)
+                self._save_agent_state(state)
 
-        self._save_agent_state(state)
-        return state
+            self._save_agent_state(state)
+            return state
+
+    async def close(self) -> None:
+        await self._lifecycle.close(
+            state_register=self._runtime.agent_state_register,
+            trace_register=self._runtime.agent_trace_register,
+        )
 
     def run_agent_stream(
         self,
         request: AgentRunRequest,
     ) -> AgentTraceStreamProtocol:
         return _AgentTraceStream(
-            self._run_agent_events(request, self._new_run_state(request))
+            self._lifecycle.track_stream(
+                self._run_agent_events(request, self._new_run_state(request))
+            )
         )
 
     def resume_agent_stream(
@@ -180,7 +307,9 @@ class AgentApplication(AgentInterfaceProtocol):
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
     ) -> AgentTraceStreamProtocol:
-        return _AgentTraceStream(self._resume_agent_events(state, approvals))
+        return _AgentTraceStream(
+            self._lifecycle.track_stream(self._resume_agent_events(state, approvals))
+        )
 
     async def _run_agent_events(
         self,
@@ -935,6 +1064,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
         self._agent = AgentApplication(runtime)
+        self._lifecycle = _agent_run_lifecycle(runtime)
 
     async def start(self, request: AgentRunRequest) -> AgentRunState:
         return await self._agent.start_agent_run(request)
@@ -958,9 +1088,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state = self._agent._new_run_state(stored_request)
         self._state_register().save_state(state)
         return _AgentTraceStream(
-            self._stream_and_store(
-                self._agent._run_agent_events(stored_request, state),
-                state,
+            self._lifecycle.track_stream(
+                self._stream_and_store(
+                    self._agent._run_agent_events(stored_request, state),
+                    state,
+                )
             )
         )
 
@@ -971,9 +1103,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AgentTraceStreamProtocol:
         state = self.get_state(run_id)
         return _AgentTraceStream(
-            self._stream_and_store(
-                self._agent._resume_agent_events(state, approvals),
-                state,
+            self._lifecycle.track_stream(
+                self._stream_and_store(
+                    self._agent._resume_agent_events(state, approvals),
+                    state,
+                )
             )
         )
 
@@ -986,17 +1120,24 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
         return self._trace_register().list_events(run_id)
 
+    async def close(self) -> None:
+        await self._lifecycle.close(
+            state_register=self._runtime.agent_state_register,
+            trace_register=self._runtime.agent_trace_register,
+        )
+
     async def _stream_and_store(
         self,
         events: AsyncIterator[AgentTraceEvent],
         state: AgentRunState,
     ) -> AsyncIterator[AgentTraceEvent]:
-        async for event in events:
-            self._trace_register().append_event(state.run_id, event)
+        try:
+            async for event in events:
+                self._trace_register().append_event(state.run_id, event)
+                self._state_register().save_state(state)
+                yield event
+        finally:
             self._state_register().save_state(state)
-            yield event
-
-        self._state_register().save_state(state)
 
     def _state_register(self) -> AgentRunStateRegisterProtocol:
         register = self._runtime.agent_state_register

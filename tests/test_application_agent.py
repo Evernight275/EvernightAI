@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -7,7 +8,7 @@ from EvernightAI.application.agent import (
     AgentRunApplication,
     AgentRunMetadata,
 )
-from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
@@ -1178,6 +1179,95 @@ async def test_agent_run_application_requires_storage_registers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_run_application_shutdown_blocks_new_runs_and_waits_for_active_run() -> None:
+    provider = BlockingFinalAnswerProvider()
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    start_task = asyncio.create_task(
+        app.start(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Wait for shutdown")],
+                metadata={"run_id": "run-active"},
+            )
+        )
+    )
+    await provider.started.wait()
+
+    close_task = asyncio.create_task(app.close())
+    await asyncio.sleep(0)
+
+    assert close_task.done() is False
+    with pytest.raises(AgentShutdownError, match="shutting down"):
+        await app.start(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("New run")],
+            )
+        )
+
+    provider.release.set()
+    state = await start_task
+    await close_task
+
+    assert state.status is AgentRunStatus.FINISHED
+    assert state_register.get_state("run-active").status is AgentRunStatus.FINISHED
+
+
+@pytest.mark.asyncio
+async def test_agent_run_application_shutdown_marks_stale_running_runs_paused() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=FinalAnswerProvider(),
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("Interrupted")],
+        metadata={"run_id": "run-stale"},
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-stale",
+            request=request,
+            status=AgentRunStatus.RUNNING,
+            metadata={"run_id": "run-stale"},
+        )
+    )
+
+    app = AgentRunApplication(runtime)
+    await app.close()
+
+    state = state_register.get_state("run-stale")
+    trace = trace_register.list_events("run-stale")
+
+    assert state.status is AgentRunStatus.PAUSED
+    assert state.stop_reason is None
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
+        "shutdown_reason": "shutdown"
+    }
+    assert [event.event_type for event in trace] == [AgentTraceEventType.RUN_PAUSED]
+    assert trace[0].metadata == {"reason": "shutdown"}
+
+
+@pytest.mark.asyncio
 async def test_agent_records_denied_tool_approval_as_tool_error() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
         return {"written": True}
@@ -1656,6 +1746,23 @@ class EndlessToolCallingProvider(ToolCallingProvider):
 class FinalAnswerProvider(ToolCallingProvider):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Stored", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        )
+
+
+class BlockingFinalAnswerProvider(FinalAnswerProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        self.started.set()
+        await self.release.wait()
         return ChatResponse(
             model_id=request.model_id,
             message=make_message("Stored", role=MessageRole.ASSISTANT),

@@ -15,3 +15,11 @@ class AgentStateError(AgentError, StateError):
     """
 
     pass
+
+
+class AgentShutdownError(AgentError, StateError):
+    """
+    Agent关闭期间拒绝新运行
+    """
+
+    pass
