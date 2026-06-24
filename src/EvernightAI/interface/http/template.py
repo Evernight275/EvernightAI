@@ -14,6 +14,8 @@ Common first flow:
    `POST /chat/context` to persist conversation history.
 3. Use `POST /sessions` and `POST /sessions/{session_id}/chat` when you want a
    product-style conversation object that owns its context/provider/model.
+4. Use `POST /agent-runs` or `POST /agent-runs/stream` when a request may need
+   tools, approvals, trace events, or multiple model/tool rounds.
 
 Most request bodies below show the smallest useful JSON first. Optional fields
 such as `skills`, `tools`, `memory_query`, and `metadata` are advanced controls.
@@ -72,6 +74,22 @@ def _text_message(text: str, *, role: str = "user") -> dict[str, object]:
     }
 
 
+def _tool_definition() -> dict[str, object]:
+    return {
+        "tool_name": "write_file",
+        "description": "Write text to a workspace file.",
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        },
+        "requires_approval": True,
+    }
+
+
 def _openapi_examples(examples: dict[str, object]) -> dict[str, Example]:
     return cast(dict[str, Example], examples)
 
@@ -114,13 +132,25 @@ PROVIDER_CONFIG_EXAMPLES = _openapi_examples({
 
 DIRECT_CHAT_EXAMPLES = _openapi_examples({
     "minimal": {
-        "summary": "One-off chat",
+        "summary": "Smallest one-off chat",
         "description": "Use this after registering provider id `main`.",
         "value": {
             "provider_id": "main",
             "request": {
                 "model_id": "gpt-4.1-mini",
                 "messages": [_text_message("Hello, give me a short answer.")],
+            },
+        },
+    },
+    "withMetadata": {
+        "summary": "One-off chat with request metadata",
+        "description": "Metadata is passed through for tracing; providers may ignore it.",
+        "value": {
+            "provider_id": "main",
+            "request": {
+                "model_id": "gpt-4.1-mini",
+                "messages": [_text_message("Answer in one sentence.")],
+                "metadata": {"request_id": "req-1"},
             },
         },
     },
@@ -140,13 +170,24 @@ DIRECT_CHAT_EXAMPLES = _openapi_examples({
 
 CHAT_WITH_CONTEXT_EXAMPLES = _openapi_examples({
     "minimal": {
-        "summary": "Chat and save context history",
-        "description": "Context messages are sent before these request messages.",
+        "summary": "Smallest context chat",
+        "description": "Create `ctx-1` first with `POST /contexts`.",
         "value": {
             "provider_id": "main",
             "context_id": "ctx-1",
             "model_id": "gpt-4.1-mini",
             "messages": [_text_message("Continue from the stored context.")],
+        },
+    },
+    "streamReady": {
+        "summary": "Same body for `/chat/context/stream`",
+        "description": "Use this exact body with the streaming endpoint.",
+        "value": {
+            "provider_id": "main",
+            "context_id": "ctx-1",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Stream the answer and save it.")],
+            "metadata": {"request_id": "stream-1"},
         },
     },
     "withSessionMemory": {
@@ -218,10 +259,18 @@ SESSION_EXAMPLES = _openapi_examples({
 
 SESSION_CHAT_EXAMPLES = _openapi_examples({
     "minimal": {
-        "summary": "Send a message to a session",
+        "summary": "Smallest session chat",
         "description": "Provider, model, and context come from the session.",
         "value": {
             "messages": [_text_message("Summarize our current plan.")],
+        },
+    },
+    "streamEquivalent": {
+        "summary": "Request shape used by session agent flows",
+        "description": "Session chat is not a streaming endpoint; use agent run streams for trace SSE.",
+        "value": {
+            "messages": [_text_message("Give me the next action only.")],
+            "metadata": {"request_id": "session-chat-1"},
         },
     },
     "withMemory": {
@@ -249,7 +298,7 @@ SESSION_CHAT_EXAMPLES = _openapi_examples({
 
 SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
     "minimal": {
-        "summary": "Start an agent run for a session",
+        "summary": "Smallest session agent run",
         "value": {
             "messages": [_text_message("Use available tools if needed.")],
             "max_tool_rounds": 1,
@@ -266,19 +315,40 @@ SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
             "max_tool_rounds": 1,
         },
     },
+    "traceOnly": {
+        "summary": "Plain traced model step",
+        "description": "No tool rounds; useful when you want run state and trace records.",
+        "value": {
+            "messages": [_text_message("Answer once and stop.")],
+            "max_tool_rounds": 0,
+            "write_memory": False,
+        },
+    },
 })
 
 
 AGENT_RUN_EXAMPLES = _openapi_examples({
     "minimal": {
-        "summary": "Run an agent once",
-        "description": "Set `max_tool_rounds` to 0 for a plain model step.",
+        "summary": "Smallest agent run",
+        "description": "Create `main` and `ctx-1` first. This performs one model step.",
         "value": {
             "provider_id": "main",
             "context_id": "ctx-1",
             "model_id": "gpt-4.1-mini",
             "messages": [_text_message("Answer and stop.")],
             "max_tool_rounds": 0,
+        },
+    },
+    "streamReady": {
+        "summary": "Same body for `/agent-runs/stream`",
+        "description": "Use this exact body with the streaming endpoint to receive trace SSE.",
+        "value": {
+            "provider_id": "main",
+            "context_id": "ctx-1",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Stream trace events while answering.")],
+            "max_tool_rounds": 0,
+            "metadata": {"request_id": "agent-stream-1"},
         },
     },
     "withTools": {
@@ -288,6 +358,7 @@ AGENT_RUN_EXAMPLES = _openapi_examples({
             "context_id": "ctx-1",
             "model_id": "gpt-4.1-mini",
             "messages": [_text_message("Inspect the workspace if needed.")],
+            "tools": [_tool_definition()],
             "max_tool_rounds": 2,
             "pause_on_approval": True,
         },

@@ -61,6 +61,47 @@ from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
 
 
+def test_http_openapi_examples_are_try_it_ready() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+
+    chat_examples = schema["paths"]["/chat"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["examples"]
+    context_stream_examples = schema["paths"]["/chat/context/stream"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["examples"]
+    agent_stream_examples = schema["paths"]["/agent-runs/stream"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["examples"]
+
+    assert chat_examples["minimal"]["value"] == {
+        "provider_id": "main",
+        "request": {
+            "model_id": "gpt-4.1-mini",
+            "messages": [message_json("Hello, give me a short answer.")],
+        },
+    }
+    assert context_stream_examples["streamReady"]["value"] == {
+        "provider_id": "main",
+        "context_id": "ctx-1",
+        "model_id": "gpt-4.1-mini",
+        "messages": [message_json("Stream the answer and save it.")],
+        "metadata": {"request_id": "stream-1"},
+    }
+    assert agent_stream_examples["streamReady"]["value"] == {
+        "provider_id": "main",
+        "context_id": "ctx-1",
+        "model_id": "gpt-4.1-mini",
+        "messages": [message_json("Stream trace events while answering.")],
+        "max_tool_rounds": 0,
+        "metadata": {"request_id": "agent-stream-1"},
+    }
+
+
 def test_http_app_exposes_chat_context_flow() -> None:
     provider = FakeProvider()
     interface = create_interface(make_runtime(provider=provider))
