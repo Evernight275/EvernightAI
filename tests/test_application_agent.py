@@ -521,10 +521,60 @@ async def test_agent_stream_pauses_for_unapproved_sensitive_tool() -> None:
     assert events[3].approval_request is not None
     assert events[3].metadata["reason"] == "tool_approval_required"
     assert tool_executed is False
-    assert [message.role for message in context.messages] == [
-        MessageRole.USER,
-        MessageRole.ASSISTANT,
+    assert context.messages == []
+
+
+@pytest.mark.asyncio
+async def test_paused_tool_run_does_not_pollute_next_run_context() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    provider = SensitiveToolProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    paused = await app.run_agent_until_pause(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+
+    assert paused.status is AgentRunStatus.PAUSED
+
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Second request")],
+        )
+    )
+
+    assert len(provider.requests) == 2
+    assert [message.role for message in provider.requests[1].messages] == [
+        MessageRole.USER
     ]
+    assert message_text(provider.requests[1].messages[0]) == "Second request"
+    assert not any(
+        message.role is MessageRole.ASSISTANT and message.tool_calls
+        for message in provider.requests[1].messages
+    )
 
 
 @pytest.mark.asyncio

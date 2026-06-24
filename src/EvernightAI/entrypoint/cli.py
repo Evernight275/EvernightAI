@@ -6,9 +6,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from EvernightAI.bootstrap.config import create_interface_from_config
-from EvernightAI.bootstrap.http import create_app_from_config
 from EvernightAI.core.error.base import ConfigurationError, EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
+from EvernightAI.entrypoint.server import serve as serve_http
 from EvernightAI.interface.cli.commands import (
     SkillCapability,
     append_context_message,
@@ -36,6 +36,7 @@ from EvernightAI.interface.cli.commands import (
     render_skill,
     replace_context,
     replace_session,
+    approve_pending_agent_run,
     resume_agent_run,
     run_chat,
     select_memories,
@@ -49,7 +50,7 @@ from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
 
 
-DEFAULT_CONFIG_PATH = Path("evernight.toml")
+DEFAULT_CONFIG_PATH = Path("config.toml")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -373,6 +374,11 @@ def _add_agent_run_subparser(subparsers: argparse._SubParsersAction) -> None:
     _add_config_argument(resume_parser)
     resume_parser.set_defaults(handler=_handle_agent_run_resume)
 
+    approve_parser = agent_run_subparsers.add_parser("approve")
+    approve_parser.add_argument("run_id")
+    _add_config_argument(approve_parser)
+    approve_parser.set_defaults(handler=_handle_agent_run_approve)
+
 
 def _add_chat_subparser(subparsers: argparse._SubParsersAction) -> None:
     chat_parser = subparsers.add_parser("chat")
@@ -647,6 +653,13 @@ def _handle_agent_run_resume(args: argparse.Namespace) -> str:
     )
 
 
+def _handle_agent_run_approve(args: argparse.Namespace) -> str:
+    return _run_async_interface_command(
+        args.config,
+        lambda interface: approve_pending_agent_run(interface, args.run_id),
+    )
+
+
 def _handle_chat(args: argparse.Namespace) -> str:
     config = load_config(args.config)
     interface = _build_interface(config)
@@ -667,16 +680,7 @@ def _handle_chat(args: argparse.Namespace) -> str:
 
 
 def _handle_serve(args: argparse.Namespace) -> str:
-    import uvicorn
-
-    config = load_config(args.config)
-    app = create_app_from_config(config)
-    uvicorn.run(
-        app,
-        host=config.http.host,
-        port=config.http.port,
-        reload=config.http.reload,
-    )
+    serve_http(args.config)
     return ""
 
 

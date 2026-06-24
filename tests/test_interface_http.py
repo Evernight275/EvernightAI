@@ -906,6 +906,61 @@ def test_http_app_streams_agent_pause_for_tool_approval() -> None:
     assert tool_executed is False
 
 
+def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
+    tool_executed = False
+
+    async def write_file(_arguments: dict[str, object]) -> dict[str, object]:
+        nonlocal tool_executed
+        tool_executed = True
+        return {"written": True}
+
+    provider = SensitiveThenFinalProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    tool = sensitive_tool_definition()
+    runtime.tool_register.register(tool, write_file)
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        start_response = client.post(
+            "/agent-runs",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Write a file")],
+                "tools": [tool.model_dump(mode="json")],
+                "pause_on_approval": True,
+                "metadata": {"run_id": "run-1"},
+            },
+        )
+        approve_response = client.post("/agent-runs/run-1/approve-pending")
+
+    assert start_response.status_code == 201
+    assert start_response.json()["status"] == "paused"
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "finished"
+    assert tool_executed is True
+    assert [message.role for message in provider.requests[1].messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+    ]
+
+
 def test_http_app_maps_domain_errors() -> None:
     interface = create_interface(make_runtime())
     app = create_http_app(interface, close_on_shutdown=False)
@@ -1089,6 +1144,39 @@ class SensitiveToolProvider(FakeProvider):
                 ],
             ),
             finish_reason="tool_calls",
+        )
+
+
+class SensitiveThenFinalProvider(FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[ChatRequest] = []
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.last_request = request
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return ChatResponse(
+                model_id=request.model_id,
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id="tool-call-1",
+                            tool_call={
+                                "name": "write_file",
+                                "arguments": {"path": "note.txt"},
+                            },
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+        return ChatResponse(
+            model_id=request.model_id,
+            message=make_message("Written", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
         )
 
 

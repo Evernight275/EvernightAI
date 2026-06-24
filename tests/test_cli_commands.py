@@ -63,7 +63,7 @@ def test_redact_config_hides_provider_api_keys() -> None:
 
 
 def test_check_config_reads_file(tmp_path: Path) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [runtime]
@@ -80,7 +80,7 @@ type = "openai"
 
 
 def test_show_config_reads_file_and_outputs_json(tmp_path: Path) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]

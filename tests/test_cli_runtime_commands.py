@@ -192,7 +192,7 @@ async def test_run_chat_rejects_disabled_provider() -> None:
 
 
 def test_cli_provider_list_prints_table(tmp_path: Path, capsys) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -211,7 +211,7 @@ type = "openai"
 
 
 def test_cli_model_list_prints_table(tmp_path: Path, capsys) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -238,7 +238,7 @@ def test_cli_model_list_returns_error_for_unknown_provider(
     tmp_path: Path,
     capsys,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -262,7 +262,7 @@ def test_cli_chat_smoke_uses_configured_provider(
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -295,12 +295,61 @@ type = "openai"
     assert captured.out.strip() == "ok"
 
 
+def test_cli_agent_run_approve_uses_pending_approvals(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[provider.main]
+name = "Main"
+type = "openai"
+""".strip(),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    class FakeInterface:
+        async def close(self) -> None:
+            pass
+
+    async def approve(_interface: object, run_id: str) -> str:
+        calls.append(run_id)
+        return "approved"
+
+    monkeypatch.setattr(
+        "EvernightAI.entrypoint.cli.create_interface_from_config",
+        lambda _config: FakeInterface(),
+    )
+    monkeypatch.setattr(
+        "EvernightAI.entrypoint.cli.approve_pending_agent_run",
+        approve,
+    )
+
+    exit_code = main(
+        [
+            "agent-run",
+            "approve",
+            "run-1",
+            "--config",
+            str(config_path),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.strip() == "approved"
+    assert calls == ["run-1"]
+
+
 def test_cli_chat_returns_error_for_unknown_provider(
     tmp_path: Path,
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -338,7 +387,7 @@ def test_cli_chat_rejects_disabled_provider(
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.off]
@@ -469,6 +518,18 @@ def test_create_app_from_config_serves_health_and_tools(
                 "filesystem": {"enabled": True, "root": str(tmp_path)},
                 "shell": {"enabled": False},
             },
+            "provider": {
+                "main": {
+                    "name": "Main",
+                    "type": "openai",
+                    "model": {
+                        "chat": {
+                            "model_id": "gpt-4.1-mini",
+                            "capabilities": ["chat"],
+                        }
+                    },
+                }
+            },
         }
     )
 
@@ -477,6 +538,7 @@ def test_create_app_from_config_serves_health_and_tools(
     with TestClient(app) as client:
         health_response = client.get("/health")
         tools_response = client.get("/tools")
+        models_response = client.get("/providers/main/models")
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
@@ -484,6 +546,10 @@ def test_create_app_from_config_serves_health_and_tools(
         "read_text_file",
         "write_text_file",
         "list_directory",
+    ]
+    assert models_response.status_code == 200
+    assert [model["model_id"] for model in models_response.json()] == [
+        "gpt-4.1-mini"
     ]
 
 

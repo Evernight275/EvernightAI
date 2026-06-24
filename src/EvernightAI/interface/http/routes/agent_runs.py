@@ -10,6 +10,7 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEvent,
 )
 from EvernightAI.core.schema.stream import SSEEvent
+from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.schema import ResumeAgentRunRequest
 from EvernightAI.interface.http.sse import sse_response_body
@@ -64,6 +65,18 @@ async def resume_agent_run(
     return await interface.agent_runs.resume(run_id, request.approvals)
 
 
+@router.post("/{run_id}/approve-pending", response_model=AgentRunState)
+async def approve_pending_agent_run(
+    run_id: str,
+    interface: InterfaceDependency,
+) -> AgentRunState:
+    state = interface.agent_runs.get_state(run_id)
+    return await interface.agent_runs.resume(
+        run_id,
+        _approve_pending_tool_calls(state),
+    )
+
+
 @router.post("/{run_id}/resume/stream")
 async def resume_agent_run_stream(
     run_id: str,
@@ -93,3 +106,16 @@ async def _agent_trace_sse_events(
             data=event.model_dump_json(),
             event=event.event_type.value,
         )
+
+
+def _approve_pending_tool_calls(
+    state: AgentRunState,
+) -> list[ToolApprovalDecision]:
+    return [
+        ToolApprovalDecision(
+            approval_id=request.approval_id,
+            tool_call_id=request.tool_call_id,
+            status=ToolApprovalStatus.APPROVED,
+        )
+        for request in state.pending_approval_requests
+    ]

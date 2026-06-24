@@ -43,7 +43,7 @@ def test_entrypoint_cli_config_check_prints_summary(
     tmp_path: Path,
     capsys,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -65,7 +65,7 @@ def test_package_cli_wrapper_prints_redacted_config_json(
     tmp_path: Path,
     capsys,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -84,12 +84,30 @@ api_key = "secret-key"
     assert "secret-key" not in captured.out
 
 
+def test_entrypoint_cli_serve_uses_server_startup(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    calls = []
+
+    monkeypatch.setattr(
+        "EvernightAI.entrypoint.cli.serve_http",
+        lambda config: calls.append(config),
+    )
+
+    exit_code = entrypoint_main(["serve", "--config", str(config_path)])
+
+    assert exit_code == 0
+    assert calls == [str(config_path)]
+
+
 def test_entrypoint_cli_skill_commands(
     tmp_path: Path,
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text("", encoding="utf-8")
 
     monkeypatch.setattr(
@@ -164,7 +182,7 @@ def test_entrypoint_cli_reports_invalid_toml_without_traceback(
     tmp_path: Path,
     capsys,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text("[provider.main", encoding="utf-8")
 
     exit_code = entrypoint_main(["config", "check", "--config", str(config_path)])
@@ -180,7 +198,7 @@ def test_entrypoint_cli_reports_invalid_skill_vars_json(
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text("", encoding="utf-8")
 
     monkeypatch.setattr(
@@ -211,7 +229,7 @@ def test_entrypoint_cli_reports_provider_errors_without_traceback(
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [provider.main]
@@ -250,7 +268,7 @@ def test_entrypoint_cli_context_memory_session_and_agent_run_commands(
     capsys,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text("", encoding="utf-8")
     interface = FakeOperationsInterface()
 

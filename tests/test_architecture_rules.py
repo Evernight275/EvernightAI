@@ -15,6 +15,7 @@ ENTRYPOINT_ALLOWED_EVERNIGHTAI_IMPORTS = (
     "EvernightAI.bootstrap.",
     "EvernightAI.core.error.",
     "EvernightAI.core.protocol.interface",
+    "EvernightAI.entrypoint.",
     "EvernightAI.interface.cli.",
 )
 ENTRYPOINT_FORBIDDEN_ASSEMBLY_CALLS = {

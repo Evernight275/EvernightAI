@@ -236,9 +236,6 @@ class AgentApplication(AgentInterfaceProtocol):
                 message=response.message,
             ),
         )
-        for message in request.messages:
-            await self._runtime.contexts.append(request.context_id, message)
-        await self._runtime.contexts.append(request.context_id, response.message)
 
         async for event in self._continue_tool_loop(
             request,
@@ -438,10 +435,6 @@ class AgentApplication(AgentInterfaceProtocol):
                         ),
                     )
                     if not request.recover_tool_errors:
-                        await self._runtime.contexts.append(
-                            request.context_id,
-                            tool_message,
-                        )
                         state.stop_reason = AgentStopReason.TOOL_ERROR
                         state.status = AgentRunStatus.FAILED
                         state.steps.append(
@@ -458,6 +451,7 @@ class AgentApplication(AgentInterfaceProtocol):
                             tool_rounds_used=state.tool_rounds_used,
                             pending_approval_count=0,
                         )
+                        await self._commit_run_transcript(request.context_id, state)
                         async for event in self._write_memory_events(request, state):
                             yield event
                         yield self._add_trace(
@@ -465,8 +459,6 @@ class AgentApplication(AgentInterfaceProtocol):
                             self._run_stopped_event(state.stop_reason),
                         )
                         return
-
-                await self._runtime.contexts.append(request.context_id, tool_message)
 
             remaining_rounds -= 1
             state.remaining_tool_rounds = remaining_rounds
@@ -477,7 +469,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 request.provider_id,
                 request.context_id,
                 model_id=request.model_id,
-                messages=[],
+                messages=self._run_transcript(state),
                 skills=request.skills,
                 tools=request.tools,
                 metadata=request.metadata,
@@ -498,10 +490,6 @@ class AgentApplication(AgentInterfaceProtocol):
                     response=current_response,
                     message=current_response.message,
                 ),
-            )
-            await self._runtime.contexts.append(
-                request.context_id,
-                current_response.message,
             )
             current_tool_calls = list(current_response.message.tool_calls or [])
             already_requested_approval_call_ids = set()
@@ -526,6 +514,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 metadata={"reason": state.stop_reason.value},
             )
         )
+        await self._commit_run_transcript(request.context_id, state)
         async for event in self._write_memory_events(request, state):
             yield event
         yield self._add_trace(state, self._run_stopped_event(state.stop_reason))
@@ -567,6 +556,28 @@ class AgentApplication(AgentInterfaceProtocol):
             SkillCapability.AGENT,
         )
         return await self._runtime.providers.chat(provider_id, request)
+
+    async def _commit_run_transcript(
+        self,
+        context_id: str,
+        state: AgentRunState,
+    ) -> None:
+        for message in self._run_transcript(state):
+            await self._runtime.contexts.append(context_id, message)
+
+    def _run_transcript(self, state: AgentRunState) -> list[Content]:
+        transcript = list(state.request.messages)
+        for step in state.steps:
+            if step.step_type not in {
+                AgentStepType.CHAT,
+                AgentStepType.TOOL,
+                AgentStepType.TOOL_ERROR,
+            }:
+                continue
+            if step.message is not None:
+                transcript.append(step.message)
+
+        return transcript
 
     def _tool_result_to_message(self, result: ToolCallResult) -> Content:
         return Content(

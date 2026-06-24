@@ -1,0 +1,70 @@
+# EvernightAI configuration example.
+# Copy this file to config.toml and adjust values for your environment.
+
+[runtime]
+# SQLite runtime database path.
+database_path = ".evernight/runtime.sqlite3"
+
+[http]
+# Used by both `evernight-http` and `evernight serve`.
+host = "127.0.0.1"
+port = 8000
+reload = false
+
+[tools.filesystem]
+# Keep disabled unless you intentionally want file tools exposed.
+enabled = false
+root = "."
+max_read_chars = 12000
+max_directory_entries = 100
+allow_write = false
+
+[tools.shell]
+# Keep disabled unless you intentionally want shell tools exposed.
+enabled = false
+allowed_commands = ["python --version"]
+working_directory = "."
+timeout_seconds = 10.0
+max_output_chars = 12000
+
+[provider.main]
+name = "Main"
+type = "openai"
+is_enabled = true
+api_key_env = "OPENAI_API_KEY"
+# base_url can point to any OpenAI-compatible endpoint.
+# base_url = "https://api.openai.com/v1"
+
+[provider.main.model.chat]
+model_id = "gpt-4.1-mini"
+capabilities = ["chat", "tool_call"]
+
+# Additional provider examples:
+#
+# [provider.deepseek]
+# name = "DeepSeek"
+# type = "openai"
+# api_key_env = "DEEPSEEK_API_KEY"
+# base_url = "https://api.deepseek.com/v1"
+#
+# [provider.deepseek.model.chat]
+# model_id = "deepseek-chat"
+# capabilities = ["chat"]
+#
+# [provider.gemini]
+# name = "Gemini"
+# type = "google"
+# api_key_env = "GOOGLE_API_KEY"
+#
+# [provider.gemini.model.flash]
+# model_id = "gemini-2.0-flash"
+# capabilities = ["chat"]
+#
+# [provider.anthropic]
+# name = "Anthropic"
+# type = "anthropic"
+# api_key_env = "ANTHROPIC_API_KEY"
+#
+# [provider.anthropic.model.haiku]
+# model_id = "claude-3-5-haiku-latest"
+# capabilities = ["chat"]

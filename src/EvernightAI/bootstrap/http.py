@@ -43,9 +43,17 @@ def create_app_from_config(
     *,
     close_on_shutdown: bool = True,
 ) -> FastAPI:
+    interface = create_interface_from_config(config)
+
+    async def register_configured_providers() -> None:
+        for provider in config.providers:
+            if provider.is_enabled:
+                await interface.providers.create_provider(provider)
+
     return create_http_app(
-        create_interface_from_config(config),
+        interface,
         close_on_shutdown=close_on_shutdown,
+        startup_handlers=[register_configured_providers],
     )
 
 

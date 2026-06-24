@@ -6,7 +6,7 @@ from typing import Any, TypeVar
 from pydantic import ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
-from EvernightAI.core.schema.agent import AgentRunRequest
+from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.content import (
@@ -25,7 +25,7 @@ from EvernightAI.core.schema.session import (
     SessionChatRequest,
 )
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
-from EvernightAI.core.schema.tool import ToolApprovalDecision
+from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
 
@@ -313,6 +313,26 @@ async def resume_agent_run(
 ) -> str:
     approvals = _schema_list_from_json(approvals_json, ToolApprovalDecision)
     return _dump_model(await interface.agent_runs.resume(run_id, approvals))
+
+
+async def approve_pending_agent_run(
+    interface: EvernightInterfaceProtocol,
+    run_id: str,
+) -> str:
+    state = interface.agent_runs.get_state(run_id)
+    approvals = _approve_pending_tool_calls(state)
+    return _dump_model(await interface.agent_runs.resume(run_id, approvals))
+
+
+def _approve_pending_tool_calls(state: AgentRunState) -> list[ToolApprovalDecision]:
+    return [
+        ToolApprovalDecision(
+            approval_id=request.approval_id,
+            tool_call_id=request.tool_call_id,
+            status=ToolApprovalStatus.APPROVED,
+        )
+        for request in state.pending_approval_requests
+    ]
 
 
 def list_skills(interface: EvernightInterfaceProtocol) -> str:

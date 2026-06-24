@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,10 +25,13 @@ def create_http_app(
     interface: EvernightInterfaceProtocol,
     *,
     close_on_shutdown: bool = True,
+    startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
+            for handler in startup_handlers or []:
+                await handler()
             yield
         finally:
             if close_on_shutdown:

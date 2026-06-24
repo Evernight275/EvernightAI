@@ -78,7 +78,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
 
 
 def test_load_config_reads_toml_file(tmp_path: Path) -> None:
-    config_path = tmp_path / "evernight.toml"
+    config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [runtime]
