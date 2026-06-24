@@ -23,6 +23,9 @@ from EvernightAI.infra.adapters.openai_compatible.mapper import (
     to_openai_messages,
     to_openai_tools,
 )
+from EvernightAI.infra.adapters.provider_metadata import (
+    provider_request_params_from_metadata,
+)
 
 
 class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
@@ -49,6 +52,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_tools(request.tools)
+        params.update(provider_request_params_from_metadata(request.metadata))
 
         try:
             response = await self._client.chat.completions.create(**params)
@@ -69,6 +73,7 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_tools(request.tools)
+        params.update(provider_request_params_from_metadata(request.metadata))
 
         try:
             stream = await self._client.chat.completions.create(**params)

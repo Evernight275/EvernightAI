@@ -23,6 +23,9 @@ from EvernightAI.infra.adapters.openai_responses.mapper import (
     to_openai_response_input,
     to_openai_response_tools,
 )
+from EvernightAI.infra.adapters.provider_metadata import (
+    provider_request_params_from_metadata,
+)
 
 
 class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
@@ -49,6 +52,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
+        params.update(provider_request_params_from_metadata(request.metadata))
 
         try:
             response = await self._client.responses.create(**params)
@@ -68,6 +72,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
+        params.update(provider_request_params_from_metadata(request.metadata))
 
         try:
             stream = await self._client.responses.create(**params)

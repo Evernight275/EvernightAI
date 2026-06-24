@@ -241,6 +241,62 @@ async def test_openai_responses_instance_chat_maps_request_and_response() -> Non
 
 
 @pytest.mark.asyncio
+async def test_openai_responses_instance_chat_maps_reasoning_effort_metadata() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses()
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="gpt-test",
+            messages=make_messages(),
+            metadata={
+                "request_id": "req-1",
+                "reasoning_effort": "high",
+            },
+        )
+    )
+
+    assert responses.params == {
+        "model": "gpt-test",
+        "input": to_openai_response_input(make_messages()),
+        "timeout": 30.0,
+        "reasoning_effort": "high",
+    }
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_instance_ignores_unknown_provider_metadata() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses()
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="gpt-test",
+            messages=make_messages(),
+            metadata={
+                "request_id": "req-1",
+                "reasoning_effort": "extreme",
+                "temperature": 0,
+            },
+        )
+    )
+
+    assert responses.params == {
+        "model": "gpt-test",
+        "input": to_openai_response_input(make_messages()),
+        "timeout": 30.0,
+    }
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
 async def test_openai_responses_instance_stream_allows_undeclared_model() -> None:
     instance = OpenAIResponsesProviderInstance(
         ProviderConfig(
@@ -268,6 +324,33 @@ async def test_openai_responses_instance_stream_allows_undeclared_model() -> Non
         ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_instance_stream_maps_reasoning_effort_metadata() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses()
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(
+            model_id="gpt-test",
+            messages=make_messages(),
+            metadata={"reasoning_effort": "medium"},
+        )
+    )
+    _ = [event async for event in stream]
+
+    assert responses.params == {
+        "model": "gpt-test",
+        "input": to_openai_response_input(make_messages()),
+        "timeout": 30.0,
+        "stream": True,
+        "reasoning_effort": "medium",
+    }
 
     await instance.close()
 

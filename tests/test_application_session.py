@@ -148,11 +148,13 @@ async def test_session_chat_request_provider_and_model_override_session_defaults
             provider_id="request-provider",
             model_id="request-model",
             messages=[make_message("Use request provider")],
+            metadata={"reasoning_effort": "high"},
         ),
     )
 
     assert provider.requests[-1].model_id == "request-model"
     assert provider.requests[-1].metadata["context_id"] == "ctx-1"
+    assert provider.requests[-1].metadata["reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio
@@ -177,12 +179,15 @@ async def test_session_agent_request_provider_and_model_override_session_default
             model_id="request-model",
             messages=[make_message("Use request provider")],
             max_tool_rounds=0,
+            metadata={"reasoning_effort": "high"},
         ),
     )
 
     assert state.request.provider_id == "request-provider"
     assert state.request.model_id == "request-model"
+    assert state.request.metadata["reasoning_effort"] == "high"
     assert provider.requests[-1].model_id == "request-model"
+    assert provider.requests[-1].metadata["reasoning_effort"] == "high"
 
 
 def make_message(text: str) -> Content:
