@@ -61,6 +61,36 @@ curl -X POST http://127.0.0.1:8000/chat \
 
 Use `/chat/stream` with the same body for SSE streaming.
 
+## Provider-Specific Metadata
+
+Provider-specific controls belong in request `metadata`, not in the core
+`ChatRequest` fields. Unknown metadata stays inside EvernightAI and is not sent
+to the provider.
+
+OpenAI-compatible chat and OpenAI Responses adapters currently support:
+
+- `reasoning_effort`: `"low"`, `"medium"`, or `"high"`
+
+Example:
+
+```json
+{
+  "provider_id": "main",
+  "request": {
+    "model_id": "gpt-4.1-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "Think carefully, then answer briefly."}]
+      }
+    ],
+    "metadata": {
+      "reasoning_effort": "high"
+    }
+  }
+}
+```
+
 ## Context Chat
 
 Create a context when the server should store conversation history.

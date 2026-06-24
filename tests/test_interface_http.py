@@ -77,6 +77,9 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     agent_stream_examples = schema["paths"]["/agent-runs/stream"]["post"][
         "requestBody"
     ]["content"]["application/json"]["examples"]
+    session_chat_examples = schema["paths"]["/sessions/{session_id}/chat"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["examples"]
     chat_response_example = schema["paths"]["/chat"]["post"]["responses"]["200"][
         "content"
     ]["application/json"]["example"]
@@ -105,6 +108,12 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
         "messages": [message_json("Stream trace events while answering.")],
         "max_tool_rounds": 0,
         "metadata": {"request_id": "agent-stream-1"},
+    }
+    assert chat_examples["withReasoningEffort"]["value"]["request"]["metadata"] == {
+        "reasoning_effort": "high"
+    }
+    assert session_chat_examples["withReasoningEffort"]["value"]["metadata"] == {
+        "reasoning_effort": "high"
     }
     assert chat_response_example["message"]["content"] == [
         {"type": "text", "text": "Hello."}

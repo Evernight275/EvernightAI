@@ -19,6 +19,9 @@ Common first flow:
 
 Most request bodies below show the smallest useful JSON first. Optional fields
 such as `skills`, `tools`, `memory_query`, and `metadata` are advanced controls.
+Provider-specific controls belong in `request.metadata`; for example,
+`reasoning_effort` accepts `low`, `medium`, or `high` for OpenAI-compatible
+providers that support it.
 """
 
 
@@ -264,6 +267,18 @@ DIRECT_CHAT_EXAMPLES = _openapi_examples({
             },
         },
     },
+    "withReasoningEffort": {
+        "summary": "One-off chat with reasoning effort",
+        "description": "OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
+        "value": {
+            "provider_id": "main",
+            "request": {
+                "model_id": "gpt-4.1-mini",
+                "messages": [_text_message("Think carefully, then answer briefly.")],
+                "metadata": {"reasoning_effort": "high"},
+            },
+        },
+    },
     "withSkill": {
         "summary": "Chat with a skill prompt",
         "value": {
@@ -313,6 +328,16 @@ CHAT_WITH_CONTEXT_EXAMPLES = _openapi_examples({
                 "limit": 3,
             },
             "metadata": {"request_id": "req-1"},
+        },
+    },
+    "withReasoningEffort": {
+        "summary": "Context chat with reasoning effort",
+        "value": {
+            "provider_id": "main",
+            "context_id": "ctx-1",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Reason through this before answering.")],
+            "metadata": {"reasoning_effort": "high"},
         },
     },
 })
@@ -403,6 +428,13 @@ SESSION_CHAT_EXAMPLES = _openapi_examples({
             "messages": [_text_message("Use this provider for this turn.")],
         },
     },
+    "withReasoningEffort": {
+        "summary": "Session chat with reasoning effort",
+        "value": {
+            "messages": [_text_message("Give a careful answer.")],
+            "metadata": {"reasoning_effort": "high"},
+        },
+    },
 })
 
 
@@ -432,6 +464,14 @@ SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
             "messages": [_text_message("Answer once and stop.")],
             "max_tool_rounds": 0,
             "write_memory": False,
+        },
+    },
+    "withReasoningEffort": {
+        "summary": "Session agent run with reasoning effort",
+        "value": {
+            "messages": [_text_message("Plan the next step carefully.")],
+            "max_tool_rounds": 0,
+            "metadata": {"reasoning_effort": "high"},
         },
     },
 })
@@ -471,6 +511,17 @@ AGENT_RUN_EXAMPLES = _openapi_examples({
             "tools": [_tool_definition()],
             "max_tool_rounds": 2,
             "pause_on_approval": True,
+        },
+    },
+    "withReasoningEffort": {
+        "summary": "Agent run with reasoning effort",
+        "value": {
+            "provider_id": "main",
+            "context_id": "ctx-1",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Reason carefully, then stop.")],
+            "max_tool_rounds": 0,
+            "metadata": {"reasoning_effort": "high"},
         },
     },
 })
