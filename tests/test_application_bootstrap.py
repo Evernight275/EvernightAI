@@ -43,3 +43,23 @@ async def test_runtime_close_closes_registered_stores() -> None:
     await runtime.close()
 
     assert closed == ["context", "memory", "session"]
+
+
+@pytest.mark.asyncio
+async def test_interface_close_drains_agent_runs_before_runtime_close() -> None:
+    runtime = create_runtime()
+    interface = create_interface(runtime)
+    closed: list[str] = []
+
+    async def close_agent_runs() -> None:
+        closed.append("agent_runs")
+
+    async def close_runtime() -> None:
+        closed.append("runtime")
+
+    cast(Any, interface.agent_runs).close = close_agent_runs
+    cast(Any, interface.runtime).close = close_runtime
+
+    await interface.close()
+
+    assert closed == ["agent_runs", "runtime"]

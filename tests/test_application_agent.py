@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
@@ -1228,7 +1229,9 @@ async def test_agent_run_application_shutdown_blocks_new_runs_and_waits_for_acti
 
 
 @pytest.mark.asyncio
-async def test_agent_run_application_shutdown_marks_stale_running_runs_paused() -> None:
+async def test_agent_run_application_shutdown_marks_stale_running_runs_paused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
     runtime = make_runtime(
@@ -1253,7 +1256,8 @@ async def test_agent_run_application_shutdown_marks_stale_running_runs_paused() 
     )
 
     app = AgentRunApplication(runtime)
-    await app.close()
+    with caplog.at_level(logging.INFO, logger="EvernightAI.application.agent"):
+        await app.close()
 
     state = state_register.get_state("run-stale")
     trace = trace_register.list_events("run-stale")
@@ -1265,6 +1269,15 @@ async def test_agent_run_application_shutdown_marks_stale_running_runs_paused() 
     }
     assert [event.event_type for event in trace] == [AgentTraceEventType.RUN_PAUSED]
     assert trace[0].metadata == {"reason": "shutdown"}
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "EvernightAI.application.agent"
+    ] == [
+        "EvernightAI agent shutdown: blocking new agent runs",
+        "EvernightAI agent shutdown: active agent runs drained",
+        "EvernightAI agent shutdown: persisted running states reconciled",
+    ]
 
 
 @pytest.mark.asyncio

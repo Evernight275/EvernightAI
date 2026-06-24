@@ -145,6 +145,60 @@ def test_normalizes_anthropic_tool_use_stream_events() -> None:
     )
 
 
+def test_normalizes_anthropic_text_delta_and_message_delta_events() -> None:
+    normalizer = AnthropicStreamNormalizer()
+    start_events = normalizer.map_event(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg-1",
+                "model": "claude-test",
+                "usage": {"input_tokens": 3, "output_tokens": 0},
+            },
+        },
+    )
+    delta_events = normalizer.map_event(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "Hi"},
+        },
+    )
+    completed_events = normalizer.map_event(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"input_tokens": 3, "output_tokens": 2},
+        },
+    )
+
+    assert [event.event_type for event in start_events] == [
+        ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.USAGE,
+    ]
+    assert delta_events[0].event_type is ChatStreamEventType.MESSAGE_DELTA
+    assert delta_events[0].text_delta == "Hi"
+    assert [event.event_type for event in completed_events] == [
+        ChatStreamEventType.USAGE,
+        ChatStreamEventType.MESSAGE_COMPLETED,
+    ]
+    assert completed_events[-1].finish_reason == "end_turn"
+
+
+def test_normalizes_anthropic_unknown_event_as_raw() -> None:
+    event = AnthropicStreamNormalizer().map_event(
+        "unknown",
+        {"type": "unknown", "id": "msg-1", "value": 1},
+    )[0]
+
+    assert event.event_type is ChatStreamEventType.RAW
+    assert event.response_id == "msg-1"
+    assert event.raw_event == "unknown"
+
+
 @pytest.mark.asyncio
 async def test_anthropic_instance_chat_maps_request_and_response() -> None:
     instance = AnthropicProviderInstance(make_config())

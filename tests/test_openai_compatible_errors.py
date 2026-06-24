@@ -6,9 +6,13 @@ from openai import (
     AuthenticationError,
     BadRequestError,
     ConflictError,
+    ContentFilterFinishReasonError,
     InternalServerError,
     NotFoundError,
     RateLimitError,
+    WebSocketConnectionClosedError,
+    WebSocketQueueFullError,
+    APIError,
 )
 
 from EvernightAI.core.error.provider import (
@@ -18,6 +22,7 @@ from EvernightAI.core.error.provider import (
     ProviderRateLimitError,
     ProviderRequestError,
     ProviderRequestTimeoutError,
+    ProviderResponseError,
     ProviderUnavailableError,
 )
 from EvernightAI.infra.adapters.openai_compatible.errors import (
@@ -48,6 +53,14 @@ def _response(status_code: int) -> httpx.Response:
             ProviderUnavailableError,
         ),
         (
+            WebSocketConnectionClosedError("socket closed", unsent_messages=[]),
+            ProviderUnavailableError,
+        ),
+        (
+            WebSocketQueueFullError("queue full"),
+            ProviderRequestError,
+        ),
+        (
             AuthenticationError("bad key", response=_response(401), body=None),
             ProviderAuthorizationError,
         ),
@@ -70,6 +83,14 @@ def _response(status_code: int) -> httpx.Response:
         (
             InternalServerError("upstream down", response=_response(500), body=None),
             ProviderUnavailableError,
+        ),
+        (
+            ContentFilterFinishReasonError(),
+            ProviderResponseError,
+        ),
+        (
+            APIError("generic api error", request=_request(), body=None),
+            ProviderRequestError,
         ),
     ],
 )

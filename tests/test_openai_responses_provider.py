@@ -10,10 +10,14 @@ from openai.types.responses import (
     ResponseFunctionCallArgumentsDoneEvent,
     ResponseFunctionToolCall,
     ResponseOutputItemAddedEvent,
+    ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
     ResponseOutputText,
+    ResponseTextDeltaEvent,
 )
 
+from EvernightAI.core.error.chat import ChatInputError
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -66,21 +70,25 @@ def make_response(model_id: str = "gpt-test", output: list[Any] | None = None) -
         created_at=123.0,
         model=model_id,
         object="response",
-        output=output or [
-            ResponseOutputMessage(
-                id="msg-1",
-                content=[
-                    ResponseOutputText(
-                        annotations=[],
-                        text="Hi",
-                        type="output_text",
-                    )
-                ],
-                role="assistant",
-                status="completed",
-                type="message",
-            )
-        ],
+        output=(
+            [
+                ResponseOutputMessage(
+                    id="msg-1",
+                    content=[
+                        ResponseOutputText(
+                            annotations=[],
+                            text="Hi",
+                            type="output_text",
+                        )
+                    ],
+                    role="assistant",
+                    status="completed",
+                    type="message",
+                )
+            ]
+            if output is None
+            else output
+        ),
         parallel_tool_calls=True,
         tool_choice="auto",
         tools=[],
@@ -183,6 +191,28 @@ def test_maps_openai_response_function_call_to_chat_response() -> None:
             tool_call={"name": "add", "arguments": {"left": 1}},
         )
     ]
+
+
+def test_openai_response_requires_text_or_tool_calls() -> None:
+    with pytest.raises(
+        ProviderResponseError,
+        match="did not include output text or tool calls",
+    ):
+        from_openai_response(make_response(output=[]))
+
+
+def test_openai_response_tool_message_requires_call_id() -> None:
+    with pytest.raises(ChatInputError, match="Tool message requires tool_call_id"):
+        to_openai_response_input(
+            [
+                Content(
+                    role=MessageRole.TOOL,
+                    content=[
+                        ContentPart(type=ContentPartType.TEXT, text='{"result": 1}')
+                    ],
+                )
+            ]
+        )
 
 
 @pytest.mark.asyncio
@@ -293,6 +323,56 @@ async def test_openai_responses_stream_maps_function_call_events() -> None:
     assert events[0].tool_call_id == "call-1"
     assert events[1].tool_call_id == "call-1"
     assert events[2].tool_call == ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "add", "arguments": {"left": 1}},
+    )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_stream_maps_text_delta_and_item_done() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses(
+        stream_events=[
+            ResponseTextDeltaEvent(
+                content_index=0,
+                delta="Hi",
+                item_id="msg-1",
+                logprobs=[],
+                output_index=0,
+                sequence_number=0,
+                type="response.output_text.delta",
+            ),
+            ResponseOutputItemDoneEvent(
+                item=ResponseFunctionToolCall(
+                    arguments='{"left": 1}',
+                    call_id="call-1",
+                    id="item-1",
+                    name="add",
+                    type="function_call",
+                ),
+                output_index=1,
+                sequence_number=1,
+                type="response.output_item.done",
+            ),
+        ]
+    )
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(model_id="gpt-test", messages=make_messages())
+    )
+    events = [event async for event in stream]
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+        ChatStreamEventType.DONE,
+    ]
+    assert events[0].text_delta == "Hi"
+    assert events[1].tool_call == ToolCall(
         tool_call_id="call-1",
         tool_call={"name": "add", "arguments": {"left": 1}},
     )
