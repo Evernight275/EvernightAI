@@ -12,6 +12,7 @@ from EvernightAI.core.error.base import (
     DependencyError,
     EvernightAIError,
     NotFoundError,
+    PermissionDeniedError,
     RateLimitError,
     RequestError,
     RequestTimeoutError,
@@ -62,6 +63,8 @@ def status_code_for_error(exc: EvernightAIError) -> int:
         return status.HTTP_404_NOT_FOUND
     if isinstance(exc, (ValidationError, ConfigurationError, UnsupportedError)):
         return status.HTTP_400_BAD_REQUEST
+    if isinstance(exc, PermissionDeniedError):
+        return status.HTTP_403_FORBIDDEN
     if isinstance(exc, AuthorizationError):
         return status.HTTP_401_UNAUTHORIZED
     if isinstance(exc, ConflictError):

@@ -110,6 +110,14 @@ class AuthorizationError(RequestError):
     pass
 
 
+class PermissionDeniedError(EvernightAIError):
+    """
+    权限拒绝错误
+    """
+
+    pass
+
+
 class ResponseError(EvernightAIError):
     """
     响应错误

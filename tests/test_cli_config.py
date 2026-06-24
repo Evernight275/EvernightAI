@@ -33,6 +33,16 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "timeout_seconds": 3.5,
                 },
             },
+            "auth": {
+                "enabled": True,
+                "principal": {
+                    "admin": {
+                        "api_key_env": "DEEPSEEK_API_KEY",
+                        "roles": ["admin"],
+                        "permissions": ["*"],
+                    }
+                },
+            },
             "provider": {
                 "main": {
                     "name": "DeepSeek",
@@ -64,6 +74,11 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.shell.enabled is True
     assert config.tools.shell.allowed_commands == ["python", "pytest"]
     assert config.tools.shell.timeout_seconds == 3.5
+    assert config.auth.enabled is True
+    assert config.auth.principals[0].principal_id == "admin"
+    assert config.auth.principals[0].api_key == "secret-key"
+    assert config.auth.principals[0].roles == ["admin"]
+    assert config.auth.principals[0].permissions == ["*"]
     assert provider.provider_id == "main"
     assert provider.name == "DeepSeek"
     assert provider.type is ProviderType.OPENAI
@@ -112,4 +127,6 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.http.port == 8000
     assert config.tools.filesystem.enabled is False
     assert config.tools.shell.allowed_commands == []
+    assert config.auth.enabled is False
+    assert config.auth.principals == []
     assert config.providers == []

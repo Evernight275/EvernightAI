@@ -11,6 +11,8 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.interface.cli.schema import (
+    AuthConfig,
+    AuthPrincipalConfig,
     EvernightConfig,
     HttpConfig,
     RuntimeConfig,
@@ -37,6 +39,7 @@ def parse_config(data: dict[str, Any]) -> EvernightConfig:
             runtime=RuntimeConfig.model_validate(data.get("runtime", {})),
             http=HttpConfig.model_validate(data.get("http", {})),
             tools=ToolConfig.model_validate(data.get("tools", {})),
+            auth=_parse_auth(data.get("auth", {})),
             providers=_parse_providers(data.get("provider", {})),
         )
     except (KeyError, PydanticValidationError, TypeError, ValueError) as exc:
@@ -59,6 +62,41 @@ def _parse_providers(raw: object) -> list[ProviderConfig]:
         for provider_key, provider_data in raw.items()
         if isinstance(provider_key, str) and isinstance(provider_data, dict)
     ]
+
+
+def _parse_auth(raw: object) -> AuthConfig:
+    if not isinstance(raw, dict):
+        return AuthConfig()
+
+    return AuthConfig(
+        enabled=_bool(raw.get("enabled"), False),
+        principals=_parse_auth_principals(raw.get("principal", {})),
+    )
+
+
+def _parse_auth_principals(raw: object) -> list[AuthPrincipalConfig]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        _parse_auth_principal(principal_key, principal_data)
+        for principal_key, principal_data in raw.items()
+        if isinstance(principal_key, str) and isinstance(principal_data, dict)
+    ]
+
+
+def _parse_auth_principal(
+    principal_key: str,
+    data: dict[str, Any],
+) -> AuthPrincipalConfig:
+    return AuthPrincipalConfig(
+        principal_id=_string(data.get("principal_id")) or principal_key,
+        principal_type=data.get("principal_type", "user"),
+        api_key=_api_key(data),
+        roles=_string_list(data.get("roles")),
+        permissions=_string_list(data.get("permissions")),
+        metadata=_dict(data.get("metadata")),
+    )
 
 
 def _parse_provider(
@@ -127,6 +165,13 @@ def _bool(value: object, default: bool) -> bool:
         return value
 
     return default
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    return [item for item in value if isinstance(item, str)]
 
 
 def _dict(value: object) -> dict[str, Any]:

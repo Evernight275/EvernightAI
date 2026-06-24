@@ -6,9 +6,14 @@ from fastapi.exceptions import RequestValidationError
 
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
+from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.http.errors import (
     handle_evernight_error,
     handle_request_validation_error,
+)
+from EvernightAI.interface.http.protocol import (
+    AuthorizedHttpInterfaceFactoryProtocol,
+    HttpAuthDeviceProtocol,
 )
 from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_router
 from EvernightAI.interface.http.routes.chat import router as chat_router
@@ -25,6 +30,8 @@ from EvernightAI.interface.http.template import API_DESCRIPTION, OPENAPI_TAGS
 def create_http_app(
     interface: EvernightInterfaceProtocol,
     *,
+    auth_device: HttpAuthDeviceProtocol | None = None,
+    authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
     startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
 ) -> FastAPI:
@@ -45,6 +52,10 @@ def create_http_app(
         lifespan=lifespan,
     )
     app.state.interface = interface
+    app.state.auth_device = auth_device
+    app.state.authorized_interface_factory = (
+        authorized_interface_factory or _identity_authorized_interface
+    )
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
@@ -58,3 +69,10 @@ def create_http_app(
     app.include_router(agent_runs_router)
 
     return app
+
+
+def _identity_authorized_interface(
+    interface: EvernightInterfaceProtocol,
+    _principal: Principal,
+) -> EvernightInterfaceProtocol:
+    return interface

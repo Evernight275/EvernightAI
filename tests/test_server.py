@@ -1,6 +1,13 @@
 from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app as create_http_app
+from EvernightAI.bootstrap.http import create_app_from_config
+from EvernightAI.interface.cli.schema import (
+    AuthConfig,
+    AuthPrincipalConfig,
+    EvernightConfig,
+    RuntimeConfig,
+)
 from EvernightAI.server import main as package_server_main
 
 
@@ -12,6 +19,58 @@ def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
     )
 
     assert_http_app(app)
+
+
+def test_http_bootstrap_can_enable_env_api_key_auth(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_API_KEY", "secret")
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_AUTH_PERMISSIONS", "tools:list")
+
+    app = create_http_app(
+        database_path=tmp_path / "entrypoint.sqlite3",
+        filesystem_root=tmp_path,
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        valid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer secret"},
+        )
+
+    assert missing_response.status_code == 401
+    assert valid_response.status_code == 200
+
+
+def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            auth=AuthConfig(
+                enabled=True,
+                principals=[
+                    AuthPrincipalConfig(
+                        principal_id="admin",
+                        api_key="secret",
+                        permissions=["tools:list"],
+                    )
+                ],
+            ),
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        valid_response = client.get(
+            "/tools",
+            headers={"x-evernight-api-key": "secret"},
+        )
+
+    assert missing_response.status_code == 401
+    assert valid_response.status_code == 200
 
 
 def test_package_server_wrapper_exposes_main() -> None:

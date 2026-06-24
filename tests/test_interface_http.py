@@ -10,6 +10,8 @@ from EvernightAI.core.domain.context import (
     ContextOrganizer,
     ContextRegister,
 )
+from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
     BasicMemoryWriteStrategy,
@@ -20,6 +22,7 @@ from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.auth import AuthPermissionDeniedError
 from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
@@ -28,6 +31,7 @@ from EvernightAI.core.protocol.agent import (
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
+from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -58,6 +62,8 @@ from EvernightAI.core.schema.tool import (
 )
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.interface.http.app import create_http_app
+from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice, HttpApiKeyCredential
+from EvernightAI.interface.http.errors import status_code_for_error
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
 
 
@@ -122,6 +128,99 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     assert "tool_calls" not in chat_response_example["message"]
     assert "event: chat.error" in chat_stream_example
     assert '"response_id":null' not in chat_stream_example
+
+
+def test_http_maps_permission_denied_to_forbidden() -> None:
+    assert status_code_for_error(AuthPermissionDeniedError("denied")) == 403
+
+
+def test_http_returns_forbidden_from_authorized_interface() -> None:
+    interface = AuthorizedEvernightInterface(
+        create_interface(make_runtime()),
+        Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="user-1"),
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        response = client.get("/tools")
+
+    assert response.status_code == 403
+    assert_error_response(response.json(), "AuthPermissionDeniedError")
+
+
+def test_http_api_key_auth_device_requires_credentials() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(
+                        principal_id="user-1",
+                        permissions=["tools:list"],
+                    ),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        invalid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer wrong"},
+        )
+        valid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer secret"},
+        )
+
+    assert missing_response.status_code == 401
+    assert_error_response(missing_response.json(), "AuthRequiredError")
+    assert invalid_response.status_code == 401
+    assert_error_response(invalid_response.json(), "AuthRequiredError")
+    assert valid_response.status_code == 200
+    assert valid_response.json() == []
+
+
+def test_http_api_key_auth_device_rejects_missing_permission() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(
+                        principal_id="user-1",
+                        permissions=["contexts:list"],
+                    ),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/tools", headers={"x-evernight-api-key": "secret"})
+
+    assert response.status_code == 403
+    assert_error_response(response.json(), "AuthPermissionDeniedError")
 
 
 def test_http_app_exposes_chat_context_flow() -> None:

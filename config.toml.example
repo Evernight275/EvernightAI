@@ -11,6 +11,16 @@ host = "127.0.0.1"
 port = 8000
 reload = false
 
+[auth]
+# Disabled by default for local development. When enabled, HTTP requests use
+# Authorization/X-Evernight-API-Key.
+enabled = false
+
+[auth.principal.admin]
+# Requests may use either `Authorization: Bearer ...` or `X-Evernight-API-Key`.
+api_key_env = "EVERNIGHTAI_HTTP_API_KEY"
+permissions = ["*"]
+
 [tools.filesystem]
 # Keep disabled unless you intentionally want file tools exposed.
 enabled = false

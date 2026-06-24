@@ -8,10 +8,13 @@ from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.skill import SkillApplication
 from EvernightAI.application.tool import ToolApplication
-from EvernightAI.bootstrap.interface import create_interface
+from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
+from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
+from EvernightAI.core.schema.auth import Principal
 
 
 def test_interface_bootstrap_wraps_existing_runtime() -> None:
@@ -29,6 +32,20 @@ def test_interface_bootstrap_wraps_existing_runtime() -> None:
     assert isinstance(interface.agent_runs, AgentRunApplication)
     assert isinstance(interface.skills, SkillApplication)
     assert isinstance(interface.sessions, SessionApplication)
+
+
+def test_interface_bootstrap_wraps_authorized_interface() -> None:
+    interface = create_interface(create_runtime())
+
+    authorized = create_authorized_interface(
+        interface,
+        Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="user-1", permissions=["*"]),
+    )
+
+    assert isinstance(authorized, AuthorizedEvernightInterface)
+    assert isinstance(authorized, EvernightInterfaceProtocol)
+    assert authorized.runtime is interface.runtime
 
 
 @pytest.mark.asyncio

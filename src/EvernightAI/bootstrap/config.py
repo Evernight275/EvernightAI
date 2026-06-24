@@ -21,6 +21,12 @@ def create_interface_from_config(
     return create_interface(runtime)
 
 
+def create_unsecured_interface_from_config(
+    config: EvernightConfig,
+) -> EvernightInterfaceProtocol:
+    return create_interface_from_config(config)
+
+
 def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
     filesystem = config.tools.filesystem
     shell = config.tools.shell

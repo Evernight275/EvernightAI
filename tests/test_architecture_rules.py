@@ -148,6 +148,22 @@ def test_interface_and_entrypoint_do_not_reach_through_interface_runtime() -> No
     assert violations == []
 
 
+def test_http_protocols_live_in_http_protocol_module() -> None:
+    violations: list[str] = []
+    protocol_path = INTERFACE_ROOT / "http" / "protocol.py"
+
+    for path in _python_files(INTERFACE_ROOT / "http"):
+        if path == protocol_path:
+            continue
+
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Protocol"):
+                violations.append(f"{_rel(path)} defines {node.name}")
+
+    assert violations == []
+
+
 def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
     violations: list[str] = []
 
