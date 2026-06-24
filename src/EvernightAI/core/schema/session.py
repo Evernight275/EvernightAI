@@ -38,6 +38,8 @@ class Session(EvernightAISchema):
 class SessionChatRequest(EvernightAISchema):
     """会话聊天请求"""
 
+    provider_id: str | None = None
+    model_id: str | None = None
     messages: list[Content] = Field(default_factory=list)
     memory_query: MemoryQuery | None = None
     skills: list[ChatSkill] | None = None

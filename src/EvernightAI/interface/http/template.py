@@ -235,6 +235,15 @@ SESSION_CHAT_EXAMPLES = _openapi_examples({
             },
         },
     },
+    "overrideProvider": {
+        "summary": "Override provider and model for this request",
+        "description": "Request values win over the session defaults.",
+        "value": {
+            "provider_id": "main",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Use this provider for this turn.")],
+        },
+    },
 })
 
 
@@ -245,6 +254,16 @@ SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
             "messages": [_text_message("Use available tools if needed.")],
             "max_tool_rounds": 1,
             "write_memory": False,
+        },
+    },
+    "overrideProvider": {
+        "summary": "Start a session agent run with a request provider",
+        "description": "Request provider and model override the session defaults.",
+        "value": {
+            "provider_id": "main",
+            "model_id": "gpt-4.1-mini",
+            "messages": [_text_message("Use this provider for this agent run.")],
+            "max_tool_rounds": 1,
         },
     },
 })

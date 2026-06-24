@@ -45,9 +45,9 @@ class SessionApplication(SessionInterfaceProtocol):
     ) -> SessionChatResult:
         session = await self._runtime.sessions.get(session_id)
         response = await ChatApplication(self._runtime).chat_with_context(
-            self._required_provider_id(session),
+            self._required_provider_id(session, request),
             session.context_id,
-            model_id=self._required_model_id(session),
+            model_id=self._required_model_id(session, request),
             messages=request.messages,
             memory_query=request.memory_query,
             skills=request.skills,
@@ -64,9 +64,9 @@ class SessionApplication(SessionInterfaceProtocol):
     ) -> AgentRunState:
         session = await self._runtime.sessions.get(session_id)
         agent_request = AgentRunRequest(
-            provider_id=self._required_provider_id(session),
+            provider_id=self._required_provider_id(session, request),
             context_id=session.context_id,
-            model_id=self._required_model_id(session),
+            model_id=self._required_model_id(session, request),
             messages=request.messages,
             memory_query=request.memory_query,
             skills=request.skills,
@@ -92,13 +92,25 @@ class SessionApplication(SessionInterfaceProtocol):
             )
         )
 
-    def _required_provider_id(self, session: Session) -> str:
+    def _required_provider_id(
+        self,
+        session: Session,
+        request: SessionChatRequest | None = None,
+    ) -> str:
+        if request is not None and request.provider_id:
+            return request.provider_id
         if session.provider_id:
             return session.provider_id
 
         raise SessionInputError("Session provider_id is required")
 
-    def _required_model_id(self, session: Session) -> str:
+    def _required_model_id(
+        self,
+        session: Session,
+        request: SessionChatRequest | None = None,
+    ) -> str:
+        if request is not None and request.model_id:
+            return request.model_id
         if session.model_id:
             return session.model_id
 
