@@ -66,6 +66,25 @@ def test_httpx_error_translation_preserves_response_detail() -> None:
     )
 
 
+def test_httpx_error_translation_ignores_unread_streaming_response_body() -> None:
+    response = httpx.Response(
+        503,
+        headers={"x-request-id": "req_stream"},
+        stream=httpx.ByteStream(b"temporarily unavailable"),
+        request=_request(),
+    )
+    error = httpx.HTTPStatusError(
+        "server unavailable",
+        request=_request(),
+        response=response,
+    )
+
+    translated = translate_httpx_provider_error(error)
+
+    assert isinstance(translated, ProviderUnavailableError)
+    assert translated.detail == "status_code=503; request_id=req_stream"
+
+
 def test_raise_httpx_provider_error_preserves_exception_chain() -> None:
     error = httpx.ConnectError("network down", request=_request())
 

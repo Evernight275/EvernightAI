@@ -84,7 +84,10 @@ def _detail_from(error: Exception) -> str | None:
         if request_id:
             detail.append(f"request_id={request_id}")
 
-        text = response.text
+        try:
+            text = response.text
+        except httpx.ResponseNotRead:
+            text = ""
         if text:
             detail.append(f"body={text!r}")
 
