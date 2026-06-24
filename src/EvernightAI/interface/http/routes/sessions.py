@@ -23,6 +23,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 @router.post(
     "",
     response_model=Session,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Create a session",
     description=(
@@ -44,6 +45,7 @@ async def create_session(
 @router.get(
     "",
     response_model=list[Session],
+    response_model_exclude_none=True,
     summary="List sessions",
     operation_id="list_sessions",
 )
@@ -54,6 +56,7 @@ async def list_sessions(interface: InterfaceDependency) -> list[Session]:
 @router.get(
     "/{session_id}",
     response_model=Session,
+    response_model_exclude_none=True,
     summary="Get a session",
     operation_id="get_session",
 )
@@ -67,6 +70,7 @@ async def get_session(
 @router.post(
     "/{session_id}/chat",
     response_model=SessionChatResult,
+    response_model_exclude_none=True,
     summary="Chat with a session",
     description=(
         "Use the session's context, provider, and model. New user and assistant "
@@ -88,6 +92,7 @@ async def chat_with_session(
 @router.post(
     "/{session_id}/agent-runs",
     response_model=AgentRunState,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Start a session agent run",
     description="Start a multi-step agent run using the session's provider, model, and context.",
@@ -107,6 +112,7 @@ async def start_agent_run_for_session(
 @router.put(
     "/{session_id}",
     response_model=Session,
+    response_model_exclude_none=True,
     summary="Replace a session",
     operation_id="replace_session",
 )
@@ -129,6 +135,7 @@ async def replace_session(
 @router.post(
     "/{session_id}/archive",
     response_model=Session,
+    response_model_exclude_none=True,
     summary="Archive a session",
     operation_id="archive_session",
 )

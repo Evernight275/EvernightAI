@@ -16,6 +16,7 @@ router = APIRouter(prefix="/memories", tags=["memories"])
 @router.post(
     "",
     response_model=MemoryItem,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Create a memory",
     description=(
@@ -37,6 +38,7 @@ async def create_memory(
 @router.get(
     "",
     response_model=list[MemoryItem],
+    response_model_exclude_none=True,
     summary="List memories",
     operation_id="list_memories",
 )
@@ -47,6 +49,7 @@ async def list_memories(interface: InterfaceDependency) -> list[MemoryItem]:
 @router.get(
     "/{memory_id}",
     response_model=MemoryItem,
+    response_model_exclude_none=True,
     summary="Get a memory",
     operation_id="get_memory",
 )
@@ -60,6 +63,7 @@ async def get_memory(
 @router.post(
     "/select",
     response_model=MemorySelection,
+    response_model_exclude_none=True,
     summary="Select memories",
     description="Preview which memories match a query before using it in chat.",
     operation_id="select_memories",

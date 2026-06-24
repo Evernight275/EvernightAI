@@ -18,6 +18,7 @@ router = APIRouter(prefix="/providers", tags=["providers"])
 @router.post(
     "",
     response_model=ProviderInfo,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Register a provider",
     description=(
@@ -39,6 +40,7 @@ async def create_provider(
 @router.get(
     "/{provider_id}/models",
     response_model=list[ProviderModelConfig],
+    response_model_exclude_none=True,
     summary="List declared provider models",
     description=(
         "Return the models declared locally for this provider. OpenAI-compatible "
@@ -56,6 +58,7 @@ async def list_provider_models(
 @router.get(
     "/{provider_id}/models/{model_id}",
     response_model=ProviderModelConfig,
+    response_model_exclude_none=True,
     summary="Get one declared provider model",
     operation_id="get_provider_model",
 )
@@ -70,6 +73,7 @@ async def get_provider_model(
 @router.get(
     "/{provider_id}/supports",
     response_model=bool,
+    response_model_exclude_none=True,
     summary="Check provider capability",
     description="Check whether the provider has a declared model with this capability.",
     operation_id="provider_supports",

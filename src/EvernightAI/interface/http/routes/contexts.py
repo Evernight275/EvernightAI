@@ -17,6 +17,7 @@ router = APIRouter(prefix="/contexts", tags=["contexts"])
 @router.post(
     "",
     response_model=Context,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Create a context",
     description=(
@@ -38,6 +39,7 @@ async def create_context(
 @router.get(
     "",
     response_model=list[Context],
+    response_model_exclude_none=True,
     summary="List contexts",
     operation_id="list_contexts",
 )
@@ -48,6 +50,7 @@ async def list_contexts(interface: InterfaceDependency) -> list[Context]:
 @router.get(
     "/{context_id}",
     response_model=Context,
+    response_model_exclude_none=True,
     summary="Get a context",
     operation_id="get_context",
 )
@@ -61,6 +64,7 @@ async def get_context(
 @router.post(
     "/{context_id}/messages",
     response_model=Context,
+    response_model_exclude_none=True,
     summary="Append one context message",
     description="Append a single user, assistant, system, or tool message.",
     operation_id="append_context",
@@ -79,6 +83,7 @@ async def append_context(
 @router.put(
     "/{context_id}",
     response_model=Context,
+    response_model_exclude_none=True,
     summary="Replace a context",
     description="Replace all stored messages and metadata for this context id.",
     operation_id="replace_context",

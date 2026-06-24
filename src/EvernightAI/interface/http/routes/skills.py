@@ -21,6 +21,7 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 @router.get(
     "",
     response_model=list[SkillDefinition],
+    response_model_exclude_none=True,
     summary="List skills",
     operation_id="list_skills",
 )
@@ -31,6 +32,7 @@ async def list_skills(interface: InterfaceDependency) -> list[SkillDefinition]:
 @router.get(
     "/{skill_name}",
     response_model=SkillDefinition,
+    response_model_exclude_none=True,
     summary="Get a skill",
     operation_id="get_skill",
 )
@@ -44,6 +46,7 @@ async def get_skill(
 @router.get(
     "/{skill_name}/supports",
     response_model=bool,
+    response_model_exclude_none=True,
     summary="Check skill capability",
     operation_id="skill_supports",
 )
@@ -58,6 +61,7 @@ async def skill_supports(
 @router.post(
     "/{skill_name}/render",
     response_model=RenderedSkill,
+    response_model_exclude_none=True,
     summary="Render a skill prompt",
     description=(
         "Render a registered skill into prompt messages. Chat requests can also "

@@ -22,6 +22,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post(
     "",
     response_model=ChatResponse,
+    response_model_exclude_none=True,
     summary="Send a one-off chat request",
     description=(
         "Call a registered provider directly. This does not read or write a "
@@ -62,6 +63,7 @@ async def chat_stream(
 @router.post(
     "/context",
     response_model=ChatResponse,
+    response_model_exclude_none=True,
     summary="Chat with stored context",
     description=(
         "Compose the stored context messages first, append the request messages, "

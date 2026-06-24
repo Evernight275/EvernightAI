@@ -27,6 +27,7 @@ router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
 @router.post(
     "",
     response_model=AgentRunState,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="Start an agent run",
     description=(
@@ -68,6 +69,7 @@ async def stream_agent_run(
 @router.get(
     "",
     response_model=list[AgentRunState],
+    response_model_exclude_none=True,
     summary="List agent run states",
     operation_id="list_agent_runs",
 )
@@ -78,6 +80,7 @@ async def list_agent_runs(interface: InterfaceDependency) -> list[AgentRunState]
 @router.get(
     "/{run_id}",
     response_model=AgentRunState,
+    response_model_exclude_none=True,
     summary="Get an agent run state",
     operation_id="get_agent_run",
 )
@@ -91,6 +94,7 @@ async def get_agent_run(
 @router.post(
     "/{run_id}/resume",
     response_model=AgentRunState,
+    response_model_exclude_none=True,
     summary="Resume a paused agent run",
     description="Supply approval decisions for pending tool calls, then continue the run.",
     operation_id="resume_agent_run",
@@ -109,6 +113,7 @@ async def resume_agent_run(
 @router.post(
     "/{run_id}/approve-pending",
     response_model=AgentRunState,
+    response_model_exclude_none=True,
     summary="Approve all pending tool calls",
     description="Convenience endpoint for approving every pending tool approval request.",
     operation_id="approve_pending_agent_run",
@@ -148,6 +153,7 @@ async def resume_agent_run_stream(
 @router.get(
     "/{run_id}/trace",
     response_model=list[AgentTraceEvent],
+    response_model_exclude_none=True,
     summary="List agent trace events",
     operation_id="list_agent_trace",
 )

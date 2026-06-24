@@ -146,7 +146,12 @@ def test_http_app_exposes_chat_context_flow() -> None:
     }
     assert context_response.status_code == 201
     assert chat_response.status_code == 200
-    assert chat_response.json()["message"]["content"][0]["text"] == "ok"
+    chat_body = chat_response.json()
+    assert chat_body["message"]["content"][0]["text"] == "ok"
+    assert "response_id" not in chat_body
+    assert "usage" not in chat_body
+    assert "tool_calls" not in chat_body["message"]
+    assert "url" not in chat_body["message"]["content"][0]
     assert stored_context_response.status_code == 200
     assert [
         message["content"][0]["text"]
