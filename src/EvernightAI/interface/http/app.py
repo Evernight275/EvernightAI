@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 
@@ -39,6 +39,7 @@ def create_http_app(
     authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
     startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+    server_header: str | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -61,6 +62,8 @@ def create_http_app(
     app.state.authorized_interface_factory = (
         authorized_interface_factory or _identity_authorized_interface
     )
+    if server_header is not None and server_header != "":
+        _add_server_header_middleware(app, server_header)
     if auth_device is not None:
         app.openapi = _secured_openapi_factory(app)
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
@@ -76,6 +79,17 @@ def create_http_app(
     app.include_router(agent_runs_router)
 
     return app
+
+
+def _add_server_header_middleware(app: FastAPI, server_header: str) -> None:
+    @app.middleware("http")
+    async def add_server_header(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        response.headers["server"] = server_header
+        return response
 
 
 def _identity_authorized_interface(

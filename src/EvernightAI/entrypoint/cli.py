@@ -47,6 +47,7 @@ from EvernightAI.interface.cli.commands import (
     skill_supports,
 )
 from EvernightAI.interface.cli.config import load_config
+from EvernightAI.interface.cli.logging import configure_logging
 from EvernightAI.interface.cli.schema import EvernightConfig
 
 
@@ -54,6 +55,7 @@ DEFAULT_CONFIG_PATH = Path("config.toml")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    configure_logging()
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:

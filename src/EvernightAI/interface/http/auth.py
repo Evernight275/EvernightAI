@@ -1,19 +1,21 @@
+from typing import Any
+
+import jwt
 from fastapi import Request
+from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientError, PyJWTError
 
 from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.schema.auth import Principal
-from EvernightAI.core.schema.base import EvernightAISchema
-from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
-
-
-class HttpApiKeyCredential(EvernightAISchema):
-    api_key: str
-    principal: Principal
-
-
-class HttpOAuthBearerCredential(EvernightAISchema):
-    access_token: str
-    principal: Principal
+from EvernightAI.interface.http.schema import (
+    HttpApiKeyCredential,
+    HttpOAuthBearerCredential,
+    HttpOAuthJwtConfig,
+)
+from EvernightAI.interface.http.protocol import (
+    HttpAuthDeviceProtocol,
+    JwkClientProtocol,
+)
 
 
 class CompositeHttpAuthDevice(HttpAuthDeviceProtocol):
@@ -107,6 +109,80 @@ class OAuthBearerHttpAuthDevice(HttpAuthDeviceProtocol):
         return principal
 
 
+class OAuthJwtBearerHttpAuthDevice(HttpAuthDeviceProtocol):
+    def __init__(
+        self,
+        config: HttpOAuthJwtConfig,
+        *,
+        jwk_client: JwkClientProtocol | None = None,
+    ) -> None:
+        if not config.algorithms:
+            raise ValueError("OAuth JWT algorithms must not be empty")
+        self._config = config
+        self._jwk_client = jwk_client or PyJWKClient(config.jwks_url)
+
+    def principal_for_request(self, request: Request) -> Principal:
+        return self.principal(_bearer_token_from_request(request))
+
+    def principal(self, credential: object) -> Principal:
+        if credential is None:
+            raise AuthRequiredError("Authentication required")
+        if not isinstance(credential, str) or credential == "":
+            raise AuthRequiredError("Invalid access token")
+
+        claims = self._verified_claims(credential)
+        principal_id = _string_claim(claims, self._config.principal_id_claim)
+        if principal_id is None:
+            raise AuthRequiredError("Access token is missing principal claim")
+
+        return Principal(
+            principal_id=principal_id,
+            principal_type=self._config.principal_type,
+            roles=_string_claim_values(claims, self._config.roles_claim),
+            permissions=self._permissions_for_claims(claims),
+            metadata={
+                "issuer": claims.get("iss"),
+                "audience": claims.get("aud"),
+            },
+        )
+
+    def _verified_claims(self, access_token: str) -> dict[str, Any]:
+        try:
+            signing_key = self._jwk_client.get_signing_key_from_jwt(access_token)
+            claims = jwt.decode(
+                access_token,
+                getattr(signing_key, "key"),
+                algorithms=self._config.algorithms,
+                audience=self._config.audience,
+                issuer=self._config.issuer,
+                leeway=self._config.leeway_seconds,
+                options={
+                    "require": [
+                        "exp",
+                        "iss",
+                        "sub",
+                        "aud",
+                    ]
+                },
+            )
+        except (PyJWKClientError, PyJWTError) as exc:
+            raise AuthRequiredError("Invalid access token", cause=exc) from exc
+
+        return claims
+
+    def _permissions_for_claims(self, claims: dict[str, Any]) -> list[str]:
+        permissions = list(self._config.default_permissions)
+        permissions.extend(_string_claim_values(claims, self._config.permissions_claim))
+
+        for role in _string_claim_values(claims, self._config.roles_claim):
+            permissions.extend(self._config.role_permission_map.get(role, []))
+
+        for scope in _string_claim_values(claims, self._config.scope_claim):
+            permissions.extend(self._config.scope_permission_map.get(scope, []))
+
+        return _unique_strings(permissions)
+
+
 def _api_key_from_request(request: Request) -> str | None:
     authorization = request.headers.get("authorization")
     if authorization is not None:
@@ -131,3 +207,43 @@ def _bearer_token_from_request(request: Request) -> str | None:
         return token
 
     return None
+
+
+def _string_claim(claims: dict[str, Any], claim_path: str) -> str | None:
+    value = _claim_value(claims, claim_path)
+    if isinstance(value, str) and value != "":
+        return value
+
+    return None
+
+
+def _string_claim_values(claims: dict[str, Any], claim_path: str) -> list[str]:
+    value = _claim_value(claims, claim_path)
+    if isinstance(value, str):
+        return [item for item in value.split() if item]
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str) and item]
+
+    return []
+
+
+def _claim_value(claims: dict[str, Any], claim_path: str) -> object:
+    value: object = claims
+    for part in claim_path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+
+    return value
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+
+    return unique

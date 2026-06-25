@@ -7,6 +7,7 @@ from EvernightAI.bootstrap.config import create_unsecured_interface_from_config
 from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.cli.schema import EvernightConfig
 from EvernightAI.interface.http.app import create_http_app
@@ -14,7 +15,9 @@ from EvernightAI.interface.http.auth import (
     ApiKeyHttpAuthDevice,
     CompositeHttpAuthDevice,
     HttpApiKeyCredential,
+    HttpOAuthJwtConfig,
     HttpOAuthBearerCredential,
+    OAuthJwtBearerHttpAuthDevice,
     OAuthBearerHttpAuthDevice,
 )
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
@@ -49,6 +52,10 @@ def create_app(
         auth_device=_env_auth_device(),
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
+        server_header=_env_optional_string(
+            "EVERNIGHTAI_HTTP_SERVER_HEADER",
+            "EvernightAI",
+        ),
     )
 
 
@@ -70,6 +77,7 @@ def create_app_from_config(
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
         startup_handlers=[register_configured_providers],
+        server_header=config.http.server_header,
     )
 
 
@@ -152,6 +160,10 @@ def _config_auth_device(config: EvernightConfig) -> HttpAuthDeviceProtocol | Non
     if oauth_credentials:
         devices.append(_oauth_bearer_auth_device(oauth_credentials))
 
+    oauth_jwt_device = _config_oauth_jwt_auth_device(config)
+    if oauth_jwt_device is not None:
+        devices.append(oauth_jwt_device)
+
     if not devices:
         return CompositeHttpAuthDevice([])
 
@@ -168,6 +180,40 @@ def _oauth_bearer_auth_device(
     credentials: list[HttpOAuthBearerCredential],
 ) -> OAuthBearerHttpAuthDevice:
     return OAuthBearerHttpAuthDevice(credentials)
+
+
+def _config_oauth_jwt_auth_device(
+    config: EvernightConfig,
+) -> OAuthJwtBearerHttpAuthDevice | None:
+    jwt_config = config.auth.oauth.jwt
+    if jwt_config is None:
+        return None
+    if jwt_config.issuer is None:
+        raise ConfigurationError("OAuth JWT issuer is required")
+    if jwt_config.jwks_url is None:
+        raise ConfigurationError("OAuth JWT JWKS URL is required")
+    if not jwt_config.audience:
+        raise ConfigurationError("OAuth JWT audience is required")
+    if not jwt_config.algorithms:
+        raise ConfigurationError("OAuth JWT algorithms are required")
+
+    return OAuthJwtBearerHttpAuthDevice(
+        HttpOAuthJwtConfig(
+            issuer=jwt_config.issuer,
+            audience=jwt_config.audience,
+            jwks_url=jwt_config.jwks_url,
+            algorithms=jwt_config.algorithms,
+            leeway_seconds=jwt_config.leeway_seconds,
+            principal_id_claim=jwt_config.principal_id_claim,
+            principal_type=jwt_config.principal_type,
+            roles_claim=jwt_config.roles_claim,
+            scope_claim=jwt_config.scope_claim,
+            permissions_claim=jwt_config.permissions_claim,
+            default_permissions=jwt_config.default_permissions,
+            role_permission_map=jwt_config.role_permission_map,
+            scope_permission_map=jwt_config.scope_permission_map,
+        )
+    )
 
 
 def _combine_auth_devices(
@@ -192,6 +238,16 @@ def _authorized_interface_factory():
 
 def _env_path(name: str, default: str | Path) -> str | Path:
     return os.getenv(name) or default
+
+
+def _env_optional_string(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    if value == "":
+        return None
+
+    return value
 
 
 def _env_optional_path(name: str) -> str | Path | None:

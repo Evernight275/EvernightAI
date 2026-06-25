@@ -1,7 +1,9 @@
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+import jwt
 from fastapi.testclient import TestClient
 
 from EvernightAI.core.domain.context import (
@@ -22,7 +24,7 @@ from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.agent import AgentStateError
-from EvernightAI.core.error.auth import AuthPermissionDeniedError
+from EvernightAI.core.error.auth import AuthPermissionDeniedError, AuthRequiredError
 from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
@@ -64,9 +66,13 @@ from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import (
     ApiKeyHttpAuthDevice,
+    OAuthBearerHttpAuthDevice,
+    OAuthJwtBearerHttpAuthDevice,
+)
+from EvernightAI.interface.http.schema import (
     HttpApiKeyCredential,
     HttpOAuthBearerCredential,
-    OAuthBearerHttpAuthDevice,
+    HttpOAuthJwtConfig,
 )
 from EvernightAI.interface.http.errors import status_code_for_error
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
@@ -137,6 +143,21 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
 
 def test_http_maps_permission_denied_to_forbidden() -> None:
     assert status_code_for_error(AuthPermissionDeniedError("denied")) == 403
+
+
+def test_http_app_can_set_custom_server_header() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(
+        interface,
+        close_on_shutdown=False,
+        server_header="EvernightAdmin",
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers["server"] == "EvernightAdmin"
 
 
 def test_http_returns_forbidden_from_authorized_interface() -> None:
@@ -288,6 +309,71 @@ def test_http_oauth_bearer_auth_device_maps_token_to_principal() -> None:
 
     assert principal.principal_id == "oauth-user"
     assert principal.permissions == ["tools:list"]
+
+
+def test_http_oauth_jwt_bearer_auth_device_validates_token_and_maps_claims() -> None:
+    signing_key = "jwt-secret-with-at-least-32-bytes"
+    device = OAuthJwtBearerHttpAuthDevice(
+        HttpOAuthJwtConfig(
+            issuer="https://idp.example.test",
+            audience=["evernight-admin-api"],
+            jwks_url="https://idp.example.test/.well-known/jwks.json",
+            algorithms=["HS256"],
+            roles_claim="realm_access.roles",
+            role_permission_map={"evernight-admin": ["*"]},
+            scope_permission_map={"evernight.tools": ["tools:list"]},
+        ),
+        jwk_client=StaticJwkClient(signing_key),
+    )
+    token = jwt.encode(
+        {
+            "iss": "https://idp.example.test",
+            "aud": "evernight-admin-api",
+            "sub": "admin-1",
+            "exp": int(time.time()) + 60,
+            "scope": "evernight.tools",
+            "realm_access": {"roles": ["evernight-admin"]},
+        },
+        signing_key,
+        algorithm="HS256",
+    )
+
+    principal = device.principal(token)
+
+    assert principal.principal_id == "admin-1"
+    assert principal.roles == ["evernight-admin"]
+    assert principal.permissions == ["*", "tools:list"]
+    assert principal.metadata["issuer"] == "https://idp.example.test"
+
+
+def test_http_oauth_jwt_bearer_auth_device_rejects_invalid_claims() -> None:
+    signing_key = "jwt-secret-with-at-least-32-bytes"
+    device = OAuthJwtBearerHttpAuthDevice(
+        HttpOAuthJwtConfig(
+            issuer="https://idp.example.test",
+            audience=["evernight-admin-api"],
+            jwks_url="https://idp.example.test/.well-known/jwks.json",
+            algorithms=["HS256"],
+        ),
+        jwk_client=StaticJwkClient(signing_key),
+    )
+    token = jwt.encode(
+        {
+            "iss": "https://other-idp.example.test",
+            "aud": "evernight-admin-api",
+            "sub": "admin-1",
+            "exp": int(time.time()) + 60,
+        },
+        signing_key,
+        algorithm="HS256",
+    )
+
+    try:
+        device.principal(token)
+    except AuthRequiredError:
+        pass
+    else:
+        raise AssertionError("Expected AuthRequiredError")
 
 
 def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
@@ -1514,3 +1600,16 @@ class FailingChatStream:
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         raise self._error
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
+
+
+class StaticJwkClient:
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    def get_signing_key_from_jwt(self, token: str):
+        return StaticSigningKey(self._key)
+
+
+class StaticSigningKey:
+    def __init__(self, key: str) -> None:
+        self.key = key

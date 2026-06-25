@@ -14,6 +14,7 @@ class HttpConfig(EvernightAISchema):
     host: str = "127.0.0.1"
     port: int = 8000
     reload: bool = False
+    server_header: str | None = "EvernightAI"
 
 
 class FilesystemToolConfig(EvernightAISchema):
@@ -55,8 +56,25 @@ class OAuthTokenPrincipalConfig(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class OAuthJwtConfig(EvernightAISchema):
+    issuer: str | None = None
+    audience: list[str] = Field(default_factory=list)
+    jwks_url: str | None = None
+    algorithms: list[str] = Field(default_factory=lambda: ["RS256"])
+    leeway_seconds: int = 60
+    principal_id_claim: str = "sub"
+    principal_type: PrincipalType = PrincipalType.USER
+    roles_claim: str = "roles"
+    scope_claim: str = "scope"
+    permissions_claim: str = "permissions"
+    default_permissions: list[str] = Field(default_factory=list)
+    role_permission_map: dict[str, list[str]] = Field(default_factory=dict)
+    scope_permission_map: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class OAuthConfig(EvernightAISchema):
     tokens: list[OAuthTokenPrincipalConfig] = Field(default_factory=list)
+    jwt: OAuthJwtConfig | None = None
 
 
 class AuthConfig(EvernightAISchema):

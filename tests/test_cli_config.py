@@ -21,6 +21,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "host": "0.0.0.0",
                 "port": 8080,
                 "reload": True,
+                "server_header": "EvernightAdmin",
             },
             "tools": {
                 "filesystem": {
@@ -45,6 +46,15 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     }
                 },
                 "oauth": {
+                    "jwt": {
+                        "issuer": "https://idp.example.test",
+                        "audience": ["evernight-admin-api"],
+                        "jwks_url": "https://idp.example.test/.well-known/jwks.json",
+                        "algorithms": ["RS256"],
+                        "roles_claim": "realm_access.roles",
+                        "role_permission_map": {"evernight-admin": ["*"]},
+                        "scope_permission_map": {"evernight.tools": ["tools:list"]},
+                    },
                     "token": {
                         "reader": {
                             "access_token_env": "OAUTH_ACCESS_TOKEN",
@@ -78,6 +88,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.http.host == "0.0.0.0"
     assert config.http.port == 8080
     assert config.http.reload is True
+    assert config.http.server_header == "EvernightAdmin"
     assert config.tools.filesystem.enabled is True
     assert config.tools.filesystem.root == "."
     assert config.tools.filesystem.max_read_chars == 8000
@@ -94,6 +105,18 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.auth.oauth.tokens[0].access_token == "oauth-token"
     assert config.auth.oauth.tokens[0].roles == ["reader"]
     assert config.auth.oauth.tokens[0].permissions == ["tools:list"]
+    assert config.auth.oauth.jwt is not None
+    assert config.auth.oauth.jwt.issuer == "https://idp.example.test"
+    assert config.auth.oauth.jwt.audience == ["evernight-admin-api"]
+    assert (
+        config.auth.oauth.jwt.jwks_url
+        == "https://idp.example.test/.well-known/jwks.json"
+    )
+    assert config.auth.oauth.jwt.roles_claim == "realm_access.roles"
+    assert config.auth.oauth.jwt.role_permission_map == {"evernight-admin": ["*"]}
+    assert config.auth.oauth.jwt.scope_permission_map == {
+        "evernight.tools": ["tools:list"]
+    }
     assert provider.provider_id == "main"
     assert provider.name == "DeepSeek"
     assert provider.type is ProviderType.OPENAI
@@ -140,6 +163,7 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.runtime.database_path == ".evernight/runtime.sqlite3"
     assert config.http.host == "127.0.0.1"
     assert config.http.port == 8000
+    assert config.http.server_header == "EvernightAI"
     assert config.tools.filesystem.enabled is False
     assert config.tools.shell.allowed_commands == []
     assert config.auth.enabled is False

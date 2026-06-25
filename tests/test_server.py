@@ -2,12 +2,15 @@ from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app as create_http_app
 from EvernightAI.bootstrap.http import create_app_from_config
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
     EvernightConfig,
+    HttpConfig,
     OAuthConfig,
+    OAuthJwtConfig,
     OAuthTokenPrincipalConfig,
     RuntimeConfig,
 )
@@ -100,6 +103,23 @@ def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
     assert valid_response.status_code == 200
 
 
+def test_http_bootstrap_can_set_custom_server_header(tmp_path) -> None:
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            http=HttpConfig(server_header="EvernightAdmin"),
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.headers["server"] == "EvernightAdmin"
+
+
 def test_http_bootstrap_can_enable_config_oauth_bearer_auth(tmp_path) -> None:
     app = create_app_from_config(
         EvernightConfig(
@@ -131,6 +151,56 @@ def test_http_bootstrap_can_enable_config_oauth_bearer_auth(tmp_path) -> None:
 
     assert missing_response.status_code == 401
     assert valid_response.status_code == 200
+
+
+def test_http_bootstrap_can_enable_config_oauth_jwt_auth(tmp_path) -> None:
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            auth=AuthConfig(
+                enabled=True,
+                oauth=OAuthConfig(
+                    jwt=OAuthJwtConfig(
+                        issuer="https://idp.example.test",
+                        audience=["evernight-admin-api"],
+                        jwks_url="https://idp.example.test/.well-known/jwks.json",
+                        algorithms=["RS256"],
+                        role_permission_map={"evernight-admin": ["*"]},
+                    )
+                ),
+            ),
+        ),
+        close_on_shutdown=False,
+    )
+
+    assert app.state.auth_device is not None
+
+
+def test_http_bootstrap_rejects_incomplete_oauth_jwt_config(tmp_path) -> None:
+    try:
+        create_app_from_config(
+            EvernightConfig(
+                runtime=RuntimeConfig(
+                    database_path=(tmp_path / "runtime.sqlite3").as_posix()
+                ),
+                auth=AuthConfig(
+                    enabled=True,
+                    oauth=OAuthConfig(
+                        jwt=OAuthJwtConfig(
+                            issuer="https://idp.example.test",
+                            audience=["evernight-admin-api"],
+                        )
+                    ),
+                ),
+            ),
+            close_on_shutdown=False,
+        )
+    except ConfigurationError as exc:
+        assert "JWKS URL" in str(exc)
+    else:
+        raise AssertionError("Expected ConfigurationError")
 
 
 def test_http_bootstrap_keeps_auth_enabled_without_credentials(tmp_path) -> None:
@@ -183,11 +253,13 @@ reload = true
         calls["database_path"] = config.runtime.database_path
         return app
 
-    def run(started_app, *, host, port, reload):
+    def run(started_app, *, host, port, reload, log_config, server_header):
         calls["app"] = started_app
         calls["host"] = host
         calls["port"] = port
         calls["reload"] = reload
+        calls["log_config"] = log_config
+        calls["server_header"] = server_header
 
     monkeypatch.setattr(
         "EvernightAI.entrypoint.server.create_app_from_config",
@@ -200,12 +272,14 @@ reload = true
 
     assert exit_code == 0
     assert captured.err == ""
-    assert calls == {
-        "database_path": (tmp_path / "runtime.sqlite3").as_posix(),
-        "app": app,
-        "host": "0.0.0.0",
-        "port": 8123,
-        "reload": True,
+    assert calls["database_path"] == (tmp_path / "runtime.sqlite3").as_posix()
+    assert calls["app"] is app
+    assert calls["host"] == "0.0.0.0"
+    assert calls["port"] == 8123
+    assert calls["reload"] is True
+    assert calls["server_header"] is False
+    assert calls["log_config"]["formatters"]["evernight"] == {
+        "()": "EvernightAI.interface.cli.logging.EvernightLogFormatter",
     }
 
 

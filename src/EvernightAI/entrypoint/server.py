@@ -8,12 +8,14 @@ import uvicorn
 from EvernightAI.bootstrap.http import create_app_from_config
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.interface.cli.config import load_config
+from EvernightAI.interface.cli.logging import configure_logging, uvicorn_log_config
 
 
 DEFAULT_CONFIG_PATH = Path("config.toml")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    configure_logging()
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
@@ -33,6 +35,8 @@ def serve(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
         host=config.http.host,
         port=config.http.port,
         reload=config.http.reload,
+        log_config=uvicorn_log_config(),
+        server_header=False,
     )
 
 

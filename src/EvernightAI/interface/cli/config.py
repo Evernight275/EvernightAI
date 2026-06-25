@@ -16,6 +16,7 @@ from EvernightAI.interface.cli.schema import (
     EvernightConfig,
     HttpConfig,
     OAuthConfig,
+    OAuthJwtConfig,
     OAuthTokenPrincipalConfig,
     RuntimeConfig,
     ToolConfig,
@@ -112,6 +113,7 @@ def _parse_oauth(raw: object) -> OAuthConfig:
 
     return OAuthConfig(
         tokens=_parse_oauth_tokens(raw.get("token", {})),
+        jwt=_parse_oauth_jwt(raw.get("jwt")),
     )
 
 
@@ -137,6 +139,27 @@ def _parse_oauth_token(
         roles=_string_list(data.get("roles")),
         permissions=_string_list(data.get("permissions")),
         metadata=_dict(data.get("metadata")),
+    )
+
+
+def _parse_oauth_jwt(raw: object) -> OAuthJwtConfig | None:
+    if not isinstance(raw, dict):
+        return None
+
+    return OAuthJwtConfig(
+        issuer=_string(raw.get("issuer")),
+        audience=_string_or_string_list(raw.get("audience")),
+        jwks_url=_string(raw.get("jwks_url")),
+        algorithms=_string_list(raw.get("algorithms")) or ["RS256"],
+        leeway_seconds=_int(raw.get("leeway_seconds"), 60),
+        principal_id_claim=_string(raw.get("principal_id_claim")) or "sub",
+        principal_type=raw.get("principal_type", "user"),
+        roles_claim=_string(raw.get("roles_claim")) or "roles",
+        scope_claim=_string(raw.get("scope_claim")) or "scope",
+        permissions_claim=_string(raw.get("permissions_claim")) or "permissions",
+        default_permissions=_string_list(raw.get("default_permissions")),
+        role_permission_map=_string_list_dict(raw.get("role_permission_map")),
+        scope_permission_map=_string_list_dict(raw.get("scope_permission_map")),
     )
 
 
@@ -224,11 +247,36 @@ def _bool(value: object, default: bool) -> bool:
     return default
 
 
+def _int(value: object, default: int) -> int:
+    if isinstance(value, int):
+        return value
+
+    return default
+
+
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
 
     return [item for item in value if isinstance(item, str)]
+
+
+def _string_or_string_list(value: object) -> list[str]:
+    if isinstance(value, str) and value != "":
+        return [value]
+
+    return _string_list(value)
+
+
+def _string_list_dict(value: object) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+
+    return {
+        key: _string_or_string_list(item)
+        for key, item in value.items()
+        if isinstance(key, str)
+    }
 
 
 def _dict(value: object) -> dict[str, Any]:
