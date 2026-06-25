@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
@@ -25,6 +26,10 @@ from EvernightAI.interface.http.routes.sessions import router as sessions_router
 from EvernightAI.interface.http.routes.skills import router as skills_router
 from EvernightAI.interface.http.routes.tools import router as tools_router
 from EvernightAI.interface.http.template import API_DESCRIPTION, OPENAPI_TAGS
+
+
+HTTP_BEARER_SECURITY_SCHEME = "EvernightBearerAuth"
+HTTP_HEADER_API_KEY_SECURITY_SCHEME = "EvernightApiKey"
 
 
 def create_http_app(
@@ -56,6 +61,8 @@ def create_http_app(
     app.state.authorized_interface_factory = (
         authorized_interface_factory or _identity_authorized_interface
     )
+    if auth_device is not None:
+        app.openapi = _secured_openapi_factory(app)
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
@@ -76,3 +83,47 @@ def _identity_authorized_interface(
     _principal: Principal,
 ) -> EvernightInterfaceProtocol:
     return interface
+
+
+def _secured_openapi_factory(app: FastAPI):
+    def openapi() -> dict[str, object]:
+        if app.openapi_schema is not None:
+            return app.openapi_schema
+
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+            tags=app.openapi_tags,
+        )
+        components = schema.setdefault("components", {})
+        security_schemes = components.setdefault("securitySchemes", {})
+        security_schemes[HTTP_BEARER_SECURITY_SCHEME] = {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "API Key",
+            "description": "Send the API key as `Authorization: Bearer <api-key>`.",
+        }
+        security_schemes[HTTP_HEADER_API_KEY_SECURITY_SCHEME] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Evernight-API-Key",
+            "description": (
+                "Send the API key as `X-Evernight-API-Key: <api-key>`."
+            ),
+        }
+        for path, methods in schema.get("paths", {}).items():
+            if path == "/health":
+                continue
+            for operation in methods.values():
+                if isinstance(operation, dict):
+                    operation["security"] = [
+                        {HTTP_BEARER_SECURITY_SCHEME: []},
+                        {HTTP_HEADER_API_KEY_SECURITY_SCHEME: []},
+                    ]
+
+        app.openapi_schema = schema
+        return schema
+
+    return openapi

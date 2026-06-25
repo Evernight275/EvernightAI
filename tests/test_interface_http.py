@@ -223,6 +223,45 @@ def test_http_api_key_auth_device_rejects_missing_permission() -> None:
     assert_error_response(response.json(), "AuthPermissionDeniedError")
 
 
+def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(
+                        principal_id="user-1",
+                        permissions=["tools:list"],
+                    ),
+                )
+            ]
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+
+    assert schema["components"]["securitySchemes"]["EvernightBearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key",
+        "description": "Send the API key as `Authorization: Bearer <api-key>`.",
+    }
+    assert schema["components"]["securitySchemes"]["EvernightApiKey"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Evernight-API-Key",
+        "description": "Send the API key as `X-Evernight-API-Key: <api-key>`.",
+    }
+    assert schema["paths"]["/tools"]["get"]["security"] == [
+        {"EvernightBearerAuth": []},
+        {"EvernightApiKey": []},
+    ]
+    assert "security" not in schema["paths"]["/health"]["get"]
+
+
 def test_http_app_exposes_chat_context_flow() -> None:
     provider = FakeProvider()
     interface = create_interface(make_runtime(provider=provider))
