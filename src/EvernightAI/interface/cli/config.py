@@ -3,7 +3,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import ConfigDict, ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.provider import (
@@ -15,9 +15,15 @@ from EvernightAI.interface.cli.schema import (
     AuthPrincipalConfig,
     EvernightConfig,
     HttpConfig,
+    OAuthConfig,
+    OAuthTokenPrincipalConfig,
     RuntimeConfig,
     ToolConfig,
 )
+
+
+class _ProviderModelConfigInput(ProviderModelConfig):
+    model_config = ConfigDict(extra="forbid")
 
 
 def load_config(path: str | Path) -> EvernightConfig:
@@ -71,6 +77,7 @@ def _parse_auth(raw: object) -> AuthConfig:
     return AuthConfig(
         enabled=_bool(raw.get("enabled"), False),
         principals=_parse_auth_principals(raw.get("principal", {})),
+        oauth=_parse_oauth(raw.get("oauth", {})),
     )
 
 
@@ -93,6 +100,40 @@ def _parse_auth_principal(
         principal_id=_string(data.get("principal_id")) or principal_key,
         principal_type=data.get("principal_type", "user"),
         api_key=_api_key(data),
+        roles=_string_list(data.get("roles")),
+        permissions=_string_list(data.get("permissions")),
+        metadata=_dict(data.get("metadata")),
+    )
+
+
+def _parse_oauth(raw: object) -> OAuthConfig:
+    if not isinstance(raw, dict):
+        return OAuthConfig()
+
+    return OAuthConfig(
+        tokens=_parse_oauth_tokens(raw.get("token", {})),
+    )
+
+
+def _parse_oauth_tokens(raw: object) -> list[OAuthTokenPrincipalConfig]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        _parse_oauth_token(token_key, token_data)
+        for token_key, token_data in raw.items()
+        if isinstance(token_key, str) and isinstance(token_data, dict)
+    ]
+
+
+def _parse_oauth_token(
+    token_key: str,
+    data: dict[str, Any],
+) -> OAuthTokenPrincipalConfig:
+    return OAuthTokenPrincipalConfig(
+        principal_id=_string(data.get("principal_id")) or token_key,
+        principal_type=data.get("principal_type", "user"),
+        access_token=_access_token(data),
         roles=_string_list(data.get("roles")),
         permissions=_string_list(data.get("permissions")),
         metadata=_dict(data.get("metadata")),
@@ -127,7 +168,7 @@ def _parse_models(raw: object) -> dict[str, ProviderModelConfig]:
             continue
 
         model_id = _string(model_data.get("model_id")) or model_key
-        models[model_id] = ProviderModelConfig.model_validate(
+        models[model_id] = _ProviderModelConfigInput.model_validate(
             {
                 **model_data,
                 "model_id": model_id,
@@ -147,6 +188,22 @@ def _api_key(data: dict[str, Any]) -> str | None:
         return None
 
     value = os.getenv(api_key_env)
+    if value == "":
+        return None
+
+    return value
+
+
+def _access_token(data: dict[str, Any]) -> str | None:
+    access_token = _string(data.get("access_token"))
+    if access_token is not None:
+        return access_token
+
+    access_token_env = _string(data.get("access_token_env"))
+    if access_token_env is None:
+        return None
+
+    value = os.getenv(access_token_env)
     if value == "":
         return None
 

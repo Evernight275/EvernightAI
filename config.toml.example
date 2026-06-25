@@ -22,6 +22,11 @@ enabled = false
 api_key_env = "EVERNIGHTAI_HTTP_API_KEY"
 permissions = ["*"]
 
+[auth.oauth.token.reader]
+# OAuth bearer access tokens use `Authorization: Bearer ...`.
+access_token_env = "EVERNIGHTAI_HTTP_OAUTH_ACCESS_TOKEN"
+permissions = ["tools:list"]
+
 [tools.filesystem]
 # Keep disabled unless you intentionally want file tools exposed.
 enabled = false

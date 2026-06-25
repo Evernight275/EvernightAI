@@ -62,7 +62,12 @@ from EvernightAI.core.schema.tool import (
 )
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.interface.http.app import create_http_app
-from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice, HttpApiKeyCredential
+from EvernightAI.interface.http.auth import (
+    ApiKeyHttpAuthDevice,
+    HttpApiKeyCredential,
+    HttpOAuthBearerCredential,
+    OAuthBearerHttpAuthDevice,
+)
 from EvernightAI.interface.http.errors import status_code_for_error
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
 
@@ -223,6 +228,68 @@ def test_http_api_key_auth_device_rejects_missing_permission() -> None:
     assert_error_response(response.json(), "AuthPermissionDeniedError")
 
 
+def test_http_oauth_bearer_auth_device_requires_access_token() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=OAuthBearerHttpAuthDevice(
+            [
+                HttpOAuthBearerCredential(
+                    access_token="token-1",
+                    principal=Principal(
+                        principal_id="oauth-user",
+                        permissions=["tools:list"],
+                    ),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        invalid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer wrong"},
+        )
+        valid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer token-1"},
+        )
+
+    assert missing_response.status_code == 401
+    assert_error_response(missing_response.json(), "AuthRequiredError")
+    assert invalid_response.status_code == 401
+    assert_error_response(invalid_response.json(), "AuthRequiredError")
+    assert valid_response.status_code == 200
+    assert valid_response.json() == []
+
+
+def test_http_oauth_bearer_auth_device_maps_token_to_principal() -> None:
+    device = OAuthBearerHttpAuthDevice(
+        [
+            HttpOAuthBearerCredential(
+                access_token="token-1",
+                principal=Principal(
+                    principal_id="oauth-user",
+                    permissions=["tools:list"],
+                ),
+            )
+        ]
+    )
+
+    principal = device.principal("token-1")
+
+    assert principal.principal_id == "oauth-user"
+    assert principal.permissions == ["tools:list"]
+
+
 def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
     app = create_http_app(
         create_interface(make_runtime()),
@@ -246,8 +313,11 @@ def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
     assert schema["components"]["securitySchemes"]["EvernightBearerAuth"] == {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "API Key",
-        "description": "Send the API key as `Authorization: Bearer <api-key>`.",
+        "bearerFormat": "OAuth Access Token",
+        "description": (
+            "Send an OAuth access token or API key as "
+            "`Authorization: Bearer <token>`."
+        ),
     }
     assert schema["components"]["securitySchemes"]["EvernightApiKey"] == {
         "type": "apiKey",

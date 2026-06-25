@@ -46,9 +46,23 @@ class AuthPrincipalConfig(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class OAuthTokenPrincipalConfig(EvernightAISchema):
+    principal_id: str
+    principal_type: PrincipalType = PrincipalType.USER
+    access_token: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OAuthConfig(EvernightAISchema):
+    tokens: list[OAuthTokenPrincipalConfig] = Field(default_factory=list)
+
+
 class AuthConfig(EvernightAISchema):
     enabled: bool = False
     principals: list[AuthPrincipalConfig] = Field(default_factory=list)
+    oauth: OAuthConfig = Field(default_factory=OAuthConfig)
 
 
 class EvernightConfig(EvernightAISchema):

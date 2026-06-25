@@ -102,8 +102,11 @@ def _secured_openapi_factory(app: FastAPI):
         security_schemes[HTTP_BEARER_SECURITY_SCHEME] = {
             "type": "http",
             "scheme": "bearer",
-            "bearerFormat": "API Key",
-            "description": "Send the API key as `Authorization: Bearer <api-key>`.",
+            "bearerFormat": "OAuth Access Token",
+            "description": (
+                "Send an OAuth access token or API key as "
+                "`Authorization: Bearer <token>`."
+            ),
         }
         security_schemes[HTTP_HEADER_API_KEY_SECURITY_SCHEME] = {
             "type": "apiKey",

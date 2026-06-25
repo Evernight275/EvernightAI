@@ -4,11 +4,13 @@ from EvernightAI.core.schema.provider import (
     ProviderModelCapability,
     ProviderType,
 )
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.interface.cli.config import load_config, parse_config
 
 
 def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-key")
+    monkeypatch.setenv("OAUTH_ACCESS_TOKEN", "oauth-token")
 
     config = parse_config(
         {
@@ -40,6 +42,15 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                         "api_key_env": "DEEPSEEK_API_KEY",
                         "roles": ["admin"],
                         "permissions": ["*"],
+                    }
+                },
+                "oauth": {
+                    "token": {
+                        "reader": {
+                            "access_token_env": "OAUTH_ACCESS_TOKEN",
+                            "roles": ["reader"],
+                            "permissions": ["tools:list"],
+                        }
                     }
                 },
             },
@@ -79,6 +90,10 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.auth.principals[0].api_key == "secret-key"
     assert config.auth.principals[0].roles == ["admin"]
     assert config.auth.principals[0].permissions == ["*"]
+    assert config.auth.oauth.tokens[0].principal_id == "reader"
+    assert config.auth.oauth.tokens[0].access_token == "oauth-token"
+    assert config.auth.oauth.tokens[0].roles == ["reader"]
+    assert config.auth.oauth.tokens[0].permissions == ["tools:list"]
     assert provider.provider_id == "main"
     assert provider.name == "DeepSeek"
     assert provider.type is ProviderType.OPENAI
@@ -130,3 +145,26 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.auth.enabled is False
     assert config.auth.principals == []
     assert config.providers == []
+
+
+def test_parse_config_rejects_unknown_provider_model_fields() -> None:
+    try:
+        parse_config(
+            {
+                "provider": {
+                    "main": {
+                        "type": "openai",
+                        "model": {
+                            "chat": {
+                                "del_id": "gpt-test",
+                                "capabilities": ["chat"],
+                            }
+                        },
+                    }
+                }
+            }
+        )
+    except ConfigurationError as exc:
+        assert "del_id" in str(exc.detail)
+    else:
+        raise AssertionError("Expected ConfigurationError")

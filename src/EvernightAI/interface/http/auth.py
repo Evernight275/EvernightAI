@@ -11,6 +11,42 @@ class HttpApiKeyCredential(EvernightAISchema):
     principal: Principal
 
 
+class HttpOAuthBearerCredential(EvernightAISchema):
+    access_token: str
+    principal: Principal
+
+
+class CompositeHttpAuthDevice(HttpAuthDeviceProtocol):
+    def __init__(self, devices: list[HttpAuthDeviceProtocol]) -> None:
+        self._devices = devices
+
+    def principal_for_request(self, request: Request) -> Principal:
+        last_error: AuthRequiredError | None = None
+        for device in self._devices:
+            try:
+                return device.principal_for_request(request)
+            except AuthRequiredError as error:
+                last_error = error
+
+        if last_error is not None:
+            raise last_error
+
+        raise AuthRequiredError("Authentication required")
+
+    def principal(self, credential: object) -> Principal:
+        last_error: AuthRequiredError | None = None
+        for device in self._devices:
+            try:
+                return device.principal(credential)
+            except AuthRequiredError as error:
+                last_error = error
+
+        if last_error is not None:
+            raise last_error
+
+        raise AuthRequiredError("Authentication required")
+
+
 class ApiKeyHttpAuthDevice(HttpAuthDeviceProtocol):
     def __init__(
         self,
@@ -41,6 +77,36 @@ class ApiKeyHttpAuthDevice(HttpAuthDeviceProtocol):
         return principal
 
 
+class OAuthBearerHttpAuthDevice(HttpAuthDeviceProtocol):
+    def __init__(
+        self,
+        credentials: list[HttpOAuthBearerCredential],
+    ) -> None:
+        self._principals_by_token = {
+            credential.access_token: credential.principal
+            for credential in credentials
+            if credential.access_token
+        }
+
+    def principal_for_request(self, request: Request) -> Principal:
+        return self.principal(_bearer_token_from_request(request))
+
+    def principal(self, credential: object) -> Principal:
+        if credential is None:
+            raise AuthRequiredError("Authentication required")
+        if not isinstance(credential, str) or credential == "":
+            raise AuthRequiredError("Invalid access token")
+
+        return self._principal_for_access_token(credential)
+
+    def _principal_for_access_token(self, access_token: str) -> Principal:
+        principal = self._principals_by_token.get(access_token)
+        if principal is None:
+            raise AuthRequiredError("Invalid access token")
+
+        return principal
+
+
 def _api_key_from_request(request: Request) -> str | None:
     authorization = request.headers.get("authorization")
     if authorization is not None:
@@ -51,5 +117,17 @@ def _api_key_from_request(request: Request) -> str | None:
     api_key = request.headers.get("x-evernight-api-key")
     if api_key:
         return api_key
+
+    return None
+
+
+def _bearer_token_from_request(request: Request) -> str | None:
+    authorization = request.headers.get("authorization")
+    if authorization is None:
+        return None
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token:
+        return token
 
     return None

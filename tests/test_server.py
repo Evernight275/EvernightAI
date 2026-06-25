@@ -2,10 +2,13 @@ from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app as create_http_app
 from EvernightAI.bootstrap.http import create_app_from_config
+from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
     EvernightConfig,
+    OAuthConfig,
+    OAuthTokenPrincipalConfig,
     RuntimeConfig,
 )
 from EvernightAI.server import main as package_server_main
@@ -42,6 +45,30 @@ def test_http_bootstrap_can_enable_env_api_key_auth(tmp_path, monkeypatch) -> No
     assert valid_response.status_code == 200
 
 
+def test_http_bootstrap_can_enable_env_oauth_bearer_auth(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_OAUTH_ACCESS_TOKEN", "oauth-token")
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_OAUTH_PERMISSIONS", "tools:list")
+
+    app = create_http_app(
+        database_path=tmp_path / "entrypoint.sqlite3",
+        filesystem_root=tmp_path,
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        valid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer oauth-token"},
+        )
+
+    assert missing_response.status_code == 401
+    assert valid_response.status_code == 200
+
+
 def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
     app = create_app_from_config(
         EvernightConfig(
@@ -71,6 +98,60 @@ def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
 
     assert missing_response.status_code == 401
     assert valid_response.status_code == 200
+
+
+def test_http_bootstrap_can_enable_config_oauth_bearer_auth(tmp_path) -> None:
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            auth=AuthConfig(
+                enabled=True,
+                oauth=OAuthConfig(
+                    tokens=[
+                        OAuthTokenPrincipalConfig(
+                            principal_id="reader",
+                            access_token="oauth-token",
+                            permissions=["tools:list"],
+                        )
+                    ],
+                ),
+            ),
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        missing_response = client.get("/tools")
+        valid_response = client.get(
+            "/tools",
+            headers={"authorization": "Bearer oauth-token"},
+        )
+
+    assert missing_response.status_code == 401
+    assert valid_response.status_code == 200
+
+
+def test_http_bootstrap_keeps_auth_enabled_without_credentials(tmp_path) -> None:
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            auth=AuthConfig(enabled=True),
+        ),
+        close_on_shutdown=False,
+    )
+
+    auth_device = app.state.auth_device
+    assert auth_device is not None
+    try:
+        auth_device.principal(None)
+    except AuthRequiredError:
+        pass
+    else:
+        raise AssertionError("Expected AuthRequiredError")
 
 
 def test_package_server_wrapper_exposes_main() -> None:
