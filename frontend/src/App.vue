@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import {
+  chatWithContextStream,
   chatWithSession,
   createContext,
   createSession,
@@ -9,7 +10,11 @@ import {
   getApiKey,
   getContext,
   setApiKey,
+  startAgentRunStream,
+  startSessionAgentRun,
+  type AgentTraceEvent,
   type AgentRunState,
+  type ChatStreamEvent,
   type Content,
   type Context,
   type ProviderInfo,
@@ -30,6 +35,11 @@ type ProviderModelChoice = {
   providerId: string
   modelId: string
   label: string
+}
+type ChatDisplayMessage = Content & {
+  outgoing?: boolean
+  text: string
+  pending?: boolean
 }
 
 const viewMeta: Record<ViewKey, { title: string; description: string }> = {
@@ -74,7 +84,13 @@ const selectedSessionId = ref<string | null>(null)
 const selectedContext = ref<Context | null>(null)
 const contextLoading = ref(false)
 const chatDraft = ref('')
+const pendingChatMessages = ref<ChatDisplayMessage[]>([])
+const pendingChatSessionId = ref<string | null>(null)
+const pendingAssistantHasDelta = ref(false)
 const selectedProviderModel = ref('main::gpt-4.1-mini')
+const chatTimeoutSeconds = ref(30)
+const chatStreamEnabled = ref(false)
+const chatAgentEnabled = ref(true)
 const sendingMessage = ref(false)
 const creatingSession = ref(false)
 const providerModelsLoading = ref(false)
@@ -148,16 +164,27 @@ const pageTitle = computed(() => viewMeta[currentView.value].title)
 const pageDescription = computed(() => viewMeta[currentView.value].description)
 const chatDisplayError = computed(() => chatError.value || dashboardError.value)
 
-const chatMessages = computed<Array<Content & { outgoing?: boolean; text: string }>>(() => {
+const chatMessages = computed<ChatDisplayMessage[]>(() => {
+  const pendingMessages = pendingChatSessionId.value === selectedSessionId.value
+    ? pendingChatMessages.value
+    : []
+
   if (selectedContext.value?.messages?.length) {
-    return selectedContext.value.messages.map((message) => ({
+    return [
+      ...selectedContext.value.messages.map((message) => ({
       ...message,
       text: textPart(message),
       outgoing: message.role === 'assistant',
-    }))
+      })),
+      ...pendingMessages,
+    ]
   }
 
-  const messages: Array<Content & { outgoing?: boolean; text: string }> = []
+  const messages: ChatDisplayMessage[] = [...pendingMessages]
+
+  if (messages.length > 0) {
+    return messages
+  }
 
   if (selectedSession.value) {
     messages.push({
@@ -257,9 +284,27 @@ async function sendChatMessage(text: string) {
 
   sendingMessage.value = true
   chatError.value = null
+  const routeLabel = chatAgentEnabled.value ? 'Agent' : '模型'
+  const assistantRunningText = chatStreamEnabled.value ? `${routeLabel} 正在流式响应...` : `${routeLabel} 正在运行...`
+  pendingChatSessionId.value = session.session_id
+  pendingAssistantHasDelta.value = false
+  pendingChatMessages.value = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: messageText }],
+      text: messageText,
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: assistantRunningText }],
+      text: assistantRunningText,
+      pending: true,
+    },
+  ]
+  chatDraft.value = ''
 
   try {
-    await chatWithSession(session.session_id, {
+    const request = {
       provider_id: selectedProviderModelChoice.value.providerId,
       model_id: selectedProviderModelChoice.value.modelId,
       messages: [
@@ -268,14 +313,157 @@ async function sendChatMessage(text: string) {
           content: [{ type: 'text', text: messageText }],
         },
       ],
-    })
-    chatDraft.value = ''
+      metadata: {
+        source: 'frontend-chat',
+        timeout_seconds: chatTimeoutSeconds.value,
+        stream: chatStreamEnabled.value,
+      },
+    }
+
+    if (chatStreamEnabled.value && chatAgentEnabled.value) {
+      const runId = newId('run')
+      await startAgentRunStream({
+        ...request,
+        context_id: session.context_id,
+        metadata: {
+          ...request.metadata,
+          session_id: session.session_id,
+          run_id: runId,
+        },
+        max_tool_rounds: 1,
+        recover_tool_errors: true,
+        write_memory: false,
+        pause_on_approval: false,
+      }, handleAgentStreamEvent)
+    } else if (chatStreamEnabled.value) {
+      setPendingAssistantText('', true)
+      await chatWithContextStream({
+        ...request,
+        context_id: session.context_id,
+        metadata: {
+          ...request.metadata,
+          session_id: session.session_id,
+        },
+      }, handleChatStreamEvent)
+    } else if (chatAgentEnabled.value) {
+      await startSessionAgentRun(session.session_id, {
+        ...request,
+        max_tool_rounds: 1,
+        recover_tool_errors: true,
+        write_memory: false,
+        pause_on_approval: false,
+      })
+    } else {
+      await chatWithSession(session.session_id, request)
+    }
     await refreshDashboard()
+    pendingChatMessages.value = []
+    pendingChatSessionId.value = null
+    pendingAssistantHasDelta.value = false
   } catch (error) {
-    chatError.value = error instanceof Error ? error.message : '消息发送失败'
+    const message = error instanceof Error ? error.message : 'Agent 运行失败'
+    chatError.value = message
+    pendingChatMessages.value = [
+      pendingChatMessages.value[0],
+      {
+        role: 'system',
+        content: [{ type: 'text', text: `Agent 运行失败：${message}` }],
+        text: `Agent 运行失败：${message}`,
+    },
+    ]
+    pendingAssistantHasDelta.value = false
   } finally {
     sendingMessage.value = false
   }
+}
+
+function handleChatStreamEvent(event: ChatStreamEvent) {
+  if (event.event_type === 'message_delta') {
+    const text = event.text_delta || event.content_part?.text || ''
+    appendPendingAssistantText(text)
+    return
+  }
+
+  if (event.event_type === 'error') {
+    throw new Error(event.error_message || event.error_type || '流式响应失败')
+  }
+}
+
+function handleAgentStreamEvent(event: AgentTraceEvent) {
+  if (event.event_type === 'run_started') {
+    setPendingAssistantText(event.summary || 'Agent 已开始运行...', true)
+    pendingAssistantHasDelta.value = false
+    return
+  }
+
+  if (event.event_type === 'chat_delta') {
+    appendPendingAssistantText(event.text_delta || '')
+    return
+  }
+
+  if (event.event_type === 'chat_completed') {
+    const text = event.message ? textPart(event.message) : ''
+    if (text) {
+      setPendingAssistantText(text, true)
+      pendingAssistantHasDelta.value = true
+    }
+    return
+  }
+
+  if (event.event_type === 'tool_completed' && event.summary) {
+    setPendingAssistantText(event.summary, true)
+    pendingAssistantHasDelta.value = false
+    return
+  }
+
+  if (event.event_type === 'run_stopped') {
+    markPendingAssistantDone()
+    return
+  }
+
+  if (event.event_type === 'run_paused' && event.summary) {
+    setPendingAssistantText(event.summary, false)
+  }
+}
+
+function appendPendingAssistantText(text: string) {
+  if (!text) {
+    return
+  }
+
+  const current = pendingChatMessages.value[1]?.pending
+    && pendingChatMessages.value[1].role === 'assistant'
+    && pendingAssistantHasDelta.value
+    ? pendingChatMessages.value[1].text
+    : ''
+  pendingAssistantHasDelta.value = true
+  setPendingAssistantText(current + text, true)
+}
+
+function setPendingAssistantText(text: string, pending: boolean) {
+  const userMessage = pendingChatMessages.value[0]
+  if (!userMessage) {
+    return
+  }
+
+  pendingChatMessages.value = [
+    userMessage,
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      text,
+      pending,
+    },
+  ]
+}
+
+function markPendingAssistantDone() {
+  const assistant = pendingChatMessages.value[1]
+  if (!assistant) {
+    return
+  }
+
+  setPendingAssistantText(assistant.text, false)
 }
 
 async function createNewChatSession() {
@@ -304,6 +492,8 @@ async function createNewChatSession() {
       context_id: contextId,
       messages: [],
     }
+    pendingChatMessages.value = []
+    pendingChatSessionId.value = null
     chatDraft.value = ''
     await refreshDashboard()
   } catch (error) {
@@ -435,6 +625,9 @@ watch(currentView, async (view) => {
           v-else-if="currentView === 'chat'"
           v-model="chatDraft"
           v-model:model-selection="selectedProviderModel"
+          v-model:timeout-seconds="chatTimeoutSeconds"
+          v-model:stream-enabled="chatStreamEnabled"
+          v-model:agent-enabled="chatAgentEnabled"
           :sessions="sortedSessions"
           :model-options="providerModelChoices"
           :selected-session-id="selectedSessionId"

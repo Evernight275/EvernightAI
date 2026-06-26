@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import css from 'highlight.js/lib/languages/css'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdown from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import katex from 'katex'
 import type { Content, Session } from '../api'
-import { formatStatus, shortId } from '../format'
+import { shortId } from '../format'
 import Icon from './Icon.vue'
 
 type ModelOption = {
@@ -9,11 +20,17 @@ type ModelOption = {
   label: string
 }
 
+type MathPlaceholder = {
+  placeholder: string
+  html: string
+  displayMode: boolean
+}
+
 const props = defineProps<{
   sessions: Session[]
   modelOptions: ModelOption[]
   selectedSessionId: string | null
-  messages: Array<Content & { outgoing?: boolean; text: string }>
+  messages: Array<Content & { outgoing?: boolean; text: string; pending?: boolean }>
   title: string
   loading: boolean
   sending: boolean
@@ -24,7 +41,11 @@ const props = defineProps<{
 
 const model = defineModel<string>({ required: true })
 const modelSelection = defineModel<string>('modelSelection', { required: true })
+const timeoutSeconds = defineModel<number>('timeoutSeconds', { required: true })
+const streamEnabled = defineModel<boolean>('streamEnabled', { required: true })
+const agentEnabled = defineModel<boolean>('agentEnabled', { required: true })
 const modelPickerOpen = ref(false)
+const settingsOpen = ref(false)
 const selectedModelLabel = computed(() => (
   props.modelOptions.find((option) => option.value === modelSelection.value)?.label
   || props.modelOptions[0]?.label
@@ -35,6 +56,58 @@ const emit = defineEmits<{
   send: [text: string]
   createSession: []
 }>()
+
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('xml', xml)
+
+const languageAliases: Record<string, string> = {
+  html: 'xml',
+  js: 'javascript',
+  jsx: 'javascript',
+  md: 'markdown',
+  py: 'python',
+  sh: 'bash',
+  shell: 'bash',
+  ts: 'typescript',
+  tsx: 'typescript',
+  vue: 'xml',
+  zsh: 'bash',
+}
+
+const markdownRenderer = new MarkdownIt({
+  breaks: true,
+  highlight(code, language) {
+    const normalizedLanguage = normalizeHighlightLanguage(language)
+    if (normalizedLanguage) {
+      const highlighted = hljs.highlight(code, {
+        language: normalizedLanguage,
+        ignoreIllegals: true,
+      }).value
+      return codeBlockHtml(highlighted, normalizedLanguage)
+    }
+
+    const highlighted = hljs.highlightAuto(code).value
+    return codeBlockHtml(highlighted, 'text')
+  },
+  html: false,
+  linkify: true,
+})
+
+const defaultRenderLinkOpen = markdownRenderer.renderer.rules.link_open
+markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, self) => {
+  const token = tokens[index]
+  token.attrSet('target', '_blank')
+  token.attrSet('rel', 'noreferrer')
+  return defaultRenderLinkOpen
+    ? defaultRenderLinkOpen(tokens, index, options, env, self)
+    : self.renderToken(tokens, index, options)
+}
 
 function submit() {
   const text = model.value.trim()
@@ -55,6 +128,244 @@ function toggleModelPicker() {
 function selectModel(value: string) {
   modelSelection.value = value
   modelPickerOpen.value = false
+}
+
+function toggleSettings() {
+  if (props.sending) {
+    return
+  }
+
+  settingsOpen.value = !settingsOpen.value
+}
+
+function renderMarkdown(text: string): string {
+  const normalized = text.replace(/\r\n?/g, '\n').trim()
+  if (normalized === '') {
+    return '<p>无文本内容</p>'
+  }
+
+  const math = extractMathPlaceholders(normalized)
+  return restoreMathPlaceholders(markdownRenderer.render(math.markdown), math.placeholders)
+}
+
+function codeBlockHtml(highlightedCode: string, language: string): string {
+  return `<pre class="hljs" data-language="${language}"><code class="language-${language}">${highlightedCode}</code></pre>`
+}
+
+function extractMathPlaceholders(text: string): {
+  markdown: string
+  placeholders: MathPlaceholder[]
+} {
+  const placeholders: MathPlaceholder[] = []
+  const markdown = splitMarkdownCodeFences(text)
+    .map((segment) => (
+      segment.isCode ? segment.text : extractMathFromText(segment.text, placeholders)
+    ))
+    .join('')
+
+  return { markdown, placeholders }
+}
+
+function splitMarkdownCodeFences(text: string): Array<{ text: string; isCode: boolean }> {
+  const segments: Array<{ text: string; isCode: boolean }> = []
+  const fencePattern = /(^|\n)(```|~~~)[^\n]*(?:\n[\s\S]*?\n\2[^\n]*(?=\n|$)|[\s\S]*$)/g
+  let cursor = 0
+  let match: RegExpExecArray | null
+
+  while ((match = fencePattern.exec(text)) !== null) {
+    const start = match.index + match[1].length
+    if (start > cursor) {
+      segments.push({ text: text.slice(cursor, start), isCode: false })
+    }
+    segments.push({ text: text.slice(start, fencePattern.lastIndex), isCode: true })
+    cursor = fencePattern.lastIndex
+  }
+
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), isCode: false })
+  }
+
+  return segments
+}
+
+function extractMathFromText(text: string, placeholders: MathPlaceholder[]): string {
+  let output = ''
+  let index = 0
+
+  while (index < text.length) {
+    const blockBracket = readDelimitedFormula(text, index, '\\[', '\\]')
+    if (blockBracket !== null) {
+      output += mathPlaceholder(blockBracket.formula, true, placeholders)
+      index = blockBracket.end
+      continue
+    }
+
+    const inlineParen = readDelimitedFormula(text, index, '\\(', '\\)')
+    if (inlineParen !== null) {
+      output += mathPlaceholder(inlineParen.formula, false, placeholders)
+      index = inlineParen.end
+      continue
+    }
+
+    const blockDollar = readDollarBlockFormula(text, index)
+    if (blockDollar !== null) {
+      output += mathPlaceholder(blockDollar.formula, true, placeholders)
+      index = blockDollar.end
+      continue
+    }
+
+    const inlineDollar = readDollarInlineFormula(text, index)
+    if (inlineDollar !== null) {
+      output += mathPlaceholder(inlineDollar.formula, false, placeholders)
+      index = inlineDollar.end
+      continue
+    }
+
+    output += text[index]
+    index += 1
+  }
+
+  return output
+}
+
+function readDelimitedFormula(
+  text: string,
+  index: number,
+  opener: string,
+  closer: string,
+): { formula: string; end: number } | null {
+  if (!text.startsWith(opener, index)) {
+    return null
+  }
+
+  const closeIndex = findUnescaped(text, closer, index + opener.length)
+  if (closeIndex === -1) {
+    return null
+  }
+
+  return {
+    formula: text.slice(index + opener.length, closeIndex),
+    end: closeIndex + closer.length,
+  }
+}
+
+function readDollarBlockFormula(
+  text: string,
+  index: number,
+): { formula: string; end: number } | null {
+  if (!text.startsWith('$$', index) || isEscaped(text, index)) {
+    return null
+  }
+
+  const closeIndex = findUnescaped(text, '$$', index + 2)
+  if (closeIndex === -1) {
+    return null
+  }
+
+  return {
+    formula: text.slice(index + 2, closeIndex),
+    end: closeIndex + 2,
+  }
+}
+
+function readDollarInlineFormula(
+  text: string,
+  index: number,
+): { formula: string; end: number } | null {
+  if (text[index] !== '$' || text[index + 1] === '$' || isEscaped(text, index)) {
+    return null
+  }
+
+  const next = text[index + 1]
+  if (next === undefined || /\s/.test(next)) {
+    return null
+  }
+
+  let closeIndex = text.indexOf('$', index + 1)
+  while (closeIndex !== -1) {
+    const previous = text[closeIndex - 1]
+    const following = text[closeIndex + 1]
+    if (
+      !isEscaped(text, closeIndex)
+      && previous !== undefined
+      && !/\s/.test(previous)
+      && (following === undefined || !/\d/.test(following))
+    ) {
+      return {
+        formula: text.slice(index + 1, closeIndex),
+        end: closeIndex + 1,
+      }
+    }
+    closeIndex = text.indexOf('$', closeIndex + 1)
+  }
+
+  return null
+}
+
+function findUnescaped(text: string, needle: string, start: number): number {
+  let index = text.indexOf(needle, start)
+  while (index !== -1) {
+    if (!isEscaped(text, index)) {
+      return index
+    }
+    index = text.indexOf(needle, index + needle.length)
+  }
+
+  return -1
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let slashCount = 0
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
+    slashCount += 1
+  }
+
+  return slashCount % 2 === 1
+}
+
+function mathPlaceholder(
+  formula: string,
+  displayMode: boolean,
+  placeholders: MathPlaceholder[],
+): string {
+  const placeholder = `@@EVERNIGHT_MATH_${placeholders.length}@@`
+  const mathHtml = katex.renderToString(formula.trim(), {
+    displayMode,
+    errorColor: '#b3261e',
+    throwOnError: false,
+  })
+
+  placeholders.push({
+    placeholder,
+    html: displayMode
+      ? `<div class="math-block">${mathHtml}</div>`
+      : `<span class="math-inline">${mathHtml}</span>`,
+    displayMode,
+  })
+
+  return displayMode ? `\n\n${placeholder}\n\n` : placeholder
+}
+
+function restoreMathPlaceholders(html: string, placeholders: MathPlaceholder[]): string {
+  let restored = html
+  placeholders.forEach((item) => {
+    if (item.displayMode) {
+      restored = restored.replaceAll(`<p>${item.placeholder}</p>`, item.html)
+    }
+    restored = restored.replaceAll(item.placeholder, item.html)
+  })
+
+  return restored
+}
+
+function normalizeHighlightLanguage(language: string): string | null {
+  const cleanLanguage = language.trim().toLowerCase()
+  if (cleanLanguage === '') {
+    return null
+  }
+
+  const normalizedLanguage = languageAliases[cleanLanguage] || cleanLanguage
+  return hljs.getLanguage(normalizedLanguage) ? normalizedLanguage : null
 }
 </script>
 
@@ -83,6 +394,41 @@ function selectModel(value: string) {
           暂无会话
         </div>
       </div>
+      <div class="chat-settings" :class="{ 'is-open': settingsOpen }">
+        <button
+          class="settings-trigger"
+          type="button"
+          :disabled="sending"
+          :aria-expanded="settingsOpen"
+          @click="toggleSettings"
+        >
+          <Icon name="settings" />
+          <span>设置</span>
+        </button>
+        <Transition name="settings-panel">
+          <div v-if="settingsOpen" class="settings-panel">
+            <label class="setting-row">
+              <span>Timeout</span>
+              <input
+                v-model.number="timeoutSeconds"
+                min="1"
+                max="600"
+                step="1"
+                type="number"
+                :disabled="sending"
+              />
+            </label>
+            <label class="setting-toggle">
+              <span>流式</span>
+              <input v-model="streamEnabled" type="checkbox" :disabled="sending" />
+            </label>
+            <label class="setting-toggle">
+              <span>Agent 路线</span>
+              <input v-model="agentEnabled" type="checkbox" :disabled="sending" />
+            </label>
+          </div>
+        </Transition>
+      </div>
     </aside>
 
     <div class="chat-main">
@@ -94,19 +440,24 @@ function selectModel(value: string) {
       </header>
 
       <div class="chat-thread">
-        <div v-if="loading" class="chat-thread-message system">
-          <strong>系统</strong>
-          <p>正在加载上下文...</p>
+        <div v-if="loading && messages.length === 0" class="chat-thread-message system">
+          <div class="message-markdown" v-html="renderMarkdown('正在加载上下文...')"></div>
         </div>
         <div
           v-else
           v-for="(message, index) in messages"
           :key="`${message.role}-${index}`"
           class="chat-thread-message"
-          :class="{ assistant: message.role === 'assistant', user: message.role === 'user' }"
+          :class="{
+            assistant: message.role === 'assistant',
+            user: message.role === 'user',
+            pending: message.pending,
+          }"
         >
-          <strong>{{ formatStatus(message.role) }}</strong>
-          <p>{{ message.text || '无文本内容' }}</p>
+          <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
+        </div>
+        <div v-if="loading && messages.length > 0" class="chat-thread-sync">
+          正在同步上下文...
         </div>
       </div>
 
@@ -154,14 +505,14 @@ function selectModel(value: string) {
               class="chat-send-button"
               type="submit"
               :disabled="disabled || sending || model.trim() === ''"
-              :title="sending ? '发送中' : '发送'"
-              :aria-label="sending ? '发送中' : '发送'"
+              :title="sending ? 'Agent 运行中' : '发送'"
+              :aria-label="sending ? 'Agent 运行中' : '发送'"
             >
               <Icon name="send" />
             </button>
           </div>
         </div>
-        <span class="chat-composer-hint">{{ error || 'Enter 发送，Shift+Enter 换行' }}</span>
+        <span class="chat-composer-hint">{{ error || 'Enter 发送，默认走 Agent' }}</span>
       </form>
     </div>
   </section>

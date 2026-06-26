@@ -1,4 +1,4 @@
-import { requestJson } from './client'
+import { requestJson, requestSse, type SseEvent } from './client'
 import type { ChatResponse, ChatSkill, Content } from './content'
 import type { MemoryQuery } from './memory'
 import type {
@@ -13,6 +13,7 @@ export type AgentStepType = 'start' | 'chat' | 'tool' | 'tool_error' | 'memory_w
 
 export type AgentTraceEventType =
   | 'run_started'
+  | 'chat_delta'
   | 'chat_completed'
   | 'tool_approval_requested'
   | 'tool_approval_decided'
@@ -58,6 +59,7 @@ export type AgentTraceEvent = {
   step_type?: AgentStepType | null
   message?: Content | null
   response?: ChatResponse | null
+  text_delta?: string | null
   tool_call?: ToolCall | null
   tool_result?: ToolCallResult | null
   approval_request?: ToolApprovalRequest | null
@@ -90,6 +92,18 @@ export function startAgentRun(request: AgentRunRequest): Promise<AgentRunState> 
   return requestJson<AgentRunState>('/agent-runs', {
     method: 'POST',
     body: request,
+  })
+}
+
+export function startAgentRunStream(
+  request: AgentRunRequest,
+  onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
+): Promise<void> {
+  return requestSse('/agent-runs/stream', {
+    method: 'POST',
+    body: request,
+  }, (rawEvent) => {
+    onEvent(JSON.parse(rawEvent.data) as AgentTraceEvent, rawEvent)
   })
 }
 
