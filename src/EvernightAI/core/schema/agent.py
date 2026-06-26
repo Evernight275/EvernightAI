@@ -30,6 +30,7 @@ class AgentTraceEventType(StrEnum):
     """Agent追踪事件类型"""
 
     RUN_STARTED = "run_started"
+    CHAT_DELTA = "chat_delta"
     CHAT_COMPLETED = "chat_completed"
     TOOL_APPROVAL_REQUESTED = "tool_approval_requested"
     TOOL_APPROVAL_DECIDED = "tool_approval_decided"
@@ -107,6 +108,7 @@ class AgentTraceEvent(EvernightAISchema):
     message: Content | None = None
     response: ChatResponse | None = None
     tool_call: ToolCall | None = None
+    text_delta: str | None = None
     tool_result: ToolCallResult | None = None
     approval_request: ToolApprovalRequest | None = None
     approval_decision: ToolApprovalDecision | None = None

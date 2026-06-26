@@ -16,7 +16,7 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
+from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, ChatStreamProtocol
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
@@ -29,6 +29,7 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEventType,
 )
 from EvernightAI.core.schema.content import (
+    ChatRequest,
     ChatResponse,
     ChatSkill,
     Content,
@@ -38,6 +39,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.memory import MemoryQuery, MemoryScope
 from EvernightAI.core.schema.skill import SkillCapability
+from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolCall,
@@ -338,16 +340,25 @@ class AgentApplication(AgentInterfaceProtocol):
             ),
         )
 
-        response = await self._chat(
+        response = None
+        async for event in self._chat_events(
             request.provider_id,
             request.context_id,
+            state,
             model_id=request.model_id,
             messages=request.messages,
             memory_query=request.memory_query,
             skills=request.skills,
             tools=request.tools,
             metadata=request.metadata,
-        )
+        ):
+            if event.response is not None:
+                response = event.response
+            yield event
+
+        if response is None:
+            raise AgentStateError("Agent run did not produce a response")
+
         state.response = response
         state.steps.append(
             AgentStep(
@@ -355,15 +366,6 @@ class AgentApplication(AgentInterfaceProtocol):
                 response=response,
                 message=response.message,
             )
-        )
-        yield self._add_trace(
-            state,
-            AgentTraceEvent(
-                event_type=AgentTraceEventType.CHAT_COMPLETED,
-                step_type=AgentStepType.CHAT,
-                response=response,
-                message=response.message,
-            ),
         )
 
         async for event in self._continue_tool_loop(
@@ -594,15 +596,25 @@ class AgentApplication(AgentInterfaceProtocol):
             if remaining_rounds < 0:
                 break
 
-            current_response = await self._chat(
+            next_response = None
+            async for event in self._chat_events(
                 request.provider_id,
                 request.context_id,
+                state,
                 model_id=request.model_id,
                 messages=self._run_transcript(state),
                 skills=request.skills,
                 tools=request.tools,
                 metadata=request.metadata,
-            )
+            ):
+                if event.response is not None:
+                    next_response = event.response
+                yield event
+
+            if next_response is None:
+                raise AgentStateError("Agent run did not produce a response")
+
+            current_response = next_response
             state.response = current_response
             state.steps.append(
                 AgentStep(
@@ -610,15 +622,6 @@ class AgentApplication(AgentInterfaceProtocol):
                     response=current_response,
                     message=current_response.message,
                 )
-            )
-            yield self._add_trace(
-                state,
-                AgentTraceEvent(
-                    event_type=AgentTraceEventType.CHAT_COMPLETED,
-                    step_type=AgentStepType.CHAT,
-                    response=current_response,
-                    message=current_response.message,
-                ),
             )
             current_tool_calls = list(current_response.message.tool_calls or [])
             already_requested_approval_call_ids = set()
@@ -685,6 +688,173 @@ class AgentApplication(AgentInterfaceProtocol):
             SkillCapability.AGENT,
         )
         return await self._runtime.providers.chat(provider_id, request)
+
+    async def _chat_events(
+        self,
+        provider_id: str,
+        context_id: str,
+        state: AgentRunState,
+        *,
+        model_id: str,
+        messages: list[Content],
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        if not self._should_stream_chat(metadata):
+            response = await self._chat(
+                provider_id,
+                context_id,
+                model_id=model_id,
+                messages=messages,
+                memory_query=memory_query,
+                skills=skills,
+                tools=tools,
+                metadata=metadata,
+            )
+            yield self._add_trace(
+                state,
+                AgentTraceEvent(
+                    event_type=AgentTraceEventType.CHAT_COMPLETED,
+                    step_type=AgentStepType.CHAT,
+                    response=response,
+                    message=response.message,
+                ),
+            )
+            return
+
+        request = await self._compose_agent_chat_request(
+            context_id,
+            model_id=model_id,
+            messages=messages,
+            memory_query=memory_query,
+            skills=skills,
+            tools=tools,
+            metadata=metadata,
+        )
+        stream = await self._runtime.providers.chat_stream(provider_id, request)
+        response = None
+        async for event in self._stream_chat_events(stream, request.model_id, state):
+            if event.response is not None:
+                response = event.response
+            yield event
+
+        if response is None:
+            raise AgentStateError("Agent run did not produce a response")
+
+    async def _stream_chat_events(
+        self,
+        stream: ChatStreamProtocol,
+        fallback_model_id: str,
+        state: AgentRunState,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        text_deltas: list[str] = []
+        tool_calls: list[ToolCall] = []
+        response_id: str | None = None
+        model_id = fallback_model_id
+        finish_reason: str | None = None
+
+        async for event in stream:
+            if event.response_id is not None:
+                response_id = event.response_id
+            if event.model_id is not None:
+                model_id = event.model_id
+            if event.finish_reason is not None:
+                finish_reason = event.finish_reason
+
+            text_delta = self._chat_stream_text_delta(event)
+            if text_delta:
+                text_deltas.append(text_delta)
+                yield self._add_trace(
+                    state,
+                    AgentTraceEvent(
+                        event_type=AgentTraceEventType.CHAT_DELTA,
+                        step_type=AgentStepType.CHAT,
+                        text_delta=text_delta,
+                    ),
+                )
+
+            if (
+                event.event_type is ChatStreamEventType.TOOL_CALL_COMPLETED
+                and event.tool_call is not None
+            ):
+                tool_calls.append(event.tool_call)
+
+        text = "".join(text_deltas)
+        content = (
+            [ContentPart(type=ContentPartType.TEXT, text=text)]
+            if text
+            else None
+        )
+        response = ChatResponse(
+            response_id=response_id,
+            model_id=model_id,
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                content=content,
+                tool_calls=tool_calls or None,
+            ),
+            finish_reason=finish_reason,
+        )
+        yield self._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.CHAT_COMPLETED,
+                step_type=AgentStepType.CHAT,
+                response=response,
+                message=response.message,
+            ),
+        )
+
+    async def _compose_agent_chat_request(
+        self,
+        context_id: str,
+        *,
+        model_id: str,
+        messages: list[Content],
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatRequest:
+        context = await self._runtime.contexts.get(context_id)
+        memory_query = memory_query or self._session_memory_query(metadata)
+        memory_selection = (
+            self._runtime.memory_strategy.select(
+                await self._runtime.memories.list_memories(),
+                memory_query,
+            )
+            if memory_query is not None
+            else None
+        )
+        request = self._runtime.context_strategy.compose_chat_request(
+            context,
+            model_id=model_id,
+            messages=messages,
+            memory_selection=memory_selection,
+            tools=tools,
+            metadata=metadata,
+        )
+        request = request.model_copy(update={"skills": skills})
+        return await compose_skill_prompted_chat_request(
+            self._runtime,
+            request,
+            SkillCapability.AGENT,
+        )
+
+    def _chat_stream_text_delta(self, event: ChatStreamEvent) -> str | None:
+        if event.event_type is not ChatStreamEventType.MESSAGE_DELTA:
+            return None
+        if event.text_delta:
+            return event.text_delta
+        if event.content_part is not None:
+            return event.content_part.text
+
+        return None
+
+    def _should_stream_chat(self, metadata: dict[str, object] | None) -> bool:
+        return (metadata or {}).get("stream") is True
 
     async def _commit_run_transcript(
         self,
@@ -932,6 +1102,8 @@ class AgentApplication(AgentInterfaceProtocol):
     def _trace_summary(self, event: AgentTraceEvent) -> str:
         if event.event_type is AgentTraceEventType.RUN_STARTED:
             return "Agent run started"
+        if event.event_type is AgentTraceEventType.CHAT_DELTA:
+            return "Model response delta"
         if event.event_type is AgentTraceEventType.CHAT_COMPLETED:
             return "Model response received"
         if event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED:

@@ -261,6 +261,45 @@ async def test_agent_streams_tool_loop_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_streams_chat_delta_when_requested() -> None:
+    provider = StreamingAnswerProvider()
+    runtime = make_runtime(provider=provider)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    stream = app.run_agent_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Hello")],
+            metadata={"stream": True},
+        )
+    )
+    events = [event async for event in stream]
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [event.event_type for event in events] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_DELTA,
+        AgentTraceEventType.CHAT_DELTA,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert [event.text_delta for event in events if event.text_delta] == [
+        "hel",
+        "lo",
+    ]
+    assert events[3].response is not None
+    assert message_text(events[3].response.message) == "hello"
+    assert [message_text(message) for message in context.messages] == [
+        "Hello",
+        "hello",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_recovers_from_tool_errors() -> None:
     runtime = make_runtime(provider=RecoveringToolErrorProvider())
     await runtime.contexts.create(Context(context_id="ctx-1"))
@@ -1766,6 +1805,25 @@ class FinalAnswerProvider(ToolCallingProvider):
         )
 
 
+class StreamingAnswerProvider(FinalAnswerProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        self.requests.append(request)
+        return EventStream(
+            [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA,
+                    text_delta="hel",
+                ),
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA,
+                    text_delta="lo",
+                    finish_reason="stop",
+                ),
+                ChatStreamEvent(event_type=ChatStreamEventType.DONE),
+            ]
+        )
+
+
 class BlockingFinalAnswerProvider(FinalAnswerProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -1824,3 +1882,15 @@ class EmptyStream:
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         if False:
             yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
+
+
+class EventStream:
+    def __init__(self, events: list[ChatStreamEvent]) -> None:
+        self._events = events
+
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
+        return self._iter_events()
+
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        for event in self._events:
+            yield event

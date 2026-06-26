@@ -1241,6 +1241,69 @@ def test_http_app_streams_agent_trace_events() -> None:
     ]
 
 
+def test_http_app_streams_agent_chat_delta_events() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FakeProvider(
+                stream_events=[
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_DELTA,
+                        text_delta="hel",
+                    ),
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_DELTA,
+                        text_delta="lo",
+                    ),
+                    ChatStreamEvent(event_type=ChatStreamEventType.DONE),
+                ]
+            ),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.stream(
+            "POST",
+            "/agent-runs/stream",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+                "metadata": {"run_id": "run-1", "stream": True},
+            },
+        ) as stream_response:
+            body = stream_response.read().decode("utf-8")
+
+    events = parse_sse_events(body)
+
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "chat_delta",
+        "chat_delta",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert [event["text_delta"] for event in events if event.get("text_delta")] == [
+        "hel",
+        "lo",
+    ]
+    assert events[3]["message"]["content"][0]["text"] == "hello"
+
+
 def test_http_agent_stream_encodes_provider_errors_as_sse() -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
