@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
@@ -30,7 +30,12 @@ const props = defineProps<{
   sessions: Session[]
   modelOptions: ModelOption[]
   selectedSessionId: string | null
-  messages: Array<Content & { outgoing?: boolean; text: string; pending?: boolean }>
+  messages: Array<Content & {
+    outgoing?: boolean
+    text: string
+    pending?: boolean
+    contextIndex?: number
+  }>
   title: string
   loading: boolean
   sending: boolean
@@ -46,6 +51,8 @@ const streamEnabled = defineModel<boolean>('streamEnabled', { required: true })
 const agentEnabled = defineModel<boolean>('agentEnabled', { required: true })
 const modelPickerOpen = ref(false)
 const settingsOpen = ref(false)
+const chatThread = ref<HTMLElement | null>(null)
+const chatInput = ref<HTMLTextAreaElement | null>(null)
 const selectedModelLabel = computed(() => (
   props.modelOptions.find((option) => option.value === modelSelection.value)?.label
   || props.modelOptions[0]?.label
@@ -54,7 +61,10 @@ const selectedModelLabel = computed(() => (
 const emit = defineEmits<{
   select: [session: Session]
   send: [text: string]
+  retryMessage: [message: Content & { outgoing?: boolean; text: string; pending?: boolean; contextIndex?: number }]
   createSession: []
+  renameSession: [session: Session]
+  deleteSession: [session: Session]
 }>()
 
 hljs.registerLanguage('bash', bash)
@@ -128,6 +138,26 @@ function toggleModelPicker() {
 function selectModel(value: string) {
   modelSelection.value = value
   modelPickerOpen.value = false
+}
+
+function resizeChatInput() {
+  const input = chatInput.value
+  if (!input) {
+    return
+  }
+
+  input.style.height = 'auto'
+  input.style.height = `${input.scrollHeight}px`
+}
+
+async function scrollThreadToBottom() {
+  await nextTick()
+  const thread = chatThread.value
+  if (!thread) {
+    return
+  }
+
+  thread.scrollTop = thread.scrollHeight
 }
 
 function toggleSettings() {
@@ -367,6 +397,24 @@ function normalizeHighlightLanguage(language: string): string | null {
   const normalizedLanguage = languageAliases[cleanLanguage] || cleanLanguage
   return hljs.getLanguage(normalizedLanguage) ? normalizedLanguage : null
 }
+
+watch(model, async () => {
+  await nextTick()
+  resizeChatInput()
+})
+
+watch(
+  () => props.messages.map((message) => `${message.role}:${message.text}`).join('\n'),
+  () => {
+    void scrollThreadToBottom()
+  },
+  { flush: 'post' },
+)
+
+onMounted(() => {
+  resizeChatInput()
+  void scrollThreadToBottom()
+})
 </script>
 
 <template>
@@ -379,17 +427,38 @@ function normalizeHighlightLanguage(language: string): string | null {
         </button>
       </div>
       <div class="chat-session-list">
-        <button
+        <div
           v-for="session in sessions"
           :key="session.session_id"
           class="chat-session-button"
           :class="{ 'is-selected': session.session_id === selectedSessionId }"
-          type="button"
           @click="emit('select', session)"
         >
-          <span>{{ session.title || shortId(session.session_id) }}</span>
-          <small>{{ session.model_id || '未指定模型' }}</small>
-        </button>
+          <button class="chat-session-main" type="button">
+            <span>{{ session.title || shortId(session.session_id) }}</span>
+            <small>{{ session.model_id || '未指定模型' }}</small>
+          </button>
+          <div class="chat-session-actions">
+            <button
+              class="session-action-button"
+              type="button"
+              title="重命名"
+              aria-label="重命名会话"
+              @click.stop="emit('renameSession', session)"
+            >
+              <Icon name="pencil" />
+            </button>
+            <button
+              class="session-action-button danger"
+              type="button"
+              title="删除"
+              aria-label="删除会话"
+              @click.stop="emit('deleteSession', session)"
+            >
+              <Icon name="trash-2" />
+            </button>
+          </div>
+        </div>
         <div v-if="sessions.length === 0" class="chat-rail-empty">
           暂无会话
         </div>
@@ -439,7 +508,7 @@ function normalizeHighlightLanguage(language: string): string | null {
         </div>
       </header>
 
-      <div class="chat-thread">
+      <div ref="chatThread" class="chat-thread">
         <div v-if="loading && messages.length === 0" class="chat-thread-message system">
           <div class="message-markdown" v-html="renderMarkdown('正在加载上下文...')"></div>
         </div>
@@ -454,6 +523,18 @@ function normalizeHighlightLanguage(language: string): string | null {
             pending: message.pending,
           }"
         >
+          <div v-if="message.role === 'assistant' && !message.pending" class="message-actions">
+            <button
+              class="message-action-button"
+              type="button"
+              title="重试"
+              aria-label="重试回答"
+              :disabled="sending || message.contextIndex === undefined"
+              @click="emit('retryMessage', message)"
+            >
+              <Icon name="rotate-ccw" />
+            </button>
+          </div>
           <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
         </div>
         <div v-if="loading && messages.length > 0" class="chat-thread-sync">
@@ -464,11 +545,13 @@ function normalizeHighlightLanguage(language: string): string | null {
       <form class="chat-composer" @submit.prevent="submit">
         <div class="chat-input-shell">
           <textarea
+            ref="chatInput"
             v-model="model"
-            rows="4"
+            rows="1"
             placeholder="给当前会话发送消息"
             :disabled="disabled || sending"
             @focus="modelPickerOpen = false"
+            @input="resizeChatInput"
             @keydown.enter.exact.prevent="submit"
           ></textarea>
           <div class="chat-input-actions">

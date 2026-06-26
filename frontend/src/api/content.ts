@@ -1,6 +1,7 @@
 import type { ToolDefinition, ToolCall } from './tools'
 
 export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
+export type MessageStatus = 'active' | 'rejected' | 'error'
 
 export type ContentPartType =
   | 'text'
@@ -27,6 +28,7 @@ export type ContentPart = {
 export type Content = {
   role: MessageRole | string
   content?: ContentPart[] | null
+  status?: MessageStatus | string | null
   name?: string | null
   tool_call_id?: string | null
   tool_calls?: ToolCall[] | null

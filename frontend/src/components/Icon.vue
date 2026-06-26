@@ -48,6 +48,14 @@ const icons: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M12 7v6' } },
     { tag: 'path', attrs: { d: 'M9 10h6' } },
   ],
+  pencil: [
+    { tag: 'path', attrs: { d: 'M21.17 6.83a2.83 2.83 0 0 0-4-4L3 17v4h4Z' } },
+    { tag: 'path', attrs: { d: 'm15 5 4 4' } },
+  ],
+  'rotate-ccw': [
+    { tag: 'path', attrs: { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' } },
+    { tag: 'path', attrs: { d: 'M3 3v5h5' } },
+  ],
   'scroll-text': [
     { tag: 'path', attrs: { d: 'M15 12h-5' } },
     { tag: 'path', attrs: { d: 'M15 8h-5' } },
@@ -76,6 +84,13 @@ const icons: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M15 3v18' } },
     { tag: 'path', attrs: { d: 'M3 9h18' } },
     { tag: 'path', attrs: { d: 'M3 15h18' } },
+  ],
+  'trash-2': [
+    { tag: 'path', attrs: { d: 'M3 6h18' } },
+    { tag: 'path', attrs: { d: 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
+    { tag: 'path', attrs: { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6' } },
+    { tag: 'path', attrs: { d: 'M10 11v6' } },
+    { tag: 'path', attrs: { d: 'M14 11v6' } },
   ],
   'user-round': [
     { tag: 'circle', attrs: { cx: 12, cy: 8, r: 5 } },

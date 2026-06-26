@@ -22,6 +22,7 @@ export type SessionChatRequest = {
   provider_id?: string | null
   model_id?: string | null
   messages?: Content[]
+  retry_from_message_index?: number | null
   memory_query?: MemoryQuery | null
   skills?: ChatSkill[] | null
   tools?: ToolDefinition[] | null

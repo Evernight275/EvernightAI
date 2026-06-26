@@ -98,7 +98,10 @@ const {
   selectSession,
   loadSelectedContext,
   sendChatMessage,
+  retryChatMessage,
   createNewChatSession,
+  renameSession,
+  removeSession,
   ensureSelectedSession,
 } = useChatController({
   sessions,
@@ -186,14 +189,14 @@ watch(currentView, async (view) => {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'is-chat-view': currentView === 'chat' }">
     <AppHeader @configure-api-key="configureApiKey" />
 
     <div class="shell">
       <AppSidebar :current-view="currentView" @navigate="navigate" />
 
       <main class="main">
-        <section class="page-head">
+        <section v-if="currentView !== 'chat'" class="page-head">
           <div>
             <h1>{{ pageTitle }}</h1>
             <p>{{ pageDescription }}</p>
@@ -223,7 +226,10 @@ watch(currentView, async (view) => {
           :title="selectedSession?.title || selectedSession?.session_id || '聊天'"
           @select="selectSession"
           @send="sendChatMessage"
+          @retry-message="retryChatMessage"
           @create-session="createNewChatSession"
+          @rename-session="renameSession"
+          @delete-session="removeSession"
         />
 
         <section v-else-if="currentView === 'tools'" class="content-grid">

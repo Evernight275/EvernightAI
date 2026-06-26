@@ -4,7 +4,9 @@ import {
   chatWithSession,
   createContext,
   createSession,
+  deleteSession,
   getContext,
+  replaceSession,
   startAgentRunStream,
   startSessionAgentRun,
   type AgentRunState,
@@ -21,6 +23,7 @@ export type ChatDisplayMessage = Content & {
   outgoing?: boolean
   text: string
   pending?: boolean
+  contextIndex?: number
 }
 
 type UseChatControllerOptions = {
@@ -69,11 +72,14 @@ export function useChatController({
 
     if (selectedContext.value?.messages?.length) {
       return [
-        ...selectedContext.value.messages.map((message) => ({
-          ...message,
-          text: textPart(message),
-          outgoing: message.role === 'assistant',
-        })),
+        ...selectedContext.value.messages
+          .map((message, contextIndex) => ({
+            ...message,
+            text: textPart(message),
+            outgoing: message.role === 'assistant',
+            contextIndex,
+          }))
+          .filter((message) => isActiveMessage(message)),
         ...pendingMessages,
       ]
     }
@@ -138,10 +144,33 @@ export function useChatController({
   }
 
   async function sendChatMessage(text: string) {
-    const session = selectedSession.value
-    const messageText = text.trim()
+    await sendChatMessageInternal({
+      text,
+      retryFromMessageIndex: null,
+    })
+  }
 
-    if (!session || messageText === '') {
+  async function retryChatMessage(message: ChatDisplayMessage) {
+    if (message.contextIndex === undefined) {
+      return
+    }
+
+    await sendChatMessageInternal({
+      text: '',
+      retryFromMessageIndex: message.contextIndex,
+    })
+  }
+
+  async function sendChatMessageInternal(options: {
+    text: string
+    retryFromMessageIndex: number | null
+  }) {
+    const session = selectedSession.value
+    const messageText = options.text.trim()
+    const retryFromMessageIndex = options.retryFromMessageIndex
+    const isRetry = retryFromMessageIndex !== null
+
+    if (!session || (!isRetry && messageText === '')) {
       return
     }
 
@@ -154,11 +183,15 @@ export function useChatController({
     pendingChatSessionId.value = session.session_id
     pendingAssistantHasDelta.value = false
     pendingChatMessages.value = [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: messageText }],
-        text: messageText,
-      },
+      ...(
+        isRetry
+          ? []
+          : [{
+              role: 'user',
+              content: [{ type: 'text', text: messageText }],
+              text: messageText,
+            } satisfies ChatDisplayMessage]
+      ),
       {
         role: 'assistant',
         content: [{ type: 'text', text: assistantRunningText }],
@@ -172,12 +205,15 @@ export function useChatController({
       const request = {
         provider_id: selectedProviderModelChoice.value.providerId,
         model_id: selectedProviderModelChoice.value.modelId,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: messageText }],
-          },
-        ],
+        messages: isRetry
+          ? []
+          : [
+              {
+                role: 'user',
+                content: [{ type: 'text', text: messageText }],
+              },
+            ],
+        retry_from_message_index: retryFromMessageIndex,
         metadata: {
           source: 'frontend-chat',
           timeout_seconds: chatTimeoutSeconds.value,
@@ -227,7 +263,7 @@ export function useChatController({
       const message = error instanceof Error ? error.message : 'Agent 运行失败'
       chatError.value = message
       pendingChatMessages.value = [
-        pendingChatMessages.value[0],
+        ...pendingChatMessages.value.filter((pending) => pending.role === 'user'),
         {
           role: 'system',
           content: [{ type: 'text', text: `Agent 运行失败：${message}` }],
@@ -273,6 +309,51 @@ export function useChatController({
       chatError.value = error instanceof Error ? error.message : '新建会话失败'
     } finally {
       creatingSession.value = false
+    }
+  }
+
+  async function renameSession(session: Session) {
+    const nextTitle = window.prompt('输入新的会话名称', session.title || '')
+    if (nextTitle === null) {
+      return
+    }
+
+    const cleanTitle = nextTitle.trim()
+    if (cleanTitle === '' || cleanTitle === session.title) {
+      return
+    }
+
+    chatError.value = null
+
+    try {
+      await replaceSession(session.session_id, {
+        ...session,
+        title: cleanTitle,
+      })
+      await refreshDashboard()
+    } catch (error) {
+      chatError.value = error instanceof Error ? error.message : '重命名会话失败'
+    }
+  }
+
+  async function removeSession(session: Session) {
+    const confirmed = window.confirm(`删除会话「${session.title || session.session_id}」？`)
+    if (!confirmed) {
+      return
+    }
+
+    chatError.value = null
+
+    try {
+      await deleteSession(session.session_id)
+      if (selectedSessionId.value === session.session_id) {
+        selectedSessionId.value = null
+        selectedContext.value = null
+        clearPendingMessages()
+      }
+      await refreshDashboard()
+    } catch (error) {
+      chatError.value = error instanceof Error ? error.message : '删除会话失败'
     }
   }
 
@@ -344,23 +425,23 @@ export function useChatController({
       return
     }
 
-    const current = pendingChatMessages.value[1]?.pending
-      && pendingChatMessages.value[1].role === 'assistant'
+    const assistant = pendingChatMessages.value.find((message) => message.role === 'assistant')
+    const current = assistant?.pending
       && pendingAssistantHasDelta.value
-      ? pendingChatMessages.value[1].text
+      ? assistant.text
       : ''
     pendingAssistantHasDelta.value = true
     setPendingAssistantText(current + text, true)
   }
 
   function setPendingAssistantText(text: string, pending: boolean) {
-    const userMessage = pendingChatMessages.value[0]
-    if (!userMessage) {
+    const messages = pendingChatMessages.value.filter((message) => message.role !== 'assistant')
+    if (messages.length === pendingChatMessages.value.length && pendingChatMessages.value.length > 0) {
       return
     }
 
     pendingChatMessages.value = [
-      userMessage,
+      ...messages,
       {
         role: 'assistant',
         content: [{ type: 'text', text }],
@@ -371,7 +452,7 @@ export function useChatController({
   }
 
   function markPendingAssistantDone() {
-    const assistant = pendingChatMessages.value[1]
+    const assistant = pendingChatMessages.value.find((message) => message.role === 'assistant')
     if (!assistant) {
       return
     }
@@ -401,9 +482,16 @@ export function useChatController({
     selectSession,
     loadSelectedContext,
     sendChatMessage,
+    retryChatMessage,
     createNewChatSession,
+    renameSession,
+    removeSession,
     ensureSelectedSession,
   }
+}
+
+function isActiveMessage(message: Content): boolean {
+  return message.status === undefined || message.status === null || message.status === 'active'
 }
 
 function newId(prefix: string): string {

@@ -38,6 +38,7 @@ export type ChatWithContextRequest = {
   context_id: string
   model_id: string
   messages: Content[]
+  retry_from_message_index?: number | null
   memory_query?: MemoryQuery | null
   skills?: ChatSkill[] | null
   tools?: ToolDefinition[] | null
