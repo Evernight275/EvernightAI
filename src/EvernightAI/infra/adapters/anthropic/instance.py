@@ -22,6 +22,7 @@ from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
 )
+from EvernightAI.infra.adapters.provider_metadata import timeout_seconds_from_metadata
 
 
 class AnthropicProviderInstance(ProviderInstanceProtocol):
@@ -49,7 +50,8 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
             response = await self._client.post(
                 "/v1/messages",
                 json=payload,
-                timeout=model.timeout.total_seconds(),
+                timeout=timeout_seconds_from_metadata(request.metadata)
+                or model.timeout.total_seconds(),
             )
             response.raise_for_status()
         except httpx.HTTPError as error:
@@ -67,7 +69,8 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
             self._client,
             "/v1/messages",
             payload,
-            model.timeout.total_seconds(),
+            timeout_seconds_from_metadata(request.metadata)
+            or model.timeout.total_seconds(),
         )
 
     async def list_models(self) -> list[ProviderModelConfig]:

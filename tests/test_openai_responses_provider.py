@@ -269,6 +269,27 @@ async def test_openai_responses_instance_chat_maps_reasoning_effort_metadata() -
 
 
 @pytest.mark.asyncio
+async def test_openai_responses_instance_chat_maps_timeout_metadata() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses()
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="gpt-test",
+            messages=make_messages(),
+            metadata={"timeout_seconds": 12},
+        )
+    )
+
+    assert responses.params is not None
+    assert responses.params["timeout"] == 12.0
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
 async def test_openai_responses_instance_ignores_unknown_provider_metadata() -> None:
     instance = OpenAIResponsesProviderInstance(make_config())
     responses = FakeResponses()

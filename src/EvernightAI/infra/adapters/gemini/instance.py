@@ -22,6 +22,7 @@ from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
 )
+from EvernightAI.infra.adapters.provider_metadata import timeout_seconds_from_metadata
 
 
 class GeminiProviderInstance(ProviderInstanceProtocol):
@@ -46,7 +47,8 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
             response = await self._client.post(
                 f"/v1beta/models/{model.model_id}:generateContent",
                 json=payload,
-                timeout=model.timeout.total_seconds(),
+                timeout=timeout_seconds_from_metadata(request.metadata)
+                or model.timeout.total_seconds(),
             )
             response.raise_for_status()
         except httpx.HTTPError as error:
@@ -61,7 +63,8 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
             self._client,
             f"/v1beta/models/{model.model_id}:streamGenerateContent",
             payload,
-            model.timeout.total_seconds(),
+            timeout_seconds_from_metadata(request.metadata)
+            or model.timeout.total_seconds(),
         )
 
     async def list_models(self) -> list[ProviderModelConfig]:

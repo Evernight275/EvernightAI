@@ -226,6 +226,25 @@ async def test_anthropic_instance_chat_maps_request_and_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_instance_chat_maps_timeout_metadata() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient()
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="claude-test",
+            messages=make_messages(),
+            metadata={"timeout_seconds": 12},
+        )
+    )
+
+    assert fake_client.requests[-1]["timeout"] == 12.0
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
 async def test_anthropic_instance_stream_allows_undeclared_model() -> None:
     instance = AnthropicProviderInstance(
         ProviderConfig(
