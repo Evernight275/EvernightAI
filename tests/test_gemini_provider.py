@@ -211,11 +211,73 @@ async def test_gemini_instance_stream_translates_network_errors() -> None:
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_gemini_instance_lists_remote_models_with_declared_fallback() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient(
+        models_response={
+            "models": [
+                {"name": "models/gemini-test"},
+                {"name": "models/gemini-remote"},
+            ]
+        }
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gemini-test", "gemini-remote"]
+    assert (await instance.get_model("gemini-remote")).model_id == "gemini-remote"
+    assert fake_client.requests == [
+        {"url": "/v1beta/models"},
+        {"url": "/v1beta/models"},
+    ]
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient(
+        get_error=httpx.ConnectError(
+            "network down",
+            request=httpx.Request("GET", "https://gemini.test/models"),
+        )
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gemini-test"]
+
+    await instance.close()
+
+
 class FakeGeminiClient:
-    def __init__(self, stream_error: httpx.HTTPError | None = None) -> None:
+    def __init__(
+        self,
+        stream_error: httpx.HTTPError | None = None,
+        *,
+        models_response: dict[str, object] | None = None,
+        get_error: httpx.HTTPError | None = None,
+    ) -> None:
         self.requests: list[dict[str, object]] = []
         self.closed = False
         self._stream_error = stream_error
+        self._models_response = models_response or {"models": []}
+        self._get_error = get_error
+
+    async def get(self, url: str) -> httpx.Response:
+        self.requests.append({"url": url})
+        if self._get_error is not None:
+            raise self._get_error
+
+        return httpx.Response(
+            200,
+            json=self._models_response,
+            request=httpx.Request("GET", url),
+        )
 
     async def post(
         self,

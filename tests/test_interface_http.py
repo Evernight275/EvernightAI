@@ -160,6 +160,39 @@ def test_http_app_can_set_custom_server_header() -> None:
     assert response.headers["server"] == "EvernightAdmin"
 
 
+def test_http_app_can_serve_static_frontend_without_shadowing_api(tmp_path) -> None:
+    static_path = tmp_path / "dist"
+    static_path.mkdir()
+    (static_path / "index.html").write_text(
+        "<!doctype html><title>Evernight Console</title>",
+        encoding="utf-8",
+    )
+    assets_path = static_path / "assets"
+    assets_path.mkdir()
+    (assets_path / "app.js").write_text(
+        "console.log('evernight')",
+        encoding="utf-8",
+    )
+    interface = create_interface(make_runtime())
+    app = create_http_app(
+        interface,
+        close_on_shutdown=False,
+        static_files_path=static_path,
+    )
+
+    with TestClient(app) as client:
+        index_response = client.get("/")
+        asset_response = client.get("/assets/app.js")
+        health_response = client.get("/health")
+
+    assert index_response.status_code == 200
+    assert "Evernight Console" in index_response.text
+    assert asset_response.status_code == 200
+    assert asset_response.text == "console.log('evernight')"
+    assert health_response.status_code == 200
+    assert health_response.json() == {"status": "ok"}
+
+
 def test_http_returns_forbidden_from_authorized_interface() -> None:
     interface = AuthorizedEvernightInterface(
         create_interface(make_runtime()),
@@ -884,8 +917,16 @@ def test_http_app_exposes_provider_management_routes() -> None:
                 "provider_id": "provider-1",
                 "name": "Fake",
                 "type": "openai",
+                "api_key": "secret",
+                "model": {
+                    "model-1": {
+                        "model_id": "model-1",
+                        "capabilities": ["chat"],
+                    }
+                },
             },
         )
+        providers_response = client.get("/providers")
         models_response = client.get("/providers/provider-1/models")
         model_response = client.get("/providers/provider-1/models/model-1")
         supports_response = client.get(
@@ -893,8 +934,27 @@ def test_http_app_exposes_provider_management_routes() -> None:
             params={"capability": "chat"},
         )
         delete_response = client.delete("/providers/provider-1")
+        deleted_providers_response = client.get("/providers")
         missing_response = client.get("/providers/provider-1/models")
 
+    assert providers_response.status_code == 200
+    assert providers_response.json() == [
+        {
+            "provider_id": "provider-1",
+            "name": "Fake",
+            "type": "openai",
+            "is_enabled": True,
+            "model": {
+                "model-1": {
+                    "model_id": "model-1",
+                    "timeout": "PT30S",
+                    "capabilities": ["chat"],
+                    "metadata": {},
+                }
+            },
+            "metadata": {},
+        }
+    ]
     assert models_response.status_code == 200
     assert [model["model_id"] for model in models_response.json()] == ["model-1"]
     assert model_response.status_code == 200
@@ -902,6 +962,7 @@ def test_http_app_exposes_provider_management_routes() -> None:
     assert supports_response.status_code == 200
     assert supports_response.json() is True
     assert delete_response.status_code == 204
+    assert deleted_providers_response.json() == []
     assert missing_response.status_code == 404
 
 

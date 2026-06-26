@@ -13,6 +13,19 @@ EVERNIGHTAI_FILESYSTEM_ROOT="$PWD" \
 
 Open Swagger at `http://127.0.0.1:8000/docs`.
 
+To serve the compiled frontend from the same HTTP process, build the frontend
+first and point the HTTP app at the generated static directory:
+
+```bash
+cd frontend
+pnpm run build
+cd ..
+EVERNIGHTAI_DATABASE_PATH=".evernight/runtime.sqlite3" \
+EVERNIGHTAI_FILESYSTEM_ROOT="$PWD" \
+EVERNIGHTAI_HTTP_STATIC_FILES_PATH="frontend/dist" \
+.venv/bin/python -m uvicorn EvernightAI.bootstrap.http:create_app --factory --reload
+```
+
 ## Register A Provider
 
 Create a provider id. Later requests refer to this id as `main`.
@@ -35,8 +48,10 @@ curl -X POST http://127.0.0.1:8000/providers \
   }'
 ```
 
-OpenAI-compatible providers do not need remote `/models` support. Chat requests
-may still use a model id that is not declared locally.
+Provider model listing asks the provider instance for remote models when the
+adapter supports it. If discovery is unavailable, the runtime falls back to the
+models declared locally in configuration. Chat requests may still use a model id
+that is not declared locally.
 
 ## One-Off Chat
 

@@ -83,11 +83,20 @@ class ProviderManager(ProviderManageProtocol):
     def __init__(self, factory: ProviderFactoryProtocol) -> None:
         self._factory = factory
         self._instances: dict[str, ProviderInstanceProtocol] = {}
+        self._infos: dict[str, ProviderInfo] = {}
 
     async def create(self, provider: ProviderConfig) -> ProviderInstanceProtocol:
         """创建提供实例"""
         instance = await self._factory.create(provider)
         self._instances[provider.provider_id] = instance
+        self._infos[provider.provider_id] = ProviderInfo(
+            provider_id=provider.provider_id,
+            name=provider.name,
+            type=provider.type,
+            is_enabled=provider.is_enabled,
+            model=provider.model,
+            metadata=dict(provider.metadata),
+        )
         return instance
 
     async def get(self, provider_id: str) -> ProviderInstanceProtocol:
@@ -100,6 +109,10 @@ class ProviderManager(ProviderManageProtocol):
     async def list_instances(self) -> list[ProviderInstanceProtocol]:
         """获取所有提供实例"""
         return list(self._instances.values())
+
+    async def list_infos(self) -> list[ProviderInfo]:
+        """获取所有提供信息"""
+        return list(self._infos.values())
 
     async def list_models(self, provider_id: str) -> list[ProviderModelConfig]:
         """获取提供实例支持的模型"""
@@ -135,9 +148,11 @@ class ProviderManager(ProviderManageProtocol):
         instance = await self.get(provider_id)
         await instance.close()
         self._instances.pop(provider_id, None)
+        self._infos.pop(provider_id, None)
 
     async def close(self) -> None:
         """关闭所有提供实例"""
         for instance in list(self._instances.values()):
             await instance.close()
         self._instances.clear()
+        self._infos.clear()

@@ -38,13 +38,25 @@ async def create_provider(
 
 
 @router.get(
+    "",
+    response_model=list[ProviderInfo],
+    response_model_exclude_none=True,
+    summary="List registered providers",
+    description="Return provider configurations registered in the runtime without secrets.",
+    operation_id="list_providers",
+)
+async def list_providers(interface: InterfaceDependency) -> list[ProviderInfo]:
+    return await interface.providers.list_providers()
+
+
+@router.get(
     "/{provider_id}/models",
     response_model=list[ProviderModelConfig],
     response_model_exclude_none=True,
-    summary="List declared provider models",
+    summary="List provider models",
     description=(
-        "Return the models declared locally for this provider. OpenAI-compatible "
-        "providers are not required to support remote `/models` discovery."
+        "Ask the provider instance for models. If remote discovery is unavailable, "
+        "the instance falls back to models declared in local configuration."
     ),
     operation_id="list_provider_models",
 )

@@ -557,6 +557,42 @@ async def test_openai_instance_chat_stream_maps_reasoning_effort_metadata() -> N
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_openai_instance_lists_remote_models_with_declared_fallback() -> None:
+    instance = OpenAICompatibleProviderInstance(make_openai_config())
+    fake_client = FakeClient(
+        FakeCompletions(),
+        models=FakeModels(["gpt-test", "remote-model"]),
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gpt-test", "remote-model"]
+    assert (await instance.get_model("remote-model")).model_id == "remote-model"
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+    instance = OpenAICompatibleProviderInstance(make_openai_config())
+    fake_client = FakeClient(
+        FakeCompletions(),
+        models=FakeModels(
+            [],
+            error=RuntimeError("models unavailable"),
+        ),
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gpt-test"]
+
+    await instance.close()
+
+
 class FakeCompletions:
     def __init__(self) -> None:
         self.params: dict[str, object] | None = None
@@ -625,9 +661,42 @@ class FakeChat:
         self.completions = completions
 
 
+class FakeRemoteModel:
+    def __init__(self, model_id: str) -> None:
+        self.id = model_id
+
+
+class FakeModelsPage:
+    def __init__(self, model_ids: list[str]) -> None:
+        self.data = [FakeRemoteModel(model_id) for model_id in model_ids]
+
+
+class FakeModels:
+    def __init__(
+        self,
+        model_ids: list[str],
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self._model_ids = model_ids
+        self._error = error
+
+    async def list(self) -> FakeModelsPage:
+        if self._error is not None:
+            raise self._error
+
+        return FakeModelsPage(self._model_ids)
+
+
 class FakeClient:
-    def __init__(self, completions: FakeCompletions) -> None:
+    def __init__(
+        self,
+        completions: FakeCompletions,
+        *,
+        models: FakeModels | None = None,
+    ) -> None:
         self.chat = FakeChat(completions)
+        self.models = models or FakeModels([])
         self.closed = False
 
     async def close(self) -> None:

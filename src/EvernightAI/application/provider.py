@@ -23,6 +23,9 @@ class ProviderApplication(ProviderInterfaceProtocol):
             metadata=dict(config.metadata),
         )
 
+    async def list_providers(self) -> list[ProviderInfo]:
+        return await self._runtime.providers.list_infos()
+
     async def list_provider_models(
         self,
         provider_id: str,

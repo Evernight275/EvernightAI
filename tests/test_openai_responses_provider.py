@@ -463,6 +463,47 @@ async def test_openai_responses_stream_maps_text_delta_and_item_done() -> None:
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_openai_responses_instance_lists_remote_models_with_declared_fallback() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    fake_client = FakeClient(
+        FakeResponses(),
+        models=FakeModels(["gpt-test", "remote-response-model"]),
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == [
+        "gpt-test",
+        "remote-response-model",
+    ]
+    assert (
+        await instance.get_model("remote-response-model")
+    ).model_id == "remote-response-model"
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_instance_falls_back_to_declared_models() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    fake_client = FakeClient(
+        FakeResponses(),
+        models=FakeModels(
+            [],
+            error=RuntimeError("models unavailable"),
+        ),
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gpt-test"]
+
+    await instance.close()
+
+
 class FakeResponses:
     def __init__(self, stream_events: list[Any] | None = None) -> None:
         self.params: dict[str, object] | None = None
@@ -497,9 +538,42 @@ class FakeResponseStream:
         return self._events.pop(0)
 
 
+class FakeRemoteModel:
+    def __init__(self, model_id: str) -> None:
+        self.id = model_id
+
+
+class FakeModelsPage:
+    def __init__(self, model_ids: list[str]) -> None:
+        self.data = [FakeRemoteModel(model_id) for model_id in model_ids]
+
+
+class FakeModels:
+    def __init__(
+        self,
+        model_ids: list[str],
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self._model_ids = model_ids
+        self._error = error
+
+    async def list(self) -> FakeModelsPage:
+        if self._error is not None:
+            raise self._error
+
+        return FakeModelsPage(self._model_ids)
+
+
 class FakeClient:
-    def __init__(self, responses: FakeResponses) -> None:
+    def __init__(
+        self,
+        responses: FakeResponses,
+        *,
+        models: FakeModels | None = None,
+    ) -> None:
         self.responses = responses
+        self.models = models or FakeModels([])
         self.closed = False
 
     async def close(self) -> None:

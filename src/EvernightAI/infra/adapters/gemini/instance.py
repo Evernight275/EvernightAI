@@ -3,7 +3,6 @@ from typing import Any
 
 import httpx
 
-from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
@@ -19,6 +18,10 @@ from EvernightAI.infra.adapters.gemini.mapper import (
     to_gemini_request,
 )
 from EvernightAI.infra.adapters.http_errors import raise_httpx_provider_error
+from EvernightAI.infra.adapters.model_discovery import (
+    discover_models_or_declared,
+    get_discovered_model_or_declared,
+)
 
 
 class GeminiProviderInstance(ProviderInstanceProtocol):
@@ -62,13 +65,14 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         )
 
     async def list_models(self) -> list[ProviderModelConfig]:
-        return list(self._models.values())
+        return await discover_models_or_declared(self._models, self._list_remote_models)
 
     async def get_model(self, model_id: str) -> ProviderModelConfig:
-        if model_id in self._models:
-            return self._models[model_id]
-
-        raise ProviderNotFoundError(f"The model {model_id} is not found")
+        return await get_discovered_model_or_declared(
+            model_id,
+            self._models,
+            self._list_remote_models,
+        )
 
     async def supports(self, capability: ProviderModelCapability) -> bool:
         return any(capability in model.capabilities for model in self._models.values())
@@ -79,6 +83,30 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
     def _model_for_request(self, model_id: str) -> ProviderModelConfig:
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
+
+    async def _list_remote_models(self) -> list[ProviderModelConfig]:
+        response = await self._client.get("/v1beta/models")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return []
+
+        models = payload.get("models")
+        if not isinstance(models, list):
+            return []
+
+        discovered: list[ProviderModelConfig] = []
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            model_id = model.get("name")
+            if not isinstance(model_id, str) or not model_id:
+                continue
+            discovered.append(
+                ProviderModelConfig(model_id=model_id.removeprefix("models/"))
+            )
+
+        return discovered
 
 
 class GeminiChatStream:

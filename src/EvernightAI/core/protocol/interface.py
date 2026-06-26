@@ -109,6 +109,8 @@ class ChatInterfaceProtocol(InterfaceProtocol):
 class ProviderInterfaceProtocol(InterfaceProtocol):
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...
 
+    async def list_providers(self) -> list[ProviderInfo]: ...
+
     async def list_provider_models(
         self,
         provider_id: str,

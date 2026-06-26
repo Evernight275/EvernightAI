@@ -283,6 +283,10 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
         self._require("providers", "create", config.provider_id)
         return await self._inner.create_provider(config)
 
+    async def list_providers(self) -> list[ProviderInfo]:
+        self._require("providers", "list")
+        return await self._inner.list_providers()
+
     async def list_provider_models(
         self,
         provider_id: str,

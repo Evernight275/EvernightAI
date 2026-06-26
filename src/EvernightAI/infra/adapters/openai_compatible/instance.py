@@ -4,7 +4,6 @@ from typing import Any
 from openai import AsyncOpenAI, OpenAIError
 from openai.types.chat import ChatCompletionChunk
 
-from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
@@ -22,6 +21,10 @@ from EvernightAI.infra.adapters.openai_compatible.mapper import (
     from_openai_chat_completion,
     to_openai_messages,
     to_openai_tools,
+)
+from EvernightAI.infra.adapters.model_discovery import (
+    discover_models_or_declared,
+    get_discovered_model_or_declared,
 )
 from EvernightAI.infra.adapters.provider_metadata import (
     provider_request_params_from_metadata,
@@ -83,13 +86,14 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return OpenAICompatibleChatStream(stream)
 
     async def list_models(self) -> list[ProviderModelConfig]:
-        return list(self._models.values())
+        return await discover_models_or_declared(self._models, self._list_remote_models)
 
     async def get_model(self, model_id: str) -> ProviderModelConfig:
-        if model_id in self._models:
-            return self._models[model_id]
-
-        raise ProviderNotFoundError(f"The model {model_id} is not found")
+        return await get_discovered_model_or_declared(
+            model_id,
+            self._models,
+            self._list_remote_models,
+        )
 
     async def supports(self, capability: ProviderModelCapability) -> bool:
         return any(capability in model.capabilities for model in self._models.values())
@@ -100,6 +104,10 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
 
     def _model_for_request(self, model_id: str) -> ProviderModelConfig:
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
+
+    async def _list_remote_models(self) -> list[ProviderModelConfig]:
+        models = await self._client.models.list()
+        return [ProviderModelConfig(model_id=model.id) for model in models.data]
 
 
 class OpenAICompatibleChatStream:

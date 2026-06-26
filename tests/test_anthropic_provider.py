@@ -281,11 +281,73 @@ async def test_anthropic_instance_stream_translates_network_errors() -> None:
     await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_anthropic_instance_lists_remote_models_with_declared_fallback() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient(
+        models_response={
+            "data": [
+                {"id": "claude-test"},
+                {"id": "claude-remote"},
+            ]
+        }
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["claude-test", "claude-remote"]
+    assert (await instance.get_model("claude-remote")).model_id == "claude-remote"
+    assert fake_client.requests == [
+        {"url": "/v1/models"},
+        {"url": "/v1/models"},
+    ]
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient(
+        get_error=httpx.ConnectError(
+            "network down",
+            request=httpx.Request("GET", "https://anthropic.test/models"),
+        )
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["claude-test"]
+
+    await instance.close()
+
+
 class FakeAnthropicClient:
-    def __init__(self, stream_error: httpx.HTTPError | None = None) -> None:
+    def __init__(
+        self,
+        stream_error: httpx.HTTPError | None = None,
+        *,
+        models_response: dict[str, object] | None = None,
+        get_error: httpx.HTTPError | None = None,
+    ) -> None:
         self.requests: list[dict[str, object]] = []
         self.closed = False
         self._stream_error = stream_error
+        self._models_response = models_response or {"data": []}
+        self._get_error = get_error
+
+    async def get(self, url: str) -> httpx.Response:
+        self.requests.append({"url": url})
+        if self._get_error is not None:
+            raise self._get_error
+
+        return httpx.Response(
+            200,
+            json=self._models_response,
+            request=httpx.Request("GET", url),
+        )
 
     async def post(
         self,
