@@ -22,6 +22,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "port": 8080,
                 "reload": True,
                 "server_header": "EvernightAdmin",
+                "static_files_path": "frontend/dist",
             },
             "tools": {
                 "filesystem": {
@@ -89,6 +90,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.http.port == 8080
     assert config.http.reload is True
     assert config.http.server_header == "EvernightAdmin"
+    assert config.http.static_files_path == "frontend/dist"
     assert config.tools.filesystem.enabled is True
     assert config.tools.filesystem.root == "."
     assert config.tools.filesystem.max_read_chars == 8000

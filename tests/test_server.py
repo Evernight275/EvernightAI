@@ -120,6 +120,52 @@ def test_http_bootstrap_can_set_custom_server_header(tmp_path) -> None:
     assert response.headers["server"] == "EvernightAdmin"
 
 
+def test_http_bootstrap_can_serve_configured_static_frontend(tmp_path) -> None:
+    static_path = tmp_path / "frontend-dist"
+    static_path.mkdir()
+    (static_path / "index.html").write_text(
+        "<!doctype html><title>Frontend</title>",
+        encoding="utf-8",
+    )
+    app = create_app_from_config(
+        EvernightConfig(
+            runtime=RuntimeConfig(
+                database_path=(tmp_path / "runtime.sqlite3").as_posix()
+            ),
+            http=HttpConfig(static_files_path=static_path.as_posix()),
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Frontend" in response.text
+
+
+def test_http_bootstrap_can_serve_env_static_frontend(tmp_path, monkeypatch) -> None:
+    static_path = tmp_path / "env-frontend-dist"
+    static_path.mkdir()
+    (static_path / "index.html").write_text(
+        "<!doctype html><title>Env Frontend</title>",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_STATIC_FILES_PATH", static_path.as_posix())
+
+    app = create_http_app(
+        database_path=tmp_path / "entrypoint.sqlite3",
+        filesystem_root=tmp_path,
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Env Frontend" in response.text
+
+
 def test_http_bootstrap_can_enable_config_oauth_bearer_auth(tmp_path) -> None:
     app = create_app_from_config(
         EvernightConfig(

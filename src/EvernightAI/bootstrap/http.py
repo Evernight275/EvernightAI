@@ -32,6 +32,7 @@ def create_app(
     *,
     database_path: str | Path | None = None,
     filesystem_root: str | Path | None = None,
+    static_files_path: str | Path | None = None,
     close_on_shutdown: bool = True,
 ) -> FastAPI:
     runtime = create_sqlite_runtime(
@@ -56,6 +57,9 @@ def create_app(
             "EVERNIGHTAI_HTTP_SERVER_HEADER",
             "EvernightAI",
         ),
+        static_files_path=static_files_path or _env_optional_path(
+            "EVERNIGHTAI_HTTP_STATIC_FILES_PATH"
+        ),
     )
 
 
@@ -78,6 +82,7 @@ def create_app_from_config(
         close_on_shutdown=close_on_shutdown,
         startup_handlers=[register_configured_providers],
         server_header=config.http.server_header,
+        static_files_path=config.http.static_files_path,
     )
 
 

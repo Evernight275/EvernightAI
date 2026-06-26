@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
 
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
@@ -40,6 +42,7 @@ def create_http_app(
     close_on_shutdown: bool = True,
     startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
     server_header: str | None = None,
+    static_files_path: str | Path | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -77,6 +80,12 @@ def create_http_app(
     app.include_router(tools_router)
     app.include_router(chat_router)
     app.include_router(agent_runs_router)
+    if static_files_path is not None:
+        app.mount(
+            "/",
+            StaticFiles(directory=Path(static_files_path), html=True),
+            name="frontend",
+        )
 
     return app
 

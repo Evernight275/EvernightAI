@@ -15,6 +15,7 @@ class HttpConfig(EvernightAISchema):
     port: int = 8000
     reload: bool = False
     server_header: str | None = "EvernightAI"
+    static_files_path: str | None = None
 
 
 class FilesystemToolConfig(EvernightAISchema):
