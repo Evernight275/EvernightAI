@@ -47,6 +47,7 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
+    MessageStatus,
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
@@ -1119,6 +1120,50 @@ async def test_agent_start_run_requires_storage_registers() -> None:
                 messages=[make_message("Hello")],
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_run_application_retry_marks_old_branch() -> None:
+    provider = FinalAnswerProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    await runtime.contexts.create(
+        Context(
+            context_id="ctx-1",
+            messages=[
+                make_message("Original question"),
+                make_message("Bad answer", role=MessageRole.ASSISTANT),
+                make_message("Follow-up"),
+            ],
+        )
+    )
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    await app.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            retry_from_message_index=1,
+            max_tool_rounds=0,
+        )
+    )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [message_text(message) for message in provider.requests[0].messages] == [
+        "Original question",
+    ]
+    assert [message.status for message in context.messages] == [
+        None,
+        MessageStatus.REJECTED,
+        MessageStatus.REJECTED,
+        None,
+    ]
 
 
 @pytest.mark.asyncio

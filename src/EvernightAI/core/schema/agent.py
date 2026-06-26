@@ -65,6 +65,7 @@ class AgentRunRequest(EvernightAISchema):
     context_id: str
     model_id: str
     messages: list[Content] = Field(default_factory=list)
+    retry_from_message_index: int | None = Field(default=None, ge=0)
     memory_query: MemoryQuery | None = None
     skills: list[ChatSkill] | None = None
     tools: list[ToolDefinition] | None = None

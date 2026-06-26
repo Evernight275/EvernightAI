@@ -14,6 +14,14 @@ class MessageRole(StrEnum):
     SYSTEM = "system"
 
 
+class MessageStatus(StrEnum):
+    """消息状态"""
+
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    ERROR = "error"
+
+
 class ContentPartType(StrEnum):
     """内容部分类型"""
 
@@ -46,6 +54,7 @@ class Content(EvernightAISchema):
 
     role: MessageRole
     content: list[ContentPart] | None = None
+    status: MessageStatus | None = None
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None

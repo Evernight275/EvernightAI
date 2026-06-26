@@ -11,6 +11,7 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
+    MessageStatus,
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
@@ -121,6 +122,35 @@ def test_context_organizer_builds_basic_window() -> None:
     assert window.messages == [make_message("Existing"), make_message("Current")]
     assert window.metadata == {"topic": "basic"}
     assert context.messages == [make_message("Existing")]
+
+
+def test_context_organizer_filters_inactive_messages() -> None:
+    organizer = ContextOrganizer()
+    context = Context(
+        context_id="ctx-1",
+        messages=[
+            make_message("Existing"),
+            make_message("Rejected").model_copy(
+                update={"status": MessageStatus.REJECTED}
+            ),
+            make_message("Errored").model_copy(update={"status": MessageStatus.ERROR}),
+        ],
+    )
+
+    window = organizer.organize(
+        context,
+        messages=[
+            make_message("Current"),
+            make_message("Rejected current").model_copy(
+                update={"status": MessageStatus.REJECTED}
+            ),
+        ],
+    )
+
+    assert [message.content[0].text for message in window.messages if message.content] == [
+        "Existing",
+        "Current",
+    ]
 
 
 def test_context_organizer_builds_chat_request() -> None:

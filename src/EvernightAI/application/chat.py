@@ -25,6 +25,7 @@ from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
+from EvernightAI.application.retry import mark_retry_messages
 
 
 class ChatApplication(ChatInterfaceProtocol):
@@ -118,11 +119,13 @@ class ChatApplication(ChatInterfaceProtocol):
         *,
         model_id: str,
         messages: list[Content],
+        retry_from_message_index: int | None = None,
         memory_query: MemoryQuery | None = None,
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatResponse:
+        await mark_retry_messages(self._runtime, context_id, retry_from_message_index)
         request = await self.organize_chat_request(
             context_id,
             model_id=model_id,
@@ -157,11 +160,13 @@ class ChatApplication(ChatInterfaceProtocol):
         *,
         model_id: str,
         messages: list[Content],
+        retry_from_message_index: int | None = None,
         memory_query: MemoryQuery | None = None,
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> ChatStreamProtocol:
+        await mark_retry_messages(self._runtime, context_id, retry_from_message_index)
         request = await self.organize_chat_request(
             context_id,
             model_id=model_id,

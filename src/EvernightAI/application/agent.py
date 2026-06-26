@@ -48,6 +48,7 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyDecision,
 )
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
+from EvernightAI.application.retry import mark_retry_messages
 
 
 LOGGER = logging.getLogger("EvernightAI.application.agent")
@@ -1239,6 +1240,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         self._lifecycle = _agent_run_lifecycle(runtime)
 
     async def start(self, request: AgentRunRequest) -> AgentRunState:
+        await mark_retry_messages(
+            self._runtime,
+            request.context_id,
+            request.retry_from_message_index,
+        )
         return await self._agent.start_agent_run(request)
 
     async def resume(
@@ -1262,7 +1268,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         return _AgentTraceStream(
             self._lifecycle.track_stream(
                 self._stream_and_store(
-                    self._agent._run_agent_events(stored_request, state),
+                    self._start_stream_events(stored_request, state),
                     state,
                 )
             )
@@ -1310,6 +1316,19 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 yield event
         finally:
             self._state_register().save_state(state)
+
+    async def _start_stream_events(
+        self,
+        request: AgentRunRequest,
+        state: AgentRunState,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        await mark_retry_messages(
+            self._runtime,
+            request.context_id,
+            request.retry_from_message_index,
+        )
+        async for event in self._agent._run_agent_events(request, state):
+            yield event
 
     def _state_register(self) -> AgentRunStateRegisterProtocol:
         register = self._runtime.agent_state_register

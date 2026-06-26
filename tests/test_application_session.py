@@ -34,6 +34,7 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
+    MessageStatus,
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
@@ -190,11 +191,95 @@ async def test_session_agent_request_provider_and_model_override_session_default
     assert provider.requests[-1].metadata["reasoning_effort"] == "high"
 
 
+@pytest.mark.asyncio
+async def test_session_chat_retry_marks_old_branch_and_reuses_active_history() -> None:
+    provider = RecordingProvider()
+    runtime = make_runtime(provider)
+    app = SessionApplication(runtime)
+    await runtime.providers.create(make_config("provider-1"))
+    await app.create_session(
+        Session(
+            session_id="session-1",
+            context_id="ctx-1",
+            provider_id="provider-1",
+            model_id="model-1",
+        )
+    )
+
+    await app.chat_with_session(
+        "session-1",
+        SessionChatRequest(messages=[make_message("Original question")]),
+    )
+    await app.chat_with_session(
+        "session-1",
+        SessionChatRequest(messages=[], retry_from_message_index=1),
+    )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [message_text(message) for message in provider.requests[-1].messages] == [
+        "Original question",
+    ]
+    assert [message.status for message in context.messages] == [
+        None,
+        MessageStatus.REJECTED,
+        None,
+    ]
+    assert [message_text(message) for message in context.messages] == [
+        "Original question",
+        "ok",
+        "ok",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_session_agent_retry_marks_old_branch_and_reuses_active_history() -> None:
+    provider = RecordingProvider()
+    runtime = make_runtime(provider)
+    app = SessionApplication(runtime)
+    await runtime.providers.create(make_config("provider-1"))
+    await app.create_session(
+        Session(
+            session_id="session-1",
+            context_id="ctx-1",
+            provider_id="provider-1",
+            model_id="model-1",
+        )
+    )
+
+    await app.start_agent_run_for_session(
+        "session-1",
+        SessionAgentRunRequest(messages=[make_message("Original question")]),
+    )
+    await app.start_agent_run_for_session(
+        "session-1",
+        SessionAgentRunRequest(max_tool_rounds=0, retry_from_message_index=1),
+    )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert [message_text(message) for message in provider.requests[-1].messages] == [
+        "Original question",
+    ]
+    assert [message.status for message in context.messages] == [
+        None,
+        MessageStatus.REJECTED,
+        None,
+    ]
+
+
 def make_message(text: str) -> Content:
     return Content(
         role=MessageRole.USER,
         content=[ContentPart(type=ContentPartType.TEXT, text=text)],
     )
+
+
+def message_text(message: Content) -> str:
+    if not message.content or message.content[0].text is None:
+        return ""
+
+    return message.content[0].text
 
 
 def make_config(provider_id: str) -> ProviderConfig:

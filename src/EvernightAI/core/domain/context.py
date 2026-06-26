@@ -10,6 +10,7 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
+    MessageStatus,
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context, ContextWindow
@@ -103,7 +104,10 @@ class ContextOrganizer(ContextOrganizerProtocol):
         next_messages = messages or []
         return ContextWindow(
             context_id=context.context_id,
-            messages=[*context.messages, *next_messages],
+            messages=[
+                *self._active_messages(context.messages),
+                *self._active_messages(next_messages),
+            ],
             metadata=dict(context.metadata),
         )
 
@@ -128,6 +132,13 @@ class ContextOrganizer(ContextOrganizerProtocol):
                 "context_id": window.context_id,
             },
         )
+
+    def _active_messages(self, messages: list[Content]) -> list[Content]:
+        return [
+            message
+            for message in messages
+            if message.status in {None, MessageStatus.ACTIVE}
+        ]
 
 
 class BasicContextStrategy(ContextStrategyProtocol):

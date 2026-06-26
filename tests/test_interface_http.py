@@ -40,6 +40,7 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
+    MessageStatus,
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
@@ -514,6 +515,59 @@ def test_http_app_exposes_chat_context_flow() -> None:
     assert provider.last_request is not None
     assert provider.last_request.metadata["request_id"] == "req-1"
     assert provider.last_request.metadata["context_id"] == "ctx-1"
+
+
+def test_http_app_chat_context_retry_marks_old_branch() -> None:
+    provider = FakeProvider()
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post(
+            "/contexts",
+            json={
+                "context_id": "ctx-1",
+                "messages": [
+                    message_json("Original question"),
+                    message_json("Bad answer", role="assistant"),
+                    message_json("Follow-up"),
+                ],
+            },
+        )
+        chat_response = client.post(
+            "/chat/context",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [],
+                "retry_from_message_index": 1,
+            },
+        )
+        stored_context_response = client.get("/contexts/ctx-1")
+
+    assert chat_response.status_code == 200
+    assert provider.last_request is not None
+    assert [message_text(message) for message in provider.last_request.messages] == [
+        "Original question",
+    ]
+    assert [
+        message.get("status")
+        for message in stored_context_response.json()["messages"]
+    ] == [
+        None,
+        MessageStatus.REJECTED.value,
+        MessageStatus.REJECTED.value,
+        None,
+    ]
 
 
 def test_http_app_exposes_memory_and_tool_routes() -> None:
