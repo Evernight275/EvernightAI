@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app as create_http_app
@@ -15,6 +16,29 @@ from EvernightAI.interface.cli.schema import (
     RuntimeConfig,
 )
 from EvernightAI.server import main as package_server_main
+
+
+@pytest.fixture(autouse=True)
+def isolate_http_bootstrap_env(monkeypatch) -> None:
+    env_names = [
+        "EVERNIGHTAI_DATABASE_PATH",
+        "EVERNIGHTAI_FILESYSTEM_ROOT",
+        "EVERNIGHTAI_ALLOW_FILE_OVERWRITE",
+        "EVERNIGHTAI_SHELL_ALLOWED_COMMANDS",
+        "EVERNIGHTAI_SHELL_WORKING_DIRECTORY",
+        "EVERNIGHTAI_SHELL_TIMEOUT_SECONDS",
+        "EVERNIGHTAI_SHELL_MAX_OUTPUT_CHARS",
+        "EVERNIGHTAI_HTTP_API_KEY",
+        "EVERNIGHTAI_HTTP_AUTH_PRINCIPAL_ID",
+        "EVERNIGHTAI_HTTP_AUTH_PERMISSIONS",
+        "EVERNIGHTAI_HTTP_OAUTH_ACCESS_TOKEN",
+        "EVERNIGHTAI_HTTP_OAUTH_PRINCIPAL_ID",
+        "EVERNIGHTAI_HTTP_OAUTH_PERMISSIONS",
+        "EVERNIGHTAI_HTTP_SERVER_HEADER",
+        "EVERNIGHTAI_HTTP_STATIC_FILES_PATH",
+    ]
+    for name in env_names:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
