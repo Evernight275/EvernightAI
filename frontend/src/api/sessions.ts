@@ -1,4 +1,4 @@
-import { deleteJson, requestJson } from './client'
+import { requestJson } from './client'
 import type { ChatResponse, ChatSkill, Content } from './content'
 import type { MemoryQuery } from './memory'
 import type { ToolApprovalDecision, ToolDefinition } from './tools'
@@ -90,5 +90,7 @@ export function archiveSession(sessionId: string): Promise<Session> {
 }
 
 export function deleteSession(sessionId: string): Promise<void> {
-  return deleteJson(`/sessions/${encodeURIComponent(sessionId)}`)
+  return requestJson<void>(`/sessions/${encodeURIComponent(sessionId)}/delete`, {
+    method: 'POST',
+  })
 }

@@ -98,8 +98,8 @@ async def provider_supports(
     return await interface.providers.provider_supports(provider_id, capability)
 
 
-@router.delete(
-    "/{provider_id}",
+@router.post(
+    "/{provider_id}/delete",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     summary="Delete a provider",

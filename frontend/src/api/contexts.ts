@@ -1,4 +1,4 @@
-import { deleteJson, requestJson } from './client'
+import { requestJson } from './client'
 import type { Content } from './content'
 
 export type Context = {
@@ -37,5 +37,7 @@ export function replaceContext(contextId: string, context: Context): Promise<Con
 }
 
 export function deleteContext(contextId: string): Promise<void> {
-  return deleteJson(`/contexts/${encodeURIComponent(contextId)}`)
+  return requestJson<void>(`/contexts/${encodeURIComponent(contextId)}/delete`, {
+    method: 'POST',
+  })
 }

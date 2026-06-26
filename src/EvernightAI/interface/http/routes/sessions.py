@@ -150,8 +150,8 @@ async def archive_session(
     return await interface.sessions.archive_session(session_id)
 
 
-@router.delete(
-    "/{session_id}",
+@router.post(
+    "/{session_id}/delete",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     summary="Delete a session",

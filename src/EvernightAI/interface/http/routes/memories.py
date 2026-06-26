@@ -78,8 +78,8 @@ async def select_memories(
     return await interface.chat.select_memories(query)
 
 
-@router.delete(
-    "/{memory_id}",
+@router.post(
+    "/{memory_id}/delete",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     summary="Delete a memory",

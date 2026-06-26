@@ -42,7 +42,3 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
 
   return response.json() as Promise<T>
 }
-
-export async function deleteJson(path: string): Promise<void> {
-  await requestJson<void>(path, { method: 'DELETE' })
-}

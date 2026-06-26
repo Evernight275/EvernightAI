@@ -1,4 +1,4 @@
-import { deleteJson, requestJson } from './client'
+import { requestJson } from './client'
 
 export type ProviderType = 'openai' | 'openai_responses' | 'google' | 'anthropic'
 
@@ -65,5 +65,7 @@ export function providerSupports(
 }
 
 export function deleteProvider(providerId: string): Promise<void> {
-  return deleteJson(`/providers/${encodeURIComponent(providerId)}`)
+  return requestJson<void>(`/providers/${encodeURIComponent(providerId)}/delete`, {
+    method: 'POST',
+  })
 }

@@ -1,4 +1,4 @@
-import { deleteJson, requestJson } from './client'
+import { requestJson } from './client'
 
 export type MemoryKind =
   | 'fact'
@@ -59,5 +59,7 @@ export function selectMemories(query: MemoryQuery | null = null): Promise<Memory
 }
 
 export function deleteMemory(memoryId: string): Promise<void> {
-  return deleteJson(`/memories/${encodeURIComponent(memoryId)}`)
+  return requestJson<void>(`/memories/${encodeURIComponent(memoryId)}/delete`, {
+    method: 'POST',
+  })
 }

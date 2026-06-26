@@ -102,8 +102,8 @@ async def replace_context(
     return await interface.chat.replace_context(updated)
 
 
-@router.delete(
-    "/{context_id}",
+@router.post(
+    "/{context_id}/delete",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     summary="Delete a context",

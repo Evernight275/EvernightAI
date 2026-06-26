@@ -483,6 +483,8 @@ def test_http_app_exposes_chat_context_flow() -> None:
             },
         )
         stored_context_response = client.get("/contexts/ctx-1")
+        delete_context_response = client.post("/contexts/ctx-1/delete")
+        missing_context_response = client.get("/contexts/ctx-1")
 
     assert provider_response.status_code == 201
     assert provider_response.json() == {
@@ -506,6 +508,9 @@ def test_http_app_exposes_chat_context_flow() -> None:
         message["content"][0]["text"]
         for message in stored_context_response.json()["messages"]
     ] == ["Stored", "Hello", "ok"]
+    assert delete_context_response.status_code == 204
+    assert missing_context_response.status_code == 404
+    assert_error_response(missing_context_response.json(), "ContextNotFoundError")
     assert provider.last_request is not None
     assert provider.last_request.metadata["request_id"] == "req-1"
     assert provider.last_request.metadata["context_id"] == "ctx-1"
@@ -532,6 +537,8 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
             "/memories/select",
             json={"scope": "user", "scope_id": "user-1", "limit": 1},
         )
+        delete_memory_response = client.post("/memories/mem-1/delete")
+        missing_memory_response = client.get("/memories/mem-1")
         tools_response = client.get("/tools")
 
     assert memory_response.status_code == 201
@@ -542,6 +549,9 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     assert [memory["memory_id"] for memory in selected_response.json()["memories"]] == [
         "mem-1"
     ]
+    assert delete_memory_response.status_code == 204
+    assert missing_memory_response.status_code == 404
+    assert_error_response(missing_memory_response.json(), "MemoryNotFoundError")
     assert tools_response.status_code == 200
     assert tools_response.json() == []
 
@@ -576,7 +586,7 @@ def test_http_app_exposes_session_routes() -> None:
             },
         )
         archive_response = client.post("/sessions/session-1/archive")
-        delete_response = client.delete("/sessions/session-1")
+        delete_response = client.post("/sessions/session-1/delete")
         missing_response = client.get("/sessions/session-1")
 
     assert create_response.status_code == 201
@@ -933,7 +943,7 @@ def test_http_app_exposes_provider_management_routes() -> None:
             "/providers/provider-1/supports",
             params={"capability": "chat"},
         )
-        delete_response = client.delete("/providers/provider-1")
+        delete_response = client.post("/providers/provider-1/delete")
         deleted_providers_response = client.get("/providers")
         missing_response = client.get("/providers/provider-1/models")
 
