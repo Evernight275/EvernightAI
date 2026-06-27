@@ -1103,8 +1103,7 @@
       cursor: pointer;
     }
 
-    .chat-session-main span,
-    .chat-session-main small {
+    .chat-session-main span {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1157,7 +1156,6 @@
       background: var(--soft-strong);
     }
 
-    .chat-session-button small,
     .chat-rail-empty,
     .chat-main-head p {
       color: var(--muted);

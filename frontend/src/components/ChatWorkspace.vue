@@ -436,7 +436,6 @@ onMounted(() => {
         >
           <button class="chat-session-main" type="button">
             <span>{{ session.title || shortId(session.session_id) }}</span>
-            <small>{{ session.model_id || '未指定模型' }}</small>
           </button>
           <div class="chat-session-actions">
             <button
