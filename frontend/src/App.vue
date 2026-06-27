@@ -15,6 +15,7 @@ import AppHeader from './components/AppHeader.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import ChatWorkspace from './components/ChatWorkspace.vue'
 import Icon from './components/Icon.vue'
+import LogTerminal from './components/LogTerminal.vue'
 import ToolList from './components/ToolList.vue'
 import { useChatController } from './composables/useChatController'
 import { useProviderModels } from './composables/useProviderModels'
@@ -347,13 +348,7 @@ watch(currentView, async (view) => {
           <p>记忆库页面先占位。下一步可以接入 `GET /memories`、筛选和删除。</p>
         </section>
 
-        <section v-else class="panel view-panel">
-          <div class="panel-head">
-            <h2><Icon name="scroll-text" /><span>日志</span></h2>
-            <span>待接入</span>
-          </div>
-          <p>日志页先占位。后续可从 Agent trace 或服务端日志流接入。</p>
-        </section>
+        <LogTerminal v-else />
 
       </main>
     </div>

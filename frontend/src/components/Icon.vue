@@ -85,6 +85,10 @@ const icons: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M3 9h18' } },
     { tag: 'path', attrs: { d: 'M3 15h18' } },
   ],
+  terminal: [
+    { tag: 'path', attrs: { d: 'm4 17 6-6-6-6' } },
+    { tag: 'path', attrs: { d: 'M12 19h8' } },
+  ],
   'trash-2': [
     { tag: 'path', attrs: { d: 'M3 6h18' } },
     { tag: 'path', attrs: { d: 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
