@@ -4,6 +4,10 @@ from EvernightAI.core.protocol.tool import ToolRegisterProtocol
 from EvernightAI.infra.adapters.tool.runtime_data import (
     AppendContextMessageTool,
     CreateContextTool,
+    GetContextTool,
+    GetMemoryTool,
+    ListContextsTool,
+    ListMemoriesTool,
     WriteMemoryTool,
 )
 
@@ -16,8 +20,12 @@ def register_runtime_data_tools(
 ) -> None:
     tools = [
         CreateContextTool(contexts),
+        ListContextsTool(contexts),
+        GetContextTool(contexts),
         AppendContextMessageTool(contexts),
         WriteMemoryTool(memories),
+        ListMemoriesTool(memories),
+        GetMemoryTool(memories),
     ]
     for tool in tools:
         register.register(tool.definition, tool.executor())

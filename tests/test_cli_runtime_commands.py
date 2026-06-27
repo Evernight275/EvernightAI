@@ -445,6 +445,11 @@ def test_create_runtime_from_config_registers_filesystem_tools_only(
             "move_path",
             "delete_path",
             "apply_text_patch",
+            "path_info",
+            "make_directory",
+            "copy_path",
+            "read_json_file",
+            "write_json_file",
         ]
     finally:
         import asyncio
@@ -476,6 +481,11 @@ def test_create_interface_from_config_wraps_configured_runtime(
             "move_path",
             "delete_path",
             "apply_text_patch",
+            "path_info",
+            "make_directory",
+            "copy_path",
+            "read_json_file",
+            "write_json_file",
         ]
     finally:
         import asyncio
@@ -511,6 +521,11 @@ def test_create_runtime_from_config_registers_shell_tool_when_enabled(
             "move_path",
             "delete_path",
             "apply_text_patch",
+            "path_info",
+            "make_directory",
+            "copy_path",
+            "read_json_file",
+            "write_json_file",
             "restricted_shell",
         ]
     finally:
@@ -562,6 +577,11 @@ def test_create_app_from_config_serves_health_and_tools(
         "move_path",
         "delete_path",
         "apply_text_patch",
+        "path_info",
+        "make_directory",
+        "copy_path",
+        "read_json_file",
+        "write_json_file",
     ]
     assert models_response.status_code == 200
     assert [model["model_id"] for model in models_response.json()] == [

@@ -55,6 +55,60 @@ class CreateContextTool:
         return context.model_dump(mode="json")
 
 
+class ListContextsTool:
+    def __init__(self, contexts: ContextManageProtocol) -> None:
+        self._contexts = contexts
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="list_contexts",
+            description="List runtime contexts",
+            parameters_schema={"type": "object", "properties": {}},
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        contexts = await self._contexts.list_contexts()
+        return {
+            "contexts": [
+                context.model_dump(mode="json")
+                for context in contexts
+            ],
+        }
+
+
+class GetContextTool:
+    def __init__(self, contexts: ContextManageProtocol) -> None:
+        self._contexts = contexts
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="get_context",
+            description="Get a runtime context",
+            parameters_schema={
+                "type": "object",
+                "properties": {"context_id": {"type": "string"}},
+                "required": ["context_id"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        context_id = _required_string(arguments.get("context_id"), "context_id")
+        context = await self._contexts.get(context_id)
+        return context.model_dump(mode="json")
+
+
 class AppendContextMessageTool:
     def __init__(self, contexts: ContextManageProtocol) -> None:
         self._contexts = contexts
@@ -154,6 +208,60 @@ class WriteMemoryTool:
         )
         created = await self._memories.create(memory)
         return created.model_dump(mode="json")
+
+
+class ListMemoriesTool:
+    def __init__(self, memories: MemoryManageProtocol) -> None:
+        self._memories = memories
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="list_memories",
+            description="List runtime memories",
+            parameters_schema={"type": "object", "properties": {}},
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        memories = await self._memories.list_memories()
+        return {
+            "memories": [
+                memory.model_dump(mode="json")
+                for memory in memories
+            ],
+        }
+
+
+class GetMemoryTool:
+    def __init__(self, memories: MemoryManageProtocol) -> None:
+        self._memories = memories
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="get_memory",
+            description="Get a runtime memory item",
+            parameters_schema={
+                "type": "object",
+                "properties": {"memory_id": {"type": "string"}},
+                "required": ["memory_id"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        memory_id = _required_string(arguments.get("memory_id"), "memory_id")
+        memory = await self._memories.get(memory_id)
+        return memory.model_dump(mode="json")
 
 
 def _required_string(value: object, name: str) -> str:

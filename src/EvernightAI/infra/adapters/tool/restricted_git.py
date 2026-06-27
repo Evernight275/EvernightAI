@@ -101,6 +101,112 @@ class RestrictedGitDiffTool:
         )
 
 
+class RestrictedGitLogTool:
+    def __init__(
+        self,
+        *,
+        repository_directory: str | Path,
+        timeout_seconds: float = 10.0,
+        max_output_chars: int = 12000,
+    ) -> None:
+        self._repository_directory = Path(repository_directory).resolve()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_chars = max_output_chars
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="git_log",
+            description="Show recent git commits for a fixed repository",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer"},
+                    "path": {"type": "string"},
+                },
+            },
+            permissions=[ToolPermission.READ],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata=_metadata(self),
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        limit = arguments.get("limit", 10)
+        if not isinstance(limit, int) or limit < 1 or limit > 100:
+            raise ToolInputError("The git log limit must be an integer from 1 to 100")
+
+        command = ["log", "--oneline", "--decorate", "-n", str(limit)]
+        path = _parse_optional_repo_path(
+            self._repository_directory,
+            arguments.get("path"),
+        )
+        if path is not None:
+            command.extend(["--", path])
+
+        return await _run_git(
+            self._repository_directory,
+            command,
+            timeout_seconds=self._timeout_seconds,
+            max_output_chars=self._max_output_chars,
+        )
+
+
+class RestrictedGitShowTool:
+    def __init__(
+        self,
+        *,
+        repository_directory: str | Path,
+        timeout_seconds: float = 10.0,
+        max_output_chars: int = 12000,
+    ) -> None:
+        self._repository_directory = Path(repository_directory).resolve()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_chars = max_output_chars
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="git_show",
+            description="Show a git revision or path for a fixed repository",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "revision": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+            permissions=[ToolPermission.READ],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata=_metadata(self),
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        revision = arguments.get("revision", "HEAD")
+        if not isinstance(revision, str) or not revision:
+            raise ToolInputError("The git revision must be a non-empty string")
+
+        command = ["show", "--stat", "--patch", revision]
+        path = _parse_optional_repo_path(
+            self._repository_directory,
+            arguments.get("path"),
+        )
+        if path is not None:
+            command.extend(["--", path])
+
+        return await _run_git(
+            self._repository_directory,
+            command,
+            timeout_seconds=self._timeout_seconds,
+            max_output_chars=self._max_output_chars,
+        )
+
+
 class RestrictedGitCommitTool:
     def __init__(
         self,
@@ -197,6 +303,50 @@ class RestrictedGitListBranchesTool:
         return await _run_git(
             self._repository_directory,
             ["branch", "--list"],
+            timeout_seconds=self._timeout_seconds,
+            max_output_chars=self._max_output_chars,
+        )
+
+
+class RestrictedGitCheckoutBranchTool:
+    def __init__(
+        self,
+        *,
+        repository_directory: str | Path,
+        timeout_seconds: float = 10.0,
+        max_output_chars: int = 12000,
+    ) -> None:
+        self._repository_directory = Path(repository_directory).resolve()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_chars = max_output_chars
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="git_checkout_branch",
+            description="Check out an existing git branch in a fixed repository",
+            parameters_schema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+            permissions=[ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata=_metadata(self),
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        name = arguments.get("name")
+        if not isinstance(name, str) or not name:
+            raise ToolInputError("The branch name must be a non-empty string")
+
+        return await _run_git(
+            self._repository_directory,
+            ["checkout", name],
             timeout_seconds=self._timeout_seconds,
             max_output_chars=self._max_output_chars,
         )

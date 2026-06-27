@@ -2,10 +2,13 @@ from pathlib import Path
 
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
 from EvernightAI.infra.adapters.tool.restricted_git import (
+    RestrictedGitCheckoutBranchTool,
     RestrictedGitCommitTool,
     RestrictedGitCreateBranchTool,
     RestrictedGitDiffTool,
     RestrictedGitListBranchesTool,
+    RestrictedGitLogTool,
+    RestrictedGitShowTool,
     RestrictedGitStatusTool,
 )
 
@@ -28,6 +31,16 @@ def register_restricted_git_tools(
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
         ),
+        RestrictedGitLogTool(
+            repository_directory=repository_directory,
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+        ),
+        RestrictedGitShowTool(
+            repository_directory=repository_directory,
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+        ),
         RestrictedGitCommitTool(
             repository_directory=repository_directory,
             timeout_seconds=timeout_seconds,
@@ -39,6 +52,11 @@ def register_restricted_git_tools(
             max_output_chars=max_output_chars,
         ),
         RestrictedGitCreateBranchTool(
+            repository_directory=repository_directory,
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+        ),
+        RestrictedGitCheckoutBranchTool(
             repository_directory=repository_directory,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,

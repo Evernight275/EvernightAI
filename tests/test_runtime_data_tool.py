@@ -49,6 +49,34 @@ async def test_runtime_data_tools_append_context_message_and_write_memory() -> N
             metadata={"approved": True},
         )
     )
+    listed_contexts = await manager.execute(
+        ToolCall(
+            tool_call_id="call-3",
+            tool_call={"name": "list_contexts", "arguments": {}},
+            metadata={"approved": True},
+        )
+    )
+    fetched_context = await manager.execute(
+        ToolCall(
+            tool_call_id="call-4",
+            tool_call={"name": "get_context", "arguments": {"context_id": "ctx-1"}},
+            metadata={"approved": True},
+        )
+    )
+    listed_memories = await manager.execute(
+        ToolCall(
+            tool_call_id="call-5",
+            tool_call={"name": "list_memories", "arguments": {}},
+            metadata={"approved": True},
+        )
+    )
+    fetched_memory = await manager.execute(
+        ToolCall(
+            tool_call_id="call-6",
+            tool_call={"name": "get_memory", "arguments": {"memory_id": "mem-1"}},
+            metadata={"approved": True},
+        )
+    )
 
     context = await runtime.contexts.get("ctx-1")
     memory = await runtime.memories.get("mem-1")
@@ -57,5 +85,9 @@ async def test_runtime_data_tools_append_context_message_and_write_memory() -> N
     assert context.messages[0].content is not None
     assert context.messages[0].content[0].text == "remember this"
     assert context_result.tool_call_result["context_id"] == "ctx-1"
+    assert listed_contexts.tool_call_result["contexts"][0]["context_id"] == "ctx-1"
+    assert fetched_context.tool_call_result["context_id"] == "ctx-1"
     assert memory.content == "User prefers concise answers"
     assert memory_result.tool_call_result["memory_id"] == "mem-1"
+    assert listed_memories.tool_call_result["memories"][0]["memory_id"] == "mem-1"
+    assert fetched_memory.tool_call_result["memory_id"] == "mem-1"

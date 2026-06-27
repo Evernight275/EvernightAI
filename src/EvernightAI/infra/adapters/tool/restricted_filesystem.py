@@ -1,4 +1,5 @@
 import fnmatch
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -460,6 +461,275 @@ class RestrictedApplyTextPatchTool:
             "path": _relative_path(self._root_directory, path),
             "replacements": replacements,
             "bytes_written": len(next_text.encode("utf-8")),
+        }
+
+
+class RestrictedPathInfoTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="path_info",
+            description="Return metadata for a file or directory inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        if not path.exists():
+            raise ToolInputError(f"The path {path.name} does not exist")
+
+        stat = path.stat()
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "type": "directory" if path.is_dir() else "file",
+            "size_bytes": stat.st_size,
+            "modified_at": stat.st_mtime,
+            "is_symlink": path.is_symlink(),
+        }
+
+
+class RestrictedMakeDirectoryTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="make_directory",
+            description="Create a directory inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "parents": {"type": "boolean"},
+                    "exist_ok": {"type": "boolean"},
+                },
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        parents = arguments.get("parents", True)
+        exist_ok = arguments.get("exist_ok", True)
+        if not isinstance(parents, bool):
+            raise ToolInputError("The parents value must be a boolean")
+        if not isinstance(exist_ok, bool):
+            raise ToolInputError("The exist_ok value must be a boolean")
+
+        existed = path.exists()
+        path.mkdir(parents=parents, exist_ok=exist_ok)
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "created": not existed,
+            "existed": existed,
+        }
+
+
+class RestrictedCopyPathTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        allow_overwrite: bool = False,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._allow_overwrite = allow_overwrite
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="copy_path",
+            description="Copy a file or directory inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string"},
+                    "destination_path": {"type": "string"},
+                    "overwrite": {"type": "boolean"},
+                },
+                "required": ["source_path", "destination_path"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "allow_overwrite": self._allow_overwrite,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        source = _resolve_path(self._root_directory, arguments.get("source_path"))
+        destination = _resolve_path(
+            self._root_directory,
+            arguments.get("destination_path"),
+        )
+        if not source.exists():
+            raise ToolInputError(f"The path {source.name} does not exist")
+
+        overwrite = arguments.get("overwrite", self._allow_overwrite)
+        if not isinstance(overwrite, bool):
+            raise ToolInputError("The overwrite value must be a boolean")
+        if overwrite and not self._allow_overwrite:
+            raise ToolInputError("Overwriting copied paths is not enabled")
+
+        existed = destination.exists()
+        if existed:
+            if not overwrite:
+                raise ToolInputError(f"The destination {destination.name} exists")
+            if destination.is_dir():
+                shutil.rmtree(destination)
+            else:
+                destination.unlink()
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, destination)
+            path_type = "directory"
+        else:
+            shutil.copy2(source, destination)
+            path_type = "file"
+
+        return {
+            "source_path": _relative_path(self._root_directory, source),
+            "destination_path": _relative_path(self._root_directory, destination),
+            "type": path_type,
+            "overwritten": existed,
+        }
+
+
+class RestrictedReadJsonFileTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="read_json_file",
+            description="Read a JSON file inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        if not path.is_file():
+            raise ToolInputError(f"The file {path.name} does not exist")
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ToolInputError("The file is not valid JSON") from exc
+
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "data": data,
+        }
+
+
+class RestrictedWriteJsonFileTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        allow_overwrite: bool = False,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._allow_overwrite = allow_overwrite
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="write_json_file",
+            description="Write a JSON file inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "data": {},
+                    "indent": {"type": "integer"},
+                },
+                "required": ["path", "data"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "allow_overwrite": self._allow_overwrite,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        data = arguments.get("data")
+        indent = arguments.get("indent", 2)
+        if not isinstance(indent, int):
+            raise ToolInputError("The indent value must be an integer")
+
+        existed = path.exists()
+        if existed and not self._allow_overwrite:
+            raise ToolInputError(f"The file {path.name} already exists")
+
+        try:
+            content = json.dumps(data, ensure_ascii=False, indent=indent)
+        except TypeError as exc:
+            raise ToolInputError("The data value must be JSON serializable") from exc
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{content}\n", encoding="utf-8")
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "bytes_written": len(f"{content}\n".encode("utf-8")),
+            "overwritten": existed,
         }
 
 

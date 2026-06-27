@@ -368,4 +368,9 @@ def assert_http_app(app) -> None:
         "move_path",
         "delete_path",
         "apply_text_patch",
+        "path_info",
+        "make_directory",
+        "copy_path",
+        "read_json_file",
+        "write_json_file",
     ]

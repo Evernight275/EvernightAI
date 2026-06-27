@@ -333,3 +333,108 @@ async def test_apply_text_patch_replaces_one_match_when_approved(tmp_path) -> No
 
     assert (tmp_path / "note.txt").read_text(encoding="utf-8") == "hi hello"
     assert result.tool_call_result["replacements"] == 1
+
+
+@pytest.mark.asyncio
+async def test_path_info_returns_file_metadata(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "path_info",
+                "arguments": {"path": "note.txt"},
+            },
+        )
+    )
+
+    assert result.tool_call_result["path"] == "note.txt"
+    assert result.tool_call_result["type"] == "file"
+    assert result.tool_call_result["size_bytes"] == 5
+
+
+@pytest.mark.asyncio
+async def test_make_directory_creates_nested_directory_when_approved(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "make_directory",
+                "arguments": {"path": "a/b"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert (tmp_path / "a" / "b").is_dir()
+    assert result.tool_call_result["created"] is True
+
+
+@pytest.mark.asyncio
+async def test_copy_path_copies_file_when_approved(tmp_path) -> None:
+    (tmp_path / "source.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "copy_path",
+                "arguments": {
+                    "source_path": "source.txt",
+                    "destination_path": "copies/source.txt",
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert (tmp_path / "source.txt").exists()
+    assert (tmp_path / "copies" / "source.txt").read_text(encoding="utf-8") == "hello"
+    assert result.tool_call_result["type"] == "file"
+
+
+@pytest.mark.asyncio
+async def test_json_file_tools_read_and_write_json_when_approved(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    write_result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "write_json_file",
+                "arguments": {
+                    "path": "data/item.json",
+                    "data": {"name": "Evernight", "enabled": True},
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+    read_result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-2",
+            tool_call={
+                "name": "read_json_file",
+                "arguments": {"path": "data/item.json"},
+            },
+        )
+    )
+
+    assert write_result.tool_call_result["path"] == "data/item.json"
+    assert read_result.tool_call_result["data"] == {
+        "name": "Evernight",
+        "enabled": True,
+    }
