@@ -21,6 +21,7 @@ from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -233,6 +234,66 @@ async def test_session_chat_retry_marks_old_branch_and_reuses_active_history() -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "status", "expected_error"),
+    [
+        (
+            MessageRole.SYSTEM,
+            None,
+            "Retry message index must point to an assistant message",
+        ),
+        (
+            MessageRole.USER,
+            None,
+            "Retry message index must point to an assistant message",
+        ),
+        (
+            MessageRole.TOOL,
+            None,
+            "Retry message index must point to an assistant message",
+        ),
+        (
+            MessageRole.ASSISTANT,
+            MessageStatus.REJECTED,
+            "Retry message index must point to an active message",
+        ),
+    ],
+)
+async def test_session_chat_retry_requires_active_assistant_target(
+    role: MessageRole,
+    status: MessageStatus | None,
+    expected_error: str,
+) -> None:
+    provider = RecordingProvider()
+    runtime = make_runtime(provider)
+    app = SessionApplication(runtime)
+    target_message = make_message("Retry target", role=role, status=status)
+    await runtime.providers.create(make_config("provider-1"))
+    await runtime.contexts.create(
+        Context(context_id="ctx-1", messages=[target_message])
+    )
+    await runtime.sessions.create(
+        Session(
+            session_id="session-1",
+            context_id="ctx-1",
+            provider_id="provider-1",
+            model_id="model-1",
+        )
+    )
+
+    with pytest.raises(ChatInputError, match=expected_error):
+        await app.chat_with_session(
+            "session-1",
+            SessionChatRequest(messages=[], retry_from_message_index=0),
+        )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert context.messages == [target_message]
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
 async def test_session_agent_retry_marks_old_branch_and_reuses_active_history() -> None:
     provider = RecordingProvider()
     runtime = make_runtime(provider)
@@ -268,10 +329,50 @@ async def test_session_agent_retry_marks_old_branch_and_reuses_active_history() 
     ]
 
 
-def make_message(text: str) -> Content:
+@pytest.mark.asyncio
+async def test_session_agent_retry_rejects_non_assistant_target() -> None:
+    provider = RecordingProvider()
+    runtime = make_runtime(provider)
+    app = SessionApplication(runtime)
+    original_message = make_message("Original question", role=MessageRole.USER)
+    await runtime.providers.create(make_config("provider-1"))
+    await runtime.contexts.create(
+        Context(context_id="ctx-1", messages=[original_message])
+    )
+    await runtime.sessions.create(
+        Session(
+            session_id="session-1",
+            context_id="ctx-1",
+            provider_id="provider-1",
+            model_id="model-1",
+        )
+    )
+
+    with pytest.raises(
+        ChatInputError,
+        match="Retry message index must point to an assistant message",
+    ):
+        await app.start_agent_run_for_session(
+            "session-1",
+            SessionAgentRunRequest(max_tool_rounds=0, retry_from_message_index=0),
+        )
+
+    context = await runtime.contexts.get("ctx-1")
+
+    assert context.messages == [original_message]
+    assert provider.requests == []
+
+
+def make_message(
+    text: str,
+    *,
+    role: MessageRole = MessageRole.USER,
+    status: MessageStatus | None = None,
+) -> Content:
     return Content(
-        role=MessageRole.USER,
+        role=role,
         content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+        status=status,
     )
 
 

@@ -1,6 +1,6 @@
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.schema.content import MessageStatus
+from EvernightAI.core.schema.content import Content, MessageRole, MessageStatus
 from EvernightAI.core.schema.context import Context
 
 
@@ -15,10 +15,18 @@ async def mark_retry_messages(
     context = await runtime.contexts.get(context_id)
     if retry_from_message_index >= len(context.messages):
         raise ChatInputError("Retry message index is out of range")
+    _ensure_retry_target(context.messages[retry_from_message_index])
 
     await runtime.contexts.replace(
         _mark_context_retry_messages(context, retry_from_message_index)
     )
+
+
+def _ensure_retry_target(message: Content) -> None:
+    if message.role is not MessageRole.ASSISTANT:
+        raise ChatInputError("Retry message index must point to an assistant message")
+    if message.status not in {None, MessageStatus.ACTIVE}:
+        raise ChatInputError("Retry message index must point to an active message")
 
 
 def _mark_context_retry_messages(context: Context, retry_from_index: int) -> Context:
