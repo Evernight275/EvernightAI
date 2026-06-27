@@ -231,3 +231,105 @@ async def test_list_directory_limits_entries(tmp_path) -> None:
         {"name": "a.txt", "path": "a.txt", "type": "file"}
     ]
     assert result.tool_call_result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_search_text_files_finds_matching_lines(tmp_path) -> None:
+    (tmp_path / "a.txt").write_text("hello\nworld\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("hello docs\n", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "search_text_files",
+                "arguments": {"query": "hello", "pattern": "*.txt"},
+            },
+        )
+    )
+
+    assert result.tool_call_result["matches"] == [
+        {"path": "a.txt", "line_number": 1, "line": "hello"}
+    ]
+    assert result.tool_call_result["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_move_path_moves_file_when_approved(tmp_path) -> None:
+    (tmp_path / "old.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "move_path",
+                "arguments": {
+                    "source_path": "old.txt",
+                    "destination_path": "nested/new.txt",
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert not (tmp_path / "old.txt").exists()
+    assert (tmp_path / "nested" / "new.txt").read_text(encoding="utf-8") == "hello"
+    assert result.tool_call_result["destination_path"] == "nested/new.txt"
+
+
+@pytest.mark.asyncio
+async def test_delete_path_deletes_file_when_approved(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "delete_path",
+                "arguments": {"path": "note.txt"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert not (tmp_path / "note.txt").exists()
+    assert result.tool_call_result == {
+        "path": "note.txt",
+        "type": "file",
+        "deleted": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_apply_text_patch_replaces_one_match_when_approved(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("hello hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "apply_text_patch",
+                "arguments": {
+                    "path": "note.txt",
+                    "old_text": "hello",
+                    "new_text": "hi",
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert (tmp_path / "note.txt").read_text(encoding="utf-8") == "hi hello"
+    assert result.tool_call_result["replacements"] == 1

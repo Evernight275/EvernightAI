@@ -11,11 +11,13 @@ def register_restricted_shell_tool(
     working_directory: str | Path,
     timeout_seconds: float = 10.0,
     max_output_chars: int = 12000,
+    allowed_env_keys: set[str] | None = None,
 ) -> None:
     tool = RestrictedShellTool(
         allowed_commands=allowed_commands,
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
         max_output_chars=max_output_chars,
+        allowed_env_keys=allowed_env_keys,
     )
     register.register(tool.definition, tool.executor())

@@ -132,3 +132,43 @@ async def test_restricted_shell_truncates_output(tmp_path) -> None:
 
     assert result.tool_call_result["stdout"] == "hel"
     assert result.tool_call_result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_restricted_shell_accepts_cwd_env_and_returns_events(tmp_path) -> None:
+    (tmp_path / "nested").mkdir()
+    register = ToolRegister()
+    register_restricted_shell_tool(
+        register,
+        allowed_commands={sys.executable},
+        working_directory=tmp_path,
+        allowed_env_keys={"EVERNIGHT_TEST_VALUE"},
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "restricted_shell",
+                "arguments": {
+                    "command": [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import os, pathlib; "
+                            "print(pathlib.Path.cwd().name); "
+                            "print(os.environ['EVERNIGHT_TEST_VALUE'])"
+                        ),
+                    ],
+                    "cwd": "nested",
+                    "env": {"EVERNIGHT_TEST_VALUE": "ok"},
+                    "timeout_seconds": 5,
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["stdout"].splitlines() == ["nested", "ok"]
+    assert result.tool_call_result["events"][0]["stream"] == "stdout"

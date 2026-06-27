@@ -1,3 +1,5 @@
+import fnmatch
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -166,6 +168,298 @@ class RestrictedListDirectoryTool:
                 for entry in limited_entries
             ],
             "truncated": len(entries) > self._max_entries,
+        }
+
+
+class RestrictedSearchTextFilesTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        max_results: int = 100,
+        max_file_chars: int = 200000,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._max_results = max_results
+        self._max_file_chars = max_file_chars
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="search_text_files",
+            description="Search UTF-8 text files inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "query": {"type": "string"},
+                    "pattern": {"type": "string"},
+                    "case_sensitive": {"type": "boolean"},
+                },
+                "required": ["query"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "max_results": self._max_results,
+                "max_file_chars": self._max_file_chars,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        root = _resolve_path(self._root_directory, arguments.get("path", "."))
+        if not root.is_dir():
+            raise ToolInputError(f"The directory {root.name} does not exist")
+
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query:
+            raise ToolInputError("The search query must be a non-empty string")
+
+        pattern = arguments.get("pattern", "*")
+        if not isinstance(pattern, str) or not pattern:
+            raise ToolInputError("The search pattern must be a non-empty string")
+
+        case_sensitive = arguments.get("case_sensitive", True)
+        if not isinstance(case_sensitive, bool):
+            raise ToolInputError("The case_sensitive value must be a boolean")
+
+        needle = query if case_sensitive else query.casefold()
+        matches: list[dict[str, Any]] = []
+        scanned_files = 0
+        skipped_files = 0
+
+        for path in sorted(root.rglob("*")):
+            if len(matches) >= self._max_results:
+                break
+            if not path.is_file() or not fnmatch.fnmatch(path.name, pattern):
+                continue
+
+            scanned_files += 1
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                skipped_files += 1
+                continue
+
+            if len(text) > self._max_file_chars:
+                text = text[: self._max_file_chars]
+
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                haystack = line if case_sensitive else line.casefold()
+                if needle not in haystack:
+                    continue
+                matches.append(
+                    {
+                        "path": _relative_path(self._root_directory, path),
+                        "line_number": line_number,
+                        "line": line,
+                    }
+                )
+                if len(matches) >= self._max_results:
+                    break
+
+        return {
+            "path": _relative_path(self._root_directory, root),
+            "query": query,
+            "pattern": pattern,
+            "matches": matches,
+            "scanned_files": scanned_files,
+            "skipped_files": skipped_files,
+            "truncated": len(matches) >= self._max_results,
+        }
+
+
+class RestrictedMovePathTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        allow_overwrite: bool = False,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._allow_overwrite = allow_overwrite
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="move_path",
+            description="Move a file or directory inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string"},
+                    "destination_path": {"type": "string"},
+                    "overwrite": {"type": "boolean"},
+                },
+                "required": ["source_path", "destination_path"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "allow_overwrite": self._allow_overwrite,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        source = _resolve_path(self._root_directory, arguments.get("source_path"))
+        destination = _resolve_path(
+            self._root_directory,
+            arguments.get("destination_path"),
+        )
+        if not source.exists():
+            raise ToolInputError(f"The path {source.name} does not exist")
+
+        overwrite = arguments.get("overwrite", self._allow_overwrite)
+        if not isinstance(overwrite, bool):
+            raise ToolInputError("The overwrite value must be a boolean")
+        if overwrite and not self._allow_overwrite:
+            raise ToolInputError("Overwriting moved paths is not enabled")
+
+        existed = destination.exists()
+        if existed:
+            if not overwrite:
+                raise ToolInputError(f"The destination {destination.name} exists")
+            if destination.is_dir():
+                shutil.rmtree(destination)
+            else:
+                destination.unlink()
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+
+        return {
+            "source_path": _relative_path(self._root_directory, source),
+            "destination_path": _relative_path(self._root_directory, destination),
+            "overwritten": existed,
+        }
+
+
+class RestrictedDeletePathTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="delete_path",
+            description="Delete a file or directory inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "recursive": {"type": "boolean"},
+                },
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        recursive = arguments.get("recursive", False)
+        if not isinstance(recursive, bool):
+            raise ToolInputError("The recursive value must be a boolean")
+        if not path.exists():
+            raise ToolInputError(f"The path {path.name} does not exist")
+
+        path_type = "directory" if path.is_dir() else "file"
+        if path.is_dir():
+            if not recursive:
+                raise ToolInputError("Directory deletion requires recursive=true")
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "type": path_type,
+            "deleted": True,
+        }
+
+
+class RestrictedApplyTextPatchTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="apply_text_patch",
+            description="Apply an exact text replacement to a UTF-8 file inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                    "replace_all": {"type": "boolean"},
+                },
+                "required": ["path", "old_text", "new_text"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        if not path.is_file():
+            raise ToolInputError(f"The file {path.name} does not exist")
+
+        old_text = arguments.get("old_text")
+        new_text = arguments.get("new_text")
+        if not isinstance(old_text, str) or not old_text:
+            raise ToolInputError("The old_text value must be a non-empty string")
+        if not isinstance(new_text, str):
+            raise ToolInputError("The new_text value must be a string")
+
+        replace_all = arguments.get("replace_all", False)
+        if not isinstance(replace_all, bool):
+            raise ToolInputError("The replace_all value must be a boolean")
+
+        text = path.read_text(encoding="utf-8")
+        replacements = text.count(old_text)
+        if replacements == 0:
+            raise ToolInputError("The old_text value was not found")
+
+        if replace_all:
+            next_text = text.replace(old_text, new_text)
+        else:
+            next_text = text.replace(old_text, new_text, 1)
+            replacements = 1
+
+        path.write_text(next_text, encoding="utf-8")
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "replacements": replacements,
+            "bytes_written": len(next_text.encode("utf-8")),
         }
 
 

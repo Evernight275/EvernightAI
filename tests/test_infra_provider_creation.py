@@ -118,6 +118,10 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
         "read_text_file",
         "write_text_file",
         "list_directory",
+        "search_text_files",
+        "move_path",
+        "delete_path",
+        "apply_text_patch",
     ]
 
     register_builtin_tools(
@@ -130,6 +134,10 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
         "read_text_file",
         "write_text_file",
         "list_directory",
+        "search_text_files",
+        "move_path",
+        "delete_path",
+        "apply_text_patch",
         "restricted_shell",
     ]
 
@@ -254,6 +262,10 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         "read_text_file",
         "write_text_file",
         "list_directory",
+        "search_text_files",
+        "move_path",
+        "delete_path",
+        "apply_text_patch",
     ]
     assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.agent_state_register is not None
