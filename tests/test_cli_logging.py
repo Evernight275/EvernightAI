@@ -9,7 +9,7 @@ from EvernightAI.interface.cli.logging import (
     EvernightLogFormatter,
     uvicorn_log_config,
 )
-from EvernightAI.interface.log_store import RecentLogStore
+from EvernightAI.interface.log_store import RecentLogHandler, RecentLogStore
 
 
 def make_record(level: int, message: str) -> logging.LogRecord:
@@ -96,3 +96,35 @@ def test_recent_log_store_keeps_recent_entries_and_filters_after_index() -> None
     assert [entry.message for entry in entries] == ["second", "third"]
     assert [entry.level for entry in entries] == ["warning", "error"]
     assert [entry.message for entry in store.list(after=2)] == ["third"]
+
+
+def test_recent_log_handler_skips_successful_log_polling_access_logs() -> None:
+    store = RecentLogStore()
+    handler = RecentLogHandler(store)
+
+    handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 200))
+    handler.emit(make_access_record("POST", "/logs/clear", 204))
+    handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 500))
+    handler.emit(make_access_record("GET", "/sessions", 200))
+
+    assert [
+        entry.message
+        for entry in store.list()
+    ] == [
+        '127.0.0.1:41800 - "GET /logs?limit=500&after=1 HTTP/1.1" 500',
+        '127.0.0.1:41800 - "GET /sessions HTTP/1.1" 200',
+    ]
+
+
+def make_access_record(method: str, path: str, status_code: int) -> logging.LogRecord:
+    record = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("127.0.0.1:41800", method, path, "1.1", status_code),
+        exc_info=None,
+    )
+    record.created = 1780000000.0
+    return record

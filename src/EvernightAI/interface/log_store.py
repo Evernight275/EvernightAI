@@ -65,6 +65,8 @@ class RecentLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if _should_skip_recent_log(record):
+                return
             self.store.append(record)
         except Exception:
             self.handleError(record)
@@ -95,3 +97,48 @@ def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
         metadata["stack"] = record.stack_info
 
     return metadata
+
+
+def _should_skip_recent_log(record: logging.LogRecord) -> bool:
+    if record.name != "uvicorn.access":
+        return False
+
+    method, path, status_code = _uvicorn_access_parts(record)
+    if method not in {"GET", "POST"} or status_code is None or status_code >= 400:
+        return False
+
+    return (
+        path == "/logs"
+        or path.startswith("/logs?")
+        or path == "/logs/clear"
+    )
+
+
+def _uvicorn_access_parts(
+    record: logging.LogRecord,
+) -> tuple[str | None, str, int | None]:
+    if isinstance(record.args, tuple) and len(record.args) >= 5:
+        method = record.args[1]
+        path = record.args[2]
+        status_code = record.args[4]
+        return (
+            method if isinstance(method, str) else None,
+            path if isinstance(path, str) else "",
+            status_code if isinstance(status_code, int) else None,
+        )
+
+    message = record.getMessage()
+    parts = message.split('"')
+    if len(parts) < 3:
+        return None, "", None
+
+    request_line = parts[1].split()
+    method = request_line[0] if len(request_line) >= 1 else None
+    path = request_line[1] if len(request_line) >= 2 else ""
+    status_text = parts[2].strip().split(" ", 1)[0]
+    try:
+        status_code = int(status_text)
+    except ValueError:
+        status_code = None
+
+    return method, path, status_code
