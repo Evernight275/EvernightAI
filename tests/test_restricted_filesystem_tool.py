@@ -438,3 +438,100 @@ async def test_json_file_tools_read_and_write_json_when_approved(tmp_path) -> No
         "name": "Evernight",
         "enabled": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_append_text_file_appends_when_approved(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "append_text_file",
+                "arguments": {"path": "note.txt", "content": " world"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert (tmp_path / "note.txt").read_text(encoding="utf-8") == "hello world"
+    assert result.tool_call_result["created"] is False
+    assert result.tool_call_result["bytes_written"] == 6
+
+
+@pytest.mark.asyncio
+async def test_find_paths_finds_matching_files(tmp_path) -> None:
+    (tmp_path / "a.py").write_text("print('a')", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "find_paths",
+                "arguments": {"pattern": "*.py", "type": "file"},
+            },
+        )
+    )
+
+    assert result.tool_call_result["matches"] == [
+        {"path": "a.py", "type": "file"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_read_text_file_lines_returns_line_range(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "read_text_file_lines",
+                "arguments": {
+                    "path": "note.txt",
+                    "start_line": 2,
+                    "line_count": 2,
+                },
+            },
+        )
+    )
+
+    assert result.tool_call_result["lines"] == [
+        {"line_number": 2, "text": "two"},
+        {"line_number": 3, "text": "three"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_file_hash_returns_sha256(tmp_path) -> None:
+    (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "file_hash",
+                "arguments": {"path": "note.txt"},
+            },
+        )
+    )
+
+    assert result.tool_call_result["algorithm"] == "sha256"
+    assert result.tool_call_result["hexdigest"] == (
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e"
+        "1b161e5c1fa7425e73043362938b9824"
+    )

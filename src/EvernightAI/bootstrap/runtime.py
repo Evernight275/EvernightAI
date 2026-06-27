@@ -424,6 +424,7 @@ def _create_runtime(
             tool_register,
             contexts=contexts,
             memories=memories,
+            sessions=sessions,
         )
 
     return RuntimeKernel(

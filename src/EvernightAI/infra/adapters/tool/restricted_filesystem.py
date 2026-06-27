@@ -1,4 +1,5 @@
 import fnmatch
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -117,6 +118,60 @@ class RestrictedWriteTextFileTool:
         }
 
 
+class RestrictedAppendTextFileTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="append_text_file",
+            description="Append UTF-8 text to a file inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "create": {"type": "boolean"},
+                },
+                "required": ["path", "content"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        content = arguments.get("content")
+        create = arguments.get("create", True)
+        if not isinstance(content, str):
+            raise ToolInputError("The file content must be a string")
+        if not isinstance(create, bool):
+            raise ToolInputError("The create value must be a boolean")
+        existed = path.exists()
+        if not existed and not create:
+            raise ToolInputError(f"The file {path.name} does not exist")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as file:
+            file.write(content)
+
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "bytes_written": len(content.encode("utf-8")),
+            "created": not existed,
+        }
+
+
 class RestrictedListDirectoryTool:
     def __init__(
         self,
@@ -169,6 +224,77 @@ class RestrictedListDirectoryTool:
                 for entry in limited_entries
             ],
             "truncated": len(entries) > self._max_entries,
+        }
+
+
+class RestrictedFindPathsTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        max_results: int = 100,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._max_results = max_results
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="find_paths",
+            description="Find files or directories by name pattern inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "pattern": {"type": "string"},
+                    "type": {"type": "string", "enum": ["file", "directory", "any"]},
+                },
+                "required": ["pattern"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "max_results": self._max_results,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        root = _resolve_path(self._root_directory, arguments.get("path", "."))
+        if not root.is_dir():
+            raise ToolInputError(f"The directory {root.name} does not exist")
+
+        pattern = arguments.get("pattern")
+        if not isinstance(pattern, str) or not pattern:
+            raise ToolInputError("The path pattern must be a non-empty string")
+        requested_type = arguments.get("type", "any")
+        if requested_type not in {"file", "directory", "any"}:
+            raise ToolInputError("The path type must be file, directory, or any")
+
+        matches: list[dict[str, Any]] = []
+        for path in sorted(root.rglob("*")):
+            if len(matches) >= self._max_results:
+                break
+            if not fnmatch.fnmatch(path.name, pattern):
+                continue
+            path_type = "directory" if path.is_dir() else "file"
+            if requested_type != "any" and path_type != requested_type:
+                continue
+            matches.append(
+                {
+                    "path": _relative_path(self._root_directory, path),
+                    "type": path_type,
+                }
+            )
+
+        return {
+            "path": _relative_path(self._root_directory, root),
+            "pattern": pattern,
+            "matches": matches,
+            "truncated": len(matches) >= self._max_results,
         }
 
 
@@ -271,6 +397,68 @@ class RestrictedSearchTextFilesTool:
             "scanned_files": scanned_files,
             "skipped_files": skipped_files,
             "truncated": len(matches) >= self._max_results,
+        }
+
+
+class RestrictedReadTextFileLinesTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        max_lines: int = 200,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+        self._max_lines = max_lines
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="read_text_file_lines",
+            description="Read a line range from a UTF-8 text file inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "line_count": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={
+                "root_directory": str(self._root_directory),
+                "max_lines": self._max_lines,
+            },
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        if not path.is_file():
+            raise ToolInputError(f"The file {path.name} does not exist")
+
+        start_line = arguments.get("start_line", 1)
+        line_count = arguments.get("line_count", self._max_lines)
+        if not isinstance(start_line, int) or start_line < 1:
+            raise ToolInputError("The start_line value must be a positive integer")
+        if not isinstance(line_count, int) or line_count < 1:
+            raise ToolInputError("The line_count value must be a positive integer")
+
+        effective_count = min(line_count, self._max_lines)
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        selected = lines[start_line - 1 : start_line - 1 + effective_count]
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "start_line": start_line,
+            "line_count": len(selected),
+            "lines": [
+                {"line_number": start_line + index, "text": line}
+                for index, line in enumerate(selected)
+            ],
+            "truncated": line_count > self._max_lines,
         }
 
 
@@ -461,6 +649,56 @@ class RestrictedApplyTextPatchTool:
             "path": _relative_path(self._root_directory, path),
             "replacements": replacements,
             "bytes_written": len(next_text.encode("utf-8")),
+        }
+
+
+class RestrictedFileHashTool:
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+    ) -> None:
+        self._root_directory = Path(root_directory).resolve()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="file_hash",
+            description="Compute a file hash inside a fixed root directory",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "algorithm": {"type": "string", "enum": ["sha256", "sha1", "md5"]},
+                },
+                "required": ["path"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
+            safety_level=ToolSafetyLevel.SAFE,
+            metadata={"root_directory": str(self._root_directory)},
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = _resolve_path(self._root_directory, arguments.get("path"))
+        if not path.is_file():
+            raise ToolInputError(f"The file {path.name} does not exist")
+
+        algorithm = arguments.get("algorithm", "sha256")
+        if algorithm not in {"sha256", "sha1", "md5"}:
+            raise ToolInputError("The hash algorithm must be sha256, sha1, or md5")
+
+        digest = hashlib.new(str(algorithm))
+        with path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+
+        return {
+            "path": _relative_path(self._root_directory, path),
+            "algorithm": algorithm,
+            "hexdigest": digest.hexdigest(),
         }
 
 

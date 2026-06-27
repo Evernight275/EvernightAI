@@ -4,6 +4,7 @@ from uuid import uuid4
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.context import ContextManageProtocol
 from EvernightAI.core.protocol.memory import MemoryManageProtocol
+from EvernightAI.core.protocol.session import SessionManageProtocol
 from EvernightAI.core.protocol.tool import ToolExecutorProtocol
 from EvernightAI.core.schema.content import (
     Content,
@@ -13,6 +14,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryKind, MemoryScope
+from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
@@ -262,6 +264,133 @@ class GetMemoryTool:
         memory_id = _required_string(arguments.get("memory_id"), "memory_id")
         memory = await self._memories.get(memory_id)
         return memory.model_dump(mode="json")
+
+
+class CreateSessionTool:
+    def __init__(self, sessions: SessionManageProtocol) -> None:
+        self._sessions = sessions
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="create_session",
+            description="Create a runtime session",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "context_id": {"type": "string"},
+                    "provider_id": {"type": "string"},
+                    "model_id": {"type": "string"},
+                    "metadata": {"type": "object"},
+                },
+                "required": ["context_id"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        session_id = _optional_string(arguments.get("session_id")) or (
+            f"session-{uuid4().hex}"
+        )
+        session = Session(
+            session_id=session_id,
+            title=_optional_string(arguments.get("title")),
+            context_id=_required_string(arguments.get("context_id"), "context_id"),
+            provider_id=_optional_string(arguments.get("provider_id")),
+            model_id=_optional_string(arguments.get("model_id")),
+            metadata=_metadata(arguments.get("metadata")),
+        )
+        created = await self._sessions.create(session)
+        return created.model_dump(mode="json")
+
+
+class ListSessionsTool:
+    def __init__(self, sessions: SessionManageProtocol) -> None:
+        self._sessions = sessions
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="list_sessions",
+            description="List runtime sessions",
+            parameters_schema={"type": "object", "properties": {}},
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        sessions = await self._sessions.list_sessions()
+        return {
+            "sessions": [
+                session.model_dump(mode="json")
+                for session in sessions
+            ],
+        }
+
+
+class GetSessionTool:
+    def __init__(self, sessions: SessionManageProtocol) -> None:
+        self._sessions = sessions
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="get_session",
+            description="Get a runtime session",
+            parameters_schema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+            permissions=[ToolPermission.READ, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SAFE,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        session_id = _required_string(arguments.get("session_id"), "session_id")
+        session = await self._sessions.get(session_id)
+        return session.model_dump(mode="json")
+
+
+class ArchiveSessionTool:
+    def __init__(self, sessions: SessionManageProtocol) -> None:
+        self._sessions = sessions
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="archive_session",
+            description="Archive a runtime session",
+            parameters_schema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+            permissions=[ToolPermission.WRITE, ToolPermission.DATABASE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+            requires_approval=True,
+        )
+
+    def executor(self) -> ToolExecutorProtocol:
+        return self.execute
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        session_id = _required_string(arguments.get("session_id"), "session_id")
+        session = await self._sessions.archive(session_id)
+        return session.model_dump(mode="json")
 
 
 def _required_string(value: object, name: str) -> str:

@@ -4,6 +4,7 @@ from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.tool import ToolManager
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.content import MessageRole
+from EvernightAI.core.schema.session import SessionStatus
 from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.registrations.tool.runtime_data import (
     register_runtime_data_tools,
@@ -17,6 +18,7 @@ async def test_runtime_data_tools_append_context_message_and_write_memory() -> N
         runtime.tool_register,
         contexts=runtime.contexts,
         memories=runtime.memories,
+        sessions=runtime.sessions,
     )
     manager = ToolManager(runtime.tool_register, runtime.tool_safety_policy)
     await runtime.contexts.create(Context(context_id="ctx-1"))
@@ -77,6 +79,44 @@ async def test_runtime_data_tools_append_context_message_and_write_memory() -> N
             metadata={"approved": True},
         )
     )
+    session_result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-7",
+            tool_call={
+                "name": "create_session",
+                "arguments": {
+                    "session_id": "session-1",
+                    "context_id": "ctx-1",
+                    "title": "Tool session",
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+    listed_sessions = await manager.execute(
+        ToolCall(
+            tool_call_id="call-8",
+            tool_call={"name": "list_sessions", "arguments": {}},
+            metadata={"approved": True},
+        )
+    )
+    fetched_session = await manager.execute(
+        ToolCall(
+            tool_call_id="call-9",
+            tool_call={"name": "get_session", "arguments": {"session_id": "session-1"}},
+            metadata={"approved": True},
+        )
+    )
+    archived_session = await manager.execute(
+        ToolCall(
+            tool_call_id="call-10",
+            tool_call={
+                "name": "archive_session",
+                "arguments": {"session_id": "session-1"},
+            },
+            metadata={"approved": True},
+        )
+    )
 
     context = await runtime.contexts.get("ctx-1")
     memory = await runtime.memories.get("mem-1")
@@ -91,3 +131,7 @@ async def test_runtime_data_tools_append_context_message_and_write_memory() -> N
     assert memory_result.tool_call_result["memory_id"] == "mem-1"
     assert listed_memories.tool_call_result["memories"][0]["memory_id"] == "mem-1"
     assert fetched_memory.tool_call_result["memory_id"] == "mem-1"
+    assert session_result.tool_call_result["session_id"] == "session-1"
+    assert listed_sessions.tool_call_result["sessions"][0]["session_id"] == "session-1"
+    assert fetched_session.tool_call_result["title"] == "Tool session"
+    assert archived_session.tool_call_result["status"] == SessionStatus.ARCHIVED.value
