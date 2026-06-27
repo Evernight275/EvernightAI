@@ -10,7 +10,12 @@ ModelDiscovery = Callable[[], Awaitable[list[ProviderModelConfig]]]
 async def discover_models_or_declared(
     declared_models: dict[str, ProviderModelConfig],
     discover: ModelDiscovery,
+    *,
+    discover_models: bool = False,
 ) -> list[ProviderModelConfig]:
+    if not discover_models:
+        return list(declared_models.values())
+
     try:
         remote_models = await discover()
     except Exception:
@@ -34,8 +39,14 @@ async def get_discovered_model_or_declared(
     model_id: str,
     declared_models: dict[str, ProviderModelConfig],
     discover: ModelDiscovery,
+    *,
+    discover_models: bool = False,
 ) -> ProviderModelConfig:
-    for model in await discover_models_or_declared(declared_models, discover):
+    for model in await discover_models_or_declared(
+        declared_models,
+        discover,
+        discover_models=discover_models,
+    ):
         if model.model_id == model_id:
             return model
 

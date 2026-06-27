@@ -56,15 +56,33 @@ max_output_chars = 12000
 name = "Main"
 type = "openai"
 is_enabled = true
+# Keep model listing local by default. Set true only when you explicitly want
+# EvernightAI to call the provider's models endpoint while listing models.
+discover_models = false
 api_key_env = "OPENAI_API_KEY"
 # base_url can point to any OpenAI-compatible endpoint.
 # base_url = "https://api.openai.com/v1"
+# discover_models = true
 
 [provider.main.model.chat]
 model_id = "gpt-4.1-mini"
 capabilities = ["chat", "tool_call"]
 
 # Additional provider examples:
+#
+# OpenAI exposes multiple API surfaces. Keep Responses models on an
+# openai_responses provider; the upstream /models list does not identify which
+# endpoint a model must use.
+#
+# [provider.openai_responses]
+# name = "OpenAI Responses"
+# type = "openai_responses"
+# api_key_env = "OPENAI_API_KEY"
+# base_url = "https://api.openai.com/v1"
+#
+# [provider.openai_responses.model.chat]
+# model_id = "gpt-4.1-mini"
+# capabilities = ["chat", "tool_call"]
 #
 # [provider.deepseek]
 # name = "DeepSeek"

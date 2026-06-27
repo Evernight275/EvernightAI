@@ -86,13 +86,18 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return OpenAICompatibleChatStream(stream)
 
     async def list_models(self) -> list[ProviderModelConfig]:
-        return await discover_models_or_declared(self._models, self._list_remote_models)
+        return await discover_models_or_declared(
+            self._models,
+            self._list_remote_models,
+            discover_models=self.config.discover_models,
+        )
 
     async def get_model(self, model_id: str) -> ProviderModelConfig:
         return await get_discovered_model_or_declared(
             model_id,
             self._models,
             self._list_remote_models,
+            discover_models=self.config.discover_models,
         )
 
     async def supports(self, capability: ProviderModelCapability) -> bool:
@@ -106,8 +111,14 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
     async def _list_remote_models(self) -> list[ProviderModelConfig]:
-        models = await self._client.models.list()
-        return [ProviderModelConfig(model_id=model.id) for model in models.data]
+        page = await self._client.models.list()
+        discovered: list[ProviderModelConfig] = []
+        for model in page.data:
+            model_id = getattr(model, "id", None)
+            if isinstance(model_id, str) and model_id:
+                discovered.append(ProviderModelConfig(model_id=model_id))
+
+        return discovered
 
 
 class OpenAICompatibleChatStream:

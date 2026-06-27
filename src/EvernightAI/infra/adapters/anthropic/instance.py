@@ -74,13 +74,18 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
         )
 
     async def list_models(self) -> list[ProviderModelConfig]:
-        return await discover_models_or_declared(self._models, self._list_remote_models)
+        return await discover_models_or_declared(
+            self._models,
+            self._list_remote_models,
+            discover_models=self.config.discover_models,
+        )
 
     async def get_model(self, model_id: str) -> ProviderModelConfig:
         return await get_discovered_model_or_declared(
             model_id,
             self._models,
             self._list_remote_models,
+            discover_models=self.config.discover_models,
         )
 
     async def supports(self, capability: ProviderModelCapability) -> bool:

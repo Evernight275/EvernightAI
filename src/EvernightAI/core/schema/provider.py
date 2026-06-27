@@ -43,6 +43,7 @@ class ProviderConfig(EvernightAISchema):
     name: str
     type: ProviderType
     is_enabled: bool = True
+    discover_models: bool = False
     api_key: str | None = None
     base_url: str | None = None
     model: dict[str, ProviderModelConfig] = Field(default_factory=dict)

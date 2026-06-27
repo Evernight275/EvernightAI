@@ -6,6 +6,7 @@ import pytest
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from typing import Any, cast
 
+from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -60,11 +61,12 @@ from EvernightAI.bootstrap.runtime import (
 )
 
 
-def make_openai_config() -> ProviderConfig:
+def make_openai_config(*, discover_models: bool = False) -> ProviderConfig:
     return ProviderConfig(
         provider_id="openai-main",
         name="OpenAI Main",
         type=ProviderType.OPENAI,
+        discover_models=discover_models,
         model={
             "gpt-test": ProviderModelConfig(
                 model_id="gpt-test",
@@ -584,8 +586,29 @@ async def test_openai_instance_chat_stream_maps_reasoning_effort_metadata() -> N
 
 
 @pytest.mark.asyncio
-async def test_openai_instance_lists_remote_models_with_declared_fallback() -> None:
+async def test_openai_instance_lists_declared_models_without_remote_discovery() -> None:
     instance = OpenAICompatibleProviderInstance(make_openai_config())
+    fake_client = FakeClient(
+        FakeCompletions(),
+        models=FakeModels(["gpt-test", "remote-model"]),
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gpt-test"]
+    with pytest.raises(ProviderNotFoundError):
+        await instance.get_model("remote-model")
+    assert fake_client.models.calls == 0
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_instance_lists_remote_models_when_discovery_enabled() -> None:
+    instance = OpenAICompatibleProviderInstance(
+        make_openai_config(discover_models=True)
+    )
     fake_client = FakeClient(
         FakeCompletions(),
         models=FakeModels(["gpt-test", "remote-model"]),
@@ -596,13 +619,16 @@ async def test_openai_instance_lists_remote_models_with_declared_fallback() -> N
 
     assert [model.model_id for model in models] == ["gpt-test", "remote-model"]
     assert (await instance.get_model("remote-model")).model_id == "remote-model"
+    assert fake_client.models.calls == 2
 
     await instance.close()
 
 
 @pytest.mark.asyncio
 async def test_openai_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
-    instance = OpenAICompatibleProviderInstance(make_openai_config())
+    instance = OpenAICompatibleProviderInstance(
+        make_openai_config(discover_models=True)
+    )
     fake_client = FakeClient(
         FakeCompletions(),
         models=FakeModels(
@@ -615,6 +641,7 @@ async def test_openai_instance_falls_back_to_declared_models_when_discovery_fail
     models = await instance.list_models()
 
     assert [model.model_id for model in models] == ["gpt-test"]
+    assert fake_client.models.calls == 1
 
     await instance.close()
 
@@ -706,8 +733,10 @@ class FakeModels:
     ) -> None:
         self._model_ids = model_ids
         self._error = error
+        self.calls = 0
 
     async def list(self) -> FakeModelsPage:
+        self.calls += 1
         if self._error is not None:
             raise self._error
 

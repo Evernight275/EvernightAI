@@ -174,6 +174,7 @@ def _parse_provider(
         name=_string(data.get("name")) or provider_id,
         type=data["type"],
         is_enabled=_bool(data.get("is_enabled"), True),
+        discover_models=_bool(data.get("discover_models"), False),
         api_key=_api_key(data),
         base_url=_string(data.get("base_url")),
         model=_parse_models(model_data),

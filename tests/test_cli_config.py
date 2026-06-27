@@ -69,6 +69,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "main": {
                     "name": "DeepSeek",
                     "type": "openai",
+                    "discover_models": True,
                     "api_key_env": "DEEPSEEK_API_KEY",
                     "base_url": "https://example.test/v1",
                     "metadata": {"source": "test"},
@@ -122,6 +123,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert provider.provider_id == "main"
     assert provider.name == "DeepSeek"
     assert provider.type is ProviderType.OPENAI
+    assert provider.discover_models is True
     assert provider.api_key == "secret-key"
     assert provider.base_url == "https://example.test/v1"
     assert provider.metadata == {"source": "test"}

@@ -55,8 +55,10 @@ async def list_providers(interface: InterfaceDependency) -> list[ProviderInfo]:
     response_model_exclude_none=True,
     summary="List provider models",
     description=(
-        "Ask the provider instance for models. If remote discovery is unavailable, "
-        "the instance falls back to models declared in local configuration."
+        "Ask the provider instance for models. By default this returns locally "
+        "declared models. If the provider was configured with `discover_models`, "
+        "the instance also asks the upstream models endpoint and falls back to "
+        "declared models when discovery is unavailable."
     ),
     operation_id="list_provider_models",
 )

@@ -3,7 +3,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from EvernightAI.core.error.provider import ProviderUnavailableError
+from EvernightAI.core.error.provider import ProviderNotFoundError, ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -26,11 +26,12 @@ from EvernightAI.infra.adapters.gemini.mapper import (
 )
 
 
-def make_config() -> ProviderConfig:
+def make_config(*, discover_models: bool = False) -> ProviderConfig:
     return ProviderConfig(
         provider_id="gemini-main",
         name="Gemini Main",
         type=ProviderType.GOOGLE,
+        discover_models=discover_models,
         model={"gemini-test": ProviderModelConfig(model_id="gemini-test")},
     )
 
@@ -231,8 +232,31 @@ async def test_gemini_instance_stream_translates_network_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gemini_instance_lists_remote_models_with_declared_fallback() -> None:
+async def test_gemini_instance_lists_declared_models_without_remote_discovery() -> None:
     instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient(
+        models_response={
+            "models": [
+                {"name": "models/gemini-test"},
+                {"name": "models/gemini-remote"},
+            ]
+        }
+    )
+    cast(Any, instance)._client = fake_client
+
+    models = await instance.list_models()
+
+    assert [model.model_id for model in models] == ["gemini-test"]
+    with pytest.raises(ProviderNotFoundError):
+        await instance.get_model("gemini-remote")
+    assert fake_client.requests == []
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_instance_lists_remote_models_when_discovery_enabled() -> None:
+    instance = GeminiProviderInstance(make_config(discover_models=True))
     fake_client = FakeGeminiClient(
         models_response={
             "models": [
@@ -257,7 +281,7 @@ async def test_gemini_instance_lists_remote_models_with_declared_fallback() -> N
 
 @pytest.mark.asyncio
 async def test_gemini_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
-    instance = GeminiProviderInstance(make_config())
+    instance = GeminiProviderInstance(make_config(discover_models=True))
     fake_client = FakeGeminiClient(
         get_error=httpx.ConnectError(
             "network down",
@@ -269,6 +293,7 @@ async def test_gemini_instance_falls_back_to_declared_models_when_discovery_fail
     models = await instance.list_models()
 
     assert [model.model_id for model in models] == ["gemini-test"]
+    assert fake_client.requests == [{"url": "/v1beta/models"}]
 
     await instance.close()
 
