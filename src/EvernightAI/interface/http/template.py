@@ -62,6 +62,10 @@ OPENAPI_TAGS = [
         "name": "tools",
         "description": "Registered external actions available to chat or agent flows.",
     },
+    {
+        "name": "logs",
+        "description": "Recent in-memory process logs for the current HTTP service.",
+    },
 ]
 
 

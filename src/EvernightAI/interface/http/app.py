@@ -22,6 +22,7 @@ from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_ro
 from EvernightAI.interface.http.routes.chat import router as chat_router
 from EvernightAI.interface.http.routes.contexts import router as contexts_router
 from EvernightAI.interface.http.routes.health import router as health_router
+from EvernightAI.interface.http.routes.logs import router as logs_router
 from EvernightAI.interface.http.routes.memories import router as memories_router
 from EvernightAI.interface.http.routes.providers import router as providers_router
 from EvernightAI.interface.http.routes.sessions import router as sessions_router
@@ -72,6 +73,7 @@ def create_http_app(
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
+    app.include_router(logs_router)
     app.include_router(providers_router)
     app.include_router(contexts_router)
     app.include_router(memories_router)

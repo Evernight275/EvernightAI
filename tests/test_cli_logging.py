@@ -9,6 +9,7 @@ from EvernightAI.interface.cli.logging import (
     EvernightLogFormatter,
     uvicorn_log_config,
 )
+from EvernightAI.interface.log_store import RecentLogStore
 
 
 def make_record(level: int, message: str) -> logging.LogRecord:
@@ -71,3 +72,27 @@ def test_uvicorn_log_config_uses_evernight_formatter() -> None:
     }
     assert config["handlers"]["default"]["formatter"] == "evernight"
     assert config["handlers"]["access"]["formatter"] == "evernight"
+    assert config["handlers"]["recent"] == {
+        "class": "EvernightAI.interface.log_store.RecentLogHandler",
+        "store": "ext://EvernightAI.interface.log_store.RECENT_LOG_STORE",
+    }
+    assert "recent" in config["loggers"]["EvernightAI"]["handlers"]
+
+
+def test_recent_log_store_keeps_recent_entries_and_filters_after_index() -> None:
+    store = RecentLogStore(capacity=2)
+    first = make_record(logging.INFO, "first")
+    second = make_record(logging.WARNING, "second")
+    third = make_record(logging.ERROR, "third")
+    first.created = 1780000000.0
+    second.created = 1780000001.0
+    third.created = 1780000002.0
+
+    store.append(first)
+    store.append(second)
+    store.append(third)
+
+    entries = store.list(limit=10)
+    assert [entry.message for entry in entries] == ["second", "third"]
+    assert [entry.level for entry in entries] == ["warning", "error"]
+    assert [entry.message for entry in store.list(after=2)] == ["third"]

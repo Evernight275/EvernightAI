@@ -2,6 +2,8 @@ import logging
 import logging.config
 from typing import Any
 
+from EvernightAI.interface.log_store import install_recent_log_handler
+
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -53,6 +55,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     )
     for handler in logging.getLogger().handlers:
         handler.setFormatter(EvernightLogFormatter())
+    install_recent_log_handler(level)
 
 
 def uvicorn_log_config(level: str = "INFO") -> dict[str, Any]:
@@ -75,10 +78,14 @@ def uvicorn_log_config(level: str = "INFO") -> dict[str, Any]:
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
             },
+            "recent": {
+                "class": "EvernightAI.interface.log_store.RecentLogHandler",
+                "store": "ext://EvernightAI.interface.log_store.RECENT_LOG_STORE",
+            },
         },
         "loggers": {
             "uvicorn": {
-                "handlers": ["default"],
+                "handlers": ["default", "recent"],
                 "level": level,
                 "propagate": False,
             },
@@ -86,12 +93,12 @@ def uvicorn_log_config(level: str = "INFO") -> dict[str, Any]:
                 "level": level,
             },
             "uvicorn.access": {
-                "handlers": ["access"],
+                "handlers": ["access", "recent"],
                 "level": level,
                 "propagate": False,
             },
             "EvernightAI": {
-                "handlers": ["default"],
+                "handlers": ["default", "recent"],
                 "level": level,
                 "propagate": False,
             },

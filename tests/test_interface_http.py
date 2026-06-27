@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -77,6 +78,7 @@ from EvernightAI.interface.http.schema import (
 )
 from EvernightAI.interface.http.errors import status_code_for_error
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
+from EvernightAI.interface.log_store import RECENT_LOG_STORE
 
 
 def test_http_openapi_examples_are_try_it_ready() -> None:
@@ -608,6 +610,47 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     assert_error_response(missing_memory_response.json(), "MemoryNotFoundError")
     assert tools_response.status_code == 200
     assert tools_response.json() == []
+
+
+def test_http_app_exposes_recent_log_routes() -> None:
+    RECENT_LOG_STORE.clear()
+    record = logging.LogRecord(
+        name="EvernightAI.test",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=123,
+        msg="log route ready",
+        args=(),
+        exc_info=None,
+    )
+    record.created = 1780000000.0
+    RECENT_LOG_STORE.append(record)
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        list_response = client.get("/logs")
+        filtered_response = client.get("/logs", params={"after": 1})
+        clear_response = client.post("/logs/clear")
+        cleared_response = client.get("/logs")
+
+    assert list_response.status_code == 200
+    assert list_response.json() == [
+        {
+            "index": 1,
+            "timestamp": "2026-05-28T20:26:40Z",
+            "level": "warning",
+            "logger": "EvernightAI.test",
+            "message": "log route ready",
+            "module": "test_interface_http",
+            "line": 123,
+            "metadata": {},
+        }
+    ]
+    assert filtered_response.status_code == 200
+    assert filtered_response.json() == []
+    assert clear_response.status_code == 204
+    assert cleared_response.json() == []
 
 
 def test_http_app_exposes_session_routes() -> None:
