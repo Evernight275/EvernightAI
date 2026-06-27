@@ -42,6 +42,7 @@ enabled = false
 root = "."
 max_read_chars = 12000
 max_directory_entries = 100
+max_search_results = 100
 allow_write = false
 
 [tools.shell]
@@ -51,6 +52,38 @@ allowed_commands = ["python --version"]
 working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
+# Set to a list to restrict per-call env overrides; leave unset to allow any
+# env key when the shell tool is enabled.
+# allowed_env_keys = ["PYTHONPATH"]
+
+[tools.web]
+# Keep disabled unless you intentionally want network tools exposed.
+enabled = false
+# Leave unset to allow any host, or set a strict allowlist.
+# allowed_hosts = ["example.com"]
+download_directory = ".evernight/downloads"
+timeout_seconds = 10.0
+max_response_chars = 12000
+max_download_bytes = 10000000
+
+[tools.git]
+# Keep disabled unless you intentionally want git tools exposed.
+enabled = false
+repository_directory = "."
+timeout_seconds = 10.0
+max_output_chars = 12000
+
+[tools.project]
+# Keep disabled unless you intentionally want project task tools exposed.
+enabled = false
+working_directory = "."
+timeout_seconds = 120.0
+max_output_chars = 20000
+commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/bin/pyright"], format = ["python", "-m", "compileall", "src"], dependency_scan = ["python", "-m", "pip", "check"] }
+
+[tools.runtime_data]
+# Enables tools that can write contexts and memories through the runtime.
+enabled = false
 
 [provider.main]
 name = "Main"

@@ -73,8 +73,20 @@ from EvernightAI.infra.registrations.skill.echo import register_echo_skill
 from EvernightAI.infra.registrations.tool.restricted_filesystem import (
     register_restricted_filesystem_tools,
 )
+from EvernightAI.infra.registrations.tool.restricted_git import (
+    register_restricted_git_tools,
+)
+from EvernightAI.infra.registrations.tool.restricted_project import (
+    register_restricted_project_tools,
+)
 from EvernightAI.infra.registrations.tool.restricted_shell import (
     register_restricted_shell_tool,
+)
+from EvernightAI.infra.registrations.tool.restricted_web import (
+    register_restricted_web_tools,
+)
+from EvernightAI.infra.registrations.tool.runtime_data import (
+    register_runtime_data_tools,
 )
 
 
@@ -129,11 +141,26 @@ def register_builtin_tools(
     filesystem_root: str | Path | None = None,
     max_read_chars: int = 12000,
     max_directory_entries: int = 100,
+    max_search_results: int = 100,
     allow_file_overwrite: bool = False,
     shell_allowed_commands: set[str] | None = None,
     shell_working_directory: str | Path | None = None,
     shell_timeout_seconds: float = 10.0,
     shell_max_output_chars: int = 12000,
+    shell_allowed_env_keys: set[str] | None = None,
+    web_allowed_hosts: set[str] | None = None,
+    web_download_directory: str | Path | None = None,
+    web_timeout_seconds: float = 10.0,
+    web_max_response_chars: int = 12000,
+    web_max_download_bytes: int = 10_000_000,
+    web_enabled: bool = False,
+    git_repository_directory: str | Path | None = None,
+    git_timeout_seconds: float = 10.0,
+    git_max_output_chars: int = 12000,
+    project_working_directory: str | Path | None = None,
+    project_commands: dict[str, list[str]] | None = None,
+    project_timeout_seconds: float = 120.0,
+    project_max_output_chars: int = 20000,
 ) -> None:
     if filesystem_root is not None:
         register_restricted_filesystem_tools(
@@ -141,6 +168,7 @@ def register_builtin_tools(
             root_directory=filesystem_root,
             max_read_chars=max_read_chars,
             max_directory_entries=max_directory_entries,
+            max_search_results=max_search_results,
             allow_overwrite=allow_file_overwrite,
         )
 
@@ -151,6 +179,34 @@ def register_builtin_tools(
             working_directory=shell_working_directory or Path.cwd(),
             timeout_seconds=shell_timeout_seconds,
             max_output_chars=shell_max_output_chars,
+            allowed_env_keys=shell_allowed_env_keys,
+        )
+
+    if web_enabled:
+        register_restricted_web_tools(
+            register,
+            allowed_hosts=web_allowed_hosts,
+            download_directory=web_download_directory,
+            timeout_seconds=web_timeout_seconds,
+            max_response_chars=web_max_response_chars,
+            max_download_bytes=web_max_download_bytes,
+        )
+
+    if git_repository_directory is not None:
+        register_restricted_git_tools(
+            register,
+            repository_directory=git_repository_directory,
+            timeout_seconds=git_timeout_seconds,
+            max_output_chars=git_max_output_chars,
+        )
+
+    if project_working_directory is not None and project_commands is not None:
+        register_restricted_project_tools(
+            register,
+            working_directory=project_working_directory,
+            commands=project_commands,
+            timeout_seconds=project_timeout_seconds,
+            max_output_chars=project_max_output_chars,
         )
 
 
@@ -267,11 +323,27 @@ def create_sqlite_runtime(
     filesystem_root: str | Path | None = None,
     max_read_chars: int = 12000,
     max_directory_entries: int = 100,
+    max_search_results: int = 100,
     allow_file_overwrite: bool = False,
     shell_allowed_commands: set[str] | None = None,
     shell_working_directory: str | Path | None = None,
     shell_timeout_seconds: float = 10.0,
     shell_max_output_chars: int = 12000,
+    shell_allowed_env_keys: set[str] | None = None,
+    web_enabled: bool = False,
+    web_allowed_hosts: set[str] | None = None,
+    web_download_directory: str | Path | None = None,
+    web_timeout_seconds: float = 10.0,
+    web_max_response_chars: int = 12000,
+    web_max_download_bytes: int = 10_000_000,
+    git_repository_directory: str | Path | None = None,
+    git_timeout_seconds: float = 10.0,
+    git_max_output_chars: int = 12000,
+    project_working_directory: str | Path | None = None,
+    project_commands: dict[str, list[str]] | None = None,
+    project_timeout_seconds: float = 120.0,
+    project_max_output_chars: int = 20000,
+    runtime_data_tools_enabled: bool = False,
 ) -> RuntimeKernel:
     tool_register = create_tool_register()
     register_builtin_tools(
@@ -279,11 +351,26 @@ def create_sqlite_runtime(
         filesystem_root=filesystem_root,
         max_read_chars=max_read_chars,
         max_directory_entries=max_directory_entries,
+        max_search_results=max_search_results,
         allow_file_overwrite=allow_file_overwrite,
         shell_allowed_commands=shell_allowed_commands,
         shell_working_directory=shell_working_directory,
         shell_timeout_seconds=shell_timeout_seconds,
         shell_max_output_chars=shell_max_output_chars,
+        shell_allowed_env_keys=shell_allowed_env_keys,
+        web_enabled=web_enabled,
+        web_allowed_hosts=web_allowed_hosts,
+        web_download_directory=web_download_directory,
+        web_timeout_seconds=web_timeout_seconds,
+        web_max_response_chars=web_max_response_chars,
+        web_max_download_bytes=web_max_download_bytes,
+        git_repository_directory=git_repository_directory,
+        git_timeout_seconds=git_timeout_seconds,
+        git_max_output_chars=git_max_output_chars,
+        project_working_directory=project_working_directory,
+        project_commands=project_commands,
+        project_timeout_seconds=project_timeout_seconds,
+        project_max_output_chars=project_max_output_chars,
     )
 
     agent_state_register: AgentRunStateRegisterProtocol | None = None
@@ -299,6 +386,7 @@ def create_sqlite_runtime(
         session_register=create_sqlite_session_register(database_path),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        runtime_data_tools_enabled=runtime_data_tools_enabled,
     )
 
 
@@ -314,6 +402,7 @@ def _create_runtime(
     skills: SkillManageProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
+    runtime_data_tools_enabled: bool = False,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
@@ -330,6 +419,12 @@ def _create_runtime(
     memory_strategy = create_memory_strategy()
     memory_write_strategy = create_memory_write_strategy()
     sessions = sessions or create_session_manager(session_register)
+    if runtime_data_tools_enabled:
+        register_runtime_data_tools(
+            tool_register,
+            contexts=contexts,
+            memories=memories,
+        )
 
     return RuntimeKernel(
         provider_factory=provider_factory,

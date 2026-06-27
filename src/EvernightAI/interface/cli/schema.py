@@ -23,6 +23,7 @@ class FilesystemToolConfig(EvernightAISchema):
     root: str = "."
     max_read_chars: int = 12000
     max_directory_entries: int = 100
+    max_search_results: int = 100
     allow_write: bool = False
 
 
@@ -32,11 +33,44 @@ class ShellToolConfig(EvernightAISchema):
     working_directory: str | None = None
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
+    allowed_env_keys: list[str] | None = None
+
+
+class WebToolConfig(EvernightAISchema):
+    enabled: bool = False
+    allowed_hosts: list[str] | None = None
+    download_directory: str | None = None
+    timeout_seconds: float = 10.0
+    max_response_chars: int = 12000
+    max_download_bytes: int = 10_000_000
+
+
+class GitToolConfig(EvernightAISchema):
+    enabled: bool = False
+    repository_directory: str = "."
+    timeout_seconds: float = 10.0
+    max_output_chars: int = 12000
+
+
+class ProjectToolConfig(EvernightAISchema):
+    enabled: bool = False
+    working_directory: str = "."
+    commands: dict[str, list[str]] = Field(default_factory=dict)
+    timeout_seconds: float = 120.0
+    max_output_chars: int = 20000
+
+
+class RuntimeDataToolConfig(EvernightAISchema):
+    enabled: bool = False
 
 
 class ToolConfig(EvernightAISchema):
     filesystem: FilesystemToolConfig = Field(default_factory=FilesystemToolConfig)
     shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
+    web: WebToolConfig = Field(default_factory=WebToolConfig)
+    git: GitToolConfig = Field(default_factory=GitToolConfig)
+    project: ProjectToolConfig = Field(default_factory=ProjectToolConfig)
+    runtime_data: RuntimeDataToolConfig = Field(default_factory=RuntimeDataToolConfig)
 
 
 class AuthPrincipalConfig(EvernightAISchema):

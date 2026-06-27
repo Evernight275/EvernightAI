@@ -40,10 +40,15 @@ def create_unsecured_interface_from_config(
 def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
     filesystem = config.tools.filesystem
     shell = config.tools.shell
+    web = config.tools.web
+    git = config.tools.git
+    project = config.tools.project
+    runtime_data = config.tools.runtime_data
     return {
         "filesystem_root": filesystem.root if filesystem.enabled else None,
         "max_read_chars": filesystem.max_read_chars,
         "max_directory_entries": filesystem.max_directory_entries,
+        "max_search_results": filesystem.max_search_results,
         "allow_file_overwrite": filesystem.allow_write,
         "shell_allowed_commands": (
             set(shell.allowed_commands) if shell.enabled else None
@@ -51,4 +56,27 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "shell_working_directory": shell.working_directory,
         "shell_timeout_seconds": shell.timeout_seconds,
         "shell_max_output_chars": shell.max_output_chars,
+        "shell_allowed_env_keys": (
+            set(shell.allowed_env_keys)
+            if shell.enabled and shell.allowed_env_keys is not None
+            else None
+        ),
+        "web_enabled": web.enabled,
+        "web_allowed_hosts": (
+            set(web.allowed_hosts) if web.allowed_hosts is not None else None
+        ),
+        "web_download_directory": web.download_directory,
+        "web_timeout_seconds": web.timeout_seconds,
+        "web_max_response_chars": web.max_response_chars,
+        "web_max_download_bytes": web.max_download_bytes,
+        "git_repository_directory": git.repository_directory if git.enabled else None,
+        "git_timeout_seconds": git.timeout_seconds,
+        "git_max_output_chars": git.max_output_chars,
+        "project_working_directory": (
+            project.working_directory if project.enabled else None
+        ),
+        "project_commands": project.commands if project.enabled else None,
+        "project_timeout_seconds": project.timeout_seconds,
+        "project_max_output_chars": project.max_output_chars,
+        "runtime_data_tools_enabled": runtime_data.enabled,
     }

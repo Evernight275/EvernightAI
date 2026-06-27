@@ -29,12 +29,32 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "enabled": True,
                     "root": ".",
                     "max_read_chars": 8000,
+                    "max_search_results": 25,
                     "allow_write": True,
                 },
                 "shell": {
                     "enabled": True,
                     "allowed_commands": ["python", "pytest"],
                     "timeout_seconds": 3.5,
+                    "allowed_env_keys": ["PYTHONPATH"],
+                },
+                "web": {
+                    "enabled": True,
+                    "allowed_hosts": ["example.test"],
+                    "download_directory": "downloads",
+                    "max_response_chars": 4000,
+                },
+                "git": {
+                    "enabled": True,
+                    "repository_directory": ".",
+                },
+                "project": {
+                    "enabled": True,
+                    "working_directory": ".",
+                    "commands": {"tests": ["python", "-m", "pytest"]},
+                },
+                "runtime_data": {
+                    "enabled": True,
                 },
             },
             "auth": {
@@ -95,10 +115,21 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.filesystem.enabled is True
     assert config.tools.filesystem.root == "."
     assert config.tools.filesystem.max_read_chars == 8000
+    assert config.tools.filesystem.max_search_results == 25
     assert config.tools.filesystem.allow_write is True
     assert config.tools.shell.enabled is True
     assert config.tools.shell.allowed_commands == ["python", "pytest"]
     assert config.tools.shell.timeout_seconds == 3.5
+    assert config.tools.shell.allowed_env_keys == ["PYTHONPATH"]
+    assert config.tools.web.enabled is True
+    assert config.tools.web.allowed_hosts == ["example.test"]
+    assert config.tools.web.download_directory == "downloads"
+    assert config.tools.web.max_response_chars == 4000
+    assert config.tools.git.enabled is True
+    assert config.tools.git.repository_directory == "."
+    assert config.tools.project.enabled is True
+    assert config.tools.project.commands == {"tests": ["python", "-m", "pytest"]}
+    assert config.tools.runtime_data.enabled is True
     assert config.auth.enabled is True
     assert config.auth.principals[0].principal_id == "admin"
     assert config.auth.principals[0].api_key == "secret-key"
@@ -169,6 +200,10 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.http.port == 8000
     assert config.http.server_header == "EvernightAI"
     assert config.tools.filesystem.enabled is False
+    assert config.tools.web.enabled is False
+    assert config.tools.git.enabled is False
+    assert config.tools.project.enabled is False
+    assert config.tools.runtime_data.enabled is False
     assert config.tools.shell.allowed_commands == []
     assert config.auth.enabled is False
     assert config.auth.principals == []
