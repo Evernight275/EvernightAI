@@ -29,6 +29,12 @@ const icons: Record<string, IconNode[]> = {
   'chevron-down': [
     { tag: 'path', attrs: { d: 'm6 9 6 6 6-6' } },
   ],
+  'chevron-left': [
+    { tag: 'path', attrs: { d: 'm15 18-6-6 6-6' } },
+  ],
+  'chevron-right': [
+    { tag: 'path', attrs: { d: 'm9 18 6-6-6-6' } },
+  ],
   database: [
     { tag: 'ellipse', attrs: { cx: 12, cy: 5, rx: 9, ry: 3 } },
     { tag: 'path', attrs: { d: 'M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5' } },

@@ -599,6 +599,42 @@
       border-bottom: 1px solid var(--line-soft);
     }
 
+    .run-table-controls,
+    .run-pagination,
+    .run-page-size {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .run-table-controls {
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .run-page-size {
+      gap: 6px;
+    }
+
+    .run-page-size select {
+      min-height: 32px;
+      padding: 0 28px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      background: var(--paper);
+      font: inherit;
+    }
+
+    .run-pagination {
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--line-soft);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;

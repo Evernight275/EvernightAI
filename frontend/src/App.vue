@@ -53,13 +53,28 @@ const viewMeta: Record<ViewKey, { title: string; description: string }> = {
   },
 }
 
-const currentView = ref<ViewKey>('workbench')
+const viewStorageKey = 'evernight.currentView'
+const viewKeys = Object.keys(viewMeta) as ViewKey[]
+
+function readStoredView(): ViewKey {
+  const storedView = localStorage.getItem(viewStorageKey)
+  return viewKeys.includes(storedView as ViewKey) ? storedView as ViewKey : 'workbench'
+}
+
+function writeStoredView(view: ViewKey) {
+  localStorage.setItem(viewStorageKey, view)
+}
+
+const currentView = ref<ViewKey>(readStoredView())
 const healthOk = ref(false)
 const sessions = ref<Session[]>([])
 const providers = ref<ProviderInfo[]>([])
 const providerModelGroups = ref<ProviderModelGroup[]>([])
 const tools = ref<ToolDefinition[]>([])
 const runs = ref<AgentRunState[]>([])
+const runPageSizeOptions = [10, 25, 50]
+const runPage = ref(1)
+const runPageSize = ref(runPageSizeOptions[0])
 const providerModelsLoading = ref(false)
 const dashboardError = ref<string | null>(null)
 const providerModelsError = ref<string | null>(null)
@@ -120,6 +135,13 @@ const enabledProviderCount = computed(() => (
 const memoryStatus = computed(() => healthOk.value ? '已同步' : '未连接')
 const pageTitle = computed(() => viewMeta[currentView.value].title)
 const pageDescription = computed(() => viewMeta[currentView.value].description)
+const runPageCount = computed(() => Math.max(1, Math.ceil(runs.value.length / runPageSize.value)))
+const runPageStart = computed(() => runs.value.length === 0 ? 0 : (runPage.value - 1) * runPageSize.value + 1)
+const runPageEnd = computed(() => Math.min(runs.value.length, runPage.value * runPageSize.value))
+const pagedRuns = computed(() => {
+  const start = (runPage.value - 1) * runPageSize.value
+  return runs.value.slice(start, start + runPageSize.value)
+})
 
 async function refreshDashboard() {
   const dashboard = await fetchDashboard()
@@ -162,6 +184,11 @@ function timestamp(session: Session): number {
 
 function navigate(view: ViewKey) {
   currentView.value = view
+  writeStoredView(view)
+}
+
+function setRunPage(nextPage: number) {
+  runPage.value = Math.min(Math.max(nextPage, 1), runPageCount.value)
 }
 
 async function configureApiKey() {
@@ -180,12 +207,19 @@ async function configureApiKey() {
 
 onMounted(async () => {
   await refreshDashboard()
+  if (currentView.value === 'agents') {
+    await refreshProviderModels()
+  }
 })
 
 watch(currentView, async (view) => {
   if (view === 'agents') {
     await refreshProviderModels()
   }
+})
+
+watch([runs, runPageSize], () => {
+  setRunPage(runPage.value)
 })
 </script>
 
@@ -251,7 +285,17 @@ watch(currentView, async (view) => {
         <section v-else-if="currentView === 'runs'" class="table-wrap" aria-label="运行队列">
           <div class="panel-head table-head">
             <h2><Icon name="activity" /><span>运行队列</span></h2>
-            <span>{{ runs.length }} 条</span>
+            <div class="run-table-controls">
+              <span>{{ runPageStart }}-{{ runPageEnd }} / {{ runs.length }} 条</span>
+              <label class="run-page-size">
+                <span>每页</span>
+                <select v-model.number="runPageSize" aria-label="运行队列每页显示数量">
+                  <option v-for="size in runPageSizeOptions" :key="size" :value="size">
+                    {{ size }}
+                  </option>
+                </select>
+              </label>
+            </div>
           </div>
           <table>
             <thead>
@@ -271,7 +315,7 @@ watch(currentView, async (view) => {
                 <td>-</td>
                 <td>-</td>
               </tr>
-              <tr v-for="run in runs" v-else :key="run.run_id">
+              <tr v-for="run in pagedRuns" v-else :key="run.run_id">
                 <td>{{ run.run_id }}</td>
                 <td>{{ run.request.model_id }}</td>
                 <td><span class="tag">{{ run.status || '未知' }}</span></td>
@@ -280,6 +324,29 @@ watch(currentView, async (view) => {
               </tr>
             </tbody>
           </table>
+          <div class="run-pagination" aria-label="运行队列分页">
+            <button
+              class="button compact-button icon-button"
+              type="button"
+              :disabled="runPage <= 1"
+              title="上一页"
+              aria-label="上一页"
+              @click="setRunPage(runPage - 1)"
+            >
+              <Icon name="chevron-left" />
+            </button>
+            <span>第 {{ runPage }} / {{ runPageCount }} 页</span>
+            <button
+              class="button compact-button icon-button"
+              type="button"
+              :disabled="runPage >= runPageCount"
+              title="下一页"
+              aria-label="下一页"
+              @click="setRunPage(runPage + 1)"
+            >
+              <Icon name="chevron-right" />
+            </button>
+          </div>
         </section>
 
         <section v-else-if="currentView === 'agents'" class="provider-config" aria-label="模型提供商配置">
