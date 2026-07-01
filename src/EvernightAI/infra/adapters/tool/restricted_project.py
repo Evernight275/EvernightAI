@@ -1,14 +1,26 @@
-import asyncio
 from pathlib import Path
 from typing import Any
 
-from EvernightAI.core.error.tool import ToolExecutionError, ToolInputError
+from EvernightAI.core.error.tool import ToolInputError
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolExecutorProtocol
+from EvernightAI.core.schema.sandbox import (
+    SandboxCommand,
+    SandboxExecutionRequest,
+    SandboxFilesystemAccess,
+    SandboxFilesystemMount,
+    SandboxPolicy,
+    SandboxResourceLimits,
+)
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
     ToolSafetyLevel,
 )
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
+
+
+SANDBOX_MOUNT_PATH = "/workspace"
 
 
 class RestrictedProjectTaskTool:
@@ -19,11 +31,13 @@ class RestrictedProjectTaskTool:
         commands: dict[str, list[str]],
         timeout_seconds: float = 120.0,
         max_output_chars: int = 20000,
+        sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._working_directory = Path(working_directory).resolve()
         self._commands = dict(commands)
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
+        self._sandbox = sandbox or SubprocessSandboxExecutor()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -43,6 +57,7 @@ class RestrictedProjectTaskTool:
                 "tasks": sorted(self._commands),
                 "timeout_seconds": self._timeout_seconds,
                 "max_output_chars": self._max_output_chars,
+                "sandbox_mount_path": SANDBOX_MOUNT_PATH,
             },
         )
 
@@ -59,47 +74,41 @@ class RestrictedProjectTaskTool:
         if not command or not all(isinstance(part, str) and part for part in command):
             raise ToolInputError(f"The project task {task} command is invalid")
 
-        process: asyncio.subprocess.Process | None = None
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                cwd=self._working_directory,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        result = await self._sandbox.execute(
+            SandboxExecutionRequest(
+                request_id=f"run_project_task:{task}",
+                command=SandboxCommand(
+                    command=command,
+                    cwd=SANDBOX_MOUNT_PATH,
+                    timeout_seconds=self._timeout_seconds,
+                ),
+                policy=self._sandbox_policy(),
             )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self._timeout_seconds,
-            )
-        except asyncio.TimeoutError as exc:
-            if process is not None:
-                process.kill()
-                await process.wait()
-            raise ToolExecutionError(
-                f"The project task {task} timed out",
-                cause=exc,
-            ) from exc
-        except OSError as exc:
-            raise ToolExecutionError(
-                f"The project task {task} failed to start",
-                cause=exc,
-            ) from exc
-
-        stdout_text = _decode(stdout)
-        stderr_text = _decode(stderr)
-        truncated = (
-            len(stdout_text) > self._max_output_chars
-            or len(stderr_text) > self._max_output_chars
         )
+
         return {
             "task": task,
-            "command": command,
-            "returncode": process.returncode,
-            "stdout": stdout_text[: self._max_output_chars],
-            "stderr": stderr_text[: self._max_output_chars],
-            "truncated": truncated,
+            "command": result.command,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "truncated": result.truncated,
         }
 
-
-def _decode(value: bytes) -> str:
-    return value.decode(errors="replace")
+    def _sandbox_policy(self) -> SandboxPolicy:
+        return SandboxPolicy(
+            command_allowlist=sorted(
+                {command[0] for command in self._commands.values() if command}
+            ),
+            filesystem_mounts=[
+                SandboxFilesystemMount(
+                    host_path=str(self._working_directory),
+                    mount_path=SANDBOX_MOUNT_PATH,
+                    access=SandboxFilesystemAccess.READ_WRITE,
+                )
+            ],
+            resource_limits=SandboxResourceLimits(
+                timeout_seconds=self._timeout_seconds,
+                max_output_chars=self._max_output_chars,
+            ),
+        )

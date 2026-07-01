@@ -1,0 +1,126 @@
+import sys
+
+import pytest
+
+from EvernightAI.core.domain.tool import ToolManager, ToolRegister
+from EvernightAI.core.error.tool import (
+    ToolExecutionError,
+    ToolInputError,
+    ToolPolicyError,
+)
+from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.infra.registrations.tool.restricted_project import (
+    register_restricted_project_tools,
+)
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_requires_approval(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"hello": [sys.executable, "-c", "print('hello')"]},
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "run_project_task",
+                    "arguments": {"task": "hello"},
+                },
+            )
+        )
+
+    assert exc_info.value.detail == "Tool call requires approval"
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_runs_allowlisted_task(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={
+            "hello": [
+                sys.executable,
+                "-c",
+                "import pathlib; print(pathlib.Path.cwd().name); print('hello')",
+            ]
+        },
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "run_project_task",
+                "arguments": {"task": "hello"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["task"] == "hello"
+    assert result.tool_call_result["returncode"] == 0
+    assert result.tool_call_result["stdout"].splitlines() == [
+        tmp_path.name,
+        "hello",
+    ]
+    assert result.tool_call_result["stderr"] == ""
+    assert result.tool_call_result["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_rejects_unlisted_task(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"hello": [sys.executable, "-c", "print('hello')"]},
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "run_project_task",
+                    "arguments": {"task": "missing"},
+                },
+                metadata={"approved": True},
+            )
+        )
+
+    assert isinstance(exc_info.value.cause, ToolInputError)
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_truncates_output(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"hello": [sys.executable, "-c", "print('hello')"]},
+        max_output_chars=3,
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "run_project_task",
+                "arguments": {"task": "hello"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["stdout"] == "hel"
+    assert result.tool_call_result["truncated"] is True
