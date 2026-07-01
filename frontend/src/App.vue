@@ -239,7 +239,28 @@ watch([runs, runPageSize], () => {
         </section>
 
         <section v-if="currentView === 'workbench'" class="home-welcome">
-          <h2>欢迎使用</h2>
+          <h2>欢迎使用 EvernightAI</h2>
+          <p>一个强大的 AI Agent 运行时平台，支持多模型、工具调用和会话管理</p>
+
+          <div class="quick-start-grid">
+            <button class="quick-start-card" @click="navigate('chat')">
+              <Icon name="message-circle" class="icon" />
+              <h3>开始对话</h3>
+              <p>创建新会话或继续现有对话，体验 AI 助手的强大能力</p>
+            </button>
+
+            <button class="quick-start-card" @click="navigate('tools')">
+              <Icon name="tool" class="icon" />
+              <h3>查看工具</h3>
+              <p>浏览已注册的工具列表，了解 Agent 可以调用的功能</p>
+            </button>
+
+            <button class="quick-start-card" @click="navigate('agents')">
+              <Icon name="cpu" class="icon" />
+              <h3>配置模型</h3>
+              <p>管理模型提供商，选择适合你任务的 AI 模型</p>
+            </button>
+          </div>
         </section>
 
         <ChatWorkspace
@@ -309,11 +330,13 @@ watch([runs, runPageSize], () => {
             </thead>
             <tbody>
               <tr v-if="runs.length === 0">
-                <td>暂无运行</td>
-                <td>-</td>
-                <td><span class="tag">空</span></td>
-                <td>-</td>
-                <td>-</td>
+                <td colspan="5" style="text-align: center; padding: 32px;">
+                  <div style="display: inline-grid; gap: 8px; place-items: center;">
+                    <Icon name="activity" style="width: 32px; height: 32px; color: var(--muted);" />
+                    <strong style="color: var(--ink);">暂无运行记录</strong>
+                    <span style="color: var(--muted); font-size: 13px;">Agent 运行后将在此显示</span>
+                  </div>
+                </td>
               </tr>
               <tr v-for="run in pagedRuns" v-else :key="run.run_id">
                 <td>{{ run.run_id }}</td>
@@ -355,7 +378,7 @@ watch([runs, runPageSize], () => {
             <div class="panel-head-actions">
               <span>{{ enabledProviderCount }}/{{ providers.length }} 个 provider · {{ providerModelCount }} 个模型</span>
               <button
-                class="button compact-button"
+                class="button compact-button primary"
                 :class="{ 'is-spinning': providerModelsLoading }"
                 type="button"
                 :disabled="providerModelsLoading"
@@ -372,7 +395,11 @@ watch([runs, runPageSize], () => {
           </div>
           <p v-if="providerModelsError" class="provider-error">{{ providerModelsError }}</p>
           <div v-if="providers.length === 0" class="provider-empty">
-            暂无模型提供商
+            <Icon name="inbox" class="empty-state-icon" />
+            <div class="empty-state-text">
+              <strong>暂无模型提供商</strong>
+              <span>请检查后端配置，确保至少有一个模型提供商已启用</span>
+            </div>
           </div>
           <div v-else class="provider-list">
             <article
@@ -412,7 +439,19 @@ watch([runs, runPageSize], () => {
             <h2><Icon name="database" /><span>记忆库</span></h2>
             <span>{{ memoryStatus }}</span>
           </div>
-          <p>记忆库页面先占位。下一步可以接入 `GET /memories`、筛选和删除。</p>
+          <div style="min-height: 280px; display: grid; place-items: center;">
+            <div style="display: grid; gap: 16px; place-items: center; text-align: center; max-width: 420px;">
+              <Icon name="database" style="width: 48px; height: 48px; padding: 12px; border-radius: 12px; background: var(--primary-light); color: var(--primary);" />
+              <div>
+                <strong style="display: block; font-size: 16px; margin-bottom: 8px; color: var(--ink);">记忆库功能即将推出</strong>
+                <p style="margin: 0; line-height: 1.6;">记忆库将支持查看、搜索和管理 Agent 的持久化记忆。您可以在这里筛选记忆条目、查看详细内容，以及删除不需要的记忆。</p>
+              </div>
+              <button class="button primary" disabled>
+                <Icon name="plus" />
+                <span>添加记忆（敬请期待）</span>
+              </button>
+            </div>
+          </div>
         </section>
 
         <LogTerminal v-else />
