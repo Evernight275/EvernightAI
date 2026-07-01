@@ -1547,11 +1547,13 @@
     .chat-thread-message.user {
       align-self: flex-end;
       background: var(--soft);
+      border: 1px solid var(--line-soft);
     }
 
     .chat-thread-message.assistant {
       align-self: flex-start;
       background: var(--paper);
+      border: 1px solid var(--line-soft);
     }
 
     .chat-thread-message.system {
@@ -1562,8 +1564,9 @@
     }
 
     .chat-thread-message.pending {
-      border: 1px solid var(--line-soft);
+      border: 1px solid var(--primary);
       border-style: dashed;
+      background: var(--primary-light);
     }
 
     .chat-thread-message.pending .message-markdown::after {
@@ -1573,12 +1576,13 @@
       display: inline-block;
       margin-left: 8px;
       border-radius: 999px;
-      background: currentColor;
+      background: var(--primary);
       animation: blink-dot 1.2s ease-in-out infinite;
     }
 
     .message-actions {
       display: flex;
+      gap: 4px;
       justify-content: flex-start;
       opacity: 0;
       transition: opacity 140ms ease;
@@ -1601,11 +1605,12 @@
       color: var(--muted);
       background: transparent;
       cursor: pointer;
+      transition: color 140ms ease, background-color 140ms ease;
     }
 
     .message-action-button:hover {
-      color: var(--ink);
-      background: var(--soft);
+      color: var(--primary);
+      background: var(--primary-light);
     }
 
     .message-action-button:disabled {
@@ -1688,6 +1693,46 @@
       line-height: 1.4;
       text-transform: none;
       letter-spacing: 0;
+    }
+
+    .code-copy-button {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      color: var(--muted);
+      background: var(--paper);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .message-markdown pre:hover .code-copy-button,
+    .code-copy-button.copied {
+      opacity: 1;
+    }
+
+    .code-copy-button:hover {
+      color: var(--primary);
+      background: var(--primary-light);
+      transform: scale(1.05);
+    }
+
+    .code-copy-button.copied {
+      color: var(--success);
+      background: var(--success-light);
+    }
+
+    .code-copy-button .icon {
+      width: 14px;
+      height: 14px;
     }
 
     .message-markdown a {
@@ -2000,6 +2045,11 @@
 
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      /* 移动端消息操作始终可见 */
+      .message-actions {
+        opacity: 1;
       }
 
     }

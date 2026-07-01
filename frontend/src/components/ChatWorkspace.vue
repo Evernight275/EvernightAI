@@ -67,6 +67,66 @@ const emit = defineEmits<{
   deleteSession: [session: Session]
 }>()
 
+const copiedMessageIndex = ref<number | null>(null)
+const copiedCodeBlock = ref<string | null>(null)
+
+function copyToClipboard(text: string, identifier: string | number) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (typeof identifier === 'number') {
+      copiedMessageIndex.value = identifier
+      setTimeout(() => {
+        copiedMessageIndex.value = null
+      }, 2000)
+    } else {
+      copiedCodeBlock.value = identifier
+      setTimeout(() => {
+        copiedCodeBlock.value = null
+      }, 2000)
+    }
+  }).catch((error) => {
+    console.error('复制失败:', error)
+  })
+}
+
+function copyMessage(message: Content & { text: string }, index: number) {
+  copyToClipboard(message.text, index)
+}
+
+function addCodeCopyButtons() {
+  nextTick(() => {
+    const thread = chatThread.value
+    if (!thread) return
+
+    const codeBlocks = thread.querySelectorAll('pre.hljs')
+    codeBlocks.forEach((block, index) => {
+      const existingButton = block.querySelector('.code-copy-button')
+      if (existingButton) return
+
+      const button = document.createElement('button')
+      button.className = 'code-copy-button'
+      button.type = 'button'
+      button.title = '复制代码'
+      button.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
+
+      const codeElement = block.querySelector('code')
+      if (codeElement) {
+        const code = codeElement.textContent || ''
+        button.addEventListener('click', () => {
+          copyToClipboard(code, `code-${index}`)
+          button.classList.add('copied')
+          button.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+          setTimeout(() => {
+            button.classList.remove('copied')
+            button.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
+          }, 2000)
+        })
+      }
+
+      block.appendChild(button)
+    })
+  })
+}
+
 hljs.registerLanguage('bash', bash)
 hljs.registerLanguage('css', css)
 hljs.registerLanguage('javascript', javascript)
@@ -407,6 +467,7 @@ watch(
   () => props.messages.map((message) => `${message.role}:${message.text}`).join('\n'),
   () => {
     void scrollThreadToBottom()
+    addCodeCopyButtons()
   },
   { flush: 'post' },
 )
@@ -414,6 +475,7 @@ watch(
 onMounted(() => {
   resizeChatInput()
   void scrollThreadToBottom()
+  addCodeCopyButtons()
 })
 </script>
 
@@ -522,8 +584,9 @@ onMounted(() => {
             pending: message.pending,
           }"
         >
-          <div v-if="message.role === 'assistant' && !message.pending" class="message-actions">
+          <div class="message-actions">
             <button
+              v-if="message.role === 'assistant' && !message.pending"
               class="message-action-button"
               type="button"
               title="重试"
@@ -532,6 +595,15 @@ onMounted(() => {
               @click="emit('retryMessage', message)"
             >
               <Icon name="rotate-ccw" />
+            </button>
+            <button
+              class="message-action-button"
+              type="button"
+              :title="copiedMessageIndex === index ? '已复制' : '复制消息'"
+              :aria-label="copiedMessageIndex === index ? '已复制' : '复制消息'"
+              @click="copyMessage(message, index)"
+            >
+              <Icon :name="copiedMessageIndex === index ? 'check' : 'copy'" />
             </button>
           </div>
           <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
