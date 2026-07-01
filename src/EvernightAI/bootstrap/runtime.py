@@ -59,6 +59,7 @@ from EvernightAI.infra.adapters.agent.sqlite import (
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
+from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
@@ -115,6 +116,10 @@ def create_tool_safety_policy() -> BasicToolSafetyPolicy:
 
 def create_sandbox_executor() -> SubprocessSandboxExecutor:
     return SubprocessSandboxExecutor()
+
+
+def create_bubblewrap_sandbox_executor() -> BubblewrapSandboxExecutor:
+    return BubblewrapSandboxExecutor()
 
 
 def create_tool_manager(
@@ -328,6 +333,7 @@ def create_runtime_with_agent_storage(
 def create_sqlite_runtime(
     database_path: str | Path,
     *,
+    sandbox: SandboxExecuteProtocol | None = None,
     include_agent_storage: bool = True,
     filesystem_root: str | Path | None = None,
     max_read_chars: int = 12000,
@@ -354,7 +360,7 @@ def create_sqlite_runtime(
     project_max_output_chars: int = 20000,
     runtime_data_tools_enabled: bool = False,
 ) -> RuntimeKernel:
-    sandbox = create_sandbox_executor()
+    sandbox = sandbox or create_sandbox_executor()
     tool_register = create_tool_register()
     register_builtin_tools(
         tool_register,

@@ -4,6 +4,11 @@
 [runtime]
 # SQLite runtime database path.
 database_path = ".evernight/runtime.sqlite3"
+# Sandbox backend for process tools: "subprocess" or "bubblewrap".
+# "subprocess" preserves broad compatibility. "bubblewrap" uses Linux
+# namespaces and bind mounts for stronger local isolation when bwrap is
+# installed and permitted by the host.
+sandbox_backend = "subprocess"
 
 [http]
 # Used by both `evernight-http` and `evernight serve`.

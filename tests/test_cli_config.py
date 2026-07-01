@@ -5,6 +5,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.error.base import ConfigurationError
+from EvernightAI.interface.cli.schema import SandboxBackend
 from EvernightAI.interface.cli.config import load_config, parse_config
 
 
@@ -16,6 +17,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
         {
             "runtime": {
                 "database_path": ".evernight/test.sqlite3",
+                "sandbox_backend": "bubblewrap",
             },
             "http": {
                 "host": "0.0.0.0",
@@ -107,6 +109,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     model = provider.model["deepseek-chat"]
 
     assert config.runtime.database_path == ".evernight/test.sqlite3"
+    assert config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP
     assert config.http.host == "0.0.0.0"
     assert config.http.port == 8080
     assert config.http.reload is True
@@ -187,6 +190,7 @@ capabilities = ["chat"]
     config = load_config(config_path)
 
     assert config.runtime.database_path == ".evernight/runtime.sqlite3"
+    assert config.runtime.sandbox_backend is SandboxBackend.SUBPROCESS
     assert config.providers[0].provider_id == "main"
     assert config.providers[0].api_key == "inline-key"
     assert list(config.providers[0].model) == ["model-1"]

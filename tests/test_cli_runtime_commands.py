@@ -41,7 +41,10 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.bootstrap.config import (
+    create_sandbox_from_config,
     create_interface_from_config,
     create_runtime_from_config,
 )
@@ -544,6 +547,33 @@ def test_create_runtime_from_config_registers_shell_tool_when_enabled(
         import asyncio
 
         asyncio.run(runtime.close())
+
+
+def test_create_sandbox_from_config_uses_subprocess_by_default(
+    tmp_path: Path,
+) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+        }
+    )
+
+    assert isinstance(create_sandbox_from_config(config), SubprocessSandboxExecutor)
+
+
+def test_create_sandbox_from_config_uses_bubblewrap_when_configured(
+    tmp_path: Path,
+) -> None:
+    config = parse_config(
+        {
+            "runtime": {
+                "database_path": str(tmp_path / "runtime.sqlite3"),
+                "sandbox_backend": "bubblewrap",
+            },
+        }
+    )
+
+    assert isinstance(create_sandbox_from_config(config), BubblewrapSandboxExecutor)
 
 
 def test_create_app_from_config_serves_health_and_tools(

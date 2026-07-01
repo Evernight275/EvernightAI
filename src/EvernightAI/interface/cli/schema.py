@@ -1,4 +1,5 @@
 from typing import Any
+from enum import StrEnum
 
 from EvernightAI.core.schema.auth import PrincipalType
 from EvernightAI.core.schema.base import EvernightAISchema
@@ -6,8 +7,16 @@ from EvernightAI.core.schema.provider import ProviderConfig
 from pydantic import Field
 
 
+class SandboxBackend(StrEnum):
+    """沙盒后端"""
+
+    SUBPROCESS = "subprocess"
+    BUBBLEWRAP = "bubblewrap"
+
+
 class RuntimeConfig(EvernightAISchema):
     database_path: str = ".evernight/runtime.sqlite3"
+    sandbox_backend: SandboxBackend = SandboxBackend.SUBPROCESS
 
 
 class HttpConfig(EvernightAISchema):
