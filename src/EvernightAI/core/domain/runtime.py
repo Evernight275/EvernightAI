@@ -21,6 +21,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.session import (
     SessionManageProtocol,
     SessionRegisterProtocol,
@@ -59,12 +60,14 @@ class RuntimeKernel(RuntimeProtocol):
         skills: SkillManageProtocol | None = None,
         agent_state_register: AgentRunStateRegisterProtocol | None = None,
         agent_trace_register: AgentTraceRegisterProtocol | None = None,
+        sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._providers = providers
         self._tool_register = tool_register
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
+        self._sandbox = sandbox
         self._skill_register = skill_register or SkillRegister()
         self._skills = skills or SkillManager(self._skill_register)
         self._context_register = context_register
@@ -99,6 +102,10 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol:
         return self._tool_safety_policy
+
+    @property
+    def sandbox(self) -> SandboxExecuteProtocol | None:
+        return self._sandbox
 
     @property
     def skill_register(self) -> SkillRegisterProtocol:
@@ -164,6 +171,7 @@ class RuntimeKernel(RuntimeProtocol):
             self._session_register,
             self._agent_state_register,
             self._agent_trace_register,
+            self._sandbox,
         ]:
             await _close_if_supported(resource)
 

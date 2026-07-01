@@ -42,6 +42,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderManageProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.session import (
     SessionManageProtocol,
     SessionRegisterProtocol,
@@ -58,6 +59,7 @@ from EvernightAI.infra.adapters.agent.sqlite import (
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
@@ -111,6 +113,10 @@ def create_tool_safety_policy() -> BasicToolSafetyPolicy:
     return BasicToolSafetyPolicy()
 
 
+def create_sandbox_executor() -> SubprocessSandboxExecutor:
+    return SubprocessSandboxExecutor()
+
+
 def create_tool_manager(
     register: ToolRegisterProtocol | None = None,
     safety_policy: ToolSafetyPolicyProtocol | None = None,
@@ -161,6 +167,7 @@ def register_builtin_tools(
     project_commands: dict[str, list[str]] | None = None,
     project_timeout_seconds: float = 120.0,
     project_max_output_chars: int = 20000,
+    sandbox: SandboxExecuteProtocol | None = None,
 ) -> None:
     if filesystem_root is not None:
         register_restricted_filesystem_tools(
@@ -180,6 +187,7 @@ def register_builtin_tools(
             timeout_seconds=shell_timeout_seconds,
             max_output_chars=shell_max_output_chars,
             allowed_env_keys=shell_allowed_env_keys,
+            sandbox=sandbox,
         )
 
     if web_enabled:
@@ -207,6 +215,7 @@ def register_builtin_tools(
             commands=project_commands,
             timeout_seconds=project_timeout_seconds,
             max_output_chars=project_max_output_chars,
+            sandbox=sandbox,
         )
 
 
@@ -345,6 +354,7 @@ def create_sqlite_runtime(
     project_max_output_chars: int = 20000,
     runtime_data_tools_enabled: bool = False,
 ) -> RuntimeKernel:
+    sandbox = create_sandbox_executor()
     tool_register = create_tool_register()
     register_builtin_tools(
         tool_register,
@@ -371,6 +381,7 @@ def create_sqlite_runtime(
         project_commands=project_commands,
         project_timeout_seconds=project_timeout_seconds,
         project_max_output_chars=project_max_output_chars,
+        sandbox=sandbox,
     )
 
     agent_state_register: AgentRunStateRegisterProtocol | None = None
@@ -387,6 +398,7 @@ def create_sqlite_runtime(
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
         runtime_data_tools_enabled=runtime_data_tools_enabled,
+        sandbox=sandbox,
     )
 
 
@@ -403,11 +415,13 @@ def _create_runtime(
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
     runtime_data_tools_enabled: bool = False,
+    sandbox: SandboxExecuteProtocol | None = None,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(provider_factory)
     tool_register = tool_register or create_tool_register()
     tool_safety_policy = tool_safety_policy or create_tool_safety_policy()
+    sandbox = sandbox or create_sandbox_executor()
     tools = ToolManager(tool_register, tool_safety_policy)
     skill_register = skill_register or create_skill_register()
     register_builtin_skills(skill_register)
@@ -433,6 +447,7 @@ def _create_runtime(
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,
+        sandbox=sandbox,
         skill_register=skill_register,
         skills=skills,
         context_register=context_register,

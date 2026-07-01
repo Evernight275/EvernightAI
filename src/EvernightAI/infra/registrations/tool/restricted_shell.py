@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
 from EvernightAI.infra.adapters.tool.restricted_shell import RestrictedShellTool
 
@@ -12,6 +13,7 @@ def register_restricted_shell_tool(
     timeout_seconds: float = 10.0,
     max_output_chars: int = 12000,
     allowed_env_keys: set[str] | None = None,
+    sandbox: SandboxExecuteProtocol | None = None,
 ) -> None:
     tool = RestrictedShellTool(
         allowed_commands=allowed_commands,
@@ -19,5 +21,6 @@ def register_restricted_shell_tool(
         timeout_seconds=timeout_seconds,
         max_output_chars=max_output_chars,
         allowed_env_keys=allowed_env_keys,
+        sandbox=sandbox,
     )
     register.register(tool.definition, tool.executor())

@@ -19,6 +19,7 @@ from EvernightAI.core.protocol.provider import (
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.session import (
     SessionManageProtocol,
     SessionRegisterProtocol,
@@ -50,6 +51,9 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol: ...
+
+    @property
+    def sandbox(self) -> SandboxExecuteProtocol | None: ...
 
     @property
     def skill_register(self) -> SkillRegisterProtocol: ...

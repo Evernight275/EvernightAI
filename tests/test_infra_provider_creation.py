@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -32,9 +33,11 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEventType
+from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.bootstrap.runtime import (
     RuntimeKernel,
     create_context_manager,
@@ -230,6 +233,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
     assert runtime.tools.list_tools() == []
+    assert isinstance(runtime.sandbox, SubprocessSandboxExecutor)
     assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.tool_safety_policy.authorize
     assert await runtime.contexts.list_contexts() == []
@@ -261,6 +265,67 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
     await runtime.close()
 
     assert instance.is_closed is True
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_injects_shared_sandbox_into_process_tools(tmp_path) -> None:
+    runtime = create_sqlite_runtime(
+        tmp_path / "runtime.sqlite3",
+        include_agent_storage=False,
+        shell_allowed_commands={sys.executable},
+        shell_working_directory=tmp_path,
+        project_working_directory=tmp_path,
+        project_commands={
+            "hello": [sys.executable, "-c", "print('project')"],
+        },
+    )
+
+    try:
+        assert isinstance(runtime.sandbox, SubprocessSandboxExecutor)
+        assert [tool.name for tool in runtime.tools.list_tools()] == [
+            "restricted_shell",
+            "run_project_task",
+        ]
+        assert (
+            runtime.tool_register.get("restricted_shell").metadata[
+                "sandbox_mount_path"
+            ]
+            == "/workspace"
+        )
+        assert (
+            runtime.tool_register.get("run_project_task").metadata[
+                "sandbox_mount_path"
+            ]
+            == "/workspace"
+        )
+
+        shell_result = await runtime.tools.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "restricted_shell",
+                    "arguments": {
+                        "command": [sys.executable, "-c", "print('shell')"],
+                    },
+                },
+                metadata={"approved": True},
+            )
+        )
+        project_result = await runtime.tools.execute(
+            ToolCall(
+                tool_call_id="call-2",
+                tool_call={
+                    "name": "run_project_task",
+                    "arguments": {"task": "hello"},
+                },
+                metadata={"approved": True},
+            )
+        )
+    finally:
+        await runtime.close()
+
+    assert shell_result.tool_call_result["stdout"].splitlines() == ["shell"]
+    assert project_result.tool_call_result["stdout"].splitlines() == ["project"]
 
 
 @pytest.mark.asyncio
