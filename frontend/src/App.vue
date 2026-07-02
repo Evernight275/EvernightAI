@@ -17,8 +17,10 @@ import ChatWorkspace from './components/ChatWorkspace.vue'
 import Icon from './components/Icon.vue'
 import LogTerminal from './components/LogTerminal.vue'
 import ToolList from './components/ToolList.vue'
+import ToastContainer from './components/ToastContainer.vue'
 import { useChatController } from './composables/useChatController'
 import { useProviderModels } from './composables/useProviderModels'
+import { toast } from './composables/useToast'
 
 type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'agents' | 'memories' | 'logs'
 
@@ -79,6 +81,7 @@ const providerModelsLoading = ref(false)
 const dashboardError = ref<string | null>(null)
 const providerModelsError = ref<string | null>(null)
 const providerModelsUpdatedAt = ref('')
+const toastContainer = ref<InstanceType<typeof ToastContainer> | null>(null)
 
 const sortedSessions = computed(() => (
   [...sessions.value]
@@ -171,8 +174,10 @@ async function refreshProviderModels() {
       second: '2-digit',
     })
     ensureSelectedProviderModel()
+    toast.success('模型列表刷新成功')
   } catch (error) {
     providerModelsError.value = error instanceof Error ? error.message : '模型拉取失败'
+    toast.error(providerModelsError.value)
   } finally {
     providerModelsLoading.value = false
   }
@@ -206,6 +211,16 @@ async function configureApiKey() {
 }
 
 onMounted(async () => {
+  // 初始化 Toast 服务
+  if (toastContainer.value) {
+    toast.setHandler({
+      success: toastContainer.value.success,
+      error: toastContainer.value.error,
+      warning: toastContainer.value.warning,
+      info: toastContainer.value.info,
+    })
+  }
+
   await refreshDashboard()
   if (currentView.value === 'agents') {
     await refreshProviderModels()
@@ -225,6 +240,7 @@ watch([runs, runPageSize], () => {
 
 <template>
   <div class="app" :class="{ 'is-chat-view': currentView === 'chat' }">
+    <ToastContainer ref="toastContainer" />
     <AppHeader @configure-api-key="configureApiKey" />
 
     <div class="shell">

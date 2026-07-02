@@ -14,6 +14,7 @@ import katex from 'katex'
 import type { Content, Session } from '../api'
 import { shortId } from '../format'
 import Icon from './Icon.vue'
+import { useToast } from '../composables/useToast'
 
 type ModelOption = {
   value: string
@@ -25,6 +26,8 @@ type MathPlaceholder = {
   html: string
   displayMode: boolean
 }
+
+const toast = useToast()
 
 const props = defineProps<{
   sessions: Session[]
@@ -83,8 +86,10 @@ function copyToClipboard(text: string, identifier: string | number) {
         copiedCodeBlock.value = null
       }, 2000)
     }
+    toast.success('已复制到剪贴板')
   }).catch((error) => {
     console.error('复制失败:', error)
+    toast.error('复制失败，请重试')
   })
 }
 

@@ -18,6 +18,9 @@ import {
 } from '../api'
 import { textPart } from '../format'
 import type { ProviderModelChoice } from './useProviderModels'
+import { useToast } from './useToast'
+
+const toast = useToast()
 
 export type ChatDisplayMessage = Content & {
   outgoing?: boolean
@@ -305,8 +308,10 @@ export function useChatController({
       clearPendingMessages()
       chatDraft.value = ''
       await refreshDashboard()
+      toast.success('会话创建成功')
     } catch (error) {
       chatError.value = error instanceof Error ? error.message : '新建会话失败'
+      toast.error(chatError.value)
     } finally {
       creatingSession.value = false
     }
@@ -331,8 +336,10 @@ export function useChatController({
         title: cleanTitle,
       })
       await refreshDashboard()
+      toast.success('会话重命名成功')
     } catch (error) {
       chatError.value = error instanceof Error ? error.message : '重命名会话失败'
+      toast.error(chatError.value)
     }
   }
 
@@ -352,8 +359,10 @@ export function useChatController({
         clearPendingMessages()
       }
       await refreshDashboard()
+      toast.success('会话删除成功')
     } catch (error) {
       chatError.value = error instanceof Error ? error.message : '删除会话失败'
+      toast.error(chatError.value)
     }
   }
 
