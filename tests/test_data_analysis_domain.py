@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from EvernightAI.core.domain.data_analysis import (
@@ -8,6 +10,7 @@ from EvernightAI.core.error.data_analysis import (
     DataAnalysisExecutionError,
     DataAnalysisInputError,
     DataAnalysisNotFoundError,
+    DataAnalysisResultError,
     DataStatisticsExecutionError,
 )
 from EvernightAI.core.schema.data_analysis import (
@@ -18,11 +21,15 @@ from EvernightAI.core.schema.data_analysis import (
     DataFieldType,
     DataInsight,
     DataInsightKind,
+    DataFilter,
+    DataFilterOperator,
     DataMetricDefinition,
+    DataSort,
     DataSourceDefinition,
     DataStatisticsRequest,
     DataStatisticsResult,
     DataStatisticsRow,
+    DataTimeRange,
 )
 
 
@@ -76,6 +83,20 @@ def make_statistics_request() -> DataStatisticsRequest:
         metrics=["order_count", "revenue"],
         dimensions=["status"],
     )
+
+
+class ClosableStatisticsExecutor:
+    def __init__(self) -> None:
+        self.close_count = 0
+
+    async def statistics(
+        self,
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    def close(self) -> None:
+        self.close_count += 1
 
 
 @pytest.mark.asyncio
@@ -166,6 +187,15 @@ def test_data_analysis_register_raises_for_missing_source() -> None:
     with pytest.raises(DataAnalysisNotFoundError):
         register.get("missing")
 
+    with pytest.raises(DataAnalysisNotFoundError):
+        register.get_statistics_executor("missing")
+
+    with pytest.raises(DataAnalysisNotFoundError):
+        register.get_analyzer("missing")
+
+    with pytest.raises(DataAnalysisNotFoundError):
+        register.unregister("missing")
+
 
 def test_data_analysis_register_unregisters_source() -> None:
     async def statistics(
@@ -179,6 +209,31 @@ def test_data_analysis_register_unregisters_source() -> None:
     register.unregister("orders")
 
     assert register.has("orders") is False
+
+
+def test_data_analysis_register_replaces_analyzer_and_closes_executor_once() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    async def analyze(request: DataAnalysisRequest) -> DataAnalysisResult:
+        return DataAnalysisResult(source_id=request.source_id)
+
+    register = DataAnalysisRegister()
+    executor = ClosableStatisticsExecutor()
+
+    register.register(make_source(), executor.statistics, analyze)
+    assert register.get_analyzer("orders") is analyze
+
+    register.register(make_source(), statistics)
+    assert register.get_analyzer("orders") is None
+
+    register.register(make_source(), executor.statistics)
+    register.register(make_source().model_copy(update={"source_id": "orders-copy"}), executor.statistics)
+    register.close()
+
+    assert executor.close_count == 1
 
 
 @pytest.mark.asyncio
@@ -201,6 +256,74 @@ async def test_data_analysis_manager_rejects_unknown_metric() -> None:
 
 
 @pytest.mark.asyncio
+async def test_data_analysis_manager_rejects_invalid_statistics_request_fields() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), statistics)
+    manager = DataAnalysisManager(register)
+
+    invalid_requests = [
+        DataStatisticsRequest(source_id="orders", metrics=[]),
+        DataStatisticsRequest(
+            source_id="orders",
+            metrics=["order_count"],
+            dimensions=["missing_dimension"],
+        ),
+        DataStatisticsRequest(
+            source_id="orders",
+            metrics=["order_count"],
+            filters=[
+                DataFilter(
+                    field_id="missing_filter",
+                    operator=DataFilterOperator.EQUALS,
+                    value="paid",
+                )
+            ],
+        ),
+        DataStatisticsRequest(
+            source_id="orders",
+            metrics=["order_count"],
+            sorts=[DataSort(field_id="missing_sort")],
+        ),
+        DataStatisticsRequest(
+            source_id="orders",
+            metrics=["order_count"],
+            time_range=DataTimeRange(field_id="missing_time"),
+        ),
+    ]
+
+    for request in invalid_requests:
+        with pytest.raises(DataAnalysisInputError):
+            await manager.statistics(request)
+
+
+@pytest.mark.asyncio
+async def test_data_analysis_manager_allows_metric_sort_fields() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), statistics)
+    manager = DataAnalysisManager(register)
+
+    result = await manager.statistics(
+        DataStatisticsRequest(
+            source_id="orders",
+            metrics=["order_count"],
+            sorts=[DataSort(field_id="order_count")],
+        )
+    )
+
+    assert result.source_id == "orders"
+
+
+@pytest.mark.asyncio
 async def test_data_analysis_manager_wraps_statistics_errors() -> None:
     async def broken(
         request: DataStatisticsRequest,
@@ -215,6 +338,31 @@ async def test_data_analysis_manager_wraps_statistics_errors() -> None:
         await manager.statistics(make_statistics_request())
 
     assert isinstance(exc_info.value.cause, RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_data_analysis_manager_preserves_statistics_errors() -> None:
+    async def input_error(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        raise DataAnalysisInputError("bad input")
+
+    async def execution_error(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        raise DataStatisticsExecutionError("bad execution")
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), input_error)
+    manager = DataAnalysisManager(register)
+
+    with pytest.raises(DataAnalysisInputError, match="bad input"):
+        await manager.statistics(make_statistics_request())
+
+    register.register(make_source(), execution_error)
+
+    with pytest.raises(DataStatisticsExecutionError, match="bad execution"):
+        await manager.statistics(make_statistics_request())
 
 
 @pytest.mark.asyncio
@@ -238,6 +386,24 @@ async def test_data_analysis_manager_wraps_analyzer_errors() -> None:
 
 
 @pytest.mark.asyncio
+async def test_data_analysis_manager_preserves_analysis_errors() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    async def broken(request: DataAnalysisRequest) -> DataAnalysisResult:
+        raise DataAnalysisExecutionError("bad analysis")
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), statistics, broken)
+    manager = DataAnalysisManager(register)
+
+    with pytest.raises(DataAnalysisExecutionError, match="bad analysis"):
+        await manager.analyze(DataAnalysisRequest(source_id="orders"))
+
+
+@pytest.mark.asyncio
 async def test_data_analysis_manager_requires_statistics_request_without_analyzer() -> None:
     async def statistics(
         request: DataStatisticsRequest,
@@ -249,4 +415,53 @@ async def test_data_analysis_manager_requires_statistics_request_without_analyze
     manager = DataAnalysisManager(register)
 
     with pytest.raises(DataAnalysisInputError):
+        await manager.analyze(DataAnalysisRequest(source_id="orders"))
+
+
+@pytest.mark.asyncio
+async def test_data_analysis_manager_rejects_invalid_statistics_result() -> None:
+    async def wrong_type(request: DataStatisticsRequest) -> DataStatisticsResult:
+        return cast(DataStatisticsResult, object())
+
+    async def wrong_source(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result("wrong-source")
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), wrong_type)
+    manager = DataAnalysisManager(register)
+
+    with pytest.raises(DataAnalysisResultError, match="must be a DataStatisticsResult"):
+        await manager.statistics(make_statistics_request())
+
+    register.register(make_source(), wrong_source)
+
+    with pytest.raises(DataAnalysisResultError, match="source must match"):
+        await manager.statistics(make_statistics_request())
+
+
+@pytest.mark.asyncio
+async def test_data_analysis_manager_rejects_invalid_analysis_result() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return make_statistics_result(request.source_id)
+
+    async def wrong_type(request: DataAnalysisRequest) -> DataAnalysisResult:
+        return cast(DataAnalysisResult, object())
+
+    async def wrong_source(request: DataAnalysisRequest) -> DataAnalysisResult:
+        return DataAnalysisResult(source_id="wrong-source")
+
+    register = DataAnalysisRegister()
+    register.register(make_source(), statistics, wrong_type)
+    manager = DataAnalysisManager(register)
+
+    with pytest.raises(DataAnalysisResultError, match="must be a DataAnalysisResult"):
+        await manager.analyze(DataAnalysisRequest(source_id="orders"))
+
+    register.register(make_source(), statistics, wrong_source)
+
+    with pytest.raises(DataAnalysisResultError, match="source must match"):
         await manager.analyze(DataAnalysisRequest(source_id="orders"))

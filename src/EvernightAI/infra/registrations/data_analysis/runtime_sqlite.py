@@ -42,11 +42,19 @@ def ensure_sqlite_runtime_data_analysis_views(
     connection = sqlite3.connect(database_path)
     try:
         if include_agent_sources:
-            connection.execute(AGENT_RUNS_VIEW_SQL)
-            connection.execute(AGENT_TRACE_EVENTS_VIEW_SQL)
-        connection.execute(SESSIONS_VIEW_SQL)
-        connection.execute(CONTEXTS_VIEW_SQL)
-        connection.execute(MEMORIES_VIEW_SQL)
+            _replace_sqlite_view(
+                connection,
+                "evernight_agent_runs",
+                AGENT_RUNS_VIEW_SQL,
+            )
+            _replace_sqlite_view(
+                connection,
+                "evernight_agent_trace_events",
+                AGENT_TRACE_EVENTS_VIEW_SQL,
+            )
+        _replace_sqlite_view(connection, "evernight_sessions", SESSIONS_VIEW_SQL)
+        _replace_sqlite_view(connection, "evernight_contexts", CONTEXTS_VIEW_SQL)
+        _replace_sqlite_view(connection, "evernight_memories", MEMORIES_VIEW_SQL)
         connection.commit()
     finally:
         connection.close()
@@ -88,6 +96,18 @@ SELECT
     ) AS pending_approval_count,
     COALESCE(json_extract(payload, '$.request.max_tool_rounds'), 0) AS max_tool_rounds,
     COALESCE(json_extract(payload, '$.request.write_memory'), 0) AS write_memory,
+    CASE
+        WHEN json_extract(payload, '$.status') = 'finished' THEN 1
+        ELSE 0
+    END AS is_successful,
+    CASE
+        WHEN json_extract(payload, '$.status') = 'failed' THEN 1
+        ELSE 0
+    END AS is_failed,
+    CASE
+        WHEN json_extract(payload, '$.status') = 'paused' THEN 1
+        ELSE 0
+    END AS is_paused,
     created_at,
     updated_at,
     substr(created_at, 1, 10) AS created_day,
@@ -111,6 +131,35 @@ SELECT
     json_extract(trace.payload, '$.approval_decision.status') AS approval_status,
     json_extract(trace.payload, '$.error_type') AS error_type,
     json_extract(trace.payload, '$.metadata.memory_id') AS memory_id,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') IN (
+            'tool_completed',
+            'tool_failed'
+        ) THEN 1
+        ELSE 0
+    END AS is_tool_call,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') = 'tool_completed' THEN 1
+        ELSE 0
+    END AS is_tool_success,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') = 'tool_failed' THEN 1
+        ELSE 0
+    END AS is_tool_failure,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') = 'tool_approval_requested'
+        THEN 1
+        ELSE 0
+    END AS is_tool_approval_required,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') = 'memory_written' THEN 1
+        ELSE 0
+    END AS is_memory_write,
+    CASE
+        WHEN json_extract(trace.payload, '$.event_type') = 'memory_written'
+        THEN json_extract(state.payload, '$.request.metadata.session_id')
+        ELSE NULL
+    END AS memory_write_session_id,
     json_extract(state.payload, '$.request.provider_id') AS provider_id,
     json_extract(state.payload, '$.request.model_id') AS model_id,
     json_extract(state.payload, '$.request.context_id') AS context_id,
@@ -179,6 +228,9 @@ def _agent_runs_source() -> DataSourceDefinition:
             _field("pending_approval_count", "Pending approval count", DataFieldType.INTEGER),
             _field("max_tool_rounds", "Max tool rounds", DataFieldType.INTEGER),
             _field("write_memory", "Write memory", DataFieldType.BOOLEAN),
+            _field("is_successful", "Is successful", DataFieldType.BOOLEAN),
+            _field("is_failed", "Is failed", DataFieldType.BOOLEAN),
+            _field("is_paused", "Is paused", DataFieldType.BOOLEAN),
             _field("created_at", "Created at", DataFieldType.DATETIME),
             _field("updated_at", "Updated at", DataFieldType.DATETIME),
             _field("created_day", "Created day", DataFieldType.STRING),
@@ -188,6 +240,9 @@ def _agent_runs_source() -> DataSourceDefinition:
             _metric("run_count", "Run count", DataAggregation.COUNT),
             _metric("tool_rounds_total", "Tool rounds total", DataAggregation.SUM, "tool_rounds_used"),
             _metric("average_tool_rounds", "Average tool rounds", DataAggregation.AVERAGE, "tool_rounds_used"),
+            _metric("successful_run_rate", "Successful run rate", DataAggregation.AVERAGE, "is_successful"),
+            _metric("failed_run_rate", "Failed run rate", DataAggregation.AVERAGE, "is_failed"),
+            _metric("paused_run_rate", "Paused run rate", DataAggregation.AVERAGE, "is_paused"),
             _metric("pending_approvals_total", "Pending approvals total", DataAggregation.SUM, "pending_approval_count"),
             _metric("distinct_session_count", "Distinct session count", DataAggregation.DISTINCT_COUNT, "session_id"),
         ],
@@ -209,6 +264,12 @@ def _agent_trace_events_source() -> DataSourceDefinition:
             _field("approval_status", "Approval status", DataFieldType.STRING),
             _field("error_type", "Error type", DataFieldType.STRING),
             _field("memory_id", "Memory ID", DataFieldType.STRING),
+            _field("is_tool_call", "Is tool call", DataFieldType.BOOLEAN),
+            _field("is_tool_success", "Is tool success", DataFieldType.BOOLEAN),
+            _field("is_tool_failure", "Is tool failure", DataFieldType.BOOLEAN),
+            _field("is_tool_approval_required", "Is tool approval required", DataFieldType.BOOLEAN),
+            _field("is_memory_write", "Is memory write", DataFieldType.BOOLEAN),
+            _field("memory_write_session_id", "Memory write session ID", DataFieldType.STRING),
             _field("provider_id", "Provider ID", DataFieldType.STRING),
             _field("model_id", "Model ID", DataFieldType.STRING),
             _field("context_id", "Context ID", DataFieldType.STRING),
@@ -220,7 +281,12 @@ def _agent_trace_events_source() -> DataSourceDefinition:
             _metric("event_count", "Event count", DataAggregation.COUNT),
             _metric("distinct_run_count", "Distinct run count", DataAggregation.DISTINCT_COUNT, "run_id"),
             _metric("distinct_session_count", "Distinct session count", DataAggregation.DISTINCT_COUNT, "session_id"),
-            _metric("memory_write_count", "Memory write count", DataAggregation.DISTINCT_COUNT, "memory_id"),
+            _metric("tool_call_count", "Tool call count", DataAggregation.SUM, "is_tool_call"),
+            _metric("tool_success_count", "Tool success count", DataAggregation.SUM, "is_tool_success"),
+            _metric("tool_failure_count", "Tool failure count", DataAggregation.SUM, "is_tool_failure"),
+            _metric("tool_approval_required_count", "Tool approval required count", DataAggregation.SUM, "is_tool_approval_required"),
+            _metric("memory_write_count", "Memory write count", DataAggregation.SUM, "is_memory_write"),
+            _metric("sessions_with_memory_write_count", "Sessions with memory write count", DataAggregation.DISTINCT_COUNT, "memory_write_session_id"),
         ],
         metadata={"sqlite_view": "evernight_agent_trace_events"},
     )
@@ -315,3 +381,12 @@ def _metric(
         aggregation=aggregation,
         field_id=field_id,
     )
+
+
+def _replace_sqlite_view(
+    connection: sqlite3.Connection,
+    view_name: str,
+    view_sql: str,
+) -> None:
+    connection.execute(f"DROP VIEW IF EXISTS {view_name}")
+    connection.execute(view_sql)
