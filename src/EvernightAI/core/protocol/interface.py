@@ -15,6 +15,15 @@ from EvernightAI.core.schema.agent import (
 )
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataAnalysisRequest,
+    DataAnalysisResult,
+    DataFieldDefinition,
+    DataMetricDefinition,
+    DataSourceDefinition,
+    DataStatisticsRequest,
+    DataStatisticsResult,
+)
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
@@ -135,6 +144,26 @@ class ProviderInterfaceProtocol(InterfaceProtocol):
 
 class ToolInterfaceProtocol(InterfaceProtocol):
     def list_tools(self) -> list[ToolDefinition]: ...
+
+
+class DataAnalysisInterfaceProtocol(InterfaceProtocol):
+    def list_data_sources(self) -> list[DataSourceDefinition]: ...
+
+    def get_data_source(self, source_id: str) -> DataSourceDefinition: ...
+
+    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]: ...
+
+    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]: ...
+
+    async def run_statistics(
+        self,
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult: ...
+
+    async def analyze_data(
+        self,
+        request: DataAnalysisRequest,
+    ) -> DataAnalysisResult: ...
 
 
 class AgentInterfaceProtocol(InterfaceProtocol):
@@ -273,6 +302,9 @@ class EvernightInterfaceProtocol(InterfaceProtocol):
 
     @property
     def tools(self) -> ToolInterfaceProtocol: ...
+
+    @property
+    def data_analysis(self) -> DataAnalysisInterfaceProtocol: ...
 
     @property
     def skills(self) -> SkillInterfaceProtocol: ...

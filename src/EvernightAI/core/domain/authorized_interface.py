@@ -3,6 +3,7 @@ from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
+    DataAnalysisInterfaceProtocol,
     EvernightInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
@@ -21,6 +22,15 @@ from EvernightAI.core.schema.agent import (
 from EvernightAI.core.schema.auth import AuthPermission, AuthRequest, Principal
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataAnalysisRequest,
+    DataAnalysisResult,
+    DataFieldDefinition,
+    DataMetricDefinition,
+    DataSourceDefinition,
+    DataStatisticsRequest,
+    DataStatisticsResult,
+)
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -68,6 +78,11 @@ class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
             authorizer,
             principal,
         )
+        self._data_analysis = AuthorizedDataAnalysisInterface(
+            interface.data_analysis,
+            authorizer,
+            principal,
+        )
         self._agent = AuthorizedAgentInterface(
             interface.agent,
             authorizer,
@@ -112,6 +127,10 @@ class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
     @property
     def tools(self) -> ToolInterfaceProtocol:
         return self._tools
+
+    @property
+    def data_analysis(self) -> DataAnalysisInterfaceProtocol:
+        return self._data_analysis
 
     @property
     def skills(self) -> SkillInterfaceProtocol:
@@ -347,6 +366,62 @@ class AuthorizedToolInterface(ToolInterfaceProtocol):
     def list_tools(self) -> list[ToolDefinition]:
         require_permission(self._authorizer, self._principal, "tools", "list")
         return self._inner.list_tools()
+
+
+class AuthorizedDataAnalysisInterface(DataAnalysisInterfaceProtocol):
+    def __init__(
+        self,
+        inner: DataAnalysisInterfaceProtocol,
+        authorizer: AuthorizerProtocol,
+        principal: Principal,
+    ) -> None:
+        self._inner = inner
+        self._authorizer = authorizer
+        self._principal = principal
+
+    def list_data_sources(self) -> list[DataSourceDefinition]:
+        self._require("data-analysis", "list")
+        return self._inner.list_data_sources()
+
+    def get_data_source(self, source_id: str) -> DataSourceDefinition:
+        self._require("data-analysis", "get", source_id)
+        return self._inner.get_data_source(source_id)
+
+    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]:
+        self._require("data-analysis", "list_fields", source_id)
+        return self._inner.list_data_fields(source_id)
+
+    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]:
+        self._require("data-analysis", "list_metrics", source_id)
+        return self._inner.list_data_metrics(source_id)
+
+    async def run_statistics(
+        self,
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        self._require("data-analysis", "statistics", request.source_id)
+        return await self._inner.run_statistics(request)
+
+    async def analyze_data(
+        self,
+        request: DataAnalysisRequest,
+    ) -> DataAnalysisResult:
+        self._require("data-analysis", "analyze", request.source_id)
+        return await self._inner.analyze_data(request)
+
+    def _require(
+        self,
+        resource: str,
+        action: str,
+        resource_id: str | None = None,
+    ) -> None:
+        require_permission(
+            self._authorizer,
+            self._principal,
+            resource,
+            action,
+            resource_id,
+        )
 
 
 class AuthorizedAgentInterface(AgentInterfaceProtocol):

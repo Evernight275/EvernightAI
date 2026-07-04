@@ -45,6 +45,20 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataAggregation,
+    DataAnalysisRequest,
+    DataAnalysisResult,
+    DataFieldDefinition,
+    DataFieldType,
+    DataInsight,
+    DataInsightKind,
+    DataMetricDefinition,
+    DataSourceDefinition,
+    DataStatisticsRequest,
+    DataStatisticsResult,
+    DataStatisticsRow,
+)
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
@@ -142,6 +156,8 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     assert "tool_calls" not in chat_response_example["message"]
     assert "event: chat.error" in chat_stream_example
     assert '"response_id":null' not in chat_stream_example
+    assert "/data-analysis/statistics" in schema["paths"]
+    assert "/data-analysis/analyze" in schema["paths"]
 
 
 def test_http_maps_permission_denied_to_forbidden() -> None:
@@ -610,6 +626,117 @@ def test_http_app_exposes_memory_and_tool_routes() -> None:
     assert_error_response(missing_memory_response.json(), "MemoryNotFoundError")
     assert tools_response.status_code == 200
     assert tools_response.json() == []
+
+
+def test_http_app_exposes_data_analysis_routes() -> None:
+    async def statistics(
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        return DataStatisticsResult(
+            source_id=request.source_id,
+            rows=[
+                DataStatisticsRow(
+                    dimensions={"status": "paid"},
+                    metrics={"order_count": 2, "revenue": 42},
+                )
+            ],
+        )
+
+    async def analyze(request: DataAnalysisRequest) -> DataAnalysisResult:
+        return DataAnalysisResult(
+            source_id=request.source_id,
+            insights=[
+                DataInsight(
+                    kind=DataInsightKind.SUMMARY,
+                    title="Revenue",
+                    summary="Paid orders generated revenue.",
+                )
+            ],
+            narrative="Paid orders generated revenue.",
+        )
+
+    runtime = make_runtime()
+    runtime.data_analysis_register.register(
+        DataSourceDefinition(
+            source_id="orders",
+            name="Orders",
+            fields=[
+                DataFieldDefinition(
+                    field_id="status",
+                    name="Status",
+                    field_type=DataFieldType.STRING,
+                ),
+                DataFieldDefinition(
+                    field_id="amount",
+                    name="Amount",
+                    field_type=DataFieldType.NUMBER,
+                ),
+            ],
+            metrics=[
+                DataMetricDefinition(
+                    metric_id="order_count",
+                    name="Order count",
+                    aggregation=DataAggregation.COUNT,
+                ),
+                DataMetricDefinition(
+                    metric_id="revenue",
+                    name="Revenue",
+                    aggregation=DataAggregation.SUM,
+                    field_id="amount",
+                ),
+            ],
+        ),
+        statistics,
+        analyze,
+    )
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        sources_response = client.get("/data-analysis/sources")
+        source_response = client.get("/data-analysis/sources/orders")
+        fields_response = client.get("/data-analysis/sources/orders/fields")
+        metrics_response = client.get("/data-analysis/sources/orders/metrics")
+        statistics_response = client.post(
+            "/data-analysis/statistics",
+            json={
+                "source_id": "orders",
+                "metrics": ["order_count", "revenue"],
+                "dimensions": ["status"],
+            },
+        )
+        analysis_response = client.post(
+            "/data-analysis/analyze",
+            json={
+                "source_id": "orders",
+                "question": "Summarize revenue",
+            },
+        )
+        missing_response = client.get("/data-analysis/sources/missing")
+
+    assert sources_response.status_code == 200
+    assert [source["source_id"] for source in sources_response.json()] == ["orders"]
+    assert source_response.status_code == 200
+    assert source_response.json()["name"] == "Orders"
+    assert fields_response.status_code == 200
+    assert [field["field_id"] for field in fields_response.json()] == [
+        "status",
+        "amount",
+    ]
+    assert metrics_response.status_code == 200
+    assert [metric["metric_id"] for metric in metrics_response.json()] == [
+        "order_count",
+        "revenue",
+    ]
+    assert statistics_response.status_code == 200
+    assert statistics_response.json()["rows"][0]["metrics"] == {
+        "order_count": 2,
+        "revenue": 42,
+    }
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["insights"][0]["kind"] == "summary"
+    assert missing_response.status_code == 404
+    assert_error_response(missing_response.json(), "DataAnalysisNotFoundError")
 
 
 def test_http_app_exposes_recent_log_routes() -> None:

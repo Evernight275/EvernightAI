@@ -6,6 +6,10 @@ from EvernightAI.core.domain.context import (
     ContextOrganizer,
     ContextRegister,
 )
+from EvernightAI.core.domain.data_analysis import (
+    DataAnalysisManager,
+    DataAnalysisRegister,
+)
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
     BasicMemoryWriteStrategy,
@@ -30,6 +34,10 @@ from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
     ContextStrategyProtocol,
+)
+from EvernightAI.core.protocol.data_analysis import (
+    DataAnalysisManageProtocol,
+    DataAnalysisRegisterProtocol,
 )
 from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
@@ -248,6 +256,16 @@ def create_memory_register() -> MemoryRegister:
     return MemoryRegister()
 
 
+def create_data_analysis_register() -> DataAnalysisRegister:
+    return DataAnalysisRegister()
+
+
+def create_data_analysis_manager(
+    register: DataAnalysisRegisterProtocol | None = None,
+) -> DataAnalysisManager:
+    return DataAnalysisManager(register or create_data_analysis_register())
+
+
 def create_memory_manager(
     register: MemoryRegisterProtocol | None = None,
 ) -> MemoryManager:
@@ -415,6 +433,8 @@ def _create_runtime(
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
     session_register: SessionRegisterProtocol,
+    data_analysis_register: DataAnalysisRegisterProtocol | None = None,
+    data_analysis: DataAnalysisManageProtocol | None = None,
     sessions: SessionManageProtocol | None = None,
     skill_register: SkillRegisterProtocol | None = None,
     skills: SkillManageProtocol | None = None,
@@ -435,6 +455,8 @@ def _create_runtime(
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
     context_strategy = create_context_strategy(context_organizer)
+    data_analysis_register = data_analysis_register or create_data_analysis_register()
+    data_analysis = data_analysis or create_data_analysis_manager(data_analysis_register)
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
     memory_write_strategy = create_memory_write_strategy()
@@ -460,6 +482,8 @@ def _create_runtime(
         contexts=contexts,
         context_organizer=context_organizer,
         context_strategy=context_strategy,
+        data_analysis_register=data_analysis_register,
+        data_analysis=data_analysis,
         memory_register=memory_register,
         memories=memories,
         memory_strategy=memory_strategy,

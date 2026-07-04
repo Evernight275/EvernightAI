@@ -9,6 +9,10 @@ from EvernightAI.core.protocol.context import (
     ContextRegisterProtocol,
     ContextStrategyProtocol,
 )
+from EvernightAI.core.protocol.data_analysis import (
+    DataAnalysisManageProtocol,
+    DataAnalysisRegisterProtocol,
+)
 from EvernightAI.core.protocol.memory import (
     MemoryManageProtocol,
     MemoryRegisterProtocol,
@@ -72,6 +76,12 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def context_strategy(self) -> ContextStrategyProtocol: ...
+
+    @property
+    def data_analysis_register(self) -> DataAnalysisRegisterProtocol: ...
+
+    @property
+    def data_analysis(self) -> DataAnalysisManageProtocol: ...
 
     @property
     def memory_register(self) -> MemoryRegisterProtocol: ...

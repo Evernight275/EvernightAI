@@ -10,6 +10,7 @@ from EvernightAI.core.domain.authorized_interface import (
     AuthorizedAgentInterface,
     AuthorizedAgentRunInterface,
     AuthorizedChatInterface,
+    AuthorizedDataAnalysisInterface,
     AuthorizedProviderInterface,
     AuthorizedSessionInterface,
     AuthorizedSkillInterface,
@@ -22,6 +23,7 @@ from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
+    DataAnalysisInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
     SkillInterfaceProtocol,
@@ -38,6 +40,15 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataAnalysisRequest,
+    DataAnalysisResult,
+    DataFieldDefinition,
+    DataMetricDefinition,
+    DataSourceDefinition,
+    DataStatisticsRequest,
+    DataStatisticsResult,
+)
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.core.schema.provider import (
@@ -94,6 +105,7 @@ async def test_authorized_interface_delegates_when_permission_is_allowed() -> No
             "providers:create",
             "contexts:create",
             "tools:list",
+            "data-analysis:list",
         ]
     )
 
@@ -108,10 +120,12 @@ async def test_authorized_interface_delegates_when_permission_is_allowed() -> No
         Context(context_id="ctx-1", messages=[])
     )
     tools = interface.tools.list_tools()
+    data_sources = interface.data_analysis.list_data_sources()
 
     assert provider.provider_id == "provider-1"
     assert context.context_id == "ctx-1"
     assert tools == []
+    assert data_sources == []
 
 
 @pytest.mark.asyncio
@@ -496,6 +510,50 @@ def test_authorized_tool_interface_requires_expected_permission() -> None:
     assert authorizer.requests == [("tools", "list", None)]
 
 
+@pytest.mark.parametrize(
+    ("method_name", "args", "expected_action", "expected_id"),
+    [
+        ("list_data_sources", (), "list", None),
+        ("get_data_source", ("orders",), "get", "orders"),
+        ("list_data_fields", ("orders",), "list_fields", "orders"),
+        ("list_data_metrics", ("orders",), "list_metrics", "orders"),
+        (
+            "run_statistics",
+            (DataStatisticsRequest(source_id="orders", metrics=["order_count"]),),
+            "statistics",
+            "orders",
+        ),
+        (
+            "analyze_data",
+            (DataAnalysisRequest(source_id="orders"),),
+            "analyze",
+            "orders",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_authorized_data_analysis_interface_requires_expected_permission(
+    method_name: str,
+    args: tuple[object, ...],
+    expected_action: str,
+    expected_id: str | None,
+) -> None:
+    authorizer = RecordingAuthorizer()
+    inner = FakeDataAnalysisInterface()
+    interface = AuthorizedDataAnalysisInterface(
+        cast(DataAnalysisInterfaceProtocol, inner),
+        cast(AuthorizerProtocol, authorizer),
+        Principal(principal_id="user-1"),
+    )
+
+    result = getattr(interface, method_name)(*args)
+    if hasattr(result, "__await__"):
+        await result
+
+    assert inner.calls == [method_name]
+    assert authorizer.requests == [("data-analysis", expected_action, expected_id)]
+
+
 @pytest.mark.asyncio
 async def test_authorized_chat_interface_stops_denied_call_before_inner_work() -> None:
     authorizer = RecordingAuthorizer(deny=True)
@@ -666,6 +724,41 @@ class FakeToolInterface:
     def list_tools(self) -> str:
         self.calls.append("list_tools")
         return "delegated"
+
+
+class FakeDataAnalysisInterface:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def list_data_sources(self) -> list[DataSourceDefinition]:
+        self.calls.append("list_data_sources")
+        return []
+
+    def get_data_source(self, source_id: str) -> DataSourceDefinition:
+        self.calls.append("get_data_source")
+        return DataSourceDefinition(source_id=source_id, name=source_id)
+
+    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]:
+        self.calls.append("list_data_fields")
+        return []
+
+    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]:
+        self.calls.append("list_data_metrics")
+        return []
+
+    async def run_statistics(
+        self,
+        request: DataStatisticsRequest,
+    ) -> DataStatisticsResult:
+        self.calls.append("run_statistics")
+        return DataStatisticsResult(source_id=request.source_id)
+
+    async def analyze_data(
+        self,
+        request: DataAnalysisRequest,
+    ) -> DataAnalysisResult:
+        self.calls.append("analyze_data")
+        return DataAnalysisResult(source_id=request.source_id)
 
 
 class FakeAgentInterface:

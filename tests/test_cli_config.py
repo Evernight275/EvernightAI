@@ -87,6 +87,31 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     }
                 },
             },
+            "data_analysis": {
+                "sqlite_source": {
+                    "orders": {
+                        "name": "Orders",
+                        "table": "orders_view",
+                        "field": {
+                            "status": {
+                                "field_type": "string",
+                            },
+                            "amount": {
+                                "field_type": "number",
+                            },
+                        },
+                        "metric": {
+                            "order_count": {
+                                "aggregation": "count",
+                            },
+                            "revenue": {
+                                "aggregation": "sum",
+                                "field_id": "amount",
+                            },
+                        },
+                    }
+                }
+            },
             "provider": {
                 "main": {
                     "name": "DeepSeek",
@@ -133,6 +158,13 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.project.enabled is True
     assert config.tools.project.commands == {"tests": ["python", "-m", "pytest"]}
     assert config.tools.runtime_data.enabled is True
+    assert config.data_analysis.sqlite_sources[0].source_id == "orders"
+    assert config.data_analysis.sqlite_sources[0].name == "Orders"
+    assert config.data_analysis.sqlite_sources[0].table == "orders_view"
+    assert config.data_analysis.sqlite_sources[0].fields[0].field_id == "status"
+    assert config.data_analysis.sqlite_sources[0].fields[0].field_type == "string"
+    assert config.data_analysis.sqlite_sources[0].metrics[0].metric_id == "order_count"
+    assert config.data_analysis.sqlite_sources[0].metrics[0].aggregation == "count"
     assert config.auth.enabled is True
     assert config.auth.principals[0].principal_id == "admin"
     assert config.auth.principals[0].api_key == "secret-key"
@@ -211,6 +243,7 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.tools.shell.allowed_commands == []
     assert config.auth.enabled is False
     assert config.auth.principals == []
+    assert config.data_analysis.sqlite_sources == []
     assert config.providers == []
 
 

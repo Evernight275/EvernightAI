@@ -6,6 +6,10 @@ from typing import Any
 from pydantic import ConfigDict, ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
+from EvernightAI.core.schema.data_analysis import (
+    DataFieldDefinition,
+    DataMetricDefinition,
+)
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelConfig,
@@ -13,12 +17,14 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
+    DataAnalysisConfig,
     EvernightConfig,
     HttpConfig,
     OAuthConfig,
     OAuthJwtConfig,
     OAuthTokenPrincipalConfig,
     RuntimeConfig,
+    SQLiteDataSourceConfig,
     ToolConfig,
 )
 
@@ -47,6 +53,7 @@ def parse_config(data: dict[str, Any]) -> EvernightConfig:
             http=HttpConfig.model_validate(data.get("http", {})),
             tools=ToolConfig.model_validate(data.get("tools", {})),
             auth=_parse_auth(data.get("auth", {})),
+            data_analysis=_parse_data_analysis(data.get("data_analysis", {})),
             providers=_parse_providers(data.get("provider", {})),
         )
     except (KeyError, PydanticValidationError, TypeError, ValueError) as exc:
@@ -80,6 +87,80 @@ def _parse_auth(raw: object) -> AuthConfig:
         principals=_parse_auth_principals(raw.get("principal", {})),
         oauth=_parse_oauth(raw.get("oauth", {})),
     )
+
+
+def _parse_data_analysis(raw: object) -> DataAnalysisConfig:
+    if not isinstance(raw, dict):
+        return DataAnalysisConfig()
+
+    return DataAnalysisConfig(
+        sqlite_sources=_parse_sqlite_data_sources(raw.get("sqlite_source", {}))
+    )
+
+
+def _parse_sqlite_data_sources(raw: object) -> list[SQLiteDataSourceConfig]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        _parse_sqlite_data_source(source_key, source_data)
+        for source_key, source_data in raw.items()
+        if isinstance(source_key, str) and isinstance(source_data, dict)
+    ]
+
+
+def _parse_sqlite_data_source(
+    source_key: str,
+    data: dict[str, Any],
+) -> SQLiteDataSourceConfig:
+    source_id = _string(data.get("source_id")) or source_key
+    table = _string(data.get("table")) or source_id
+    return SQLiteDataSourceConfig(
+        source_id=source_id,
+        name=_string(data.get("name")) or source_id,
+        table=table,
+        description=_string(data.get("description")),
+        fields=_parse_data_fields(data.get("field", {})),
+        metrics=_parse_data_metrics(data.get("metric", {})),
+        metadata={
+            **_dict(data.get("metadata")),
+            "sqlite_table": table,
+        },
+    )
+
+
+def _parse_data_fields(raw: object) -> list[DataFieldDefinition]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        DataFieldDefinition.model_validate(
+            {
+                **field_data,
+                "field_id": _string(field_data.get("field_id")) or field_key,
+                "name": _string(field_data.get("name")) or field_key,
+            }
+        )
+        for field_key, field_data in raw.items()
+        if isinstance(field_key, str) and isinstance(field_data, dict)
+    ]
+
+
+def _parse_data_metrics(raw: object) -> list[DataMetricDefinition]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        DataMetricDefinition.model_validate(
+            {
+                **metric_data,
+                "metric_id": _string(metric_data.get("metric_id")) or metric_key,
+                "name": _string(metric_data.get("name")) or metric_key,
+            }
+        )
+        for metric_key, metric_data in raw.items()
+        if isinstance(metric_key, str) and isinstance(metric_data, dict)
+    ]
 
 
 def _parse_auth_principals(raw: object) -> list[AuthPrincipalConfig]:

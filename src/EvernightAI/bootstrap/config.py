@@ -10,16 +10,39 @@ from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
+from EvernightAI.core.schema.data_analysis import DataSourceDefinition
+from EvernightAI.infra.registrations.data_analysis.sqlite import (
+    register_sqlite_data_source,
+)
 from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
-from EvernightAI.interface.cli.schema import EvernightConfig, SandboxBackend
+from EvernightAI.interface.cli.schema import (
+    EvernightConfig,
+    SandboxBackend,
+    SQLiteDataSourceConfig,
+)
 
 
 def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
-    return create_sqlite_runtime(
+    runtime = create_sqlite_runtime(
         config.runtime.database_path,
         sandbox=create_sandbox_from_config(config),
         **_runtime_tool_options(config),
     )
+    register_configured_data_sources(runtime, config)
+    return runtime
+
+
+def register_configured_data_sources(
+    runtime: RuntimeKernel,
+    config: EvernightConfig,
+) -> None:
+    for source in config.data_analysis.sqlite_sources:
+        register_sqlite_data_source(
+            runtime.data_analysis_register,
+            database_path=config.runtime.database_path,
+            source=_sqlite_data_source_definition(source),
+            table_name=source.table,
+        )
 
 
 def create_sandbox_from_config(config: EvernightConfig) -> SandboxExecuteProtocol:
@@ -92,3 +115,19 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "project_max_output_chars": project.max_output_chars,
         "runtime_data_tools_enabled": runtime_data.enabled,
     }
+
+
+def _sqlite_data_source_definition(
+    source: SQLiteDataSourceConfig,
+) -> DataSourceDefinition:
+    return DataSourceDefinition(
+        source_id=source.source_id,
+        name=source.name,
+        description=source.description,
+        fields=source.fields,
+        metrics=source.metrics,
+        metadata={
+            **source.metadata,
+            "sqlite_table": source.table,
+        },
+    )

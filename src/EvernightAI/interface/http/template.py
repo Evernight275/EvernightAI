@@ -55,6 +55,10 @@ OPENAPI_TAGS = [
         "description": "Durable facts and preferences selected into future requests.",
     },
     {
+        "name": "data-analysis",
+        "description": "Registered data sources, metrics, statistics, and analysis.",
+    },
+    {
         "name": "skills",
         "description": "Reusable prompt capabilities that can be rendered into chat.",
     },
@@ -613,6 +617,38 @@ MEMORY_QUERY_EXAMPLES = _openapi_examples({
             "kinds": ["preference"],
             "tags": ["style"],
             "limit": 3,
+        },
+    },
+})
+
+
+DATA_STATISTICS_EXAMPLES = _openapi_examples({
+    "ordersByStatus": {
+        "summary": "Aggregate order metrics by status",
+        "value": {
+            "source_id": "orders",
+            "metrics": ["order_count", "revenue"],
+            "dimensions": ["status"],
+            "sorts": [{"field_id": "revenue", "direction": "desc"}],
+            "limit": 10,
+        },
+    },
+})
+
+
+DATA_ANALYSIS_EXAMPLES = _openapi_examples({
+    "fromStatistics": {
+        "summary": "Analyze a statistics request",
+        "value": {
+            "source_id": "orders",
+            "question": "Which order status generated the most revenue?",
+            "statistics_request": {
+                "source_id": "orders",
+                "metrics": ["order_count", "revenue"],
+                "dimensions": ["status"],
+                "sorts": [{"field_id": "revenue", "direction": "desc"}],
+                "limit": 10,
+            },
         },
     },
 })

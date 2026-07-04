@@ -2,6 +2,7 @@ from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
+    DataAnalysisInterfaceProtocol,
     EvernightInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
@@ -18,6 +19,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         chat: ChatInterfaceProtocol,
         providers: ProviderInterfaceProtocol,
         tools: ToolInterfaceProtocol,
+        data_analysis: DataAnalysisInterfaceProtocol,
         agent: AgentInterfaceProtocol,
         agent_runs: AgentRunInterfaceProtocol,
         skills: SkillInterfaceProtocol,
@@ -27,6 +29,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         self._chat = chat
         self._providers = providers
         self._tools = tools
+        self._data_analysis = data_analysis
         self._agent = agent
         self._agent_runs = agent_runs
         self._skills = skills
@@ -47,6 +50,10 @@ class EvernightInterface(EvernightInterfaceProtocol):
     @property
     def tools(self) -> ToolInterfaceProtocol:
         return self._tools
+
+    @property
+    def data_analysis(self) -> DataAnalysisInterfaceProtocol:
+        return self._data_analysis
 
     @property
     def agent(self) -> AgentInterfaceProtocol:

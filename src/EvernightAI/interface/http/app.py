@@ -21,6 +21,9 @@ from EvernightAI.interface.http.protocol import (
 from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_router
 from EvernightAI.interface.http.routes.chat import router as chat_router
 from EvernightAI.interface.http.routes.contexts import router as contexts_router
+from EvernightAI.interface.http.routes.data_analysis import (
+    router as data_analysis_router,
+)
 from EvernightAI.interface.http.routes.health import router as health_router
 from EvernightAI.interface.http.routes.logs import router as logs_router
 from EvernightAI.interface.http.routes.memories import router as memories_router
@@ -77,6 +80,7 @@ def create_http_app(
     app.include_router(providers_router)
     app.include_router(contexts_router)
     app.include_router(memories_router)
+    app.include_router(data_analysis_router)
     app.include_router(sessions_router)
     app.include_router(skills_router)
     app.include_router(tools_router)

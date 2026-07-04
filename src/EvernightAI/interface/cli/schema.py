@@ -3,6 +3,10 @@ from enum import StrEnum
 
 from EvernightAI.core.schema.auth import PrincipalType
 from EvernightAI.core.schema.base import EvernightAISchema
+from EvernightAI.core.schema.data_analysis import (
+    DataFieldDefinition,
+    DataMetricDefinition,
+)
 from EvernightAI.core.schema.provider import ProviderConfig
 from pydantic import Field
 
@@ -127,9 +131,24 @@ class AuthConfig(EvernightAISchema):
     oauth: OAuthConfig = Field(default_factory=OAuthConfig)
 
 
+class SQLiteDataSourceConfig(EvernightAISchema):
+    source_id: str
+    name: str
+    table: str
+    description: str | None = None
+    fields: list[DataFieldDefinition] = Field(default_factory=list)
+    metrics: list[DataMetricDefinition] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DataAnalysisConfig(EvernightAISchema):
+    sqlite_sources: list[SQLiteDataSourceConfig] = Field(default_factory=list)
+
+
 class EvernightConfig(EvernightAISchema):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    data_analysis: DataAnalysisConfig = Field(default_factory=DataAnalysisConfig)
     providers: list[ProviderConfig] = Field(default_factory=list)
