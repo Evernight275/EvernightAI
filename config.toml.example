@@ -90,6 +90,26 @@ commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/b
 # Enables tools that can write contexts and memories through the runtime.
 enabled = false
 
+# SQLite data analysis sources expose read-only aggregate statistics over a
+# table or view in the runtime database.
+#
+# [data_analysis.sqlite_source.orders]
+# name = "Orders"
+# table = "orders_view"
+#
+# [data_analysis.sqlite_source.orders.field.status]
+# field_type = "string"
+#
+# [data_analysis.sqlite_source.orders.field.amount]
+# field_type = "number"
+#
+# [data_analysis.sqlite_source.orders.metric.order_count]
+# aggregation = "count"
+#
+# [data_analysis.sqlite_source.orders.metric.revenue]
+# aggregation = "sum"
+# field_id = "amount"
+
 [provider.main]
 name = "Main"
 type = "openai"
