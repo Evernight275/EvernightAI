@@ -1,19 +1,29 @@
+from typing import Any, cast
+
 import httpx
 import pytest
 from openai import (
     APIConnectionError,
+    APIError,
+    APIResponseValidationError,
+    APIStatusError,
     APITimeoutError,
     AuthenticationError,
     BadRequestError,
     ConflictError,
     ContentFilterFinishReasonError,
     InternalServerError,
+    InvalidWebhookSignatureError,
+    LengthFinishReasonError,
     NotFoundError,
+    OAuthError,
+    PermissionDeniedError,
     RateLimitError,
+    UnprocessableEntityError,
     WebSocketConnectionClosedError,
     WebSocketQueueFullError,
-    APIError,
 )
+from openai.types.chat import ChatCompletion
 
 from EvernightAI.core.error.provider import (
     ProviderAuthorizationError,
@@ -44,6 +54,25 @@ def _response(status_code: int) -> httpx.Response:
     )
 
 
+def _chat_completion() -> ChatCompletion:
+    return ChatCompletion(
+        id="chatcmpl-1",
+        choices=cast(
+            Any,
+            [
+                {
+                    "finish_reason": "length",
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "truncated"},
+                }
+            ],
+        ),
+        created=123,
+        model="gpt-test",
+        object="chat.completion",
+    )
+
+
 @pytest.mark.parametrize(
     ("error", "expected_type"),
     [
@@ -65,6 +94,18 @@ def _response(status_code: int) -> httpx.Response:
             ProviderAuthorizationError,
         ),
         (
+            PermissionDeniedError("forbidden", response=_response(403), body=None),
+            ProviderAuthorizationError,
+        ),
+        (
+            OAuthError(response=_response(401), body={"error": "oauth"}),
+            ProviderAuthorizationError,
+        ),
+        (
+            InvalidWebhookSignatureError("bad webhook"),
+            ProviderAuthorizationError,
+        ),
+        (
             RateLimitError("too many requests", response=_response(429), body=None),
             ProviderRateLimitError,
         ),
@@ -81,8 +122,28 @@ def _response(status_code: int) -> httpx.Response:
             ProviderRequestError,
         ),
         (
+            UnprocessableEntityError(
+                "unprocessable",
+                response=_response(422),
+                body=None,
+            ),
+            ProviderRequestError,
+        ),
+        (
             InternalServerError("upstream down", response=_response(500), body=None),
             ProviderUnavailableError,
+        ),
+        (
+            APIResponseValidationError(
+                response=_response(200),
+                body={"invalid": "response"},
+                message="invalid response",
+            ),
+            ProviderResponseError,
+        ),
+        (
+            LengthFinishReasonError(completion=_chat_completion()),
+            ProviderResponseError,
         ),
         (
             ContentFilterFinishReasonError(),
@@ -104,6 +165,35 @@ def test_translates_openai_errors_to_provider_errors(
     assert translated.cause is error
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_type"),
+    [
+        (401, ProviderAuthorizationError),
+        (403, ProviderAuthorizationError),
+        (404, ProviderNotFoundError),
+        (409, ProviderConflictError),
+        (429, ProviderRateLimitError),
+        (500, ProviderUnavailableError),
+        (400, ProviderRequestError),
+        (302, ProviderResponseError),
+    ],
+)
+def test_translates_generic_openai_status_errors_by_status_code(
+    status_code: int,
+    expected_type: type[Exception],
+) -> None:
+    error = APIStatusError(
+        f"status {status_code}",
+        response=_response(status_code),
+        body={"status": status_code},
+    )
+
+    translated = translate_openai_compatible_error(error)
+
+    assert isinstance(translated, expected_type)
+    assert translated.cause is error
+
+
 def test_translation_preserves_status_context() -> None:
     error = RateLimitError(
         "too many requests",
@@ -117,6 +207,23 @@ def test_translation_preserves_status_context() -> None:
     assert translated.detail == (
         "status_code=429; request_id=req_test; body={'error': 'rate_limit'}"
     )
+    assert translated.cause is error
+
+
+def test_translation_falls_back_to_exception_class_name_for_empty_message() -> None:
+    class EmptyMessageError(Exception):
+        def __str__(self) -> str:
+            return ""
+
+    error = EmptyMessageError()
+
+    translated = translate_openai_compatible_error(
+        cast(OpenAICompatibleError, error),
+    )
+
+    assert isinstance(translated, ProviderRequestError)
+    assert str(translated) == "EmptyMessageError"
+    assert translated.detail is None
     assert translated.cause is error
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -37,7 +38,11 @@ from EvernightAI.infra.adapters.openai_responses.instance import (
 )
 from EvernightAI.infra.adapters.openai_responses.mapper import (
     from_openai_response,
+    from_openai_response_stream_event,
+    OpenAIResponsesStreamNormalizer,
+    to_openai_response_function_call,
     to_openai_response_input,
+    to_openai_response_input_item,
     to_openai_response_tools,
 )
 
@@ -110,6 +115,29 @@ def test_maps_messages_to_openai_response_input() -> None:
     ]
 
 
+def test_maps_empty_assistant_message_to_empty_input_text() -> None:
+    assert to_openai_response_input_item(Content(role=MessageRole.ASSISTANT)) == {
+        "role": "assistant",
+        "content": [{"type": "input_text", "text": ""}],
+    }
+
+
+def test_rejects_multi_item_message_when_single_item_requested() -> None:
+    message = Content(
+        role=MessageRole.ASSISTANT,
+        content=[ContentPart(type=ContentPartType.TEXT, text="Need a tool.")],
+        tool_calls=[
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "add", "arguments": {"left": 1}},
+            )
+        ],
+    )
+
+    with pytest.raises(ChatInputError, match="maps to multiple"):
+        to_openai_response_input_item(message)
+
+
 def test_maps_assistant_tool_calls_to_openai_response_input() -> None:
     messages = [
         Content(
@@ -143,6 +171,20 @@ def test_maps_assistant_tool_calls_to_openai_response_input() -> None:
     ]
 
 
+def test_maps_response_function_call_string_arguments_without_reencoding() -> None:
+    tool_call = ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "search", "arguments": '{"query":"你好"}'},
+    )
+
+    assert to_openai_response_function_call(tool_call) == {
+        "type": "function_call",
+        "call_id": "call-1",
+        "name": "search",
+        "arguments": '{"query":"你好"}',
+    }
+
+
 def test_maps_tool_definition_to_openai_response_tool() -> None:
     tool = ToolDefinition(
         name="lookup",
@@ -158,6 +200,108 @@ def test_maps_tool_definition_to_openai_response_tool() -> None:
             "parameters": {"type": "object"},
         }
     ]
+
+
+def test_maps_openai_response_with_text_and_tool_calls() -> None:
+    mapped = from_openai_response(
+        make_response(
+            output=[
+                ResponseOutputMessage(
+                    id="msg-1",
+                    content=[
+                        ResponseOutputText(
+                            annotations=[],
+                            text="I will call it.",
+                            type="output_text",
+                        )
+                    ],
+                    role="assistant",
+                    status="completed",
+                    type="message",
+                ),
+                ResponseFunctionToolCall(
+                    arguments="raw arguments",
+                    call_id="call-1",
+                    name="search",
+                    type="function_call",
+                ),
+            ]
+        )
+    )
+
+    assert mapped.message.content == [
+        ContentPart(type=ContentPartType.TEXT, text="I will call it.")
+    ]
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "search", "arguments": "raw arguments"},
+        )
+    ]
+
+
+def test_maps_openai_response_usage_and_metadata_details() -> None:
+    response = cast(
+        Response,
+        SimpleNamespace(
+            id="resp-1",
+            created_at=123.0,
+            model="gpt-test",
+            object="response",
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[
+                        SimpleNamespace(type="output_text", text="Hi"),
+                        SimpleNamespace(type="refusal", text="No"),
+                        SimpleNamespace(type="output_text", text=None),
+                    ],
+                ),
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="",
+                    name="ignored",
+                    arguments="{}",
+                ),
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="call-2",
+                    name="lookup",
+                    arguments=None,
+                ),
+            ],
+            parallel_tool_calls=True,
+            tool_choice="auto",
+            tools=[],
+            status="incomplete",
+            error=SimpleNamespace(model_dump=lambda: {"code": "rate_limit"}),
+            incomplete_details=SimpleNamespace(model_dump=lambda: {"reason": "max_tokens"}),
+            usage=SimpleNamespace(
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+                input_tokens_details=SimpleNamespace(model_dump=lambda: {"cached_tokens": 2}),
+                output_tokens_details=SimpleNamespace(model_dump=lambda: {"reasoning_tokens": 3}),
+            ),
+        ),
+    )
+
+    mapped = from_openai_response(response)
+
+    assert mapped.message.content == [ContentPart(type=ContentPartType.TEXT, text="Hi")]
+    assert mapped.message.tool_calls == [
+        ToolCall(tool_call_id="call-2", tool_call={"name": "lookup", "arguments": {}})
+    ]
+    assert mapped.metadata["error"] == {"code": "rate_limit"}
+    assert mapped.metadata["incomplete_details"] == {"reason": "max_tokens"}
+    assert mapped.usage is not None
+    assert mapped.usage.prompt_tokens == 10
+    assert mapped.usage.completion_tokens == 5
+    assert mapped.usage.total_tokens == 15
+    assert mapped.usage.metadata == {
+        "input_tokens_details": {"cached_tokens": 2},
+        "output_tokens_details": {"reasoning_tokens": 3},
+    }
 
 
 def test_maps_openai_response_to_chat_response() -> None:
@@ -214,6 +358,206 @@ def test_openai_response_tool_message_requires_call_id() -> None:
                 )
             ]
         )
+
+
+def test_openai_response_rejects_invalid_message_role_and_content() -> None:
+    with pytest.raises(ChatInputError, match="Unsupported message role"):
+        to_openai_response_input_item(Content.model_construct(role="developer"))
+
+    with pytest.raises(ChatInputError, match="requires a function name"):
+        to_openai_response_function_call(
+            ToolCall(tool_call_id="call-1", tool_call={"arguments": {}})
+        )
+
+    with pytest.raises(ChatInputError, match="requires text"):
+        to_openai_response_input_item(
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT)],
+            )
+        )
+
+    with pytest.raises(ChatInputError, match="requires url or data"):
+        to_openai_response_input_item(
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.IMAGE)],
+            )
+        )
+
+    with pytest.raises(ChatInputError, match="Unsupported content part type"):
+        to_openai_response_input_item(
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.VIDEO, url="video.mp4")],
+            )
+        )
+
+    with pytest.raises(ChatInputError, match="only supports text content"):
+        to_openai_response_input_item(
+            Content(
+                role=MessageRole.TOOL,
+                tool_call_id="call-1",
+                content=[
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        url="https://example.test/image.png",
+                    )
+                ],
+            )
+        )
+
+
+def test_maps_single_response_stream_event() -> None:
+    event = ResponseTextDeltaEvent(
+        content_index=0,
+        delta="Hi",
+        item_id="msg-1",
+        logprobs=[],
+        output_index=0,
+        sequence_number=0,
+        type="response.output_text.delta",
+    )
+
+    mapped = from_openai_response_stream_event(event)
+
+    assert mapped.event_type is ChatStreamEventType.MESSAGE_DELTA
+    assert mapped.text_delta == "Hi"
+
+
+def test_response_stream_normalizer_falls_back_to_raw_events() -> None:
+    normalizer = OpenAIResponsesStreamNormalizer()
+
+    assert normalizer._map_payload({"type": "response.output_item.added"}).event_type is (
+        ChatStreamEventType.RAW
+    )
+    assert normalizer._map_payload({"type": "response.output_text.delta", "delta": ""}).event_type is (
+        ChatStreamEventType.RAW
+    )
+    assert normalizer._map_payload(
+        {"type": "response.function_call_arguments.delta", "delta": ""}
+    ).event_type is ChatStreamEventType.RAW
+    assert normalizer._map_payload(
+        {"type": "response.function_call_arguments.done"}
+    ).event_type is ChatStreamEventType.RAW
+    assert normalizer._map_payload({"type": "response.output_item.done"}).event_type is (
+        ChatStreamEventType.RAW
+    )
+    assert normalizer._map_payload({"type": "response.completed"}).event_type is (
+        ChatStreamEventType.RAW
+    )
+    raw = normalizer._map_payload({"type": None, "id": 123})
+    assert raw.event_type is ChatStreamEventType.RAW
+    assert raw.response_id is None
+    assert raw.raw_event == "response.event"
+
+
+def test_response_stream_normalizer_handles_loose_function_call_events() -> None:
+    normalizer = OpenAIResponsesStreamNormalizer()
+
+    start = normalizer._map_payload(
+        {
+            "type": "response.output_item.added",
+            "response_id": "resp-1",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "item-1",
+                "call_id": None,
+                "name": "lookup",
+            },
+        }
+    )
+    delta = normalizer._map_payload(
+        {
+            "type": "response.function_call_arguments.delta",
+            "response_id": "resp-1",
+            "item_id": "item-1",
+            "delta": "{\"query\":",
+            "output_index": 0,
+        }
+    )
+    completed = normalizer._map_payload(
+        {
+            "type": "response.function_call_arguments.done",
+            "response_id": "resp-1",
+            "item_id": "item-1",
+            "arguments": '{"query": "hi"}',
+            "output_index": 0,
+        }
+    )
+    duplicate_done = normalizer._map_payload(
+        {
+            "type": "response.output_item.done",
+            "response_id": "resp-1",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "item-1",
+                "call_id": "call-ignored",
+                "name": "lookup",
+                "arguments": '{"query": "hi"}',
+            },
+        }
+    )
+    fallback_id_done = normalizer._map_payload(
+        {
+            "type": "response.output_item.done",
+            "response_id": "resp-1",
+            "output_index": 1,
+            "item": {
+                "type": "function_call",
+                "item_id": "item-2",
+                "name": "raw_lookup",
+                "arguments": "raw arguments",
+            },
+        }
+    )
+
+    assert start.event_type is ChatStreamEventType.TOOL_CALL_START
+    assert start.tool_call_id is None
+    assert start.tool_name == "lookup"
+    assert delta.tool_call_id is None
+    assert delta.tool_name == "lookup"
+    assert completed.tool_call == ToolCall(
+        tool_call_id="item-1",
+        tool_call={"name": "lookup", "arguments": {"query": "hi"}},
+    )
+    assert duplicate_done.event_type is ChatStreamEventType.RAW
+    assert fallback_id_done.tool_call == ToolCall(
+        tool_call_id="item-2",
+        tool_call={"name": "raw_lookup", "arguments": "raw arguments"},
+    )
+
+
+def test_response_stream_normalizer_completed_usage_mapping() -> None:
+    normalizer = OpenAIResponsesStreamNormalizer()
+
+    event = normalizer._map_payload(
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp-1",
+                "model": "gpt-test",
+                "status": "completed",
+                "usage": {
+                    "input_tokens": "bad",
+                    "output_tokens": 5,
+                    "total_tokens": 12,
+                    "input_tokens_details": {"cached_tokens": 1},
+                },
+            },
+        }
+    )
+
+    assert event.event_type is ChatStreamEventType.MESSAGE_COMPLETED
+    assert event.usage is not None
+    assert event.usage.prompt_tokens is None
+    assert event.usage.completion_tokens == 5
+    assert event.usage.total_tokens == 12
+    assert event.usage.metadata == {
+        "input_tokens_details": {"cached_tokens": 1}
+    }
 
 
 @pytest.mark.asyncio
