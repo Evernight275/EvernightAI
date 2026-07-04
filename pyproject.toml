@@ -44,6 +44,25 @@ filterwarnings = [
     "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.:starlette.exceptions.StarletteDeprecationWarning:fastapi.testclient",
 ]
 
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = [
+    "src/EvernightAI",
+]
+omit = [
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
 [[index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
