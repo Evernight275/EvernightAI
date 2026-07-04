@@ -1,11 +1,60 @@
-from typing import cast
+from typing import Any, cast
 
 from fastapi.openapi.models import Example
+
+from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState, AgentRunStatus
+from EvernightAI.core.schema.base import EvernightAISchema
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    ChatSkill,
+    ChatUsage,
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
+from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataAnalysisRequest,
+    DataSort,
+    DataSortDirection,
+    DataStatisticsRequest,
+)
+from EvernightAI.core.schema.memory import (
+    MemoryItem,
+    MemoryKind,
+    MemoryQuery,
+    MemoryScope,
+)
+from EvernightAI.core.schema.provider import (
+    ProviderConfig,
+    ProviderModelCapability,
+    ProviderModelConfig,
+    ProviderType,
+)
+from EvernightAI.core.schema.session import (
+    Session,
+    SessionAgentRunRequest,
+    SessionChatRequest,
+    SessionChatResult,
+)
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalStatus,
+    ToolDefinition,
+)
+from EvernightAI.interface.http.schema import (
+    ChatWithContextRequest,
+    DirectChatRequest,
+    RenderSkillRequest,
+    ResumeAgentRunRequest,
+)
 
 
 API_DESCRIPTION = """
 EvernightAI HTTP API exposes an assembled runtime for providers, chat, context,
-memory, skills, tools, sessions, and agent runs.
+memory, data analysis, skills, tools, sessions, and agent runs.
 
 Common first flow:
 
@@ -26,18 +75,12 @@ providers that support it.
 
 
 OPENAPI_TAGS = [
-    {
-        "name": "health",
-        "description": "Readiness check.",
-    },
+    {"name": "health", "description": "Readiness check."},
     {
         "name": "providers",
         "description": "Register provider instances and inspect declared models.",
     },
-    {
-        "name": "chat",
-        "description": "Direct chat calls and context-aware chat calls.",
-    },
+    {"name": "chat", "description": "Direct chat calls and context-aware chat calls."},
     {
         "name": "contexts",
         "description": "Persist model-visible conversation messages.",
@@ -73,31 +116,48 @@ OPENAPI_TAGS = [
 ]
 
 
-def _text_message(text: str, *, role: str = "user") -> dict[str, object]:
-    return {
-        "role": role,
-        "content": [
-            {
-                "type": "text",
-                "text": text,
-            }
-        ],
+def _schema_value(
+    schema: EvernightAISchema,
+    *,
+    exclude: set[str] | dict[str, Any] | None = None,
+    exclude_defaults: bool = True,
+) -> dict[str, Any]:
+    return schema.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude_defaults=exclude_defaults,
+        exclude=exclude,
+    )
+
+
+def _example(
+    *,
+    summary: str,
+    value: EvernightAISchema,
+    description: str | None = None,
+) -> dict[str, object]:
+    example: dict[str, object] = {
+        "summary": summary,
+        "value": _schema_value(value),
     }
+    if description is not None:
+        example["description"] = description
+    return example
 
 
-def _tool_definition() -> dict[str, object]:
+def _response_example(
+    *,
+    description: str,
+    value: EvernightAISchema,
+    exclude: set[str] | dict[str, Any] | None = None,
+) -> dict[str, object]:
     return {
-        "tool_name": "write_file",
-        "description": "Write text to a workspace file.",
-        "parameters_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["path", "content"],
+        "description": description,
+        "content": {
+            "application/json": {
+                "example": _schema_value(value, exclude=exclude),
+            }
         },
-        "requires_approval": True,
     }
 
 
@@ -105,83 +165,149 @@ def _openapi_examples(examples: dict[str, object]) -> dict[str, Example]:
     return cast(dict[str, Example], examples)
 
 
-CHAT_RESPONSE_EXAMPLE = {
-    "description": "Successful chat response.",
-    "content": {
-        "application/json": {
-            "example": {
-                "response_id": "resp-1",
-                "model_id": "gpt-4.1-mini",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "Hello."}],
-                    "metadata": {},
-                },
-                "finish_reason": "stop",
-                "usage": {
-                    "prompt_tokens": 12,
-                    "completion_tokens": 20,
-                    "total_tokens": 32,
-                    "metadata": {},
-                },
-                "metadata": {},
-            }
-        }
-    },
-}
+def _message(text: str, *, role: MessageRole = MessageRole.USER) -> Content:
+    return Content(
+        role=role,
+        content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+    )
 
 
-SESSION_CHAT_RESPONSE_EXAMPLE = {
-    "description": "Successful session chat response.",
-    "content": {
-        "application/json": {
-            "example": {
-                "session": {
-                    "session_id": "session-1",
-                    "title": "Planning chat",
-                    "context_id": "ctx-1",
-                    "provider_id": "main",
-                    "model_id": "gpt-4.1-mini",
-                    "status": "active",
-                    "metadata": {},
-                },
-                "response": CHAT_RESPONSE_EXAMPLE["content"]["application/json"][
-                    "example"
-                ],
-            }
-        }
-    },
-}
+def _chat_request(
+    text: str,
+    *,
+    metadata: dict[str, object] | None = None,
+    skills: list[ChatSkill] | None = None,
+) -> ChatRequest:
+    return ChatRequest(
+        model_id="gpt-4.1-mini",
+        messages=[_message(text)],
+        skills=skills,
+        metadata=metadata or {},
+    )
 
 
-AGENT_RUN_STATE_RESPONSE_EXAMPLE = {
-    "description": "Agent run state.",
-    "content": {
-        "application/json": {
-            "example": {
-                "run_id": "run-1",
-                "request": {
-                    "provider_id": "main",
-                    "context_id": "ctx-1",
-                    "model_id": "gpt-4.1-mini",
-                    "messages": [_text_message("Answer and stop.")],
-                    "max_tool_rounds": 0,
-                    "recover_tool_errors": True,
-                    "write_memory": False,
-                    "tool_approvals": [],
-                    "pause_on_approval": False,
-                    "metadata": {"run_id": "run-1"},
-                },
-                "status": "finished",
-                "remaining_tool_rounds": 0,
-                "tool_rounds_used": 0,
-                "pending_tool_calls": [],
-                "pending_approval_requests": [],
-                "metadata": {"run_id": "run-1"},
-            }
-        }
-    },
-}
+def _direct_chat_request(
+    text: str,
+    *,
+    metadata: dict[str, object] | None = None,
+    skills: list[ChatSkill] | None = None,
+) -> DirectChatRequest:
+    return DirectChatRequest(
+        provider_id="main",
+        request=_chat_request(text, metadata=metadata, skills=skills),
+    )
+
+
+def _context_chat_request(
+    text: str,
+    *,
+    metadata: dict[str, object] | None = None,
+    memory_query: MemoryQuery | None = None,
+) -> ChatWithContextRequest:
+    return ChatWithContextRequest(
+        provider_id="main",
+        context_id="ctx-1",
+        model_id="gpt-4.1-mini",
+        messages=[_message(text)],
+        memory_query=memory_query,
+        metadata=metadata,
+    )
+
+
+def _tool_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="write_file",
+        description="Write text to a workspace file.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        },
+        requires_approval=True,
+    )
+
+
+def _agent_run_request(
+    text: str,
+    *,
+    metadata: dict[str, object] | None = None,
+    max_tool_rounds: int = 0,
+    tools: list[ToolDefinition] | None = None,
+) -> AgentRunRequest:
+    return AgentRunRequest(
+        provider_id="main",
+        context_id="ctx-1",
+        model_id="gpt-4.1-mini",
+        messages=[_message(text)],
+        max_tool_rounds=max_tool_rounds,
+        tools=tools,
+        pause_on_approval=tools is not None,
+        metadata=metadata or {},
+    )
+
+
+def _statistics_request() -> DataStatisticsRequest:
+    return DataStatisticsRequest(
+        source_id="orders",
+        metrics=["order_count", "revenue"],
+        dimensions=["status"],
+        sorts=[DataSort(field_id="revenue", direction=DataSortDirection.DESC)],
+        limit=10,
+    )
+
+
+CHAT_RESPONSE_EXAMPLE = _response_example(
+    description="Successful chat response.",
+    value=ChatResponse(
+        response_id="resp-1",
+        model_id="gpt-4.1-mini",
+        message=_message("Hello.", role=MessageRole.ASSISTANT),
+        finish_reason="stop",
+        usage=ChatUsage(
+            prompt_tokens=12,
+            completion_tokens=20,
+            total_tokens=32,
+        ),
+    ),
+)
+
+
+SESSION_CHAT_RESPONSE_EXAMPLE = _response_example(
+    description="Successful session chat response.",
+    value=SessionChatResult(
+        session=Session(
+            session_id="session-1",
+            title="Planning chat",
+            context_id="ctx-1",
+            provider_id="main",
+            model_id="gpt-4.1-mini",
+        ),
+        response=ChatResponse(
+            response_id="resp-1",
+            model_id="gpt-4.1-mini",
+            message=_message("Hello.", role=MessageRole.ASSISTANT),
+            finish_reason="stop",
+        ),
+    ),
+    exclude={"session": {"created_at", "updated_at"}},
+)
+
+
+AGENT_RUN_STATE_RESPONSE_EXAMPLE = _response_example(
+    description="Agent run state.",
+    value=AgentRunState(
+        run_id="run-1",
+        request=_agent_run_request(
+            "Answer and stop.",
+            metadata={"run_id": "run-1"},
+        ),
+        status=AgentRunStatus.FINISHED,
+        metadata={"run_id": "run-1"},
+    ),
+)
 
 
 CHAT_STREAM_ERROR_SSE_EXAMPLE = {
@@ -216,439 +342,375 @@ AGENT_TRACE_SSE_EXAMPLE = {
 
 
 PROVIDER_CONFIG_EXAMPLES = _openapi_examples({
-    "openaiCompatible": {
-        "summary": "OpenAI-compatible provider",
-        "description": "Register a provider id that later chat requests can use.",
-        "value": {
-            "provider_id": "main",
-            "name": "Main provider",
-            "type": "openai",
-            "api_key": "sk-...",
-            "base_url": "https://api.openai.com/v1",
-            "model": {
-                "gpt-4.1-mini": {
-                    "model_id": "gpt-4.1-mini",
-                    "capabilities": ["chat"],
-                }
+    "openaiCompatible": _example(
+        summary="OpenAI-compatible provider",
+        description="Register a provider id that later chat requests can use.",
+        value=ProviderConfig(
+            provider_id="main",
+            name="Main provider",
+            type=ProviderType.OPENAI,
+            api_key="sk-...",
+            base_url="https://api.openai.com/v1",
+            model={
+                "gpt-4.1-mini": ProviderModelConfig(
+                    model_id="gpt-4.1-mini",
+                    capabilities=[ProviderModelCapability.CHAT],
+                )
             },
-        },
-    },
-    "anthropic": {
-        "summary": "Anthropic provider",
-        "value": {
-            "provider_id": "anthropic-main",
-            "name": "Anthropic",
-            "type": "anthropic",
-            "api_key": "sk-ant-...",
-            "model": {
-                "claude-3-5-haiku-latest": {
-                    "model_id": "claude-3-5-haiku-latest",
-                    "capabilities": ["chat"],
-                }
+        ),
+    ),
+    "anthropic": _example(
+        summary="Anthropic provider",
+        value=ProviderConfig(
+            provider_id="anthropic-main",
+            name="Anthropic",
+            type=ProviderType.ANTHROPIC,
+            api_key="sk-ant-...",
+            model={
+                "claude-3-5-haiku-latest": ProviderModelConfig(
+                    model_id="claude-3-5-haiku-latest",
+                    capabilities=[ProviderModelCapability.CHAT],
+                )
             },
-        },
-    },
+        ),
+    ),
 })
 
 
 DIRECT_CHAT_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Smallest one-off chat",
-        "description": "Use this after registering provider id `main`.",
-        "value": {
-            "provider_id": "main",
-            "request": {
-                "model_id": "gpt-4.1-mini",
-                "messages": [_text_message("Hello, give me a short answer.")],
-            },
-        },
-    },
-    "withMetadata": {
-        "summary": "One-off chat with request metadata",
-        "description": "Metadata is passed through for tracing; providers may ignore it.",
-        "value": {
-            "provider_id": "main",
-            "request": {
-                "model_id": "gpt-4.1-mini",
-                "messages": [_text_message("Answer in one sentence.")],
-                "metadata": {"request_id": "req-1"},
-            },
-        },
-    },
-    "withReasoningEffort": {
-        "summary": "One-off chat with reasoning effort",
-        "description": "OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
-        "value": {
-            "provider_id": "main",
-            "request": {
-                "model_id": "gpt-4.1-mini",
-                "messages": [_text_message("Think carefully, then answer briefly.")],
-                "metadata": {"reasoning_effort": "high"},
-            },
-        },
-    },
-    "withSkill": {
-        "summary": "Chat with a skill prompt",
-        "value": {
-            "provider_id": "main",
-            "request": {
-                "model_id": "gpt-4.1-mini",
-                "messages": [_text_message("Echo this request.")],
-                "skills": [{"skill_name": "echo"}],
-            },
-        },
-    },
+    "minimal": _example(
+        summary="Smallest one-off chat",
+        description="Use this after registering provider id `main`.",
+        value=_direct_chat_request("Hello, give me a short answer."),
+    ),
+    "withMetadata": _example(
+        summary="One-off chat with request metadata",
+        description="Metadata is passed through for tracing; providers may ignore it.",
+        value=_direct_chat_request(
+            "Answer in one sentence.",
+            metadata={"request_id": "req-1"},
+        ),
+    ),
+    "withReasoningEffort": _example(
+        summary="One-off chat with reasoning effort",
+        description="OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
+        value=_direct_chat_request(
+            "Think carefully, then answer briefly.",
+            metadata={"reasoning_effort": "high"},
+        ),
+    ),
+    "withSkill": _example(
+        summary="Chat with a skill prompt",
+        value=_direct_chat_request(
+            "Echo this request.",
+            skills=[ChatSkill(skill_name="echo")],
+        ),
+    ),
 })
 
 
 CHAT_WITH_CONTEXT_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Smallest context chat",
-        "description": "Create `ctx-1` first with `POST /contexts`.",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Continue from the stored context.")],
-        },
-    },
-    "streamReady": {
-        "summary": "Same body for `/chat/context/stream`",
-        "description": "Use this exact body with the streaming endpoint.",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Stream the answer and save it.")],
-            "metadata": {"request_id": "stream-1"},
-        },
-    },
-    "withSessionMemory": {
-        "summary": "Chat with selected session memory",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Use my saved preference.")],
-            "memory_query": {
-                "scope": "session",
-                "scope_id": "session-1",
-                "limit": 3,
-            },
-            "metadata": {"request_id": "req-1"},
-        },
-    },
-    "withReasoningEffort": {
-        "summary": "Context chat with reasoning effort",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Reason through this before answering.")],
-            "metadata": {"reasoning_effort": "high"},
-        },
-    },
+    "minimal": _example(
+        summary="Smallest context chat",
+        description="Create `ctx-1` first with `POST /contexts`.",
+        value=_context_chat_request("Continue from the stored context."),
+    ),
+    "streamReady": _example(
+        summary="Same body for `/chat/context/stream`",
+        description="Use this exact body with the streaming endpoint.",
+        value=_context_chat_request(
+            "Stream the answer and save it.",
+            metadata={"request_id": "stream-1"},
+        ),
+    ),
+    "withSessionMemory": _example(
+        summary="Chat with selected session memory",
+        value=_context_chat_request(
+            "Use my saved preference.",
+            memory_query=MemoryQuery(
+                scope=MemoryScope.SESSION,
+                scope_id="session-1",
+                limit=3,
+            ),
+            metadata={"request_id": "req-1"},
+        ),
+    ),
+    "withReasoningEffort": _example(
+        summary="Context chat with reasoning effort",
+        value=_context_chat_request(
+            "Reason through this before answering.",
+            metadata={"reasoning_effort": "high"},
+        ),
+    ),
 })
 
 
 CONTEXT_EXAMPLES = _openapi_examples({
-    "empty": {
-        "summary": "Empty context",
-        "description": "Create this first, then call `/chat/context`.",
-        "value": {
-            "context_id": "ctx-1",
-            "messages": [],
-        },
-    },
-    "withSystemMessage": {
-        "summary": "Context with a system message",
-        "value": {
-            "context_id": "ctx-1",
-            "messages": [
-                _text_message("You are concise and practical.", role="system")
+    "empty": _example(
+        summary="Empty context",
+        description="Create this first, then call `/chat/context`.",
+        value=Context(context_id="ctx-1"),
+    ),
+    "withSystemMessage": _example(
+        summary="Context with a system message",
+        value=Context(
+            context_id="ctx-1",
+            messages=[
+                _message(
+                    "You are concise and practical.",
+                    role=MessageRole.SYSTEM,
+                )
             ],
-            "metadata": {"topic": "support"},
-        },
-    },
+            metadata={"topic": "support"},
+        ),
+    ),
 })
 
 
 CONTENT_MESSAGE_EXAMPLES = _openapi_examples({
-    "userText": {
-        "summary": "Append one user message",
-        "value": _text_message("Remember that I prefer short answers."),
-    },
-    "systemText": {
-        "summary": "Append one system message",
-        "value": _text_message("Always answer in JSON.", role="system"),
-    },
+    "userText": _example(
+        summary="Append one user message",
+        value=_message("Remember that I prefer short answers."),
+    ),
+    "systemText": _example(
+        summary="Append one system message",
+        value=_message("Always answer in JSON.", role=MessageRole.SYSTEM),
+    ),
 })
 
 
 SESSION_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Conversation session",
-        "description": "The session references a context, provider, and model.",
-        "value": {
-            "session_id": "session-1",
-            "title": "Planning chat",
-            "context_id": "ctx-1",
-            "provider_id": "main",
-            "model_id": "gpt-4.1-mini",
-        },
-    },
+    "minimal": _example(
+        summary="Conversation session",
+        description="The session references a context, provider, and model.",
+        value=Session(
+            session_id="session-1",
+            title="Planning chat",
+            context_id="ctx-1",
+            provider_id="main",
+            model_id="gpt-4.1-mini",
+        ),
+    ),
 })
 
 
 SESSION_CHAT_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Smallest session chat",
-        "description": "Provider, model, and context come from the session.",
-        "value": {
-            "messages": [_text_message("Summarize our current plan.")],
-        },
-    },
-    "streamEquivalent": {
-        "summary": "Request shape used by session agent flows",
-        "description": "Session chat is not a streaming endpoint; use agent run streams for trace SSE.",
-        "value": {
-            "messages": [_text_message("Give me the next action only.")],
-            "metadata": {"request_id": "session-chat-1"},
-        },
-    },
-    "withMemory": {
-        "summary": "Session chat with memory selection",
-        "value": {
-            "messages": [_text_message("Apply my preferences.")],
-            "memory_query": {
-                "scope": "session",
-                "scope_id": "session-1",
-                "limit": 5,
-            },
-        },
-    },
-    "overrideProvider": {
-        "summary": "Override provider and model for this request",
-        "description": "Request values win over the session defaults.",
-        "value": {
-            "provider_id": "main",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Use this provider for this turn.")],
-        },
-    },
-    "withReasoningEffort": {
-        "summary": "Session chat with reasoning effort",
-        "value": {
-            "messages": [_text_message("Give a careful answer.")],
-            "metadata": {"reasoning_effort": "high"},
-        },
-    },
+    "minimal": _example(
+        summary="Smallest session chat",
+        description="Provider, model, and context come from the session.",
+        value=SessionChatRequest(
+            messages=[_message("Summarize our current plan.")],
+        ),
+    ),
+    "streamEquivalent": _example(
+        summary="Request shape used by session agent flows",
+        description="Session chat is not a streaming endpoint; use agent run streams for trace SSE.",
+        value=SessionChatRequest(
+            messages=[_message("Give me the next action only.")],
+            metadata={"request_id": "session-chat-1"},
+        ),
+    ),
+    "withMemory": _example(
+        summary="Session chat with memory selection",
+        value=SessionChatRequest(
+            messages=[_message("Apply my preferences.")],
+            memory_query=MemoryQuery(
+                scope=MemoryScope.SESSION,
+                scope_id="session-1",
+                limit=5,
+            ),
+        ),
+    ),
+    "overrideProvider": _example(
+        summary="Override provider and model for this request",
+        description="Request values win over the session defaults.",
+        value=SessionChatRequest(
+            provider_id="main",
+            model_id="gpt-4.1-mini",
+            messages=[_message("Use this provider for this turn.")],
+        ),
+    ),
+    "withReasoningEffort": _example(
+        summary="Session chat with reasoning effort",
+        value=SessionChatRequest(
+            messages=[_message("Give a careful answer.")],
+            metadata={"reasoning_effort": "high"},
+        ),
+    ),
 })
 
 
 SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Smallest session agent run",
-        "value": {
-            "messages": [_text_message("Use available tools if needed.")],
-            "max_tool_rounds": 1,
-            "write_memory": False,
-        },
-    },
-    "overrideProvider": {
-        "summary": "Start a session agent run with a request provider",
-        "description": "Request provider and model override the session defaults.",
-        "value": {
-            "provider_id": "main",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Use this provider for this agent run.")],
-            "max_tool_rounds": 1,
-        },
-    },
-    "traceOnly": {
-        "summary": "Plain traced model step",
-        "description": "No tool rounds; useful when you want run state and trace records.",
-        "value": {
-            "messages": [_text_message("Answer once and stop.")],
-            "max_tool_rounds": 0,
-            "write_memory": False,
-        },
-    },
-    "withReasoningEffort": {
-        "summary": "Session agent run with reasoning effort",
-        "value": {
-            "messages": [_text_message("Plan the next step carefully.")],
-            "max_tool_rounds": 0,
-            "metadata": {"reasoning_effort": "high"},
-        },
-    },
+    "minimal": _example(
+        summary="Smallest session agent run",
+        value=SessionAgentRunRequest(
+            messages=[_message("Use available tools if needed.")],
+            max_tool_rounds=1,
+            write_memory=False,
+        ),
+    ),
+    "overrideProvider": _example(
+        summary="Start a session agent run with a request provider",
+        description="Request provider and model override the session defaults.",
+        value=SessionAgentRunRequest(
+            provider_id="main",
+            model_id="gpt-4.1-mini",
+            messages=[_message("Use this provider for this agent run.")],
+            max_tool_rounds=1,
+        ),
+    ),
+    "traceOnly": _example(
+        summary="Plain traced model step",
+        description="No tool rounds; useful when you want run state and trace records.",
+        value=SessionAgentRunRequest(
+            messages=[_message("Answer once and stop.")],
+            max_tool_rounds=0,
+            write_memory=False,
+        ),
+    ),
+    "withReasoningEffort": _example(
+        summary="Session agent run with reasoning effort",
+        value=SessionAgentRunRequest(
+            messages=[_message("Plan the next step carefully.")],
+            max_tool_rounds=0,
+            metadata={"reasoning_effort": "high"},
+        ),
+    ),
 })
 
 
 AGENT_RUN_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Smallest agent run",
-        "description": "Create `main` and `ctx-1` first. This performs one model step.",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Answer and stop.")],
-            "max_tool_rounds": 0,
-        },
-    },
-    "streamReady": {
-        "summary": "Same body for `/agent-runs/stream`",
-        "description": "Use this exact body with the streaming endpoint to receive trace SSE.",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Stream trace events while answering.")],
-            "max_tool_rounds": 0,
-            "metadata": {"request_id": "agent-stream-1"},
-        },
-    },
-    "withTools": {
-        "summary": "Run an agent with tool approval pauses",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Inspect the workspace if needed.")],
-            "tools": [_tool_definition()],
-            "max_tool_rounds": 2,
-            "pause_on_approval": True,
-        },
-    },
-    "withReasoningEffort": {
-        "summary": "Agent run with reasoning effort",
-        "value": {
-            "provider_id": "main",
-            "context_id": "ctx-1",
-            "model_id": "gpt-4.1-mini",
-            "messages": [_text_message("Reason carefully, then stop.")],
-            "max_tool_rounds": 0,
-            "metadata": {"reasoning_effort": "high"},
-        },
-    },
+    "minimal": _example(
+        summary="Smallest agent run",
+        description="Create `main` and `ctx-1` first. This performs one model step.",
+        value=_agent_run_request("Answer and stop."),
+    ),
+    "streamReady": _example(
+        summary="Same body for `/agent-runs/stream`",
+        description="Use this exact body with the streaming endpoint to receive trace SSE.",
+        value=_agent_run_request(
+            "Stream trace events while answering.",
+            metadata={"request_id": "agent-stream-1"},
+        ),
+    ),
+    "withTools": _example(
+        summary="Run an agent with tool approval pauses",
+        value=_agent_run_request(
+            "Inspect the workspace if needed.",
+            max_tool_rounds=2,
+            tools=[_tool_definition()],
+        ),
+    ),
+    "withReasoningEffort": _example(
+        summary="Agent run with reasoning effort",
+        value=_agent_run_request(
+            "Reason carefully, then stop.",
+            metadata={"reasoning_effort": "high"},
+        ),
+    ),
 })
 
 
 RESUME_AGENT_RUN_EXAMPLES = _openapi_examples({
-    "approveTool": {
-        "summary": "Resume with an approved tool call",
-        "value": {
-            "approvals": [
-                {
-                    "approval_id": "approval-1",
-                    "tool_call_id": "tool-call-1",
-                    "status": "approved",
-                }
+    "approveTool": _example(
+        summary="Resume with an approved tool call",
+        value=ResumeAgentRunRequest(
+            approvals=[
+                ToolApprovalDecision(
+                    approval_id="approval-1",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.APPROVED,
+                )
             ]
-        },
-    },
-    "denyTool": {
-        "summary": "Resume with a denied tool call",
-        "value": {
-            "approvals": [
-                {
-                    "approval_id": "approval-1",
-                    "tool_call_id": "tool-call-1",
-                    "status": "denied",
-                    "reason": "Not allowed for this run.",
-                }
+        ),
+    ),
+    "denyTool": _example(
+        summary="Resume with a denied tool call",
+        value=ResumeAgentRunRequest(
+            approvals=[
+                ToolApprovalDecision(
+                    approval_id="approval-1",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.DENIED,
+                    reason="Not allowed for this run.",
+                )
             ]
-        },
-    },
+        ),
+    ),
 })
 
 
 RENDER_SKILL_EXAMPLES = _openapi_examples({
-    "minimal": {
-        "summary": "Render a skill prompt",
-        "value": {
-            "variables": {"topic": "EvernightAI"},
-        },
-    },
+    "minimal": _example(
+        summary="Render a skill prompt",
+        value=RenderSkillRequest(variables={"topic": "EvernightAI"}),
+    ),
 })
 
 
 MEMORY_ITEM_EXAMPLES = _openapi_examples({
-    "preference": {
-        "summary": "Store a user preference",
-        "value": {
-            "memory_id": "mem-1",
-            "content": "Prefer concise answers.",
-            "kind": "preference",
-            "scope": "user",
-            "scope_id": "user-1",
-            "tags": ["style"],
-            "priority": 10,
-        },
-    },
-    "sessionFact": {
-        "summary": "Store a session fact",
-        "value": {
-            "memory_id": "mem-session-1",
-            "content": "The current project is EvernightAI.",
-            "kind": "fact",
-            "scope": "session",
-            "scope_id": "session-1",
-        },
-    },
+    "preference": _example(
+        summary="Store a user preference",
+        value=MemoryItem(
+            memory_id="mem-1",
+            content="Prefer concise answers.",
+            kind=MemoryKind.PREFERENCE,
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            tags=["style"],
+            priority=10,
+        ),
+    ),
+    "sessionFact": _example(
+        summary="Store a session fact",
+        value=MemoryItem(
+            memory_id="mem-session-1",
+            content="The current project is EvernightAI.",
+            kind=MemoryKind.FACT,
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+        ),
+    ),
 })
 
 
 MEMORY_QUERY_EXAMPLES = _openapi_examples({
-    "session": {
-        "summary": "Select session memories",
-        "value": {
-            "scope": "session",
-            "scope_id": "session-1",
-            "limit": 5,
-        },
-    },
-    "userPreferences": {
-        "summary": "Select user preferences",
-        "value": {
-            "scope": "user",
-            "scope_id": "user-1",
-            "kinds": ["preference"],
-            "tags": ["style"],
-            "limit": 3,
-        },
-    },
+    "session": _example(
+        summary="Select session memories",
+        value=MemoryQuery(
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+            limit=5,
+        ),
+    ),
+    "userPreferences": _example(
+        summary="Select user preferences",
+        value=MemoryQuery(
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            kinds=[MemoryKind.PREFERENCE],
+            tags=["style"],
+            limit=3,
+        ),
+    ),
 })
 
 
 DATA_STATISTICS_EXAMPLES = _openapi_examples({
-    "ordersByStatus": {
-        "summary": "Aggregate order metrics by status",
-        "value": {
-            "source_id": "orders",
-            "metrics": ["order_count", "revenue"],
-            "dimensions": ["status"],
-            "sorts": [{"field_id": "revenue", "direction": "desc"}],
-            "limit": 10,
-        },
-    },
+    "ordersByStatus": _example(
+        summary="Aggregate order metrics by status",
+        value=_statistics_request(),
+    ),
 })
 
 
 DATA_ANALYSIS_EXAMPLES = _openapi_examples({
-    "fromStatistics": {
-        "summary": "Analyze a statistics request",
-        "value": {
-            "source_id": "orders",
-            "question": "Which order status generated the most revenue?",
-            "statistics_request": {
-                "source_id": "orders",
-                "metrics": ["order_count", "revenue"],
-                "dimensions": ["status"],
-                "sorts": [{"field_id": "revenue", "direction": "desc"}],
-                "limit": 10,
-            },
-        },
-    },
+    "fromStatistics": _example(
+        summary="Analyze a statistics request",
+        value=DataAnalysisRequest(
+            source_id="orders",
+            question="Which order status generated the most revenue?",
+            statistics_request=_statistics_request(),
+        ),
+    ),
 })
