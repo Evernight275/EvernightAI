@@ -23,6 +23,12 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEventType,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.data_analysis import (
+    DataFilter,
+    DataFilterOperator,
+    DataSort,
+    DataStatisticsRequest,
+)
 from EvernightAI.core.schema.memory import MemoryItem
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -34,6 +40,7 @@ from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolApprovalRequest
 from EvernightAI.infra.adapters.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
@@ -410,6 +417,297 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         ]
     finally:
         await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_runtime_registers_builtin_data_analysis_sources(
+    tmp_path,
+) -> None:
+    runtime = create_sqlite_runtime(
+        tmp_path / "runtime.sqlite3",
+        include_agent_storage=True,
+    )
+
+    try:
+        assert [
+            source.source_id
+            for source in runtime.data_analysis.list_sources()
+        ] == [
+            "agent_runs",
+            "agent_trace_events",
+            "sessions",
+            "contexts",
+            "memories",
+        ]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
+    tmp_path,
+) -> None:
+    runtime = create_sqlite_runtime(
+        tmp_path / "runtime.sqlite3",
+        include_agent_storage=True,
+    )
+
+    assert runtime.agent_state_register is not None
+    assert runtime.agent_trace_register is not None
+    await runtime.contexts.create(
+        Context(
+            context_id="ctx-1",
+            messages=[
+                Content(
+                    role=MessageRole.USER,
+                    content=[ContentPart(type=ContentPartType.TEXT, text="Hi")],
+                ),
+                Content(
+                    role=MessageRole.ASSISTANT,
+                    content=[ContentPart(type=ContentPartType.TEXT, text="Hello")],
+                ),
+            ],
+        )
+    )
+    await runtime.contexts.create(Context(context_id="ctx-2"))
+    await runtime.sessions.create(
+        Session(
+            session_id="session-1",
+            context_id="ctx-1",
+            provider_id="provider-a",
+            model_id="model-a",
+        )
+    )
+    await runtime.sessions.create(
+        Session(
+            session_id="session-2",
+            context_id="ctx-2",
+            provider_id="provider-b",
+            model_id="model-b",
+        )
+    )
+    await runtime.memories.create(
+        MemoryItem(
+            memory_id="mem-1",
+            content="Prefer concise answers",
+            scope_id="session-1",
+        )
+    )
+    runtime.agent_state_register.save_state(
+        AgentRunState(
+            run_id="run-1",
+            request=AgentRunRequest(
+                provider_id="provider-a",
+                context_id="ctx-1",
+                model_id="model-a",
+                metadata={"session_id": "session-1"},
+                max_tool_rounds=3,
+                write_memory=True,
+            ),
+            status=AgentRunStatus.FINISHED,
+            tool_rounds_used=2,
+        )
+    )
+    runtime.agent_state_register.save_state(
+        AgentRunState(
+            run_id="run-2",
+            request=AgentRunRequest(
+                provider_id="provider-b",
+                context_id="ctx-2",
+                model_id="model-b",
+                metadata={"session_id": "session-2"},
+                max_tool_rounds=1,
+            ),
+            status=AgentRunStatus.FAILED,
+            tool_rounds_used=0,
+        )
+    )
+    runtime.agent_state_register.save_state(
+        AgentRunState(
+            run_id="run-3",
+            request=AgentRunRequest(
+                provider_id="provider-a",
+                context_id="ctx-1",
+                model_id="model-a",
+                metadata={"session_id": "session-1"},
+                pause_on_approval=True,
+            ),
+            status=AgentRunStatus.PAUSED,
+            pending_approval_requests=[
+                ToolApprovalRequest(
+                    approval_id="approval-1",
+                    tool_call_id="tool-call-3",
+                    tool_name="write_file",
+                )
+            ],
+        )
+    )
+    runtime.agent_trace_register.append_event(
+        "run-1",
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.TOOL_COMPLETED,
+            tool_call=ToolCall(
+                tool_call_id="tool-call-1",
+                tool_call={"name": "read_file", "arguments": {}},
+            ),
+        ),
+    )
+    runtime.agent_trace_register.append_event(
+        "run-2",
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.TOOL_FAILED,
+            tool_call=ToolCall(
+                tool_call_id="tool-call-2",
+                tool_call={"name": "search_web", "arguments": {}},
+            ),
+            error_type="ToolExecutionError",
+        ),
+    )
+    runtime.agent_trace_register.append_event(
+        "run-3",
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+            approval_request=ToolApprovalRequest(
+                approval_id="approval-1",
+                tool_call_id="tool-call-3",
+                tool_name="write_file",
+            ),
+        ),
+    )
+    runtime.agent_trace_register.append_event(
+        "run-1",
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.MEMORY_WRITTEN,
+            metadata={"memory_id": "mem-1"},
+        ),
+    )
+
+    try:
+        status_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_runs",
+                metrics=["run_count"],
+                dimensions=["status"],
+                sorts=[DataSort(field_id="status")],
+            )
+        )
+        provider_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_runs",
+                metrics=["run_count", "average_tool_rounds"],
+                dimensions=["provider_id"],
+                sorts=[DataSort(field_id="provider_id")],
+            )
+        )
+        approval_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_runs",
+                metrics=["pending_approvals_total"],
+            )
+        )
+        session_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="sessions",
+                metrics=["session_count"],
+                dimensions=["provider_id", "model_id"],
+                sorts=[
+                    DataSort(field_id="provider_id"),
+                    DataSort(field_id="model_id"),
+                ],
+            )
+        )
+        context_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="contexts",
+                metrics=["average_message_count"],
+            )
+        )
+        tool_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_trace_events",
+                metrics=["event_count"],
+                dimensions=["tool_name", "event_type"],
+                filters=[
+                    DataFilter(
+                        field_id="event_type",
+                        operator=DataFilterOperator.IN,
+                        value=[
+                            AgentTraceEventType.TOOL_COMPLETED.value,
+                            AgentTraceEventType.TOOL_FAILED.value,
+                            AgentTraceEventType.TOOL_APPROVAL_REQUESTED.value,
+                        ],
+                    )
+                ],
+                sorts=[
+                    DataSort(field_id="tool_name"),
+                    DataSort(field_id="event_type"),
+                ],
+            )
+        )
+        memory_write_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_trace_events",
+                metrics=["memory_write_count", "distinct_session_count"],
+                filters=[
+                    DataFilter(
+                        field_id="event_type",
+                        operator=DataFilterOperator.EQUALS,
+                        value=AgentTraceEventType.MEMORY_WRITTEN.value,
+                    )
+                ],
+            )
+        )
+    finally:
+        await runtime.close()
+
+    assert [
+        (row.dimensions["status"], row.metrics["run_count"])
+        for row in status_result.rows
+    ] == [
+        ("failed", 1),
+        ("finished", 1),
+        ("paused", 1),
+    ]
+    assert [
+        (
+            row.dimensions["provider_id"],
+            row.metrics["run_count"],
+            row.metrics["average_tool_rounds"],
+        )
+        for row in provider_result.rows
+    ] == [
+        ("provider-a", 2, 1.0),
+        ("provider-b", 1, 0.0),
+    ]
+    assert approval_result.rows[0].metrics == {"pending_approvals_total": 1}
+    assert [
+        (
+            row.dimensions["provider_id"],
+            row.dimensions["model_id"],
+            row.metrics["session_count"],
+        )
+        for row in session_result.rows
+    ] == [
+        ("provider-a", "model-a", 1),
+        ("provider-b", "model-b", 1),
+    ]
+    assert context_result.rows[0].metrics == {"average_message_count": 1.0}
+    assert [
+        (
+            row.dimensions["tool_name"],
+            row.dimensions["event_type"],
+            row.metrics["event_count"],
+        )
+        for row in tool_result.rows
+    ] == [
+        ("read_file", "tool_completed", 1),
+        ("search_web", "tool_failed", 1),
+        ("write_file", "tool_approval_requested", 1),
+    ]
+    assert memory_write_result.rows[0].metrics == {
+        "memory_write_count": 1,
+        "distinct_session_count": 1,
+    }
 
 
 def test_bootstrap_can_create_sqlite_runtime_without_agent_storage(tmp_path) -> None:

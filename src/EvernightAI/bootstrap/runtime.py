@@ -80,6 +80,9 @@ from EvernightAI.infra.registrations.provider.openai_compatible import (
 from EvernightAI.infra.registrations.provider.openai_responses import (
     register_openai_responses_provider,
 )
+from EvernightAI.infra.registrations.data_analysis.runtime_sqlite import (
+    register_sqlite_runtime_data_analysis_sources,
+)
 from EvernightAI.infra.registrations.skill.echo import register_echo_skill
 from EvernightAI.infra.registrations.tool.restricted_filesystem import (
     register_restricted_filesystem_tools,
@@ -413,12 +416,19 @@ def create_sqlite_runtime(
     if include_agent_storage:
         agent_state_register = create_sqlite_agent_state_register(database_path)
         agent_trace_register = create_sqlite_agent_trace_register(database_path)
+    data_analysis_register = create_data_analysis_register()
+    register_sqlite_runtime_data_analysis_sources(
+        data_analysis_register,
+        database_path=database_path,
+        include_agent_sources=include_agent_storage,
+    )
 
     return _create_runtime(
         tool_register=tool_register,
         context_register=create_sqlite_context_register(database_path),
         memory_register=create_sqlite_memory_register(database_path),
         session_register=create_sqlite_session_register(database_path),
+        data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
         runtime_data_tools_enabled=runtime_data_tools_enabled,

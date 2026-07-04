@@ -145,7 +145,12 @@ async def test_configured_sqlite_data_sources_register_with_runtime(tmp_path) ->
 
     await runtime.close()
     assert [source.source_id for source in runtime.data_analysis.list_sources()] == [
-        "orders"
+        "agent_runs",
+        "agent_trace_events",
+        "sessions",
+        "contexts",
+        "memories",
+        "orders",
     ]
     assert result.rows[0].dimensions == {"status": "paid"}
     assert result.rows[0].metrics == {"order_count": 2, "revenue": 42.0}
