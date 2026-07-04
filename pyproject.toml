@@ -40,6 +40,9 @@ markers = [
     "real_gemini: tests that call a real Gemini provider",
     "real_anthropic: tests that call a real Anthropic provider",
 ]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.:starlette.exceptions.StarletteDeprecationWarning:fastapi.testclient",
+]
 
 [[index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
