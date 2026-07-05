@@ -11,6 +11,7 @@ import {
   type Session,
   type ToolDefinition,
 } from './api'
+import AgentRunTraceDetail from './components/AgentRunTraceDetail.vue'
 import AppHeader from './components/AppHeader.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import ChatWorkspace from './components/ChatWorkspace.vue'
@@ -79,6 +80,7 @@ const providers = ref<ProviderInfo[]>([])
 const providerModelGroups = ref<ProviderModelGroup[]>([])
 const tools = ref<ToolDefinition[]>([])
 const runs = ref<AgentRunState[]>([])
+const selectedRunId = ref<string | null>(null)
 const runPageSizeOptions = [10, 25, 50]
 const runPage = ref(1)
 const runPageSize = ref(runPageSizeOptions[0])
@@ -151,6 +153,12 @@ const pagedRuns = computed(() => {
   const start = (runPage.value - 1) * runPageSize.value
   return runs.value.slice(start, start + runPageSize.value)
 })
+const selectedRun = computed(() => (
+  runs.value.find((run) => run.run_id === selectedRunId.value)
+  || pagedRuns.value[0]
+  || runs.value[0]
+  || null
+))
 
 async function refreshDashboard() {
   const dashboard = await fetchDashboard()
@@ -202,6 +210,10 @@ function setRunPage(nextPage: number) {
   runPage.value = Math.min(Math.max(nextPage, 1), runPageCount.value)
 }
 
+function selectRun(run: AgentRunState) {
+  selectedRunId.value = run.run_id
+}
+
 async function configureApiKey() {
   const nextApiKey = window.prompt(
     '输入 EvernightAI API Key。留空并确认会清除当前 Key。',
@@ -241,6 +253,9 @@ watch(currentView, async (view) => {
 
 watch([runs, runPageSize], () => {
   setRunPage(runPage.value)
+  if (!selectedRunId.value || !runs.value.some((run) => run.run_id === selectedRunId.value)) {
+    selectedRunId.value = runs.value[0]?.run_id || null
+  }
 })
 </script>
 
@@ -331,73 +346,93 @@ watch([runs, runPageSize], () => {
           </aside>
         </section>
 
-        <section v-else-if="currentView === 'runs'" class="table-wrap" aria-label="运行队列">
-          <div class="panel-head table-head">
-            <h2><Icon name="activity" /><span>运行队列</span></h2>
-            <div class="run-table-controls">
-              <span>{{ runPageStart }}-{{ runPageEnd }} / {{ runs.length }} 条</span>
-              <label class="run-page-size">
-                <span>每页</span>
-                <select v-model.number="runPageSize" aria-label="运行队列每页显示数量">
-                  <option v-for="size in runPageSizeOptions" :key="size" :value="size">
-                    {{ size }}
-                  </option>
-                </select>
-              </label>
+        <section v-else-if="currentView === 'runs'" class="run-workbench" aria-label="运行队列">
+          <div class="table-wrap run-table-panel">
+            <div class="panel-head table-head">
+              <h2><Icon name="activity" /><span>运行队列</span></h2>
+              <div class="run-table-controls">
+                <span>{{ runPageStart }}-{{ runPageEnd }} / {{ runs.length }} 条</span>
+                <label class="run-page-size">
+                  <span>每页</span>
+                  <select v-model.number="runPageSize" aria-label="运行队列每页显示数量">
+                    <option v-for="size in runPageSizeOptions" :key="size" :value="size">
+                      {{ size }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Provider / 模型</th>
+                  <th>状态</th>
+                  <th>工具轮次</th>
+                  <th>Trace</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="runs.length === 0">
+                  <td colspan="5" style="text-align: center; padding: 32px;">
+                    <div style="display: inline-grid; gap: 8px; place-items: center;">
+                      <Icon name="activity" style="width: 32px; height: 32px; color: var(--muted);" />
+                      <strong style="color: var(--ink);">暂无运行记录</strong>
+                      <span style="color: var(--muted); font-size: 13px;">Agent 运行后将在此显示</span>
+                    </div>
+                  </td>
+                </tr>
+                <tr
+                  v-for="run in pagedRuns"
+                  v-else
+                  :key="run.run_id"
+                  class="run-row"
+                  :class="{ 'is-selected': selectedRun?.run_id === run.run_id }"
+                  tabindex="0"
+                  @click="selectRun(run)"
+                  @keydown.enter.prevent="selectRun(run)"
+                >
+                  <td>
+                    <span class="run-id">{{ run.run_id }}</span>
+                  </td>
+                  <td>
+                    <div class="run-provider-cell">
+                      <strong>{{ run.request.provider_id }}</strong>
+                      <span>{{ run.request.model_id }}</span>
+                    </div>
+                  </td>
+                  <td><span class="tag">{{ run.status || '未知' }}</span></td>
+                  <td>{{ run.tool_rounds_used ?? 0 }} / {{ run.request.max_tool_rounds ?? 0 }}</td>
+                  <td>{{ run.trace?.length ?? 0 }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="run-pagination" aria-label="运行队列分页">
+              <button
+                class="button compact-button icon-button"
+                type="button"
+                :disabled="runPage <= 1"
+                title="上一页"
+                aria-label="上一页"
+                @click="setRunPage(runPage - 1)"
+              >
+                <Icon name="chevron-left" />
+              </button>
+              <span>第 {{ runPage }} / {{ runPageCount }} 页</span>
+              <button
+                class="button compact-button icon-button"
+                type="button"
+                :disabled="runPage >= runPageCount"
+                title="下一页"
+                aria-label="下一页"
+                @click="setRunPage(runPage + 1)"
+              >
+                <Icon name="chevron-right" />
+              </button>
             </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Run</th>
-                <th>模型</th>
-                <th>状态</th>
-                <th>工具轮次</th>
-                <th>剩余轮次</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="runs.length === 0">
-                <td colspan="5" style="text-align: center; padding: 32px;">
-                  <div style="display: inline-grid; gap: 8px; place-items: center;">
-                    <Icon name="activity" style="width: 32px; height: 32px; color: var(--muted);" />
-                    <strong style="color: var(--ink);">暂无运行记录</strong>
-                    <span style="color: var(--muted); font-size: 13px;">Agent 运行后将在此显示</span>
-                  </div>
-                </td>
-              </tr>
-              <tr v-for="run in pagedRuns" v-else :key="run.run_id">
-                <td>{{ run.run_id }}</td>
-                <td>{{ run.request.model_id }}</td>
-                <td><span class="tag">{{ run.status || '未知' }}</span></td>
-                <td>{{ run.tool_rounds_used ?? 0 }}</td>
-                <td>{{ run.remaining_tool_rounds ?? 0 }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="run-pagination" aria-label="运行队列分页">
-            <button
-              class="button compact-button icon-button"
-              type="button"
-              :disabled="runPage <= 1"
-              title="上一页"
-              aria-label="上一页"
-              @click="setRunPage(runPage - 1)"
-            >
-              <Icon name="chevron-left" />
-            </button>
-            <span>第 {{ runPage }} / {{ runPageCount }} 页</span>
-            <button
-              class="button compact-button icon-button"
-              type="button"
-              :disabled="runPage >= runPageCount"
-              title="下一页"
-              aria-label="下一页"
-              @click="setRunPage(runPage + 1)"
-            >
-              <Icon name="chevron-right" />
-            </button>
-          </div>
+
+          <AgentRunTraceDetail :run="selectedRun" />
         </section>
 
         <DataAnalysisDashboard v-else-if="currentView === 'analytics'" />

@@ -719,6 +719,320 @@
       font-size: 13px;
     }
 
+    .run-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+      gap: 20px;
+      align-items: start;
+      min-height: 0;
+    }
+
+    .run-table-panel {
+      min-width: 0;
+    }
+
+    .run-row {
+      cursor: pointer;
+    }
+
+    .run-row.is-selected {
+      background: var(--primary-light);
+    }
+
+    .run-row:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
+
+    .run-id,
+    .run-provider-cell span,
+    .run-facts dd {
+      overflow-wrap: anywhere;
+    }
+
+    .run-id {
+      display: inline-block;
+      max-width: 220px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .run-provider-cell {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .run-provider-cell strong {
+      font-size: 13px;
+    }
+
+    .run-provider-cell span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-detail {
+      display: grid;
+      gap: 14px;
+      min-height: 0;
+      max-height: calc(100vh - 190px);
+      overflow: auto;
+    }
+
+    .run-detail-empty {
+      min-height: 360px;
+      display: grid;
+      gap: 10px;
+      place-items: center;
+      align-content: center;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .run-detail-empty .icon {
+      width: 44px;
+      height: 44px;
+      padding: 10px;
+      border-radius: 10px;
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .run-detail-head,
+    .run-detail-card-head,
+    .run-call-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .run-detail-head {
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .run-detail-head h2,
+    .run-detail-card h3 {
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .run-detail-head h2 {
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .run-detail-head p,
+    .run-detail-card p,
+    .run-muted {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .run-detail-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .run-detail-metrics div,
+    .run-detail-card,
+    .run-call,
+    .run-approval {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .run-detail-metrics div {
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .run-detail-metrics span,
+    .run-facts dt,
+    .run-approval span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-detail-metrics strong {
+      font-size: 15px;
+    }
+
+    .run-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .run-detail-card {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .run-detail-card h3 {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .run-facts {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+
+    .run-facts div {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .run-facts dd {
+      margin: 0;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .run-tool-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .run-approval-list,
+    .run-call-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .run-approval,
+    .run-call {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .run-call code,
+    .run-trace-tool code {
+      display: block;
+      max-height: 180px;
+      overflow: auto;
+      padding: 9px;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .run-trace-list {
+      display: grid;
+      gap: 0;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .run-trace-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 10px;
+      padding: 0 0 14px;
+    }
+
+    .run-trace-item:not(:last-child)::before {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 14px;
+      bottom: 0;
+      width: 1px;
+      background: var(--line);
+    }
+
+    .run-trace-dot {
+      position: relative;
+      z-index: 1;
+      width: 11px;
+      height: 11px;
+      margin-top: 5px;
+      border-radius: 999px;
+      background: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    .run-trace-item.is-success .run-trace-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 3px var(--success-light);
+    }
+
+    .run-trace-item.is-warning .run-trace-dot {
+      background: var(--warning);
+      box-shadow: 0 0 0 3px var(--warning-light);
+    }
+
+    .run-trace-item.is-danger .run-trace-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 3px var(--danger-light);
+    }
+
+    .run-trace-body {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .run-trace-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .run-trace-title strong {
+      font-size: 13px;
+    }
+
+    .run-trace-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-trace-body p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .run-trace-tool {
+      display: grid;
+      gap: 8px;
+      align-items: start;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
