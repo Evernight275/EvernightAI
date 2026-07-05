@@ -589,6 +589,7 @@ onMounted(() => {
             pending: message.pending,
           }"
         >
+          <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
           <div class="message-actions">
             <button
               v-if="message.role === 'assistant' && !message.pending"
@@ -611,7 +612,6 @@ onMounted(() => {
               <Icon :name="copiedMessageIndex === index ? 'check' : 'copy'" />
             </button>
           </div>
-          <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
         </div>
         <div v-if="loading && messages.length > 0" class="chat-thread-sync">
           正在同步上下文...

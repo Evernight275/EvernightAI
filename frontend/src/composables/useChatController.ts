@@ -15,6 +15,7 @@ import {
   type Content,
   type Context,
   type Session,
+  type ToolDefinition,
 } from '../api'
 import { textPart } from '../format'
 import type { ProviderModelChoice } from './useProviderModels'
@@ -33,6 +34,7 @@ type UseChatControllerOptions = {
   sessions: Ref<Session[]>
   sortedSessions: ComputedRef<Session[]>
   latestRun: ComputedRef<AgentRunState | undefined>
+  tools: Ref<ToolDefinition[]>
   selectedProviderModelChoice: ComputedRef<ProviderModelChoice>
   dashboardError: Ref<string | null>
   refreshDashboard: () => Promise<void>
@@ -43,6 +45,7 @@ export function useChatController({
   sessions,
   sortedSessions,
   latestRun,
+  tools,
   selectedProviderModelChoice,
   dashboardError,
   refreshDashboard,
@@ -168,7 +171,7 @@ export function useChatController({
     text: string
     retryFromMessageIndex: number | null
   }) {
-    const session = selectedSession.value
+    const session = selectedSession.value || await createChatSession('新会话')
     const messageText = options.text.trim()
     const retryFromMessageIndex = options.retryFromMessageIndex
     const isRetry = retryFromMessageIndex !== null
@@ -217,6 +220,7 @@ export function useChatController({
               },
             ],
         retry_from_message_index: retryFromMessageIndex,
+        tools: tools.value,
         metadata: {
           source: 'frontend-chat',
           timeout_seconds: chatTimeoutSeconds.value,
@@ -283,28 +287,8 @@ export function useChatController({
     creatingSession.value = true
     chatError.value = null
 
-    const contextId = newId('ctx')
-    const sessionId = newId('session')
-    const providerId = selectedProviderModelChoice.value.providerId
-    const modelId = selectedProviderModelChoice.value.modelId
-
     try {
-      await createContext({
-        context_id: contextId,
-        messages: [],
-      })
-      await createSession({
-        session_id: sessionId,
-        title: '新会话',
-        context_id: contextId,
-        provider_id: providerId,
-        model_id: modelId,
-      })
-      selectedSessionId.value = sessionId
-      selectedContext.value = {
-        context_id: contextId,
-        messages: [],
-      }
+      await createChatSession('新会话')
       clearPendingMessages()
       chatDraft.value = ''
       await refreshDashboard()
@@ -315,6 +299,32 @@ export function useChatController({
     } finally {
       creatingSession.value = false
     }
+  }
+
+  async function createChatSession(title: string): Promise<Session> {
+    const contextId = newId('ctx')
+    const sessionId = newId('session')
+    const providerId = selectedProviderModelChoice.value.providerId
+    const modelId = selectedProviderModelChoice.value.modelId
+
+    await createContext({
+      context_id: contextId,
+      messages: [],
+    })
+    const session = await createSession({
+      session_id: sessionId,
+      title,
+      context_id: contextId,
+      provider_id: providerId,
+      model_id: modelId,
+    })
+    selectedSessionId.value = sessionId
+    selectedContext.value = {
+      context_id: contextId,
+      messages: [],
+    }
+
+    return session
   }
 
   async function renameSession(session: Session) {

@@ -13,7 +13,7 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 
 
 class AnthropicStreamNormalizer:
@@ -238,7 +238,11 @@ class AnthropicStreamNormalizer:
         return events or [from_anthropic_stream_event(raw_event, data)]
 
 
-def to_anthropic_request(messages: Iterable[Content], model_id: str) -> dict[str, Any]:
+def to_anthropic_request(
+    messages: Iterable[Content],
+    model_id: str,
+    tools: Iterable[ToolDefinition] | None = None,
+) -> dict[str, Any]:
     request_messages: list[dict[str, Any]] = []
     system_texts: list[str] = []
 
@@ -261,8 +265,24 @@ def to_anthropic_request(messages: Iterable[Content], model_id: str) -> dict[str
     }
     if system_texts:
         request["system"] = "\n".join(system_texts)
+    if tools:
+        request["tools"] = to_anthropic_tools(tools)
 
     return request
+
+
+def to_anthropic_tools(tools: Iterable[ToolDefinition]) -> list[dict[str, Any]]:
+    return [to_anthropic_tool(tool) for tool in tools]
+
+
+def to_anthropic_tool(tool: ToolDefinition) -> dict[str, Any]:
+    return _without_none(
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.parameters_schema or _empty_object_schema(),
+        }
+    )
 
 
 def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
@@ -277,6 +297,13 @@ def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
         and part.get("type") == "text"
         and isinstance(part.get("text"), str)
     )
+    tool_calls = [
+        tool_call
+        for part in content
+        if isinstance(part, dict)
+        for tool_call in [_tool_call_from_anthropic_content(part)]
+        if tool_call is not None
+    ]
     message_content = (
         [ContentPart(type=ContentPartType.TEXT, text=text)]
         if text
@@ -293,6 +320,7 @@ def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
         message=Content(
             role=MessageRole.ASSISTANT,
             content=message_content,
+            tool_calls=tool_calls or None,
         ),
         finish_reason=response.get("stop_reason"),
         usage=_usage_from_anthropic(response),
@@ -329,11 +357,16 @@ def _anthropic_role(message: Content) -> str:
 
 
 def _message_content(message: Content) -> list[dict[str, Any]]:
+    if message.role is MessageRole.TOOL:
+        return [_tool_result_content(message)]
+
     parts = message.content or []
-    if not parts:
+    content = [_content_part(part) for part in parts]
+    content.extend(_tool_use_content(tool_call) for tool_call in message.tool_calls or [])
+    if not content:
         return [{"type": "text", "text": ""}]
 
-    return [_content_part(part) for part in parts]
+    return content
 
 
 def _text_content(message: Content) -> str:
@@ -361,6 +394,34 @@ def _content_part(part: ContentPart) -> dict[str, Any]:
         return {"type": "text", "text": part.text}
 
     raise ChatInputError(f"Unsupported Anthropic content part type: {part.type}")
+
+
+def _tool_use_content(tool_call: ToolCall) -> dict[str, Any]:
+    call = tool_call.tool_call
+    name = call.get("name")
+    arguments = call.get("arguments", {})
+    if not isinstance(name, str) or not name:
+        raise ChatInputError("Tool call requires a function name")
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    return {
+        "type": "tool_use",
+        "id": tool_call.tool_call_id,
+        "name": name,
+        "input": arguments,
+    }
+
+
+def _tool_result_content(message: Content) -> dict[str, Any]:
+    if not message.tool_call_id:
+        raise ChatInputError("Tool result requires a tool call id")
+
+    return {
+        "type": "tool_result",
+        "tool_use_id": message.tool_call_id,
+        "content": _text_content(message),
+    }
 
 
 def _usage_from_anthropic(response: dict[str, Any]) -> ChatUsage | None:
@@ -415,6 +476,33 @@ def _tool_call_from_anthropic_state(call_state: dict[str, Any]) -> ToolCall | No
             "arguments": parsed_arguments,
         },
     )
+
+
+def _tool_call_from_anthropic_content(part: dict[str, Any]) -> ToolCall | None:
+    if part.get("type") != "tool_use":
+        return None
+
+    tool_call_id = part.get("id")
+    name = part.get("name")
+    arguments = part.get("input", {})
+    if not isinstance(tool_call_id, str) or not tool_call_id:
+        return None
+    if not isinstance(name, str) or not name:
+        return None
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    return ToolCall(
+        tool_call_id=tool_call_id,
+        tool_call={
+            "name": name,
+            "arguments": arguments,
+        },
+    )
+
+
+def _empty_object_schema() -> dict[str, Any]:
+    return {"type": "object", "properties": {}}
 
 
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:

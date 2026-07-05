@@ -14,6 +14,7 @@ import {
 import AppHeader from './components/AppHeader.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import ChatWorkspace from './components/ChatWorkspace.vue'
+import DataAnalysisDashboard from './components/DataAnalysisDashboard.vue'
 import Icon from './components/Icon.vue'
 import LogTerminal from './components/LogTerminal.vue'
 import ToolList from './components/ToolList.vue'
@@ -22,7 +23,7 @@ import { useChatController } from './composables/useChatController'
 import { useProviderModels } from './composables/useProviderModels'
 import { toast } from './composables/useToast'
 
-type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'agents' | 'memories' | 'logs'
+type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'analytics' | 'agents' | 'memories' | 'logs'
 
 const viewMeta: Record<ViewKey, { title: string; description: string }> = {
   workbench: {
@@ -40,6 +41,10 @@ const viewMeta: Record<ViewKey, { title: string; description: string }> = {
   runs: {
     title: '运行队列',
     description: '查看 Agent run 状态、模型、工具轮次和最近输出',
+  },
+  analytics: {
+    title: '数据统计',
+    description: '查看 Agent、会话、工具调用和记忆写入的运行统计',
   },
   agents: {
     title: '模型提供商配置',
@@ -126,6 +131,7 @@ const {
   sessions,
   sortedSessions,
   latestRun,
+  tools,
   selectedProviderModelChoice,
   dashboardError,
   refreshDashboard,
@@ -276,6 +282,12 @@ watch([runs, runPageSize], () => {
               <h3>配置模型</h3>
               <p>管理模型提供商，选择适合你任务的 AI 模型</p>
             </button>
+
+            <button class="quick-start-card" @click="navigate('analytics')">
+              <Icon name="activity" class="icon" />
+              <h3>查看统计</h3>
+              <p>查看 Agent run、会话、工具调用和记忆写入数据</p>
+            </button>
           </div>
         </section>
 
@@ -293,7 +305,7 @@ watch([runs, runPageSize], () => {
           :loading="contextLoading"
           :sending="sendingMessage"
           :creating-session="creatingSession"
-          :disabled="!selectedSession"
+          :disabled="providerModelChoices.length === 0"
           :error="chatDisplayError"
           :title="selectedSession?.title || selectedSession?.session_id || '聊天'"
           @select="selectSession"
@@ -387,6 +399,8 @@ watch([runs, runPageSize], () => {
             </button>
           </div>
         </section>
+
+        <DataAnalysisDashboard v-else-if="currentView === 'analytics'" />
 
         <section v-else-if="currentView === 'agents'" class="provider-config" aria-label="模型提供商配置">
           <div class="panel-head">

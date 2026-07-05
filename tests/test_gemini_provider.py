@@ -17,7 +17,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.gemini.instance import GeminiProviderInstance
 from EvernightAI.infra.adapters.gemini.mapper import (
     from_gemini_response,
@@ -49,6 +49,20 @@ def make_messages() -> list[Content]:
     ]
 
 
+def make_tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="list_directory",
+        description="List files in a directory.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        },
+    )
+
+
 def test_maps_messages_to_gemini_request() -> None:
     assert to_gemini_request(make_messages()) == {
         "contents": [
@@ -58,6 +72,35 @@ def test_maps_messages_to_gemini_request() -> None:
             }
         ],
         "systemInstruction": {"parts": [{"text": "Be brief."}]},
+    }
+
+
+def test_maps_tools_to_gemini_request() -> None:
+    assert to_gemini_request(make_messages(), [make_tool()]) == {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": "Hello"}],
+            }
+        ],
+        "systemInstruction": {"parts": [{"text": "Be brief."}]},
+        "tools": [
+            {
+                "functionDeclarations": [
+                    {
+                        "name": "list_directory",
+                        "description": "List files in a directory.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                            },
+                            "required": ["path"],
+                        },
+                    }
+                ]
+            }
+        ],
     }
 
 
@@ -90,6 +133,39 @@ def test_maps_gemini_response_to_chat_response() -> None:
     ]
     assert mapped.usage is not None
     assert mapped.usage.total_tokens == 5
+
+
+def test_maps_gemini_function_call_response_to_chat_response() -> None:
+    mapped = from_gemini_response(
+        {
+            "responseId": "resp-1",
+            "modelVersion": "gemini-test",
+            "candidates": [
+                {
+                    "index": 0,
+                    "finishReason": "STOP",
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "list_directory",
+                                    "args": {"path": "."},
+                                }
+                            }
+                        ]
+                    },
+                }
+            ],
+        },
+        "gemini-test",
+    )
+
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="resp-1:tool:0",
+            tool_call={"name": "list_directory", "arguments": {"path": "."}},
+        )
+    ]
 
 
 def test_normalizes_gemini_text_and_function_call_chunks() -> None:
@@ -155,6 +231,28 @@ async def test_gemini_instance_chat_maps_request_and_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gemini_instance_chat_forwards_tools() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient()
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="gemini-test",
+            messages=make_messages(),
+            tools=[make_tool()],
+        )
+    )
+
+    assert fake_client.requests[-1]["json"] == to_gemini_request(
+        make_messages(),
+        [make_tool()],
+    )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
 async def test_gemini_instance_chat_maps_timeout_metadata() -> None:
     instance = GeminiProviderInstance(make_config())
     fake_client = FakeGeminiClient()
@@ -169,6 +267,29 @@ async def test_gemini_instance_chat_maps_timeout_metadata() -> None:
     )
 
     assert fake_client.requests[-1]["timeout"] == 12.0
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_instance_stream_forwards_tools() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient()
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(
+            model_id="gemini-test",
+            messages=make_messages(),
+            tools=[make_tool()],
+        )
+    )
+    _ = [event async for event in stream]
+
+    assert fake_client.requests[-1]["json"] == to_gemini_request(
+        make_messages(),
+        [make_tool()],
+    )
 
     await instance.close()
 

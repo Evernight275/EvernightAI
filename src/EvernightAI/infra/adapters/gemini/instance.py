@@ -41,7 +41,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
-        payload = to_gemini_request(request.messages)
+        payload = to_gemini_request(request.messages, request.tools)
 
         try:
             response = await self._client.post(
@@ -58,7 +58,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
-        payload = to_gemini_request(request.messages)
+        payload = to_gemini_request(request.messages, request.tools)
         return GeminiChatStream(
             self._client,
             f"/v1beta/models/{model.model_id}:streamGenerateContent",

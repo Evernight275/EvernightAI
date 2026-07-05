@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Icon from './Icon.vue'
 
-type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'agents' | 'memories' | 'logs'
+type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'analytics' | 'agents' | 'memories' | 'logs'
 
 defineProps<{
   currentView: ViewKey
@@ -16,6 +16,7 @@ const coreLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
   { view: 'chat', icon: 'message-square', label: '聊天' },
   { view: 'tools', icon: 'wrench', label: '工具列表' },
   { view: 'runs', icon: 'activity', label: '运行队列' },
+  { view: 'analytics', icon: 'layout-dashboard', label: '数据统计' },
 ]
 
 const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [

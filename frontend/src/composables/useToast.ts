@@ -1,5 +1,3 @@
-import type { ToastType } from '../components/Toast.vue'
-
 export interface ToastOptions {
   duration?: number
 }

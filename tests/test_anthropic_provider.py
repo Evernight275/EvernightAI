@@ -17,7 +17,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.anthropic.instance import AnthropicProviderInstance
 from EvernightAI.infra.adapters.anthropic.mapper import (
     AnthropicStreamNormalizer,
@@ -49,6 +49,20 @@ def make_messages() -> list[Content]:
     ]
 
 
+def make_tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="list_directory",
+        description="List files in a directory.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        },
+    )
+
+
 def test_maps_messages_to_anthropic_request() -> None:
     assert to_anthropic_request(make_messages(), "claude-test") == {
         "model": "claude-test",
@@ -60,6 +74,33 @@ def test_maps_messages_to_anthropic_request() -> None:
             }
         ],
         "system": "Be brief.",
+    }
+
+
+def test_maps_tools_to_anthropic_request() -> None:
+    assert to_anthropic_request(make_messages(), "claude-test", [make_tool()]) == {
+        "model": "claude-test",
+        "max_tokens": 1024,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "Hello"}],
+            }
+        ],
+        "system": "Be brief.",
+        "tools": [
+            {
+                "name": "list_directory",
+                "description": "List files in a directory.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                    },
+                    "required": ["path"],
+                },
+            }
+        ],
     }
 
 
@@ -84,6 +125,34 @@ def test_maps_anthropic_response_to_chat_response() -> None:
     ]
     assert mapped.usage is not None
     assert mapped.usage.total_tokens == 5
+
+
+def test_maps_anthropic_tool_use_response_to_chat_response() -> None:
+    mapped = from_anthropic_response(
+        {
+            "id": "msg-1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu-1",
+                    "name": "list_directory",
+                    "input": {"path": "."},
+                }
+            ],
+            "stop_reason": "tool_use",
+        }
+    )
+
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="toolu-1",
+            tool_call={"name": "list_directory", "arguments": {"path": "."}},
+        )
+    ]
+    assert mapped.finish_reason == "tool_use"
 
 
 def test_normalizes_anthropic_tool_use_stream_events() -> None:
@@ -227,6 +296,29 @@ async def test_anthropic_instance_chat_maps_request_and_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_instance_chat_forwards_tools() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient()
+    cast(Any, instance)._client = fake_client
+
+    await instance.chat(
+        ChatRequest(
+            model_id="claude-test",
+            messages=make_messages(),
+            tools=[make_tool()],
+        )
+    )
+
+    assert fake_client.requests[-1]["json"] == to_anthropic_request(
+        make_messages(),
+        "claude-test",
+        [make_tool()],
+    )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
 async def test_anthropic_instance_chat_maps_timeout_metadata() -> None:
     instance = AnthropicProviderInstance(make_config())
     fake_client = FakeAnthropicClient()
@@ -241,6 +333,29 @@ async def test_anthropic_instance_chat_maps_timeout_metadata() -> None:
     )
 
     assert fake_client.requests[-1]["timeout"] == 12.0
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_instance_stream_forwards_tools() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient()
+    cast(Any, instance)._client = fake_client
+
+    stream = await instance.chat_stream(
+        ChatRequest(
+            model_id="claude-test",
+            messages=make_messages(),
+            tools=[make_tool()],
+        )
+    )
+    _ = [event async for event in stream]
+
+    assert fake_client.requests[-1]["json"] == {
+        **to_anthropic_request(make_messages(), "claude-test", [make_tool()]),
+        "stream": True,
+    }
 
     await instance.close()
 

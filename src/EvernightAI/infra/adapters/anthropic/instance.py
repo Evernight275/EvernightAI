@@ -44,7 +44,11 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
-        payload = to_anthropic_request(request.messages, model.model_id)
+        payload = to_anthropic_request(
+            request.messages,
+            model.model_id,
+            request.tools,
+        )
 
         try:
             response = await self._client.post(
@@ -62,7 +66,11 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = {
-            **to_anthropic_request(request.messages, model.model_id),
+            **to_anthropic_request(
+                request.messages,
+                model.model_id,
+                request.tools,
+            ),
             "stream": True,
         }
         return AnthropicChatStream(
