@@ -12,6 +12,9 @@ sandbox_backend = "subprocess"
 
 [http]
 # Used by both `evernight-http` and `evernight serve`.
+# 注意:
+# 服务器上部署时，不要在安全组直接放行该端口，也不要轻易把 host 改成 0.0.0.0
+# 因配置不当导致的安全风险、数据泄露或财产损失，项目维护者不承担责任。
 host = "127.0.0.1"
 port = 8000
 reload = false
