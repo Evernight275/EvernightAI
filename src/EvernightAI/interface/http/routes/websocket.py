@@ -28,7 +28,9 @@ from EvernightAI.interface.http.protocol import (
 from EvernightAI.interface.http.websocket import (
     ManagedWebSocketConnection,
     WebSocketConnectionManager,
+    websocket_accept_subprotocol,
     websocket_query_token,
+    websocket_subprotocol_token,
 )
 
 
@@ -48,7 +50,11 @@ WEBSOCKET_CAPABILITIES = [
 async def websocket_endpoint(websocket: WebSocket) -> None:
     connection_id = uuid4().hex
     manager = _websocket_manager(websocket)
-    connection = await manager.connect(websocket, connection_id=connection_id)
+    connection = await manager.connect(
+        websocket,
+        connection_id=connection_id,
+        subprotocol=websocket_accept_subprotocol(websocket),
+    )
     close_code = 1000
     close_reason: str | None = None
     try:
@@ -475,9 +481,9 @@ def _websocket_interface(websocket: WebSocket) -> EvernightInterfaceProtocol:
         AuthorizedHttpInterfaceFactoryProtocol,
         websocket.app.state.authorized_interface_factory,
     )
-    query_token = websocket_query_token(websocket)
-    if query_token is not None:
-        principal = auth_device.principal(query_token)
+    token = websocket_subprotocol_token(websocket) or websocket_query_token(websocket)
+    if token is not None:
+        principal = auth_device.principal(token)
     else:
         principal = auth_device.principal_for_request(cast(Request, websocket))
     return factory(interface, principal)

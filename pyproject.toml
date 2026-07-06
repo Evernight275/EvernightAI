@@ -14,7 +14,7 @@ dependencies = [
     "pytest-xdist",
     "pyright",
     "openai",
-    "uvicorn",
+    "uvicorn[standard]",
     "pyjwt[crypto]>=2.13.0",
 ]
 

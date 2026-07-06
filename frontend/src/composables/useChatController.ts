@@ -15,6 +15,8 @@ import {
   type Content,
   type Context,
   type Session,
+  type ToolCall,
+  type ToolCallResult,
   type ToolDefinition,
 } from '../api'
 import { textPart } from '../format'
@@ -420,11 +422,38 @@ export function useChatController({
         setPendingAssistantText(text, true)
         pendingAssistantHasDelta.value = true
       }
+      const toolCalls = event.message?.tool_calls || event.response?.message.tool_calls || []
+      if (toolCalls.length > 0) {
+        appendPendingToolCalls(toolCalls)
+        setPendingAssistantText('正在调用工具...', true)
+        pendingAssistantHasDelta.value = false
+      }
       return
     }
 
-    if (event.event_type === 'tool_completed' && event.summary) {
-      setPendingAssistantText(event.summary, true)
+    if (event.event_type === 'tool_approval_requested' && event.tool_call) {
+      appendPendingToolCalls([event.tool_call])
+      setPendingAssistantText(event.summary || '等待工具审批...', true)
+      pendingAssistantHasDelta.value = false
+      return
+    }
+
+    if (event.event_type === 'tool_completed') {
+      appendPendingToolResult(event)
+      if (event.tool_call) {
+        markPendingToolCallDone(event.tool_call.tool_call_id)
+      }
+      setPendingAssistantText('工具已返回，继续生成...', true)
+      pendingAssistantHasDelta.value = false
+      return
+    }
+
+    if (event.event_type === 'tool_failed') {
+      appendPendingToolResult(event)
+      if (event.tool_call) {
+        markPendingToolCallDone(event.tool_call.tool_call_id)
+      }
+      setPendingAssistantText(event.summary || event.error_message || '工具调用失败', false)
       pendingAssistantHasDelta.value = false
       return
     }
@@ -437,6 +466,74 @@ export function useChatController({
     if (event.event_type === 'run_paused' && event.summary) {
       setPendingAssistantText(event.summary, false)
     }
+  }
+
+  function appendPendingToolCalls(toolCalls: ToolCall[]) {
+    const existingIds = new Set(
+      pendingChatMessages.value
+        .flatMap((message) => message.tool_calls || [])
+        .map((call) => call.tool_call_id),
+    )
+    const nextMessages = toolCalls
+      .filter((call) => !existingIds.has(call.tool_call_id))
+      .map((call) => ({
+        role: 'system',
+        content: [{ type: 'text', text: toolCallText(call) }],
+        text: toolCallText(call),
+        tool_calls: [call],
+        pending: true,
+      }) satisfies ChatDisplayMessage)
+
+    if (nextMessages.length === 0) {
+      return
+    }
+
+    pendingChatMessages.value = [
+      ...pendingChatMessages.value,
+      ...nextMessages,
+    ]
+  }
+
+  function appendPendingToolResult(event: AgentTraceEvent) {
+    const toolMessage = event.message
+      ? {
+          ...event.message,
+          text: textPart(event.message) || toolResultText(event.tool_result),
+        }
+      : toolResultMessage(event.tool_result, event.error_message)
+
+    if (toolMessage === null) {
+      return
+    }
+
+    const resultId = toolMessage.tool_call_id
+    const alreadyHasResult = pendingChatMessages.value.some((message) => (
+      message.role === 'tool' && message.tool_call_id === resultId
+    ))
+    if (alreadyHasResult) {
+      return
+    }
+
+    pendingChatMessages.value = [
+      ...pendingChatMessages.value,
+      toolMessage,
+    ]
+  }
+
+  function markPendingToolCallDone(toolCallId: string) {
+    pendingChatMessages.value = pendingChatMessages.value.map((message) => {
+      const hasToolCall = (message.tool_calls || []).some((call) => (
+        call.tool_call_id === toolCallId
+      ))
+      if (!hasToolCall) {
+        return message
+      }
+
+      return {
+        ...message,
+        pending: false,
+      }
+    })
   }
 
   function appendPendingAssistantText(text: string) {
@@ -511,6 +608,59 @@ export function useChatController({
 
 function isActiveMessage(message: Content): boolean {
   return message.status === undefined || message.status === null || message.status === 'active'
+}
+
+function toolCallText(call: ToolCall): string {
+  return formatJson({
+    tool_call_id: call.tool_call_id,
+    tool_call: call.tool_call,
+  })
+}
+
+function toolResultText(result: ToolCallResult | null | undefined): string {
+  if (!result) {
+    return ''
+  }
+
+  return formatJson(result)
+}
+
+function toolResultMessage(
+  result: ToolCallResult | null | undefined,
+  errorMessage: string | null | undefined,
+): ChatDisplayMessage | null {
+  if (result) {
+    const text = toolResultText(result)
+    return {
+      role: 'tool',
+      tool_call_id: result.tool_call_id,
+      content: [{ type: 'text', text }],
+      text,
+    }
+  }
+
+  if (!errorMessage) {
+    return null
+  }
+
+  return {
+    role: 'tool',
+    content: [{ type: 'text', text: errorMessage }],
+    text: errorMessage,
+    status: 'error',
+  }
+}
+
+function formatJson(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function newId(prefix: string): string {

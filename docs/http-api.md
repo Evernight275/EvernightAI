@@ -209,16 +209,26 @@ ws.onmessage = (event) => {
 };
 ```
 
-When HTTP authentication is enabled, browser clients may pass the credential in
-the connection URL:
+When HTTP authentication is enabled, browser clients should keep credentials out
+of the URL and pass them as a WebSocket subprotocol token. The server reads the
+token from `Sec-WebSocket-Protocol` and accepts only `evernight.realtime`, so the
+secret is not echoed back as the negotiated protocol:
 
 ```javascript
-const ws = new WebSocket("ws://127.0.0.1:8000/ws?api_key=secret");
+const apiKey = "secret";
+const encoded = btoa(apiKey).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const ws = new WebSocket("ws://127.0.0.1:8000/ws", [
+  "evernight.realtime",
+  `evernight.api_key.${encoded}`,
+]);
 ```
 
-`access_token` is also accepted for OAuth bearer-style credentials. Non-browser
-clients can continue to use `Authorization: Bearer <token>` or
-`X-Evernight-API-Key: <api-key>` headers.
+Use `evernight.access_token.<base64url-token>` for OAuth bearer-style
+credentials. Non-browser clients can continue to use
+`Authorization: Bearer <token>` or `X-Evernight-API-Key: <api-key>` headers.
+`/ws?api_key=...` and `/ws?access_token=...` remain accepted for compatibility,
+but they can be exposed in access logs and browser tooling, so avoid them outside
+controlled local debugging.
 
 All messages use the same envelope:
 

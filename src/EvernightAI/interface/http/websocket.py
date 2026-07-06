@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 from collections import defaultdict
 from collections.abc import Coroutine
 from contextlib import suppress
@@ -21,6 +23,9 @@ WEBSOCKET_SEND_QUEUE_SIZE: Final = 100
 WEBSOCKET_HEARTBEAT_INTERVAL_SECONDS: Final = 30.0
 WEBSOCKET_HEARTBEAT_TIMEOUT_SECONDS: Final = 90.0
 WEBSOCKET_HEARTBEAT_TIMEOUT_CLOSE_CODE: Final = 4000
+WEBSOCKET_SUBPROTOCOL: Final = "evernight.realtime"
+WEBSOCKET_API_KEY_SUBPROTOCOL_PREFIX: Final = "evernight.api_key."
+WEBSOCKET_ACCESS_TOKEN_SUBPROTOCOL_PREFIX: Final = "evernight.access_token."
 
 
 class ManagedWebSocketConnection(WebSocketProtocol):
@@ -157,8 +162,9 @@ class WebSocketConnectionManager:
         websocket: WebSocket,
         *,
         connection_id: str,
+        subprotocol: str | None = None,
     ) -> ManagedWebSocketConnection:
-        await websocket.accept()
+        await websocket.accept(subprotocol=subprotocol)
         connection = ManagedWebSocketConnection(
             connection_id,
             websocket,
@@ -252,3 +258,39 @@ def websocket_query_token(websocket: WebSocket) -> str | None:
         return api_key
 
     return None
+
+
+def websocket_accept_subprotocol(websocket: WebSocket) -> str | None:
+    if WEBSOCKET_SUBPROTOCOL in _websocket_subprotocols(websocket):
+        return WEBSOCKET_SUBPROTOCOL
+
+    return None
+
+
+def websocket_subprotocol_token(websocket: WebSocket) -> str | None:
+    for protocol in _websocket_subprotocols(websocket):
+        for prefix in (
+            WEBSOCKET_API_KEY_SUBPROTOCOL_PREFIX,
+            WEBSOCKET_ACCESS_TOKEN_SUBPROTOCOL_PREFIX,
+        ):
+            if protocol.startswith(prefix):
+                return _decode_websocket_auth_value(protocol.removeprefix(prefix))
+
+    return None
+
+
+def _websocket_subprotocols(websocket: WebSocket) -> list[str]:
+    header = websocket.headers.get("sec-websocket-protocol")
+    if header is None:
+        return []
+
+    return [part.strip() for part in header.split(",") if part.strip()]
+
+
+def _decode_websocket_auth_value(value: str) -> str:
+    padding = "=" * (-len(value) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(f"{value}{padding}")
+        return decoded.decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return ""

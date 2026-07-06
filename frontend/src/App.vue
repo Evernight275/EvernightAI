@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  AgentRunSocketClient,
   fetchDashboard,
   fetchProviderModels,
   getApiKey,
+  getAgentRun,
   setApiKey,
+  type AgentRunSocketStatus,
   type AgentRunState,
+  type AgentTraceEvent,
   type ProviderInfo,
   type ProviderModelGroup,
   type Session,
   type ToolDefinition,
+  type WebSocketTracePayload,
 } from './api'
 import AgentRunTraceDetail from './components/AgentRunTraceDetail.vue'
 import AppHeader from './components/AppHeader.vue'
@@ -81,6 +86,7 @@ const providerModelGroups = ref<ProviderModelGroup[]>([])
 const tools = ref<ToolDefinition[]>([])
 const runs = ref<AgentRunState[]>([])
 const selectedRunId = ref<string | null>(null)
+const agentRunSocketStatus = ref<AgentRunSocketStatus>('disconnected')
 const runPageSizeOptions = [10, 25, 50]
 const runPage = ref(1)
 const runPageSize = ref(runPageSizeOptions[0])
@@ -89,6 +95,7 @@ const dashboardError = ref<string | null>(null)
 const providerModelsError = ref<string | null>(null)
 const providerModelsUpdatedAt = ref('')
 const toastContainer = ref<InstanceType<typeof ToastContainer> | null>(null)
+let agentRunSocket: AgentRunSocketClient | null = null
 
 const sortedSessions = computed(() => (
   [...sessions.value]
@@ -172,6 +179,7 @@ async function refreshDashboard() {
   ensureSelectedSession()
   ensureSelectedProviderModel()
   await loadSelectedContext()
+  syncRunSubscriptions()
 }
 
 async function refreshProviderModels() {
@@ -225,7 +233,130 @@ async function configureApiKey() {
   }
 
   setApiKey(nextApiKey)
+  reconnectAgentRunSocket()
   await refreshDashboard()
+}
+
+function connectAgentRunSocket() {
+  agentRunSocket?.close()
+  agentRunSocket = new AgentRunSocketClient({
+    onStatus(status) {
+      agentRunSocketStatus.value = status
+    },
+    onTrace(runId, event, payload) {
+      applyAgentTrace(runId, event, payload)
+    },
+    onError(error) {
+      toast.error(error.error_message || error.error_type)
+    },
+  })
+  agentRunSocket.connect()
+  syncRunSubscriptions()
+}
+
+function reconnectAgentRunSocket() {
+  connectAgentRunSocket()
+}
+
+function syncRunSubscriptions() {
+  if (!agentRunSocket) {
+    return
+  }
+
+  const runIds = new Set<string>()
+  if (selectedRun.value?.run_id) {
+    runIds.add(selectedRun.value.run_id)
+  }
+  for (const run of runs.value) {
+    if (run.status === 'running' || run.status === 'paused') {
+      runIds.add(run.run_id)
+    }
+  }
+  runIds.forEach((runId) => {
+    const run = runs.value.find((item) => item.run_id === runId)
+    agentRunSocket?.subscribeRun(runId, run?.trace?.length || 0)
+  })
+}
+
+function applyAgentTrace(
+  runId: string,
+  event: AgentTraceEvent,
+  payload: WebSocketTracePayload,
+) {
+  const runIndex = runs.value.findIndex((run) => run.run_id === runId)
+  if (runIndex === -1) {
+    void refreshRun(runId)
+    return
+  }
+
+  const run = runs.value[runIndex]
+  const trace = [...(run.trace || [])]
+  if (payload.sequence && payload.sequence > 0) {
+    trace[payload.sequence - 1] = event
+  } else {
+    trace.push(event)
+  }
+
+  const nextRun: AgentRunState = {
+    ...run,
+    trace: trace.filter(Boolean),
+    status: statusAfterTrace(run.status, event),
+  }
+  runs.value.splice(runIndex, 1, nextRun)
+
+  if (event.event_type === 'run_paused' || event.event_type === 'run_stopped') {
+    void refreshRun(runId)
+  }
+}
+
+function statusAfterTrace(
+  currentStatus: AgentRunState['status'],
+  event: AgentTraceEvent,
+): AgentRunState['status'] {
+  if (event.event_type === 'run_started') {
+    return 'running'
+  }
+  if (event.event_type === 'run_paused') {
+    return 'paused'
+  }
+  if (event.event_type === 'run_stopped') {
+    return event.metadata?.reason === 'canceled' ? 'canceled' : 'finished'
+  }
+  if (event.event_type === 'tool_failed' && currentStatus === 'failed') {
+    return 'failed'
+  }
+
+  return currentStatus
+}
+
+async function refreshRun(runId: string) {
+  try {
+    const nextRun = await getAgentRun(runId)
+    upsertRun(nextRun)
+  } catch {
+    // The run may have been pruned or hidden by auth; keep the local trace.
+  }
+}
+
+function upsertRun(nextRun: AgentRunState) {
+  const runIndex = runs.value.findIndex((run) => run.run_id === nextRun.run_id)
+  if (runIndex === -1) {
+    runs.value = [nextRun, ...runs.value]
+    return
+  }
+  runs.value.splice(runIndex, 1, nextRun)
+}
+
+function pauseRun(run: AgentRunState) {
+  agentRunSocket?.controlRun(run.run_id, 'pause', 'frontend pause')
+}
+
+function cancelRun(run: AgentRunState) {
+  agentRunSocket?.controlRun(run.run_id, 'cancel', 'frontend cancel')
+}
+
+function resumeRun(run: AgentRunState) {
+  agentRunSocket?.controlRun(run.run_id, 'resume')
 }
 
 onMounted(async () => {
@@ -240,9 +371,14 @@ onMounted(async () => {
   }
 
   await refreshDashboard()
+  connectAgentRunSocket()
   if (currentView.value === 'agents') {
     await refreshProviderModels()
   }
+})
+
+onUnmounted(() => {
+  agentRunSocket?.close()
 })
 
 watch(currentView, async (view) => {
@@ -256,6 +392,11 @@ watch([runs, runPageSize], () => {
   if (!selectedRunId.value || !runs.value.some((run) => run.run_id === selectedRunId.value)) {
     selectedRunId.value = runs.value[0]?.run_id || null
   }
+  syncRunSubscriptions()
+})
+
+watch(selectedRunId, () => {
+  syncRunSubscriptions()
 })
 </script>
 
@@ -432,7 +573,13 @@ watch([runs, runPageSize], () => {
             </div>
           </div>
 
-          <AgentRunTraceDetail :run="selectedRun" />
+          <AgentRunTraceDetail
+            :run="selectedRun"
+            :socket-status="agentRunSocketStatus"
+            @pause="pauseRun"
+            @cancel="cancelRun"
+            @resume="resumeRun"
+          />
         </section>
 
         <DataAnalysisDashboard v-else-if="currentView === 'analytics'" />

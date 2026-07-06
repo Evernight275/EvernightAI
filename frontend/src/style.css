@@ -815,6 +815,15 @@
       border-bottom: 1px solid var(--line-soft);
     }
 
+    .run-detail-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
     .run-detail-head h2,
     .run-detail-card h3 {
       margin: 0;
@@ -928,16 +937,53 @@
       min-width: 0;
     }
 
-    .run-call code,
-    .run-trace-tool code {
-      display: block;
-      max-height: 180px;
-      overflow: auto;
-      padding: 9px;
+    .run-json-detail {
+      min-width: 0;
       border: 1px solid var(--line-soft);
       border-radius: 6px;
-      color: var(--ink);
       background: var(--paper);
+      overflow: hidden;
+    }
+
+    .run-json-detail summary {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      padding: 8px 9px;
+      cursor: pointer;
+      list-style-position: inside;
+      min-width: 0;
+    }
+
+    .run-json-detail summary span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .run-json-detail summary code {
+      min-width: 0;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .run-json-detail pre {
+      margin: 0;
+      border-top: 1px solid var(--line-soft);
+      max-height: 220px;
+      overflow: auto;
+    }
+
+    .run-json-detail pre code {
+      display: block;
+      padding: 9px;
+      color: var(--ink);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 12px;
       line-height: 1.45;
@@ -2104,6 +2150,13 @@
       background: var(--paper);
     }
 
+    .chat-thread-message.tool {
+      align-self: flex-start;
+      width: min(760px, 100%);
+      border: 1px solid var(--line-soft);
+      background: var(--soft);
+    }
+
     .chat-thread-message.pending {
       border: 1px solid var(--primary);
       border-style: dashed;
@@ -2289,6 +2342,86 @@
       color: var(--ink);
       text-decoration: underline;
       text-underline-offset: 3px;
+    }
+
+    .tool-message-card {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .tool-message-head {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .tool-message-head .icon {
+      width: 28px;
+      height: 28px;
+      padding: 6px;
+      border-radius: 6px;
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .tool-message-head div {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .tool-message-head strong {
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tool-message-head span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .tool-message-detail {
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      background: var(--paper);
+      overflow: hidden;
+    }
+
+    .tool-message-detail summary {
+      padding: 8px 10px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.35;
+      list-style-position: inside;
+    }
+
+    .tool-message-detail pre {
+      margin: 0;
+      max-height: 300px;
+      overflow: auto;
+      border-top: 1px solid var(--line-soft);
+      background: #f6f8fa;
+    }
+
+    .tool-message-detail code {
+      display: block;
+      padding: 12px;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
     .chat-thread-sync {

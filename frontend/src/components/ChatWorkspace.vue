@@ -27,6 +27,8 @@ type MathPlaceholder = {
   displayMode: boolean
 }
 
+type JsonObject = Record<string, unknown>
+
 const toast = useToast()
 
 const props = defineProps<{
@@ -241,6 +243,114 @@ function renderMarkdown(text: string): string {
 
   const math = extractMathPlaceholders(normalized)
   return restoreMathPlaceholders(markdownRenderer.render(math.markdown), math.placeholders)
+}
+
+function isToolResultMessage(message: Content): boolean {
+  return message.role === 'tool' || Boolean(message.tool_call_id)
+}
+
+function isToolCallMessage(message: Content): boolean {
+  return Array.isArray(message.tool_calls) && message.tool_calls.length > 0
+}
+
+function toolResultTitle(message: Content & { text: string }): string {
+  const payload = parseJsonObject(message.text)
+  const result = objectField(payload, 'tool_call_result') || payload
+  const path = stringField(result, 'path')
+  if (path) {
+    return `工具结果 · ${path}`
+  }
+
+  return `工具结果 · ${shortId(message.tool_call_id || stringField(payload, 'tool_call_id') || '')}`
+}
+
+function toolResultSummary(message: Content & { text: string }): string {
+  const payload = parseJsonObject(message.text)
+  const result = objectField(payload, 'tool_call_result') || payload
+  const path = stringField(result, 'path')
+  const content = stringField(result, 'content')
+  const truncated = booleanField(result, 'truncated')
+  if (path && content !== null) {
+    const suffix = truncated ? ' · 已截断' : ''
+    return `文件读取 · ${content.length} 字符${suffix}`
+  }
+
+  const keys = Object.keys(result)
+  if (keys.length > 0) {
+    return `返回字段：${keys.slice(0, 4).join(' / ')}${keys.length > 4 ? ' ...' : ''}`
+  }
+
+  return compactText(message.text || '空结果')
+}
+
+function toolResultDetail(message: Content & { text: string }): string {
+  const parsed = parseJsonObject(message.text)
+  return parsed === emptyObject ? message.text : formatJson(parsed)
+}
+
+function toolCallTitle(message: Content): string {
+  const count = message.tool_calls?.length || 0
+  return `工具调用 · ${count} 个`
+}
+
+function toolCallSummary(message: Content): string {
+  const calls = message.tool_calls || []
+  const names = calls
+    .map((call) => {
+      const name = call.tool_call?.name
+      return typeof name === 'string' && name ? name : '未知工具'
+    })
+  return names.join(' / ') || '等待工具返回'
+}
+
+function toolCallDetail(message: Content): string {
+  return formatJson(message.tool_calls || [])
+}
+
+function compactText(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  return compact.length > 120 ? `${compact.slice(0, 119)}...` : compact
+}
+
+function formatJson(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const emptyObject: JsonObject = {}
+
+function parseJsonObject(value: string): JsonObject {
+  try {
+    const parsed = JSON.parse(value)
+    return isJsonObject(parsed) ? parsed : emptyObject
+  } catch {
+    return emptyObject
+  }
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function objectField(value: JsonObject, key: string): JsonObject | null {
+  const field = value[key]
+  return isJsonObject(field) ? field : null
+}
+
+function stringField(value: JsonObject, key: string): string | null {
+  const field = value[key]
+  return typeof field === 'string' && field !== '' ? field : null
+}
+
+function booleanField(value: JsonObject, key: string): boolean {
+  return value[key] === true
 }
 
 function codeBlockHtml(highlightedCode: string, language: string): string {
@@ -586,10 +696,37 @@ onMounted(() => {
           :class="{
             assistant: message.role === 'assistant',
             user: message.role === 'user',
+            tool: isToolResultMessage(message) || isToolCallMessage(message),
             pending: message.pending,
           }"
         >
-          <div class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
+          <div v-if="isToolResultMessage(message)" class="tool-message-card">
+            <div class="tool-message-head">
+              <Icon name="file-text" />
+              <div>
+                <strong>{{ toolResultTitle(message) }}</strong>
+                <span>{{ toolResultSummary(message) }}</span>
+              </div>
+            </div>
+            <details class="tool-message-detail">
+              <summary>查看完整工具返回</summary>
+              <pre><code>{{ toolResultDetail(message) }}</code></pre>
+            </details>
+          </div>
+          <div v-else-if="isToolCallMessage(message)" class="tool-message-card">
+            <div class="tool-message-head">
+              <Icon name="wrench" />
+              <div>
+                <strong>{{ toolCallTitle(message) }}</strong>
+                <span>{{ toolCallSummary(message) }}</span>
+              </div>
+            </div>
+            <details class="tool-message-detail">
+              <summary>查看完整调用参数</summary>
+              <pre><code>{{ toolCallDetail(message) }}</code></pre>
+            </details>
+          </div>
+          <div v-else class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
           <div class="message-actions">
             <button
               v-if="message.role === 'assistant' && !message.pending"

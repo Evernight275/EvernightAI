@@ -23,7 +23,7 @@ export type AgentTraceEventType =
   | 'run_paused'
   | 'run_stopped'
 
-export type AgentRunStatus = 'running' | 'paused' | 'finished' | 'failed'
+export type AgentRunStatus = 'running' | 'paused' | 'canceled' | 'finished' | 'failed'
 export type AgentStopReason = 'finished' | 'tool_rounds_exhausted' | 'tool_error'
 
 export type AgentRunRequest = {

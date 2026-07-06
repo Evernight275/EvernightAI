@@ -1680,6 +1680,30 @@ def test_http_websocket_accepts_api_key_query_auth() -> None:
     assert hello["message_type"] == "hello"
 
 
+def test_http_websocket_accepts_api_key_subprotocol_auth() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(principal_id="user-1"),
+                )
+            ]
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/ws",
+            subprotocols=["evernight.realtime", "evernight.api_key.c2VjcmV0"],
+        ) as websocket:
+            hello = websocket.receive_json()
+
+    assert hello["message_type"] == "hello"
+
+
 def test_http_websocket_manager_tracks_connection_lifetime() -> None:
     app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
     manager = app.state.websocket_manager

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type {
   AgentRunState,
   AgentTraceEvent,
+  AgentRunSocketStatus,
   ToolApprovalRequest,
   ToolCall,
   ToolCallResult,
@@ -11,15 +12,28 @@ import Icon from './Icon.vue'
 
 const props = defineProps<{
   run: AgentRunState | null
+  socketStatus?: AgentRunSocketStatus
+}>()
+
+const emit = defineEmits<{
+  pause: [run: AgentRunState]
+  cancel: [run: AgentRunState]
+  resume: [run: AgentRunState]
 }>()
 
 type TraceTone = 'primary' | 'success' | 'warning' | 'danger'
+const previewLimit = 120
 
 const traceEvents = computed(() => props.run?.trace || [])
 const toolEvents = computed(() => traceEvents.value.filter((event) => event.tool_call || event.tool_result || event.approval_request))
 const requestTools = computed(() => props.run?.request.tools || [])
 const pendingApprovals = computed(() => props.run?.pending_approval_requests || [])
 const pendingToolCalls = computed(() => props.run?.pending_tool_calls || [])
+const realtimeStatus = computed(() => props.socketStatus || 'disconnected')
+const realtimeReady = computed(() => realtimeStatus.value === 'connected')
+const canPause = computed(() => props.run?.status === 'running' && realtimeReady.value)
+const canCancel = computed(() => ['running', 'paused'].includes(String(props.run?.status)) && realtimeReady.value)
+const canResume = computed(() => props.run?.status === 'paused' && realtimeReady.value)
 
 const traceCounts = computed(() => {
   const counts = {
@@ -65,6 +79,9 @@ function statusTone(status: string | undefined): TraceTone {
   if (status === 'failed') {
     return 'danger'
   }
+  if (status === 'canceled') {
+    return 'danger'
+  }
   if (status === 'paused') {
     return 'warning'
   }
@@ -73,6 +90,17 @@ function statusTone(status: string | undefined): TraceTone {
   }
 
   return 'primary'
+}
+
+function realtimeLabel(status: AgentRunSocketStatus): string {
+  if (status === 'connected') {
+    return 'WS 已连接'
+  }
+  if (status === 'connecting') {
+    return 'WS 连接中'
+  }
+
+  return 'WS 未连接'
 }
 
 function formatEventType(eventType: string): string {
@@ -110,12 +138,29 @@ function callArguments(toolCall: ToolCall | null | undefined): string {
   return formatJson(args)
 }
 
+function callArgumentsPreview(toolCall: ToolCall | null | undefined): string {
+  const args = toolCall?.tool_call?.arguments
+  if (args === undefined || args === null) {
+    return '无参数'
+  }
+
+  return compactJson(args)
+}
+
 function resultPreview(toolResult: ToolCallResult | null | undefined): string {
   if (!toolResult) {
     return ''
   }
 
   return formatJson(toolResult.tool_call_result)
+}
+
+function resultSummary(toolResult: ToolCallResult | null | undefined): string {
+  if (!toolResult) {
+    return '无结果'
+  }
+
+  return compactJson(toolResult.tool_call_result)
 }
 
 function approvalLabel(request: ToolApprovalRequest): string {
@@ -133,6 +178,27 @@ function formatJson(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function compactJson(value: unknown): string {
+  const text = typeof value === 'string' ? value : stringifyCompact(value)
+  return truncateText(text.replace(/\s+/g, ' ').trim() || '-')
+}
+
+function stringifyCompact(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function truncateText(value: string): string {
+  if (value.length <= previewLimit) {
+    return value
+  }
+
+  return `${value.slice(0, previewLimit - 1)}...`
 }
 
 function shortId(id: string | undefined): string {
@@ -158,7 +224,40 @@ function shortId(id: string | undefined): string {
           <h2>{{ shortId(run.run_id) }}</h2>
           <p>{{ run.request.provider_id }} · {{ run.request.model_id }}</p>
         </div>
-        <span class="tag" :class="statusTone(run.status)">{{ run.status || 'unknown' }}</span>
+        <div class="run-detail-actions">
+          <span class="tag" :class="statusTone(run.status)">{{ run.status || 'unknown' }}</span>
+          <span class="tag" :class="realtimeReady ? 'success' : 'warning'">{{ realtimeLabel(realtimeStatus) }}</span>
+          <button
+            class="button compact-button icon-button"
+            type="button"
+            :disabled="!canPause"
+            title="暂停"
+            aria-label="暂停"
+            @click="emit('pause', run)"
+          >
+            <Icon name="pause" />
+          </button>
+          <button
+            class="button compact-button icon-button"
+            type="button"
+            :disabled="!canResume"
+            title="继续"
+            aria-label="继续"
+            @click="emit('resume', run)"
+          >
+            <Icon name="play" />
+          </button>
+          <button
+            class="button compact-button icon-button danger"
+            type="button"
+            :disabled="!canCancel"
+            title="取消"
+            aria-label="取消"
+            @click="emit('cancel', run)"
+          >
+            <Icon name="square" />
+          </button>
+        </div>
       </div>
 
       <div class="run-detail-metrics">
@@ -242,7 +341,13 @@ function shortId(id: string | undefined): string {
         <div class="run-call-list">
           <article v-for="call in pendingToolCalls" :key="call.tool_call_id" class="run-call">
             <strong>{{ toolCallName(call) || '未知工具' }}</strong>
-            <code>{{ callArguments(call) }}</code>
+            <details class="run-json-detail">
+              <summary>
+                <span>参数</span>
+                <code>{{ callArgumentsPreview(call) }}</code>
+              </summary>
+              <pre><code>{{ callArguments(call) }}</code></pre>
+            </details>
           </article>
         </div>
       </section>
@@ -270,8 +375,20 @@ function shortId(id: string | undefined): string {
               <p v-else-if="event.error_message">{{ event.error_message }}</p>
               <div v-if="event.tool_call || event.tool_result || event.approval_request" class="run-trace-tool">
                 <span class="tag">{{ toolName(event) }}</span>
-                <code v-if="event.tool_call">{{ callArguments(event.tool_call) }}</code>
-                <code v-if="event.tool_result">{{ resultPreview(event.tool_result) }}</code>
+                <details v-if="event.tool_call" class="run-json-detail">
+                  <summary>
+                    <span>参数</span>
+                    <code>{{ callArgumentsPreview(event.tool_call) }}</code>
+                  </summary>
+                  <pre><code>{{ callArguments(event.tool_call) }}</code></pre>
+                </details>
+                <details v-if="event.tool_result" class="run-json-detail">
+                  <summary>
+                    <span>结果</span>
+                    <code>{{ resultSummary(event.tool_result) }}</code>
+                  </summary>
+                  <pre><code>{{ resultPreview(event.tool_result) }}</code></pre>
+                </details>
               </div>
             </div>
           </li>
@@ -293,8 +410,20 @@ function shortId(id: string | undefined): string {
               <strong>{{ toolName(event) }}</strong>
               <span class="tag" :class="traceTone(event)">{{ event.event_type }}</span>
             </div>
-            <code v-if="event.tool_call">{{ callArguments(event.tool_call) }}</code>
-            <code v-if="event.tool_result">{{ resultPreview(event.tool_result) }}</code>
+            <details v-if="event.tool_call" class="run-json-detail">
+              <summary>
+                <span>参数</span>
+                <code>{{ callArgumentsPreview(event.tool_call) }}</code>
+              </summary>
+              <pre><code>{{ callArguments(event.tool_call) }}</code></pre>
+            </details>
+            <details v-if="event.tool_result" class="run-json-detail">
+              <summary>
+                <span>结果</span>
+                <code>{{ resultSummary(event.tool_result) }}</code>
+              </summary>
+              <pre><code>{{ resultPreview(event.tool_result) }}</code></pre>
+            </details>
             <p v-if="event.error_message">{{ event.error_message }}</p>
           </article>
         </div>
