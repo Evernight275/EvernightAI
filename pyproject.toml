@@ -16,6 +16,7 @@ dependencies = [
     "openai",
     "uvicorn[standard]",
     "pyjwt[crypto]>=2.13.0",
+    "ruff",
 ]
 
 [project.scripts]
