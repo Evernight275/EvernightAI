@@ -85,13 +85,17 @@ class ManagedWebSocketConnection(WebSocketProtocol):
         with suppress(RuntimeError, WebSocketDisconnect):
             await self._websocket.close(code=code, reason=reason)
 
-    def spawn(self, awaitable: Coroutine[object, object, None]) -> None:
+    def spawn(
+        self,
+        awaitable: Coroutine[object, object, None],
+    ) -> asyncio.Task[None] | None:
         if self._closed:
-            return
+            return None
 
         task = asyncio.create_task(awaitable)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
 
     def mark_received(self) -> None:
         self._last_received_at = monotonic()
@@ -140,6 +144,7 @@ class WebSocketConnectionManager:
         self._connections: dict[str, ManagedWebSocketConnection] = {}
         self._subscriptions_by_run: dict[str, set[str]] = defaultdict(set)
         self._runs_by_connection: dict[str, set[str]] = defaultdict(set)
+        self._tasks_by_run: dict[str, set[asyncio.Task[None]]] = defaultdict(set)
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
 
@@ -204,6 +209,37 @@ class WebSocketConnectionManager:
             connection = self._connections.get(connection_id)
             if connection is not None:
                 await connection.send(message)
+
+    def track_run_task(
+        self,
+        run_id: str,
+        task: asyncio.Task[None] | None,
+    ) -> None:
+        if task is None:
+            return
+
+        self._tasks_by_run[run_id].add(task)
+        task.add_done_callback(lambda done: self._discard_run_task(run_id, done))
+
+    async def cancel_run_tasks(self, run_id: str) -> None:
+        tasks = list(self._tasks_by_run.pop(run_id, set()))
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+
+    def _discard_run_task(
+        self,
+        run_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        tasks = self._tasks_by_run.get(run_id)
+        if tasks is None:
+            return
+        tasks.discard(task)
+        if not tasks:
+            self._tasks_by_run.pop(run_id, None)
 
 
 def websocket_query_token(websocket: WebSocket) -> str | None:

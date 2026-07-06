@@ -228,6 +228,20 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunState: ...
 
+    async def pause(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState: ...
+
+    async def cancel(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState: ...
+
     def start_stream(
         self,
         request: AgentRunRequest,

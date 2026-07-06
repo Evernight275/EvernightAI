@@ -1832,6 +1832,209 @@ def test_http_websocket_replays_trace_after_reconnect() -> None:
     }
 
 
+def test_http_websocket_pauses_active_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=SlowProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "agent_control",
+                    "message_id": "pause-1",
+                    "agent_control": {
+                        "run_id": "run-ws",
+                        "action": "pause",
+                        "reason": "user paused",
+                    },
+                }
+            )
+            paused = websocket.receive_json()
+
+    assert paused["message_type"] == "agent_trace"
+    assert paused["correlation_id"] == "pause-1"
+    assert paused["trace_event"]["event_type"] == "run_paused"
+    assert paused["trace_event"]["metadata"] == {
+        "reason": "pause",
+        "control_reason": "user paused",
+    }
+    assert state_register.get_state("run-ws").status.value == "paused"
+
+
+def test_http_websocket_resumes_manually_paused_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=SlowProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "agent_control",
+                    "message_id": "pause-1",
+                    "agent_control": {
+                        "run_id": "run-ws",
+                        "action": "pause",
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "agent_control",
+                    "message_id": "resume-1",
+                    "agent_control": {
+                        "run_id": "run-ws",
+                        "action": "resume",
+                    },
+                }
+            )
+            resumed_messages = [websocket.receive_json() for _ in range(3)]
+
+    assert [message["trace_event"]["event_type"] for message in resumed_messages] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert {message["correlation_id"] for message in resumed_messages} == {
+        "resume-1"
+    }
+    assert state_register.get_state("run-ws").status.value == "finished"
+
+
+def test_http_websocket_cancels_active_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=SlowProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "agent_control",
+                    "message_id": "cancel-1",
+                    "agent_control": {
+                        "run_id": "run-ws",
+                        "action": "cancel",
+                        "reason": "user canceled",
+                    },
+                }
+            )
+            canceled = websocket.receive_json()
+
+    assert canceled["message_type"] == "agent_trace"
+    assert canceled["correlation_id"] == "cancel-1"
+    assert canceled["trace_event"]["event_type"] == "run_stopped"
+    assert canceled["trace_event"]["metadata"] == {
+        "reason": "canceled",
+        "control_reason": "user canceled",
+    }
+    assert state_register.get_state("run-ws").status.value == "canceled"
+
+
 def test_http_websocket_streams_agent_run_trace() -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()

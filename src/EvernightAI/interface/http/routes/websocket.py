@@ -149,7 +149,8 @@ async def _handle_client_event(
 
     try:
         request = AgentRunRequest.model_validate(message.client_event.payload)
-        connection.spawn(
+        run_id = _run_id_for_message(message, request)
+        task = connection.spawn(
             _start_agent_run_stream(
                 interface,
                 connection,
@@ -157,6 +158,8 @@ async def _handle_client_event(
                 request,
             )
         )
+        if run_id is not None:
+            connection.manager.track_run_task(run_id, task)
     except Exception as exc:
         await _send_error(connection, exc, correlation_id=message.message_id)
 
@@ -236,7 +239,7 @@ async def _handle_tool_approval(
         return
 
     try:
-        connection.spawn(
+        task = connection.spawn(
             _resume_agent_run_stream(
                 interface,
                 connection,
@@ -245,6 +248,7 @@ async def _handle_tool_approval(
                 [message.tool_approval.decision],
             )
         )
+        connection.manager.track_run_task(message.tool_approval.run_id, task)
     except Exception as exc:
         await _send_error(connection, exc, correlation_id=message.message_id)
 
@@ -262,9 +266,17 @@ async def _handle_agent_control(
         )
         return
 
+    if message.agent_control.action is WebSocketAgentControlAction.PAUSE:
+        await _pause_agent_run(interface, connection, message)
+        return
+
+    if message.agent_control.action is WebSocketAgentControlAction.CANCEL:
+        await _cancel_agent_run(interface, connection, message)
+        return
+
     if message.agent_control.action is WebSocketAgentControlAction.RESUME:
         try:
-            connection.spawn(
+            task = connection.spawn(
                 _resume_agent_run_stream(
                     interface,
                     connection,
@@ -273,6 +285,7 @@ async def _handle_agent_control(
                     [],
                 )
             )
+            connection.manager.track_run_task(message.agent_control.run_id, task)
         except Exception as exc:
             await _send_error(connection, exc, correlation_id=message.message_id)
         return
@@ -283,6 +296,66 @@ async def _handle_agent_control(
             f"Unsupported agent control action: {message.agent_control.action}"
         ),
         correlation_id=message.message_id,
+    )
+
+
+async def _pause_agent_run(
+    interface: EvernightInterfaceProtocol,
+    connection: ManagedWebSocketConnection,
+    message: WebSocketMessage,
+) -> None:
+    assert message.agent_control is not None
+    run_id = message.agent_control.run_id
+    await connection.manager.cancel_run_tasks(run_id)
+    try:
+        state = await interface.agent_runs.pause(
+            run_id,
+            reason=message.agent_control.reason,
+        )
+        await _broadcast_control_trace(interface, connection, message, state.run_id)
+    except Exception as exc:
+        await _send_error(connection, exc, correlation_id=message.message_id)
+
+
+async def _cancel_agent_run(
+    interface: EvernightInterfaceProtocol,
+    connection: ManagedWebSocketConnection,
+    message: WebSocketMessage,
+) -> None:
+    assert message.agent_control is not None
+    run_id = message.agent_control.run_id
+    await connection.manager.cancel_run_tasks(run_id)
+    try:
+        state = await interface.agent_runs.cancel(
+            run_id,
+            reason=message.agent_control.reason,
+        )
+        await _broadcast_control_trace(interface, connection, message, state.run_id)
+    except Exception as exc:
+        await _send_error(connection, exc, correlation_id=message.message_id)
+
+
+async def _broadcast_control_trace(
+    interface: EvernightInterfaceProtocol,
+    connection: ManagedWebSocketConnection,
+    message: WebSocketMessage,
+    run_id: str,
+) -> None:
+    state = interface.agent_runs.get_state(run_id)
+    if not state.trace:
+        return
+
+    connection.manager.subscribe(connection, run_id)
+    sequence = _trace_sequence(interface, run_id)
+    await connection.manager.broadcast_run(
+        run_id,
+        WebSocketMessage(
+            message_type=WebSocketMessageType.AGENT_TRACE,
+            correlation_id=message.message_id,
+            run_id=run_id,
+            trace_event=state.trace[-1],
+            payload=_trace_payload(sequence, replayed=False),
+        ),
     )
 
 

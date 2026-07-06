@@ -164,6 +164,7 @@ class AgentRunMetadata:
     RUNTIME_KEY = "agent_runtime"
     PENDING_APPROVAL_COUNT_KEY = "pending_approval_count"
     TOOL_ROUNDS_USED_KEY = "tool_rounds_used"
+    MANUAL_PAUSE_KEY = "manual_pause"
 
     @classmethod
     def run_id(cls, metadata: dict[str, object]) -> str | None:
@@ -386,6 +387,10 @@ class AgentApplication(AgentInterfaceProtocol):
     ) -> AsyncIterator[AgentTraceEvent]:
         if state.status is not AgentRunStatus.PAUSED:
             raise AgentStateError("Agent run is not paused")
+        if self._is_manual_pause(state):
+            async for event in self._resume_manual_pause_events(state):
+                yield event
+            return
         if state.response is None:
             raise AgentStateError("Agent run did not produce a response")
         if not state.pending_tool_calls:
@@ -436,6 +441,28 @@ class AgentApplication(AgentInterfaceProtocol):
             already_requested_approval_call_ids=pending_approval_call_ids,
         ):
             yield event
+
+    async def _resume_manual_pause_events(
+        self,
+        state: AgentRunState,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        state.status = AgentRunStatus.RUNNING
+        state.stop_reason = None
+        state.pending_tool_calls = []
+        state.pending_approval_requests = []
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
+        )
+        async for event in self._run_agent_events(state.request, state):
+            yield event
+
+    def _is_manual_pause(self, state: AgentRunState) -> bool:
+        runtime_metadata = state.metadata.get(AgentRunMetadata.RUNTIME_KEY)
+        return (
+            isinstance(runtime_metadata, dict)
+            and runtime_metadata.get(AgentRunMetadata.MANUAL_PAUSE_KEY) is True
+        )
 
     async def run(
         self,
@@ -1253,6 +1280,74 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         approvals: list[ToolApprovalDecision],
     ) -> AgentRunState:
         return await self._agent.resume_agent_run(run_id, approvals)
+
+    async def pause(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState:
+        state = self.get_state(run_id)
+        if state.status is AgentRunStatus.PAUSED:
+            return state
+        if state.status is not AgentRunStatus.RUNNING:
+            raise AgentStateError("Agent run is not running")
+
+        metadata = {"reason": "pause"}
+        if reason:
+            metadata["control_reason"] = reason
+        event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_PAUSED,
+                metadata=metadata,
+            ),
+        )
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
+            pause_reason=reason or "pause",
+        )
+        self._state_register().save_state(state)
+        self._trace_register().append_event(run_id, event)
+        return state
+
+    async def cancel(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState:
+        state = self.get_state(run_id)
+        if state.status is AgentRunStatus.CANCELED:
+            return state
+        if state.status in {AgentRunStatus.FINISHED, AgentRunStatus.FAILED}:
+            raise AgentStateError("Agent run is already stopped")
+
+        metadata = {"reason": "canceled"}
+        if reason:
+            metadata["control_reason"] = reason
+        event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_STOPPED,
+                metadata=metadata,
+            ),
+        )
+        state.status = AgentRunStatus.CANCELED
+        state.stop_reason = None
+        state.pending_tool_calls = []
+        state.pending_approval_requests = []
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
+            cancel_reason=reason or "canceled",
+        )
+        self._state_register().save_state(state)
+        self._trace_register().append_event(run_id, event)
+        return state
 
     def start_stream(
         self,

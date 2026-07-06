@@ -362,9 +362,41 @@ receive loop stays available for heartbeats and approval messages while a stream
 is active. Disconnecting cancels active stream tasks and removes run
 subscriptions for that connection.
 
-`agent_control` messages are reserved for run controls. `resume` is accepted and
-maps to resume-with-no-approvals; `pause` and `cancel` currently return an
-`error` message until the agent lifecycle exposes those controls.
+Control an active run with `agent_control`. `pause` moves a running persisted
+run to `paused`, cancels the active stream task, and broadcasts a `run_paused`
+trace event.
+
+```json
+{
+  "message_type": "agent_control",
+  "message_id": "pause-1",
+  "agent_control": {
+    "run_id": "run-1",
+    "action": "pause",
+    "reason": "user paused"
+  }
+}
+```
+
+`cancel` moves a running or paused persisted run to `canceled`, cancels the
+active stream task, clears pending tool approvals, and broadcasts a
+`run_stopped` trace event with reason `canceled`.
+
+```json
+{
+  "message_type": "agent_control",
+  "message_id": "cancel-1",
+  "agent_control": {
+    "run_id": "run-1",
+    "action": "cancel",
+    "reason": "user canceled"
+  }
+}
+```
+
+`resume` restarts a manually paused run from its stored request. For
+tool-approval pauses, `resume` maps to resume-with-no-approvals; use
+`tool_approval` when a pending approval decision is required.
 
 To allow tools and pause for approval, include tool definitions:
 

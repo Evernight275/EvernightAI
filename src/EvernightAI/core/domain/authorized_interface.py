@@ -553,6 +553,24 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         self._require("agent-runs", "resume", run_id)
         return await self._inner.resume(run_id, approvals)
 
+    async def pause(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState:
+        self._require("agent-runs", "pause", run_id)
+        return await self._inner.pause(run_id, reason=reason)
+
+    async def cancel(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> AgentRunState:
+        self._require("agent-runs", "cancel", run_id)
+        return await self._inner.cancel(run_id, reason=reason)
+
     def start_stream(
         self,
         request: AgentRunRequest,
