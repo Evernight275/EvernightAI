@@ -31,7 +31,9 @@ from EvernightAI.interface.http.routes.providers import router as providers_rout
 from EvernightAI.interface.http.routes.sessions import router as sessions_router
 from EvernightAI.interface.http.routes.skills import router as skills_router
 from EvernightAI.interface.http.routes.tools import router as tools_router
+from EvernightAI.interface.http.routes.websocket import router as websocket_router
 from EvernightAI.interface.http.template import API_DESCRIPTION, OPENAPI_TAGS
+from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 
 
 HTTP_BEARER_SECURITY_SCHEME = "EvernightBearerAuth"
@@ -66,6 +68,7 @@ def create_http_app(
     )
     app.state.interface = interface
     app.state.auth_device = auth_device
+    app.state.websocket_manager = WebSocketConnectionManager()
     app.state.authorized_interface_factory = (
         authorized_interface_factory or _identity_authorized_interface
     )
@@ -86,6 +89,7 @@ def create_http_app(
     app.include_router(tools_router)
     app.include_router(chat_router)
     app.include_router(agent_runs_router)
+    app.include_router(websocket_router)
     if static_files_path is not None:
         app.mount(
             "/",

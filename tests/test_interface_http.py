@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -73,6 +74,8 @@ from EvernightAI.core.schema.skill import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalStatus,
     ToolCall,
     ToolDefinition,
     ToolPermission,
@@ -92,6 +95,7 @@ from EvernightAI.interface.http.schema import (
 )
 from EvernightAI.interface.http.errors import status_code_for_error
 from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
+from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 from EvernightAI.interface.log_store import RECENT_LOG_STORE
 
 
@@ -1628,6 +1632,348 @@ def test_http_app_streams_agent_pause_for_tool_approval() -> None:
     assert tool_executed is False
 
 
+def test_http_websocket_sends_hello_and_heartbeat_ack() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            hello = websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "heartbeat",
+                    "message_id": "heartbeat-1",
+                    "heartbeat": {"sequence": 7},
+                }
+            )
+            heartbeat_ack = websocket.receive_json()
+
+    assert hello["message_type"] == "hello"
+    assert "agent_trace" in hello["hello"]["capabilities"]
+    assert heartbeat_ack == {
+        "message_type": "heartbeat_ack",
+        "correlation_id": "heartbeat-1",
+        "heartbeat": {"sequence": 7, "metadata": {}},
+        "payload": {},
+        "metadata": {},
+    }
+
+
+def test_http_websocket_accepts_api_key_query_auth() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(principal_id="user-1"),
+                )
+            ]
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws?api_key=secret") as websocket:
+            hello = websocket.receive_json()
+
+    assert hello["message_type"] == "hello"
+
+
+def test_http_websocket_manager_tracks_connection_lifetime() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    manager = app.state.websocket_manager
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            assert manager.connection_count == 1
+
+    assert manager.connection_count == 0
+
+
+def test_http_websocket_receive_loop_stays_responsive_during_stream() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=SlowProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            websocket.send_json(
+                {
+                    "message_type": "heartbeat",
+                    "message_id": "heartbeat-1",
+                    "heartbeat": {"sequence": 9},
+                }
+            )
+            early_messages = [websocket.receive_json() for _ in range(2)]
+
+    assert "heartbeat_ack" in [
+        message["message_type"] for message in early_messages
+    ]
+    assert "run_stopped" not in [
+        message.get("trace_event", {}).get("event_type")
+        for message in early_messages
+    ]
+
+
+def test_http_websocket_sends_server_heartbeats() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    app.state.websocket_manager = WebSocketConnectionManager(
+        heartbeat_interval_seconds=0.01,
+        heartbeat_timeout_seconds=1.0,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            heartbeat = websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "heartbeat_ack",
+                    "correlation_id": heartbeat["message_id"],
+                    "heartbeat": heartbeat["heartbeat"],
+                }
+            )
+
+    assert heartbeat["message_type"] == "heartbeat"
+    assert heartbeat["heartbeat"]["sequence"] == 1
+
+
+def test_http_websocket_replays_trace_after_reconnect() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FakeProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        client.post(
+            "/agent-runs",
+            json={
+                "provider_id": "provider-1",
+                "context_id": "ctx-1",
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+                "metadata": {"run_id": "run-ws"},
+            },
+        )
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "subscribe-1",
+                    "client_event": {
+                        "event_name": "agent_run.subscribe",
+                        "payload": {
+                            "run_id": "run-ws",
+                            "after_sequence": 1,
+                        },
+                    },
+                }
+            )
+            replayed_messages = [websocket.receive_json() for _ in range(2)]
+
+    assert [message["trace_event"]["event_type"] for message in replayed_messages] == [
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert [message["payload"]["sequence"] for message in replayed_messages] == [2, 3]
+    assert {message["payload"]["replayed"] for message in replayed_messages} == {
+        True
+    }
+
+
+def test_http_websocket_streams_agent_run_trace() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FakeProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            messages = [websocket.receive_json() for _ in range(3)]
+
+    assert [message["message_type"] for message in messages] == [
+        "agent_trace",
+        "agent_trace",
+        "agent_trace",
+    ]
+    assert [message["trace_event"]["event_type"] for message in messages] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert {message["correlation_id"] for message in messages} == {"start-1"}
+    assert {message["run_id"] for message in messages} == {"run-ws"}
+    assert state_register.get_state("run-ws").status.value == "finished"
+
+
+def test_http_websocket_resumes_agent_run_with_tool_approval() -> None:
+    tool_executed = False
+
+    async def write_file(_arguments: dict[str, object]) -> dict[str, object]:
+        nonlocal tool_executed
+        tool_executed = True
+        return {"written": True}
+
+    provider = SensitiveThenFinalProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    tool = sensitive_tool_definition()
+    runtime.tool_register.register(tool, write_file)
+    interface = create_interface(runtime)
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Write a file")],
+                            "tools": [tool.model_dump(mode="json")],
+                            "pause_on_approval": True,
+                            "metadata": {"run_id": "run-ws"},
+                        },
+                    },
+                }
+            )
+            start_messages = [websocket.receive_json() for _ in range(4)]
+            websocket.send_json(
+                {
+                    "message_type": "tool_approval",
+                    "message_id": "approval-1",
+                    "tool_approval": {
+                        "run_id": "run-ws",
+                        "decision": ToolApprovalDecision(
+                            approval_id="tool-call-1:approval",
+                            tool_call_id="tool-call-1",
+                            status=ToolApprovalStatus.APPROVED,
+                        ).model_dump(mode="json"),
+                    },
+                }
+            )
+            resumed_messages = [websocket.receive_json() for _ in range(4)]
+
+    assert [message["trace_event"]["event_type"] for message in start_messages] == [
+        "run_started",
+        "chat_completed",
+        "tool_approval_requested",
+        "run_paused",
+    ]
+    assert [message["trace_event"]["event_type"] for message in resumed_messages] == [
+        "tool_approval_decided",
+        "tool_completed",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert {message["correlation_id"] for message in resumed_messages} == {
+        "approval-1"
+    }
+    assert tool_executed is True
+    assert len(provider.requests) == 2
+
+
 def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
     tool_executed = False
 
@@ -1832,6 +2178,12 @@ class FakeProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
+
+
+class SlowProvider(FakeProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        await asyncio.sleep(0.05)
+        return await super().chat(request)
 
 
 class FailingStreamProvider(FakeProvider):

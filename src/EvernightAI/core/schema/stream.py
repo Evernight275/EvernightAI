@@ -4,8 +4,9 @@ from enum import StrEnum
 from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
+from EvernightAI.core.schema.agent import AgentTraceEvent
 from EvernightAI.core.schema.content import ChatUsage, ContentPart, MessageRole
-from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolCall
 
 
 class SSEEvent(EvernightAISchema):
@@ -52,4 +53,94 @@ class ChatStreamEvent(EvernightAISchema):
     raw_data: dict[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketMessageType(StrEnum):
+    """WebSocket消息类型"""
+
+    HELLO = "hello"
+    HEARTBEAT = "heartbeat"
+    HEARTBEAT_ACK = "heartbeat_ack"
+    AGENT_TRACE = "agent_trace"
+    AGENT_CONTROL = "agent_control"
+    TOOL_APPROVAL = "tool_approval"
+    CLIENT_EVENT = "client_event"
+    ERROR = "error"
+
+
+class WebSocketAgentControlAction(StrEnum):
+    """WebSocket Agent控制动作"""
+
+    CANCEL = "cancel"
+    PAUSE = "pause"
+    RESUME = "resume"
+
+
+class WebSocketHeartbeat(EvernightAISchema):
+    """WebSocket心跳载荷"""
+
+    sequence: int | None = Field(default=None, ge=0)
+    sent_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketHello(EvernightAISchema):
+    """WebSocket握手载荷"""
+
+    protocol_version: str = "1"
+    connection_id: str | None = None
+    capabilities: list[WebSocketMessageType] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketAgentControl(EvernightAISchema):
+    """WebSocket Agent运行控制载荷"""
+
+    run_id: str
+    action: WebSocketAgentControlAction
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketToolApproval(EvernightAISchema):
+    """WebSocket工具审批载荷"""
+
+    run_id: str
+    decision: ToolApprovalDecision
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketClientEvent(EvernightAISchema):
+    """WebSocket前端控制事件载荷"""
+
+    event_name: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketError(EvernightAISchema):
+    """WebSocket错误载荷"""
+
+    error_type: str
+    error_message: str
+    retryable: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebSocketMessage(EvernightAISchema):
+    """WebSocket传输消息信封"""
+
+    message_type: WebSocketMessageType
+    message_id: str | None = None
+    correlation_id: str | None = None
+    run_id: str | None = None
+    hello: WebSocketHello | None = None
+    heartbeat: WebSocketHeartbeat | None = None
+    agent_control: WebSocketAgentControl | None = None
+    tool_approval: WebSocketToolApproval | None = None
+    client_event: WebSocketClientEvent | None = None
+    trace_event: AgentTraceEvent | None = None
+    error: WebSocketError | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
