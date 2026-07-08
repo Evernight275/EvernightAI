@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 type IconNode = {
-  tag: 'path' | 'rect' | 'circle' | 'ellipse' | 'line' | 'polyline'
+  tag: 'path' | 'rect' | 'circle' | 'ellipse' | 'line' | 'polyline' | 'polygon'
   attrs: Record<string, string | number>
 }
 
@@ -54,9 +54,16 @@ const icons: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M12 7v6' } },
     { tag: 'path', attrs: { d: 'M9 10h6' } },
   ],
+  pause: [
+    { tag: 'rect', attrs: { x: 14, y: 4, width: 4, height: 16, rx: 1 } },
+    { tag: 'rect', attrs: { x: 6, y: 4, width: 4, height: 16, rx: 1 } },
+  ],
   pencil: [
     { tag: 'path', attrs: { d: 'M21.17 6.83a2.83 2.83 0 0 0-4-4L3 17v4h4Z' } },
     { tag: 'path', attrs: { d: 'm15 5 4 4' } },
+  ],
+  play: [
+    { tag: 'polygon', attrs: { points: '6 3 20 12 6 21 6 3' } },
   ],
   'rotate-ccw': [
     { tag: 'path', attrs: { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' } },
@@ -108,6 +115,10 @@ const icons: Record<string, IconNode[]> = {
   ],
   wrench: [
     { tag: 'path', attrs: { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a6 6 0 0 1-7.9 7.9l-6.6 6.6a2.1 2.1 0 0 1-3-3l6.6-6.6a6 6 0 0 1 7.9-7.9z' } },
+  ],
+  x: [
+    { tag: 'path', attrs: { d: 'M18 6 6 18' } },
+    { tag: 'path', attrs: { d: 'm6 6 12 12' } },
   ],
 }
 

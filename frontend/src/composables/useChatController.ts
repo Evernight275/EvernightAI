@@ -6,7 +6,9 @@ import {
   createSession,
   deleteSession,
   getContext,
+  approvePendingAgentRun,
   replaceSession,
+  resumeAgentRun,
   startAgentRunStream,
   startSessionAgentRun,
   type AgentRunState,
@@ -16,6 +18,8 @@ import {
   type Context,
   type Session,
   type ToolCall,
+  type ToolApprovalRequest,
+  type ToolApprovalStatus,
   type ToolCallResult,
   type ToolDefinition,
 } from '../api'
@@ -24,6 +28,7 @@ import type { ProviderModelChoice } from './useProviderModels'
 import { useToast } from './useToast'
 
 const toast = useToast()
+const DEFAULT_AGENT_MAX_TOOL_ROUNDS = 8
 
 export type ChatDisplayMessage = Content & {
   outgoing?: boolean
@@ -31,10 +36,19 @@ export type ChatDisplayMessage = Content & {
   pending?: boolean
   contextIndex?: number
 }
+type ToolApprovalMessage = ChatDisplayMessage & {
+  metadata: {
+    kind: 'tool_approval'
+    run_id: string
+    approval_request: ToolApprovalRequest
+    tool_call?: ToolCall | null
+  }
+}
 
 type UseChatControllerOptions = {
   sessions: Ref<Session[]>
   sortedSessions: ComputedRef<Session[]>
+  runs: Ref<AgentRunState[]>
   latestRun: ComputedRef<AgentRunState | undefined>
   tools: Ref<ToolDefinition[]>
   selectedProviderModelChoice: ComputedRef<ProviderModelChoice>
@@ -46,6 +60,7 @@ type UseChatControllerOptions = {
 export function useChatController({
   sessions,
   sortedSessions,
+  runs,
   latestRun,
   tools,
   selectedProviderModelChoice,
@@ -64,8 +79,11 @@ export function useChatController({
   const chatStreamEnabled = ref(false)
   const chatAgentEnabled = ref(true)
   const sendingMessage = ref(false)
+  const approvingToolApproval = ref(false)
   const creatingSession = ref(false)
   const chatError = ref<string | null>(null)
+  const activeAgentRunId = ref<string | null>(null)
+  const currentAgentRunPaused = ref(false)
 
   const selectedSession = computed(() => (
     sessions.value.find((session) => session.session_id === selectedSessionId.value) || null
@@ -76,6 +94,9 @@ export function useChatController({
   const chatMessages = computed<ChatDisplayMessage[]>(() => {
     const pendingMessages = pendingChatSessionId.value === selectedSessionId.value
       ? pendingChatMessages.value
+      : []
+    const approvalMessages = selectedSession.value
+      ? approvalMessagesForSession(selectedSession.value, pendingMessages)
       : []
 
     if (selectedContext.value?.messages?.length) {
@@ -88,11 +109,15 @@ export function useChatController({
             contextIndex,
           }))
           .filter((message) => isActiveMessage(message)),
+        ...approvalMessages,
         ...pendingMessages,
       ]
     }
 
-    const messages: ChatDisplayMessage[] = [...pendingMessages]
+    const messages: ChatDisplayMessage[] = [
+      ...approvalMessages,
+      ...pendingMessages,
+    ]
 
     if (messages.length > 0) {
       return messages
@@ -232,6 +257,8 @@ export function useChatController({
 
       if (chatStreamEnabled.value && chatAgentEnabled.value) {
         const runId = newId('run')
+        activeAgentRunId.value = runId
+        currentAgentRunPaused.value = false
         await startAgentRunStream({
           ...request,
           context_id: session.context_id,
@@ -240,10 +267,10 @@ export function useChatController({
             session_id: session.session_id,
             run_id: runId,
           },
-          max_tool_rounds: 1,
+          max_tool_rounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
           recover_tool_errors: true,
           write_memory: false,
-          pause_on_approval: false,
+          pause_on_approval: true,
         }, handleAgentStreamEvent)
       } else if (chatStreamEnabled.value) {
         setPendingAssistantText('', true)
@@ -256,18 +283,27 @@ export function useChatController({
           },
         }, handleChatStreamEvent)
       } else if (chatAgentEnabled.value) {
-        await startSessionAgentRun(session.session_id, {
+        const state = await startSessionAgentRun(session.session_id, {
           ...request,
-          max_tool_rounds: 1,
+          max_tool_rounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
           recover_tool_errors: true,
           write_memory: false,
-          pause_on_approval: false,
+          pause_on_approval: true,
         })
+        if (state.status === 'paused' && state.pending_approval_requests?.length) {
+          currentAgentRunPaused.value = true
+          for (const approval of state.pending_approval_requests) {
+            appendPendingApproval(state.run_id, approval, state.pending_tool_calls?.[0] || null)
+          }
+          setPendingAssistantText('等待工具审批...', true)
+        }
       } else {
         await chatWithSession(session.session_id, request)
       }
       await refreshDashboard()
-      clearPendingMessages()
+      if (!currentAgentRunPaused.value) {
+        clearPendingMessages()
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Agent 运行失败'
       chatError.value = message
@@ -282,6 +318,45 @@ export function useChatController({
       pendingAssistantHasDelta.value = false
     } finally {
       sendingMessage.value = false
+      if (!currentAgentRunPaused.value) {
+        activeAgentRunId.value = null
+      }
+    }
+  }
+
+  async function decideToolApproval(message: ChatDisplayMessage, status: ToolApprovalStatus) {
+    const approvalMessage = asToolApprovalMessage(message)
+    if (approvalMessage === null) {
+      return
+    }
+
+    approvingToolApproval.value = true
+    chatError.value = null
+    try {
+      const approval = approvalMessage.metadata.approval_request
+      if (status === 'approved') {
+        await approvePendingAgentRun(approvalMessage.metadata.run_id)
+      } else {
+        await resumeAgentRun(approvalMessage.metadata.run_id, {
+          approvals: [
+            {
+              approval_id: approval.approval_id,
+              tool_call_id: approval.tool_call_id,
+              status,
+            },
+          ],
+        })
+      }
+      currentAgentRunPaused.value = false
+      activeAgentRunId.value = null
+      removePendingApproval(approval.approval_id)
+      await refreshDashboard()
+      await loadSelectedContext()
+      clearPendingMessages()
+    } catch (error) {
+      chatError.value = error instanceof Error ? error.message : '工具审批失败'
+    } finally {
+      approvingToolApproval.value = false
     }
   }
 
@@ -433,6 +508,9 @@ export function useChatController({
 
     if (event.event_type === 'tool_approval_requested' && event.tool_call) {
       appendPendingToolCalls([event.tool_call])
+      if (event.approval_request && activeAgentRunId.value) {
+        appendPendingApproval(activeAgentRunId.value, event.approval_request, event.tool_call)
+      }
       setPendingAssistantText(event.summary || '等待工具审批...', true)
       pendingAssistantHasDelta.value = false
       return
@@ -460,12 +538,39 @@ export function useChatController({
 
     if (event.event_type === 'run_stopped') {
       markPendingAssistantDone()
+      currentAgentRunPaused.value = false
       return
     }
 
-    if (event.event_type === 'run_paused' && event.summary) {
-      setPendingAssistantText(event.summary, false)
+    if (event.event_type === 'run_paused') {
+      currentAgentRunPaused.value = true
+      if (event.approval_request && activeAgentRunId.value) {
+        appendPendingApproval(activeAgentRunId.value, event.approval_request, event.tool_call || null)
+      }
+      setPendingAssistantText(event.summary || '等待工具审批...', true)
     }
+  }
+
+  function appendPendingApproval(
+    runId: string,
+    approval: ToolApprovalRequest,
+    toolCall: ToolCall | null,
+  ) {
+    const alreadyExists = pendingChatMessages.value.some((message) => (
+      message.metadata?.kind === 'tool_approval'
+      && message.metadata?.approval_request
+      && isApprovalRequest(message.metadata.approval_request)
+      && message.metadata.approval_request.approval_id === approval.approval_id
+    ))
+    if (alreadyExists) {
+      return
+    }
+
+    const permissionLabel = approval.permissions?.join(', ') || '无特殊权限'
+    pendingChatMessages.value = [
+      ...pendingChatMessages.value,
+      makeApprovalMessage(runId, approval, toolCall, permissionLabel),
+    ]
   }
 
   function appendPendingToolCalls(toolCalls: ToolCall[]) {
@@ -580,6 +685,39 @@ export function useChatController({
     pendingChatMessages.value = []
     pendingChatSessionId.value = null
     pendingAssistantHasDelta.value = false
+    currentAgentRunPaused.value = false
+  }
+
+  function removePendingApproval(approvalId: string) {
+    pendingChatMessages.value = pendingChatMessages.value.filter((message) => {
+      const approval = message.metadata?.approval_request
+      return !(isApprovalRequest(approval) && approval.approval_id === approvalId)
+    })
+  }
+
+  function approvalMessagesForSession(
+    session: Session,
+    pendingMessages: ChatDisplayMessage[],
+  ): ChatDisplayMessage[] {
+    const pendingApprovalIds = new Set(
+      pendingMessages
+        .map((message) => message.metadata?.approval_request)
+        .filter(isApprovalRequest)
+        .map((approval) => approval.approval_id),
+    )
+
+    return runs.value
+      .filter((run) => run.status === 'paused')
+      .filter((run) => runMatchesSession(run, session))
+      .flatMap((run) => (
+        (run.pending_approval_requests || [])
+          .filter((approval) => !pendingApprovalIds.has(approval.approval_id))
+          .map((approval) => makeApprovalMessage(
+            run.run_id,
+            approval,
+            (run.pending_tool_calls || []).find((call) => call.tool_call_id === approval.tool_call_id) || null,
+          ))
+      ))
   }
 
   return {
@@ -592,12 +730,14 @@ export function useChatController({
     chatStreamEnabled,
     chatAgentEnabled,
     sendingMessage,
+    approvingToolApproval,
     creatingSession,
     chatDisplayError,
     chatMessages,
     selectSession,
     loadSelectedContext,
     sendChatMessage,
+    decideToolApproval,
     retryChatMessage,
     createNewChatSession,
     renameSession,
@@ -606,8 +746,58 @@ export function useChatController({
   }
 }
 
+function runMatchesSession(run: AgentRunState, session: Session): boolean {
+  return (
+    run.request.context_id === session.context_id
+    || run.request.metadata?.session_id === session.session_id
+  )
+}
+
+function makeApprovalMessage(
+  runId: string,
+  approval: ToolApprovalRequest,
+  toolCall: ToolCall | null,
+  permissionLabel = approval.permissions?.join(', ') || '无特殊权限',
+): ToolApprovalMessage {
+  return {
+    role: 'system',
+    content: [{ type: 'text', text: `等待审批：${approval.tool_name}` }],
+    text: `等待审批：${approval.tool_name} · ${approval.safety_level || 'safe'} · ${permissionLabel}`,
+    pending: true,
+    metadata: {
+      kind: 'tool_approval',
+      run_id: runId,
+      approval_request: approval,
+      tool_call: toolCall,
+    },
+  }
+}
+
 function isActiveMessage(message: Content): boolean {
   return message.status === undefined || message.status === null || message.status === 'active'
+}
+
+function asToolApprovalMessage(message: ChatDisplayMessage): ToolApprovalMessage | null {
+  const metadata = message.metadata
+  if (
+    metadata?.kind !== 'tool_approval'
+    || typeof metadata.run_id !== 'string'
+    || !isApprovalRequest(metadata.approval_request)
+  ) {
+    return null
+  }
+
+  return message as ToolApprovalMessage
+}
+
+function isApprovalRequest(value: unknown): value is ToolApprovalRequest {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && typeof (value as ToolApprovalRequest).approval_id === 'string'
+    && typeof (value as ToolApprovalRequest).tool_call_id === 'string'
+    && typeof (value as ToolApprovalRequest).tool_name === 'string'
+  )
 }
 
 function toolCallText(call: ToolCall): string {

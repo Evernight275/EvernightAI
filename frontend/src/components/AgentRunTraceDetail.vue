@@ -31,9 +31,12 @@ const pendingApprovals = computed(() => props.run?.pending_approval_requests || 
 const pendingToolCalls = computed(() => props.run?.pending_tool_calls || [])
 const realtimeStatus = computed(() => props.socketStatus || 'disconnected')
 const realtimeReady = computed(() => realtimeStatus.value === 'connected')
-const canPause = computed(() => props.run?.status === 'running' && realtimeReady.value)
-const canCancel = computed(() => ['running', 'paused'].includes(String(props.run?.status)) && realtimeReady.value)
-const canResume = computed(() => props.run?.status === 'paused' && realtimeReady.value)
+const isRunning = computed(() => props.run?.status === 'running')
+const isPaused = computed(() => props.run?.status === 'paused')
+const hasRunControls = computed(() => isRunning.value || isPaused.value)
+const canPause = computed(() => isRunning.value && realtimeReady.value)
+const canCancel = computed(() => hasRunControls.value && realtimeReady.value)
+const canResume = computed(() => isPaused.value && realtimeReady.value)
 
 const traceCounts = computed(() => {
   const counts = {
@@ -227,36 +230,40 @@ function shortId(id: string | undefined): string {
         <div class="run-detail-actions">
           <span class="tag" :class="statusTone(run.status)">{{ run.status || 'unknown' }}</span>
           <span class="tag" :class="realtimeReady ? 'success' : 'warning'">{{ realtimeLabel(realtimeStatus) }}</span>
-          <button
-            class="button compact-button icon-button"
-            type="button"
-            :disabled="!canPause"
-            title="暂停"
-            aria-label="暂停"
-            @click="emit('pause', run)"
-          >
-            <Icon name="pause" />
-          </button>
-          <button
-            class="button compact-button icon-button"
-            type="button"
-            :disabled="!canResume"
-            title="继续"
-            aria-label="继续"
-            @click="emit('resume', run)"
-          >
-            <Icon name="play" />
-          </button>
-          <button
-            class="button compact-button icon-button danger"
-            type="button"
-            :disabled="!canCancel"
-            title="取消"
-            aria-label="取消"
-            @click="emit('cancel', run)"
-          >
-            <Icon name="square" />
-          </button>
+          <div v-if="hasRunControls" class="run-control-group" aria-label="运行控制">
+            <button
+              v-if="isRunning"
+              class="button compact-button icon-button"
+              type="button"
+              :disabled="!canPause"
+              title="暂停"
+              aria-label="暂停"
+              @click="emit('pause', run)"
+            >
+              <Icon name="pause" />
+            </button>
+            <button
+              v-if="isPaused"
+              class="button compact-button icon-button"
+              type="button"
+              :disabled="!canResume"
+              title="继续"
+              aria-label="继续"
+              @click="emit('resume', run)"
+            >
+              <Icon name="play" />
+            </button>
+            <button
+              class="button compact-button icon-button danger"
+              type="button"
+              :disabled="!canCancel"
+              title="取消"
+              aria-label="取消"
+              @click="emit('cancel', run)"
+            >
+              <Icon name="x" />
+            </button>
+          </div>
         </div>
       </div>
 

@@ -125,12 +125,14 @@ const {
   chatStreamEnabled,
   chatAgentEnabled,
   sendingMessage,
+  approvingToolApproval,
   creatingSession,
   chatDisplayError,
   chatMessages,
   selectSession,
   loadSelectedContext,
   sendChatMessage,
+  decideToolApproval,
   retryChatMessage,
   createNewChatSession,
   renameSession,
@@ -139,6 +141,7 @@ const {
 } = useChatController({
   sessions,
   sortedSessions,
+  runs,
   latestRun,
   tools,
   selectedProviderModelChoice,
@@ -460,12 +463,15 @@ watch(selectedRunId, () => {
           :messages="chatMessages"
           :loading="contextLoading"
           :sending="sendingMessage"
+          :approving-approval="approvingToolApproval"
           :creating-session="creatingSession"
           :disabled="providerModelChoices.length === 0"
           :error="chatDisplayError"
           :title="selectedSession?.title || selectedSession?.session_id || '聊天'"
           @select="selectSession"
           @send="sendChatMessage"
+          @approve-tool-approval="(message) => decideToolApproval(message, 'approved')"
+          @deny-tool-approval="(message) => decideToolApproval(message, 'denied')"
           @retry-message="retryChatMessage"
           @create-session="createNewChatSession"
           @rename-session="renameSession"

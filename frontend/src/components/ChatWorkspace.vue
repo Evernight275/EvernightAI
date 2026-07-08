@@ -11,7 +11,7 @@ import python from 'highlight.js/lib/languages/python'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import katex from 'katex'
-import type { Content, Session } from '../api'
+import type { Content, Session, ToolApprovalRequest } from '../api'
 import { shortId } from '../format'
 import Icon from './Icon.vue'
 import { useToast } from '../composables/useToast'
@@ -28,6 +28,13 @@ type MathPlaceholder = {
 }
 
 type JsonObject = Record<string, unknown>
+type ChatMessage = Content & {
+  outgoing?: boolean
+  text: string
+  pending?: boolean
+  contextIndex?: number
+  toolActivityMessages?: ChatMessage[]
+}
 
 const toast = useToast()
 
@@ -35,15 +42,11 @@ const props = defineProps<{
   sessions: Session[]
   modelOptions: ModelOption[]
   selectedSessionId: string | null
-  messages: Array<Content & {
-    outgoing?: boolean
-    text: string
-    pending?: boolean
-    contextIndex?: number
-  }>
+  messages: ChatMessage[]
   title: string
   loading: boolean
   sending: boolean
+  approvingApproval: boolean
   creatingSession: boolean
   disabled: boolean
   error: string | null
@@ -66,7 +69,9 @@ const selectedModelLabel = computed(() => (
 const emit = defineEmits<{
   select: [session: Session]
   send: [text: string]
-  retryMessage: [message: Content & { outgoing?: boolean; text: string; pending?: boolean; contextIndex?: number }]
+  retryMessage: [message: ChatMessage]
+  approveToolApproval: [message: ChatMessage]
+  denyToolApproval: [message: ChatMessage]
   createSession: []
   renameSession: [session: Session]
   deleteSession: [session: Session]
@@ -74,6 +79,12 @@ const emit = defineEmits<{
 
 const copiedMessageIndex = ref<number | null>(null)
 const copiedCodeBlock = ref<string | null>(null)
+let threadRefreshTimer: number | undefined
+
+const displayMessages = computed<ChatMessage[]>(() => groupToolActivityMessages(props.messages))
+const primaryApprovalMessage = computed<ChatMessage | null>(() => (
+  displayMessages.value.find((message) => isToolApprovalMessage(message)) || null
+))
 
 function copyToClipboard(text: string, identifier: string | number) {
   navigator.clipboard.writeText(text).then(() => {
@@ -251,6 +262,133 @@ function isToolResultMessage(message: Content): boolean {
 
 function isToolCallMessage(message: Content): boolean {
   return Array.isArray(message.tool_calls) && message.tool_calls.length > 0
+}
+
+function isToolActivityMessage(message: ChatMessage): boolean {
+  return Array.isArray(message.toolActivityMessages)
+}
+
+function isToolApprovalMessage(message: ChatMessage): boolean {
+  return Boolean(approvalRequest(message))
+}
+
+function approvalRequest(message: ChatMessage): ToolApprovalRequest | null {
+  const request = message.metadata?.approval_request
+  if (
+    typeof request === 'object'
+    && request !== null
+    && typeof (request as ToolApprovalRequest).approval_id === 'string'
+    && typeof (request as ToolApprovalRequest).tool_call_id === 'string'
+    && typeof (request as ToolApprovalRequest).tool_name === 'string'
+  ) {
+    return request as ToolApprovalRequest
+  }
+
+  return null
+}
+
+function approvalPermissions(message: ChatMessage): string {
+  const request = approvalRequest(message)
+  return request?.permissions?.join(' / ') || '无特殊权限'
+}
+
+function approvalDetail(message: ChatMessage): string {
+  const request = approvalRequest(message)
+  return request ? formatJson(request) : '{}'
+}
+
+function approvalToolName(message: ChatMessage | null): string {
+  return approvalRequestFromNullable(message)?.tool_name || '工具'
+}
+
+function approvalSafetySummary(message: ChatMessage | null): string {
+  const request = approvalRequestFromNullable(message)
+  if (!request) {
+    return ''
+  }
+
+  const permissions = request.permissions?.join(' / ') || '无特殊权限'
+  return `${request.safety_level || 'safe'} · ${permissions}`
+}
+
+function approvalRequestFromNullable(message: ChatMessage | null): ToolApprovalRequest | null {
+  return message ? approvalRequest(message) : null
+}
+
+function groupToolActivityMessages(messages: ChatMessage[]): ChatMessage[] {
+  const grouped: ChatMessage[] = []
+  let index = 0
+
+  while (index < messages.length) {
+    const message = messages[index]
+    if (!isToolTimelineMessage(message)) {
+      grouped.push(message)
+      index += 1
+      continue
+    }
+
+    const toolMessages: ChatMessage[] = []
+    while (index < messages.length && isToolTimelineMessage(messages[index])) {
+      toolMessages.push(messages[index])
+      index += 1
+    }
+
+    if (toolMessages.length === 1) {
+      grouped.push(toolMessages[0])
+      continue
+    }
+
+    grouped.push({
+      role: 'system',
+      content: [{ type: 'text', text: toolActivitySummary(toolMessages) }],
+      text: toolActivitySummary(toolMessages),
+      pending: toolMessages.some((item) => item.pending),
+      toolActivityMessages: toolMessages,
+    })
+  }
+
+  return grouped
+}
+
+function isToolTimelineMessage(message: ChatMessage): boolean {
+  return !isToolApprovalMessage(message) && (isToolResultMessage(message) || isToolCallMessage(message))
+}
+
+function toolActivitySummary(messages: ChatMessage[]): string {
+  const callCount = messages.filter((message) => isToolCallMessage(message)).length
+  const resultCount = messages.filter((message) => isToolResultMessage(message)).length
+  const pendingCount = messages.filter((message) => message.pending).length
+  const parts = [
+    callCount > 0 ? `${callCount} 个调用` : '',
+    resultCount > 0 ? `${resultCount} 个结果` : '',
+    pendingCount > 0 ? `${pendingCount} 个进行中` : '',
+  ].filter(Boolean)
+
+  return parts.join(' · ') || `${messages.length} 条工具事件`
+}
+
+function toolActivityNames(messages: ChatMessage[]): string {
+  const names = messages.flatMap((message) => (
+    (message.tool_calls || [])
+      .map((call) => {
+        const name = call.tool_call?.name
+        return typeof name === 'string' && name ? name : '未知工具'
+      })
+  ))
+
+  return names.length > 0 ? names.slice(0, 5).join(' / ') : '工具活动'
+}
+
+function toolActivityItems(message: ChatMessage): ChatMessage[] {
+  return message.toolActivityMessages || []
+}
+
+function toolActivitySummaryForMessage(message: ChatMessage): string {
+  return toolActivitySummary(toolActivityItems(message))
+}
+
+function toolActivityNamesForMessage(message: ChatMessage): string {
+  return toolActivityNames(toolActivityItems(message))
 }
 
 function toolResultTitle(message: Content & { text: string }): string {
@@ -581,11 +719,22 @@ watch(model, async () => {
 watch(
   () => props.messages.map((message) => `${message.role}:${message.text}`).join('\n'),
   () => {
-    void scrollThreadToBottom()
-    addCodeCopyButtons()
+    scheduleThreadRefresh()
   },
   { flush: 'post' },
 )
+
+function scheduleThreadRefresh() {
+  if (threadRefreshTimer !== undefined) {
+    return
+  }
+
+  threadRefreshTimer = window.setTimeout(() => {
+    threadRefreshTimer = undefined
+    void scrollThreadToBottom()
+    addCodeCopyButtons()
+  }, 80)
+}
 
 onMounted(() => {
   resizeChatInput()
@@ -690,17 +839,73 @@ onMounted(() => {
         </div>
         <div
           v-else
-          v-for="(message, index) in messages"
+          v-for="(message, index) in displayMessages"
           :key="`${message.role}-${index}`"
           class="chat-thread-message"
           :class="{
             assistant: message.role === 'assistant',
             user: message.role === 'user',
-            tool: isToolResultMessage(message) || isToolCallMessage(message),
+            tool: isToolApprovalMessage(message) || isToolActivityMessage(message) || isToolResultMessage(message) || isToolCallMessage(message),
             pending: message.pending,
           }"
         >
-          <div v-if="isToolResultMessage(message)" class="tool-message-card">
+          <div v-if="isToolApprovalMessage(message)" class="tool-approval-card">
+            <div class="tool-approval-head">
+              <Icon name="shield-check" />
+              <div>
+                <strong>等待工具审批 · {{ approvalRequest(message)?.tool_name }}</strong>
+                <span>{{ approvalRequest(message)?.safety_level || 'safe' }} · {{ approvalPermissions(message) }}</span>
+              </div>
+            </div>
+            <p v-if="approvalRequest(message)?.reason">{{ approvalRequest(message)?.reason }}</p>
+            <details class="tool-message-detail">
+              <summary>查看审批请求</summary>
+              <pre><code>{{ approvalDetail(message) }}</code></pre>
+            </details>
+            <div class="tool-approval-actions">
+              <button
+                class="button compact-button primary"
+                type="button"
+                :disabled="approvingApproval"
+                @click="emit('approveToolApproval', message)"
+              >
+                <Icon name="shield-check" />
+                <span>{{ approvingApproval ? '处理中' : '批准' }}</span>
+              </button>
+              <button
+                class="button compact-button danger"
+                type="button"
+                :disabled="approvingApproval"
+                @click="emit('denyToolApproval', message)"
+              >
+                <Icon name="x" />
+                <span>拒绝</span>
+              </button>
+            </div>
+          </div>
+          <div v-else-if="isToolActivityMessage(message)" class="tool-activity-card">
+            <div class="tool-activity-head">
+              <Icon name="wrench" />
+              <div>
+                <strong>工具活动</strong>
+                <span>{{ toolActivitySummaryForMessage(message) }} · {{ toolActivityNamesForMessage(message) }}</span>
+              </div>
+            </div>
+            <div class="tool-activity-list">
+              <details
+                v-for="(item, itemIndex) in toolActivityItems(message)"
+                :key="`${item.role}-${itemIndex}-${item.tool_call_id || item.tool_calls?.[0]?.tool_call_id || ''}`"
+                class="tool-activity-item"
+              >
+                <summary>
+                  <span>{{ isToolResultMessage(item) ? toolResultTitle(item) : toolCallTitle(item) }}</span>
+                  <code>{{ isToolResultMessage(item) ? toolResultSummary(item) : toolCallSummary(item) }}</code>
+                </summary>
+                <pre><code>{{ isToolResultMessage(item) ? toolResultDetail(item) : toolCallDetail(item) }}</code></pre>
+              </details>
+            </div>
+          </div>
+          <div v-else-if="isToolResultMessage(message)" class="tool-message-card">
             <div class="tool-message-head">
               <Icon name="file-text" />
               <div>
@@ -752,6 +957,36 @@ onMounted(() => {
         </div>
         <div v-if="loading && messages.length > 0" class="chat-thread-sync">
           正在同步上下文...
+        </div>
+      </div>
+
+      <div v-if="primaryApprovalMessage" class="chat-approval-dock">
+        <div class="chat-approval-dock-main">
+          <Icon name="shield-check" />
+          <div>
+            <strong>等待审批 · {{ approvalToolName(primaryApprovalMessage) }}</strong>
+            <span>{{ approvalSafetySummary(primaryApprovalMessage) }}</span>
+          </div>
+        </div>
+        <div class="chat-approval-dock-actions">
+          <button
+            class="button compact-button primary"
+            type="button"
+            :disabled="approvingApproval"
+            @click="emit('approveToolApproval', primaryApprovalMessage)"
+          >
+            <Icon name="shield-check" />
+            <span>{{ approvingApproval ? '处理中' : '批准' }}</span>
+          </button>
+          <button
+            class="button compact-button danger"
+            type="button"
+            :disabled="approvingApproval"
+            @click="emit('denyToolApproval', primaryApprovalMessage)"
+          >
+            <Icon name="x" />
+            <span>拒绝</span>
+          </button>
         </div>
       </div>
 
