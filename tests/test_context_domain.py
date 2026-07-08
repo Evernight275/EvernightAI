@@ -20,13 +20,38 @@ from EvernightAI.core.schema.memory import (
     MemoryKind,
     MemorySelection,
 )
-from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 
 
 def make_message(text: str) -> Content:
     return Content(
         role=MessageRole.USER,
         content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+    )
+
+
+def make_assistant_tool_call(tool_call_id: str = "tool-call-1") -> Content:
+    return Content(
+        role=MessageRole.ASSISTANT,
+        tool_calls=[
+            ToolCall(
+                tool_call_id=tool_call_id,
+                tool_call={"name": "lookup", "arguments": {}},
+            )
+        ],
+    )
+
+
+def make_tool_message(tool_call_id: str = "tool-call-1") -> Content:
+    return Content(
+        role=MessageRole.TOOL,
+        tool_call_id=tool_call_id,
+        content=[
+            ContentPart(
+                type=ContentPartType.TEXT,
+                text='{"ok": true}',
+            )
+        ],
     )
 
 
@@ -150,6 +175,35 @@ def test_context_organizer_filters_inactive_messages() -> None:
     assert [message.content[0].text for message in window.messages if message.content] == [
         "Existing",
         "Current",
+    ]
+
+
+def test_context_organizer_filters_orphan_tool_call_messages() -> None:
+    organizer = ContextOrganizer()
+    complete_tool_call = make_assistant_tool_call("complete-call")
+    complete_tool_result = make_tool_message("complete-call")
+    orphan_tool_call = make_assistant_tool_call("orphan-call")
+    orphan_tool_result = make_tool_message("orphan-call")
+    context = Context(
+        context_id="ctx-1",
+        messages=[
+            make_message("Existing"),
+            complete_tool_call,
+            complete_tool_result,
+            make_message("After complete"),
+            orphan_tool_result,
+            orphan_tool_call,
+        ],
+    )
+
+    window = organizer.organize(context, messages=[make_message("Current")])
+
+    assert window.messages == [
+        make_message("Existing"),
+        complete_tool_call,
+        complete_tool_result,
+        make_message("After complete"),
+        make_message("Current"),
     ]
 
 

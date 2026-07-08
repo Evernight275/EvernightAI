@@ -100,18 +100,17 @@ def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
 
 
 def _should_skip_recent_log(record: logging.LogRecord) -> bool:
+    if record.name == "httpx" and record.levelno < logging.WARNING:
+        return True
+
     if record.name != "uvicorn.access":
         return False
 
-    method, path, status_code = _uvicorn_access_parts(record)
-    if method not in {"GET", "POST"} or status_code is None or status_code >= 400:
+    method, _path, status_code = _uvicorn_access_parts(record)
+    if status_code is None or status_code >= 400:
         return False
 
-    return (
-        path == "/logs"
-        or path.startswith("/logs?")
-        or path == "/logs/clear"
-    )
+    return method in {"GET", "HEAD", "OPTIONS", "POST"}
 
 
 def _uvicorn_access_parts(

@@ -53,6 +53,7 @@ def configure_logging(level: int = logging.INFO) -> None:
         format=LOG_FORMAT,
         datefmt=LOG_DATE_FORMAT,
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     for handler in logging.getLogger().handlers:
         handler.setFormatter(EvernightLogFormatter())
     install_recent_log_handler(level)
@@ -100,6 +101,11 @@ def uvicorn_log_config(level: str = "INFO") -> dict[str, Any]:
             "EvernightAI": {
                 "handlers": ["default", "recent"],
                 "level": level,
+                "propagate": False,
+            },
+            "httpx": {
+                "handlers": ["default", "recent"],
+                "level": "WARNING",
                 "propagate": False,
             },
         },

@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 
 from fastapi import Request, status
@@ -24,13 +25,26 @@ from EvernightAI.core.error.base import (
 from EvernightAI.core.error.provider import ProviderUnavailableError
 
 
+LOGGER = logging.getLogger("EvernightAI.interface.http.errors")
+
+
 async def handle_evernight_error(
-    _request: Request,
+    request: Request,
     exc: Exception,
 ) -> JSONResponse:
     error = cast(EvernightAIError, exc)
+    response_status = status_code_for_error(error)
+    if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        LOGGER.error(
+            "HTTP request failed: %s %s -> %s %s: %s",
+            request.method,
+            request.url.path,
+            response_status,
+            error.error_type,
+            str(error),
+        )
     return JSONResponse(
-        status_code=status_code_for_error(error),
+        status_code=response_status,
         content={
             "error": {
                 "type": error.error_type,

@@ -15,7 +15,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.context import Context, ContextWindow
 from EvernightAI.core.schema.memory import MemorySelection
-from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 
 
 class ContextRegister(ContextRegisterProtocol):
@@ -134,11 +134,62 @@ class ContextOrganizer(ContextOrganizerProtocol):
         )
 
     def _active_messages(self, messages: list[Content]) -> list[Content]:
-        return [
+        active_messages = [
             message
             for message in messages
             if message.status in {None, MessageStatus.ACTIVE}
         ]
+        return self._tool_protocol_safe_messages(active_messages)
+
+    def _tool_protocol_safe_messages(self, messages: list[Content]) -> list[Content]:
+        safe_messages: list[Content] = []
+        index = 0
+        while index < len(messages):
+            message = messages[index]
+            if message.role is MessageRole.TOOL:
+                index += 1
+                continue
+
+            tool_calls = message.tool_calls or []
+            if message.role is MessageRole.ASSISTANT and tool_calls:
+                tool_messages = self._following_tool_messages(messages, index, tool_calls)
+                if len(tool_messages) == len(tool_calls):
+                    safe_messages.append(message)
+                    safe_messages.extend(tool_messages)
+                    index += 1 + len(tool_messages)
+                    continue
+
+                index += 1 + len(tool_messages)
+                continue
+
+            safe_messages.append(message)
+            index += 1
+
+        return safe_messages
+
+    def _following_tool_messages(
+        self,
+        messages: list[Content],
+        assistant_index: int,
+        tool_calls: list[ToolCall],
+    ) -> list[Content]:
+        expected_ids = {call.tool_call_id for call in tool_calls}
+        seen_ids: set[str] = set()
+        tool_messages: list[Content] = []
+        for message in messages[assistant_index + 1 :]:
+            if message.role is not MessageRole.TOOL:
+                break
+            if message.tool_call_id not in expected_ids:
+                break
+            if message.tool_call_id in seen_ids:
+                break
+
+            seen_ids.add(message.tool_call_id)
+            tool_messages.append(message)
+            if seen_ids == expected_ids:
+                break
+
+        return tool_messages
 
 
 class BasicContextStrategy(ContextStrategyProtocol):

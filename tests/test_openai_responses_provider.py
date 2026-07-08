@@ -13,6 +13,7 @@ from openai.types.responses import (
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
+    ResponseOutputRefusal,
     ResponseOutputText,
     ResponseTextDeltaEvent,
 )
@@ -103,7 +104,15 @@ def make_response(model_id: str = "gpt-test", output: list[Any] | None = None) -
 
 
 def test_maps_messages_to_openai_response_input() -> None:
-    assert to_openai_response_input(make_messages()) == [
+    assert to_openai_response_input(
+        [
+            *make_messages(),
+            Content(
+                role=MessageRole.ASSISTANT,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Hi")],
+            ),
+        ]
+    ) == [
         {
             "role": "system",
             "content": [{"type": "input_text", "text": "Be brief."}],
@@ -112,13 +121,17 @@ def test_maps_messages_to_openai_response_input() -> None:
             "role": "user",
             "content": [{"type": "input_text", "text": "Hello"}],
         },
+        {
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Hi"}],
+        },
     ]
 
 
-def test_maps_empty_assistant_message_to_empty_input_text() -> None:
+def test_maps_empty_assistant_message_to_empty_output_text() -> None:
     assert to_openai_response_input_item(Content(role=MessageRole.ASSISTANT)) == {
         "role": "assistant",
-        "content": [{"type": "input_text", "text": ""}],
+        "content": [{"type": "output_text", "text": ""}],
     }
 
 
@@ -315,6 +328,31 @@ def test_maps_openai_response_to_chat_response() -> None:
     ]
 
 
+def test_maps_openai_response_refusal_to_chat_response() -> None:
+    mapped = from_openai_response(
+        make_response(
+            output=[
+                ResponseOutputMessage(
+                    id="msg-1",
+                    content=[
+                        ResponseOutputRefusal(
+                            refusal="I cannot help with that.",
+                            type="refusal",
+                        )
+                    ],
+                    role="assistant",
+                    status="completed",
+                    type="message",
+                )
+            ]
+        )
+    )
+
+    assert mapped.message.content == [
+        ContentPart(type=ContentPartType.TEXT, text="I cannot help with that.")
+    ]
+
+
 def test_maps_openai_response_function_call_to_chat_response() -> None:
     mapped = from_openai_response(
         make_response(
@@ -338,12 +376,35 @@ def test_maps_openai_response_function_call_to_chat_response() -> None:
     ]
 
 
-def test_openai_response_requires_text_or_tool_calls() -> None:
+def test_openai_response_allows_empty_success_output() -> None:
+    mapped = from_openai_response(make_response(output=[]))
+
+    assert mapped.message.role is MessageRole.ASSISTANT
+    assert mapped.message.content is None
+    assert mapped.message.tool_calls is None
+
+
+def test_openai_response_error_without_output_raises_provider_response_error() -> None:
+    response = cast(
+        Response,
+        SimpleNamespace(
+            id="resp-1",
+            created_at=123.0,
+            model="gpt-test",
+            object="response",
+            output=[],
+            status="failed",
+            error=SimpleNamespace(model_dump=lambda: {"message": "failed"}),
+            incomplete_details=None,
+            usage=None,
+        ),
+    )
+
     with pytest.raises(
         ProviderResponseError,
-        match="did not include output text or tool calls",
+        match="failed before producing output",
     ):
-        from_openai_response(make_response(output=[]))
+        from_openai_response(response)
 
 
 def test_openai_response_tool_message_requires_call_id() -> None:

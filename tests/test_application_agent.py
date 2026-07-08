@@ -1448,7 +1448,8 @@ async def test_agent_metadata_hides_tool_runtime_without_tool_calls() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_reports_tool_rounds_exhausted() -> None:
-    runtime = make_runtime(provider=EndlessToolCallingProvider())
+    provider = EndlessToolCallingProvider()
+    runtime = make_runtime(provider=provider)
     await runtime.contexts.create(Context(context_id="ctx-1"))
     await runtime.providers.create(make_config())
 
@@ -1482,6 +1483,25 @@ async def test_agent_reports_tool_rounds_exhausted() -> None:
         MessageRole.USER,
         MessageRole.ASSISTANT,
     ]
+
+    await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Try again")],
+            max_tool_rounds=0,
+        )
+    )
+
+    assert [message.role for message in provider.requests[1].messages] == [
+        MessageRole.USER,
+        MessageRole.USER,
+    ]
+    assert not any(
+        message.role is MessageRole.ASSISTANT and message.tool_calls
+        for message in provider.requests[1].messages
+    )
 
 
 @pytest.mark.asyncio

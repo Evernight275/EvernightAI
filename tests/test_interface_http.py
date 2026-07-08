@@ -27,7 +27,7 @@ from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.error.auth import AuthPermissionDeniedError, AuthRequiredError
-from EvernightAI.core.error.provider import ProviderUnavailableError
+from EvernightAI.core.error.provider import ProviderRequestError, ProviderUnavailableError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -1014,6 +1014,55 @@ def test_http_app_starts_agent_run_from_session_defaults() -> None:
         "Use the session",
         "ok",
     ]
+
+
+def test_http_app_logs_downstream_agent_run_failures(
+    caplog: Any,
+) -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    interface = create_interface(
+        make_runtime(
+            provider=FailingProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post(
+            "/sessions",
+            json={
+                "session_id": "session-1",
+                "title": "Agent chat",
+                "context_id": "ctx-1",
+                "provider_id": "provider-1",
+                "model_id": "model-1",
+            },
+        )
+        with caplog.at_level(logging.ERROR, logger="EvernightAI.interface.http.errors"):
+            response = client.post(
+                "/sessions/session-1/agent-runs",
+                json={"messages": [message_json("Use the session")]},
+            )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["type"] == "ProviderRequestError"
+    assert any(
+        "HTTP request failed: POST /sessions/session-1/agent-runs -> 502 "
+        "ProviderRequestError: upstream rejected request"
+        in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_http_app_exposes_skill_routes() -> None:
@@ -2425,6 +2474,12 @@ class FailingChatProvider(FakeProvider):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.last_request = request
         raise ProviderUnavailableError("provider chat failed")
+
+
+class FailingProvider(FakeProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.last_request = request
+        raise ProviderRequestError("upstream rejected request")
 
 
 class SensitiveToolProvider(FakeProvider):

@@ -50,7 +50,7 @@ def to_openai_response_input_items(message: Content) -> list[dict[str, Any]]:
             items.append(
                 {
                     "role": "assistant",
-                    "content": _input_content(message),
+                    "content": _assistant_content(message),
                 }
             )
         for tool_call in message.tool_calls or []:
@@ -58,7 +58,7 @@ def to_openai_response_input_items(message: Content) -> list[dict[str, Any]]:
         if items:
             return items
 
-        return [{"role": "assistant", "content": _input_content(message)}]
+        return [{"role": "assistant", "content": _assistant_content(message)}]
     if message.role is MessageRole.TOOL:
         if not message.tool_call_id:
             raise ChatInputError("Tool message requires tool_call_id")
@@ -104,10 +104,13 @@ def to_openai_response_tool(tool: ToolDefinition) -> dict[str, Any]:
 
 def from_openai_response(response: Response) -> ChatResponse:
     output = response.output
-    text = _output_text(output)
+    text = _output_text(output) or _output_refusal(output)
     tool_calls = _output_tool_calls(output)
-    if not text and not tool_calls:
-        raise ProviderResponseError("OpenAI response did not include output text or tool calls")
+    if not text and not tool_calls and response.error is not None:
+        raise ProviderResponseError(
+            "OpenAI response failed before producing output",
+            detail=json.dumps(response.error.model_dump(), ensure_ascii=False),
+        )
 
     return ChatResponse(
         response_id=response.id,
@@ -425,6 +428,24 @@ def _input_content_part(part: ContentPart) -> dict[str, Any]:
     raise ChatInputError(f"Unsupported content part type: {part.type}")
 
 
+def _assistant_content(message: Content) -> list[dict[str, Any]]:
+    parts = message.content or []
+    if not parts:
+        return [{"type": "output_text", "text": ""}]
+
+    return [_assistant_content_part(part) for part in parts]
+
+
+def _assistant_content_part(part: ContentPart) -> dict[str, Any]:
+    if part.type is ContentPartType.TEXT:
+        if part.text is None:
+            raise ChatInputError("Text content part requires text")
+
+        return {"type": "output_text", "text": part.text}
+
+    raise ChatInputError(f"Unsupported assistant content part type: {part.type}")
+
+
 def _text_content(message: Content) -> str:
     parts = message.content or []
     if not parts:
@@ -456,6 +477,22 @@ def _output_text(output: Any) -> str:
                     texts.append(text)
 
     return "".join(texts)
+
+
+def _output_refusal(output: Any) -> str:
+    refusals: list[str] = []
+    for item in output:
+        item_type = getattr(item, "type", None)
+        if item_type != "message":
+            continue
+
+        for content_part in getattr(item, "content", []):
+            if getattr(content_part, "type", None) == "refusal":
+                refusal = getattr(content_part, "refusal", None)
+                if isinstance(refusal, str):
+                    refusals.append(refusal)
+
+    return "".join(refusals)
 
 
 def _output_tool_calls(output: Any) -> list[ToolCall]:

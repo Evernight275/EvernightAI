@@ -77,6 +77,11 @@ def test_uvicorn_log_config_uses_evernight_formatter() -> None:
         "store": "ext://EvernightAI.interface.log_store.RECENT_LOG_STORE",
     }
     assert "recent" in config["loggers"]["EvernightAI"]["handlers"]
+    assert config["loggers"]["httpx"] == {
+        "handlers": ["default", "recent"],
+        "level": "WARNING",
+        "propagate": False,
+    }
 
 
 def test_recent_log_store_keeps_recent_entries_and_filters_after_index() -> None:
@@ -98,21 +103,23 @@ def test_recent_log_store_keeps_recent_entries_and_filters_after_index() -> None
     assert [entry.message for entry in store.list(after=2)] == ["third"]
 
 
-def test_recent_log_handler_skips_successful_log_polling_access_logs() -> None:
+def test_recent_log_handler_skips_routine_successful_transport_logs() -> None:
     store = RecentLogStore()
     handler = RecentLogHandler(store)
 
     handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 200))
     handler.emit(make_access_record("POST", "/logs/clear", 204))
-    handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 500))
     handler.emit(make_access_record("GET", "/sessions", 200))
+    handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 500))
+    handler.emit(make_httpx_record(logging.INFO, 'HTTP Request: GET https://example.test "HTTP/1.1 200 OK"'))
+    handler.emit(make_httpx_record(logging.WARNING, "HTTP retry failed"))
 
     assert [
         entry.message
         for entry in store.list()
     ] == [
         '127.0.0.1:41800 - "GET /logs?limit=500&after=1 HTTP/1.1" 500',
-        '127.0.0.1:41800 - "GET /sessions HTTP/1.1" 200',
+        "HTTP retry failed",
     ]
 
 
@@ -124,6 +131,20 @@ def make_access_record(method: str, path: str, status_code: int) -> logging.LogR
         lineno=1,
         msg='%s - "%s %s HTTP/%s" %d',
         args=("127.0.0.1:41800", method, path, "1.1", status_code),
+        exc_info=None,
+    )
+    record.created = 1780000000.0
+    return record
+
+
+def make_httpx_record(level: int, message: str) -> logging.LogRecord:
+    record = logging.LogRecord(
+        name="httpx",
+        level=level,
+        pathname=__file__,
+        lineno=1,
+        msg=message,
+        args=(),
         exc_info=None,
     )
     record.created = 1780000000.0
