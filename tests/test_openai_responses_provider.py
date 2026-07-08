@@ -34,10 +34,10 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.infra.adapters.openai_responses.instance import (
+from EvernightAI.infra.adapters.providers.openai_responses.instance import (
     OpenAIResponsesProviderInstance,
 )
-from EvernightAI.infra.adapters.openai_responses.mapper import (
+from EvernightAI.infra.adapters.providers.openai_responses.mapper import (
     from_openai_response,
     from_openai_response_stream_event,
     OpenAIResponsesStreamNormalizer,

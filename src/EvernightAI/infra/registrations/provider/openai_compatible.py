@@ -1,6 +1,6 @@
 from EvernightAI.core.protocol.provider import ProviderFactoryProtocol
 from EvernightAI.core.schema.provider import ProviderType
-from EvernightAI.infra.adapters.openai_compatible.builder import (
+from EvernightAI.infra.adapters.providers.openai_compatible.builder import (
     build_openai_compatible_provider,
 )
 

@@ -35,7 +35,7 @@ from EvernightAI.core.error.provider import (
     ProviderResponseError,
     ProviderUnavailableError,
 )
-from EvernightAI.infra.adapters.openai_compatible.errors import (
+from EvernightAI.infra.adapters.providers.openai_compatible.errors import (
     OpenAICompatibleError,
     raise_openai_compatible_error,
     translate_openai_compatible_error,

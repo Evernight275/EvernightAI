@@ -18,8 +18,8 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.infra.adapters.anthropic.instance import AnthropicProviderInstance
-from EvernightAI.infra.adapters.anthropic.mapper import (
+from EvernightAI.infra.adapters.providers.anthropic.instance import AnthropicProviderInstance
+from EvernightAI.infra.adapters.providers.anthropic.mapper import (
     AnthropicStreamNormalizer,
     from_anthropic_response,
     to_anthropic_request,

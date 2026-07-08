@@ -18,8 +18,8 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.infra.adapters.gemini.instance import GeminiProviderInstance
-from EvernightAI.infra.adapters.gemini.mapper import (
+from EvernightAI.infra.adapters.providers.gemini.instance import GeminiProviderInstance
+from EvernightAI.infra.adapters.providers.gemini.mapper import (
     from_gemini_response,
     from_gemini_stream_chunk,
     to_gemini_request,

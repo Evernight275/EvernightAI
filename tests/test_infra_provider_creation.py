@@ -41,7 +41,7 @@ from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.core.schema.tool import ToolApprovalRequest
-from EvernightAI.infra.adapters.openai_compatible.instance import (
+from EvernightAI.infra.adapters.providers.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor

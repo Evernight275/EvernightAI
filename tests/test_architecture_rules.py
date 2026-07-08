@@ -7,6 +7,8 @@ PACKAGE_ROOT = PROJECT_ROOT / "src" / "EvernightAI"
 CORE_ROOT = PACKAGE_ROOT / "core"
 APPLICATION_ROOT = PACKAGE_ROOT / "application"
 INFRA_ROOT = PACKAGE_ROOT / "infra"
+ADAPTERS_ROOT = INFRA_ROOT / "adapters"
+PROVIDER_ADAPTERS_ROOT = ADAPTERS_ROOT / "providers"
 INTERFACE_ROOT = PACKAGE_ROOT / "interface"
 BOOTSTRAP_ROOT = PACKAGE_ROOT / "bootstrap"
 ENTRYPOINT_ROOT = PACKAGE_ROOT / "entrypoint"
@@ -36,6 +38,12 @@ ENTRYPOINT_FORBIDDEN_ASSEMBLY_CALLS = {
     "create_interface",
     "create_runtime",
     "create_sqlite_runtime",
+}
+PROVIDER_ADAPTER_NAMES = {
+    "anthropic",
+    "gemini",
+    "openai_compatible",
+    "openai_responses",
 }
 
 
@@ -321,6 +329,22 @@ def test_provider_chat_stream_uses_domain_stream_protocol() -> None:
                         )
 
     assert violations == []
+
+
+def test_provider_adapters_live_under_provider_adapter_package() -> None:
+    violations = [
+        f"{_rel(ADAPTERS_ROOT / name)} should live under {_rel(PROVIDER_ADAPTERS_ROOT)}"
+        for name in sorted(PROVIDER_ADAPTER_NAMES)
+        if (ADAPTERS_ROOT / name).exists()
+    ]
+
+    missing = [
+        f"{_rel(PROVIDER_ADAPTERS_ROOT / name)} is missing"
+        for name in sorted(PROVIDER_ADAPTER_NAMES)
+        if not (PROVIDER_ADAPTERS_ROOT / name).exists()
+    ]
+
+    assert violations + missing == []
 
 
 def _python_files(root: Path) -> list[Path]:

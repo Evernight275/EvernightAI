@@ -13,10 +13,10 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.infra.adapters.openai_compatible.errors import (
+from EvernightAI.infra.adapters.providers.openai_compatible.errors import (
     raise_openai_compatible_error,
 )
-from EvernightAI.infra.adapters.openai_responses.mapper import (
+from EvernightAI.infra.adapters.providers.openai_responses.mapper import (
     OpenAIResponsesStreamNormalizer,
     from_openai_response,
     to_openai_response_input,

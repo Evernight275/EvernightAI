@@ -1,6 +1,6 @@
 from EvernightAI.core.protocol.provider import ProviderFactoryProtocol
 from EvernightAI.core.schema.provider import ProviderType
-from EvernightAI.infra.adapters.gemini.builder import build_gemini_provider
+from EvernightAI.infra.adapters.providers.gemini.builder import build_gemini_provider
 
 
 def register_gemini_provider(factory: ProviderFactoryProtocol) -> None:

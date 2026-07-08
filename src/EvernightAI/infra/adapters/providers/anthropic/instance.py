@@ -12,10 +12,10 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.infra.adapters.gemini.mapper import (
-    from_gemini_response,
-    from_gemini_stream_chunk,
-    to_gemini_request,
+from EvernightAI.infra.adapters.providers.anthropic.mapper import (
+    AnthropicStreamNormalizer,
+    from_anthropic_response,
+    to_anthropic_request,
 )
 from EvernightAI.infra.adapters.http_errors import raise_httpx_provider_error
 from EvernightAI.infra.adapters.model_discovery import (
@@ -25,14 +25,17 @@ from EvernightAI.infra.adapters.model_discovery import (
 from EvernightAI.infra.adapters.provider_metadata import timeout_seconds_from_metadata
 
 
-class GeminiProviderInstance(ProviderInstanceProtocol):
+class AnthropicProviderInstance(ProviderInstanceProtocol):
     def __init__(self, config: ProviderConfig) -> None:
         self.config = config
         self._models = dict(config.model)
         self._closed = False
         self._client = httpx.AsyncClient(
-            base_url=config.base_url or "https://generativelanguage.googleapis.com",
-            headers={"x-goog-api-key": config.api_key or ""},
+            base_url=config.base_url or "https://api.anthropic.com",
+            headers={
+                "x-api-key": config.api_key or "",
+                "anthropic-version": "2023-06-01",
+            },
         )
 
     @property
@@ -41,11 +44,15 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
-        payload = to_gemini_request(request.messages, request.tools)
+        payload = to_anthropic_request(
+            request.messages,
+            model.model_id,
+            request.tools,
+        )
 
         try:
             response = await self._client.post(
-                f"/v1beta/models/{model.model_id}:generateContent",
+                "/v1/messages",
                 json=payload,
                 timeout=timeout_seconds_from_metadata(request.metadata)
                 or model.timeout.total_seconds(),
@@ -54,14 +61,21 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
-        return from_gemini_response(response.json(), model.model_id)
+        return from_anthropic_response(response.json())
 
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
-        payload = to_gemini_request(request.messages, request.tools)
-        return GeminiChatStream(
+        payload = {
+            **to_anthropic_request(
+                request.messages,
+                model.model_id,
+                request.tools,
+            ),
+            "stream": True,
+        }
+        return AnthropicChatStream(
             self._client,
-            f"/v1beta/models/{model.model_id}:streamGenerateContent",
+            "/v1/messages",
             payload,
             timeout_seconds_from_metadata(request.metadata)
             or model.timeout.total_seconds(),
@@ -93,13 +107,13 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
 
     async def _list_remote_models(self) -> list[ProviderModelConfig]:
-        response = await self._client.get("/v1beta/models")
+        response = await self._client.get("/v1/models")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
             return []
 
-        models = payload.get("models")
+        models = payload.get("data")
         if not isinstance(models, list):
             return []
 
@@ -107,17 +121,14 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
         for model in models:
             if not isinstance(model, dict):
                 continue
-            model_id = model.get("name")
-            if not isinstance(model_id, str) or not model_id:
-                continue
-            discovered.append(
-                ProviderModelConfig(model_id=model_id.removeprefix("models/"))
-            )
+            model_id = model.get("id")
+            if isinstance(model_id, str) and model_id:
+                discovered.append(ProviderModelConfig(model_id=model_id))
 
         return discovered
 
 
-class GeminiChatStream:
+class AnthropicChatStream:
     def __init__(
         self,
         client: httpx.AsyncClient,
@@ -129,6 +140,7 @@ class GeminiChatStream:
         self._url = url
         self._payload = payload
         self._timeout = timeout
+        self._normalizer = AnthropicStreamNormalizer()
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
@@ -138,23 +150,32 @@ class GeminiChatStream:
             async with self._client.stream(
                 "POST",
                 self._url,
-                params={"alt": "sse"},
                 json=self._payload,
                 timeout=self._timeout,
             ) as response:
                 response.raise_for_status()
-                async for chunk in _iter_sse_json(response):
-                    for event in from_gemini_stream_chunk(chunk):
-                        yield event
+                async for event, chunk in _iter_sse_json(response):
+                    for stream_event in self._normalizer.map_event(event, chunk):
+                        yield stream_event
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
-async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+async def _iter_sse_json(
+    response: httpx.Response,
+) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
+    event: str | None = None
+
     async for line in response.aiter_lines():
         line = line.strip()
+        if not line:
+            event = None
+            continue
+        if line.startswith("event:"):
+            event = line.removeprefix("event:").strip()
+            continue
         if not line.startswith("data:"):
             continue
 
@@ -164,4 +185,4 @@ async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, An
 
         parsed = httpx.Response(200, content=data).json()
         if isinstance(parsed, dict):
-            yield parsed
+            yield event, parsed

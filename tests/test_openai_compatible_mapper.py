@@ -12,7 +12,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.infra.adapters.openai_compatible.mapper import (
+from EvernightAI.infra.adapters.providers.openai_compatible.mapper import (
     OpenAIChatStreamNormalizer,
     from_openai_chat_completion,
     from_openai_chat_completion_chunk,

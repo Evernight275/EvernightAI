@@ -1,6 +1,6 @@
 from EvernightAI.core.protocol.provider import ProviderFactoryProtocol
 from EvernightAI.core.schema.provider import ProviderType
-from EvernightAI.infra.adapters.anthropic.builder import build_anthropic_provider
+from EvernightAI.infra.adapters.providers.anthropic.builder import build_anthropic_provider
 
 
 def register_anthropic_provider(factory: ProviderFactoryProtocol) -> None:
