@@ -13,6 +13,18 @@ EVERNIGHTAI_FILESYSTEM_ROOT="$PWD" \
 
 Open Swagger at `http://127.0.0.1:8000/docs`.
 
+When running the frontend dev server separately, the Vite proxy defaults to
+`http://127.0.0.1:8000`. Override it when the API listens elsewhere:
+
+```bash
+cd frontend
+VITE_EVERNIGHTAI_API_BASE="http://127.0.0.1:9001" pnpm run dev
+```
+
+The same `VITE_EVERNIGHTAI_API_BASE` value is compiled into production builds.
+For deployments that inject runtime configuration, `window.EVERNIGHTAI_API_BASE`
+takes precedence.
+
 To serve the compiled frontend from the same HTTP process, build the frontend
 first and point the HTTP app at the generated static directory:
 

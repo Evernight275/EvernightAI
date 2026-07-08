@@ -1,4 +1,6 @@
-export const apiBase = window.EVERNIGHTAI_API_BASE || ''
+export const apiBase = normalizeApiBase(
+  window.EVERNIGHTAI_API_BASE || import.meta.env.VITE_EVERNIGHTAI_API_BASE || '',
+)
 const apiKeyStorageKey = 'evernight.apiKey'
 
 type RequestOptions = {
@@ -124,4 +126,8 @@ function emitSsePart(part: string, onEvent: (event: SseEvent) => void) {
 
   event.data = dataLines.join('\n')
   onEvent(event)
+}
+
+function normalizeApiBase(value: string): string {
+  return value.trim().replace(/\/+$/, '')
 }
