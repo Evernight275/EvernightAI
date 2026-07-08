@@ -13,7 +13,7 @@ from EvernightAI.interface.cli.logging import configure_logging, uvicorn_log_con
 
 DEFAULT_CONFIG_PATH = Path("config.toml")
 
-LOGO = """
+LOGO = r"""
       :::::::::: :::     ::: :::::::::: :::::::::  ::::    ::: ::::::::::: ::::::::  :::    ::: :::::::::::
      :+:        :+:     :+: :+:        :+:    :+: :+:+:   :+:     :+:    :+:    :+: :+:    :+:     :+:
     +:+        +:+     +:+ +:+        +:+    +:+ :+:+:+  +:+     +:+    +:+        +:+    +:+     +:+
@@ -44,6 +44,8 @@ def serve(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
         config_path,
         host=config.http.host,
         port=config.http.port,
+        static_files_path=config.http.static_files_path,
+        auth_enabled=config.auth.enabled,
         color=sys.stdout.isatty(),
     ):
         print(line)
@@ -62,19 +64,30 @@ def _startup_info_lines(
     *,
     host: str,
     port: int,
+    static_files_path: str | None = None,
+    auth_enabled: bool = False,
     color: bool = False,
 ) -> list[str]:
-    return [
-        "\033[2J\033[H",
+    http_url = f"http://{host}:{port}"
+    websocket_url = f"ws://{host}:{port}/ws"
+    lines = [
         _ansi(LOGO, "1;3;36", color),
         _ansi("-" * 75, "2", color),
         f"{_ansi('System：', '1;36', color)}  {_ansi(platform.system() + ' ' + platform.release(), '97', color)} ({_ansi(platform.machine(), '97', color)})",
         f"{_ansi('Python：', '1;36', color)}  {_ansi(platform.python_version(), '97', color)}",
         f"{_ansi('Config：', '1;36', color)}  {_ansi(str(config_path), '97', color)}",
-        f"{_ansi('HTTP：', '1;36', color)}    {_ansi(f'http://{host}:{port}', '97', color)}",
+        f"{_ansi('HTTP：', '1;36', color)}    {_ansi(http_url, '97', color)}",
+        f"{_ansi('Docs：', '1;36', color)}    {_ansi(f'{http_url}/docs', '97', color)}",
+        f"{_ansi('WS：', '1;36', color)}      {_ansi(websocket_url, '97', color)}",
+        f"{_ansi('Auth：', '1;36', color)}    {_ansi('enabled' if auth_enabled else 'disabled', '97', color)}",
+        f"{_ansi('Static：', '1;36', color)}  {_ansi(static_files_path or 'disabled', '97', color)}",
         _ansi("-" * 75, "2", color),
         f"{_ansi('                                  ', '1;32', color)}",
     ]
+    if color:
+        return ["\033[2J\033[H", *lines]
+
+    return lines
 
 
 def _ansi(text: str, code: str, enabled: bool) -> str:

@@ -15,6 +15,7 @@ from EvernightAI.interface.cli.schema import (
     OAuthTokenPrincipalConfig,
     RuntimeConfig,
 )
+from EvernightAI.entrypoint.server import _startup_info_lines
 from EvernightAI.server import main as package_server_main
 
 
@@ -296,6 +297,38 @@ def test_http_bootstrap_keeps_auth_enabled_without_credentials(tmp_path) -> None
 
 def test_package_server_wrapper_exposes_main() -> None:
     assert package_server_main is not None
+
+
+def test_server_startup_info_skips_terminal_control_codes_without_color() -> None:
+    lines = _startup_info_lines(
+        "config.toml",
+        host="127.0.0.1",
+        port=9001,
+        static_files_path="frontend/dist",
+        auth_enabled=True,
+        color=False,
+    )
+    output = "\n".join(lines)
+
+    assert "\033[2J\033[H" not in output
+    assert "http://127.0.0.1:9001/docs" in output
+    assert "ws://127.0.0.1:9001/ws" in output
+    assert "Auth：" in output
+    assert "enabled" in output
+    assert "Static：" in output
+    assert "frontend/dist" in output
+
+
+def test_server_startup_info_clears_terminal_when_color_is_enabled() -> None:
+    lines = _startup_info_lines(
+        "config.toml",
+        host="127.0.0.1",
+        port=8000,
+        color=True,
+    )
+
+    assert lines[0] == "\033[2J\033[H"
+    assert "\033[" in lines[1]
 
 
 def test_package_server_starts_from_config(
