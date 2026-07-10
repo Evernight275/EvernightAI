@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from EvernightAI.core.domain.context import (
@@ -26,8 +27,15 @@ from EvernightAI.core.domain.tool import (
     ToolRegister,
 )
 from EvernightAI.core.protocol.agent import (
+    AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+)
+from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
+from EvernightAI.core.schema.agent import (
+    AgentRunStatus,
+    AgentTraceEvent,
+    AgentTraceEventType,
 )
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
@@ -54,11 +62,17 @@ from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
     SQLiteAgentTraceRegister,
 )
+from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
+from EvernightAI.infra.adapters.providers.secrets import (
+    EnvironmentProviderSecretResolver,
+)
+from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
+from EvernightAI.infra.sqlite import SQLiteMigrationRunner
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
 )
@@ -318,6 +332,12 @@ def create_sqlite_agent_trace_register(
     return SQLiteAgentTraceRegister(database_path)
 
 
+def create_sqlite_provider_config_store(
+    database_path: str | Path,
+) -> SQLiteProviderConfigStore:
+    return SQLiteProviderConfigStore(database_path)
+
+
 def create_runtime() -> RuntimeKernel:
     return _create_runtime(
         context_register=create_context_register(),
@@ -369,7 +389,10 @@ def create_sqlite_runtime(
     project_timeout_seconds: float = 120.0,
     project_max_output_chars: int = 20000,
     runtime_data_tools_enabled: bool = False,
+    trace_retention_days: int | None = 30,
+    trace_max_events: int | None = 100_000,
 ) -> RuntimeKernel:
+    SQLiteMigrationRunner(database_path).run()
     sandbox = sandbox or create_sandbox_executor()
     tool_register = create_tool_register()
     register_builtin_tools(
@@ -402,9 +425,21 @@ def create_sqlite_runtime(
 
     agent_state_register: AgentRunStateRegisterProtocol | None = None
     agent_trace_register: AgentTraceRegisterProtocol | None = None
+    agent_run_executor: AgentRunExecutorProtocol | None = None
     if include_agent_storage:
         agent_state_register = create_sqlite_agent_state_register(database_path)
         agent_trace_register = create_sqlite_agent_trace_register(database_path)
+        recover_interrupted_agent_runs(agent_state_register, agent_trace_register)
+        older_than = (
+            (datetime.now(timezone.utc) - timedelta(days=trace_retention_days)).isoformat()
+            if trace_retention_days is not None
+            else None
+        )
+        agent_trace_register.prune_events(
+            older_than=older_than,
+            keep_latest=trace_max_events,
+        )
+        agent_run_executor = SingleProcessAgentRunExecutor(agent_state_register)
     data_analysis_register = create_data_analysis_register()
     register_sqlite_runtime_data_analysis_sources(
         data_analysis_register,
@@ -417,9 +452,11 @@ def create_sqlite_runtime(
         context_register=create_sqlite_context_register(database_path),
         memory_register=create_sqlite_memory_register(database_path),
         session_register=create_sqlite_session_register(database_path),
+        provider_config_store=create_sqlite_provider_config_store(database_path),
         data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        agent_run_executor=agent_run_executor,
         runtime_data_tools_enabled=runtime_data_tools_enabled,
         sandbox=sandbox,
     )
@@ -432,6 +469,7 @@ def _create_runtime(
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
     session_register: SessionRegisterProtocol,
+    provider_config_store: ProviderConfigStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
     data_analysis: DataAnalysisManageProtocol | None = None,
     sessions: SessionManageProtocol | None = None,
@@ -439,11 +477,16 @@ def _create_runtime(
     skills: SkillManageProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
+    agent_run_executor: AgentRunExecutorProtocol | None = None,
     runtime_data_tools_enabled: bool = False,
     sandbox: SandboxExecuteProtocol | None = None,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
-    providers = ProviderManager(provider_factory)
+    providers = ProviderManager(
+        provider_factory,
+        config_store=provider_config_store,
+        secret_resolver=EnvironmentProviderSecretResolver(),
+    )
     tool_register = tool_register or create_tool_register()
     tool_safety_policy = tool_safety_policy or create_tool_safety_policy()
     sandbox = sandbox or create_sandbox_executor()
@@ -471,6 +514,7 @@ def _create_runtime(
     return RuntimeKernel(
         provider_factory=provider_factory,
         providers=providers,
+        provider_config_store=provider_config_store,
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,
@@ -491,4 +535,30 @@ def _create_runtime(
         sessions=sessions,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        agent_run_executor=agent_run_executor,
     )
+
+
+def recover_interrupted_agent_runs(
+    state_register: AgentRunStateRegisterProtocol,
+    trace_register: AgentTraceRegisterProtocol,
+) -> int:
+    recovered = 0
+    for state in state_register.query_states(status=AgentRunStatus.RUNNING):
+        event = AgentTraceEvent(
+            event_type=AgentTraceEventType.RUN_PAUSED,
+            summary="Agent run paused: runtime restart",
+            metadata={"reason": "interrupted", "source": "runtime_restart"},
+        )
+        event.sequence = trace_register.append_event(state.run_id, event)
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.trace.append(event)
+        state.metadata = {
+            **state.metadata,
+            "interrupted": True,
+            "interruption_reason": "runtime_restart",
+        }
+        state_register.save_state(state)
+        recovered += 1
+    return recovered

@@ -13,6 +13,7 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (
     MemoryItem,
@@ -38,41 +39,150 @@ class ChatApplication(ChatInterfaceProtocol):
     ) -> ProviderInstanceProtocol:
         return await self._runtime.providers.create(config)
 
-    async def create_context(self, context: Context) -> Context:
-        return await self._runtime.contexts.create(context)
+    async def create_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
+        return await self._runtime.contexts.create(
+            context,
+            principal_scope=principal_scope,
+        )
 
-    async def get_context(self, context_id: str) -> Context:
-        return await self._runtime.contexts.get(context_id)
+    async def get_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
+        return await self._runtime.contexts.get(
+            context_id,
+            principal_scope=principal_scope,
+        )
 
-    async def append_context(self, context_id: str, message: Content) -> Context:
-        return await self._runtime.contexts.append(context_id, message)
+    async def append_context(
+        self,
+        context_id: str,
+        message: Content,
+        *,
+        expected_revision: int | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
+        return await self._runtime.contexts.append(
+            context_id,
+            message,
+            expected_revision=expected_revision,
+            principal_scope=principal_scope,
+        )
 
-    async def replace_context(self, context: Context) -> Context:
-        return await self._runtime.contexts.replace(context)
+    async def replace_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
+        return await self._runtime.contexts.replace(
+            context,
+            principal_scope=principal_scope,
+        )
 
-    async def list_contexts(self) -> list[Context]:
-        return await self._runtime.contexts.list_contexts()
+    async def list_contexts(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[Context]:
+        return await self._runtime.contexts.list_contexts(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            principal_scope=principal_scope,
+        )
 
-    async def delete_context(self, context_id: str) -> None:
-        await self._runtime.contexts.delete(context_id)
+    async def delete_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        await self._runtime.contexts.delete(
+            context_id,
+            principal_scope=principal_scope,
+        )
 
-    async def create_memory(self, memory: MemoryItem) -> MemoryItem:
-        return await self._runtime.memories.create(memory)
+    async def create_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
+        return await self._runtime.memories.create(
+            memory,
+            principal_scope=principal_scope,
+        )
 
-    async def get_memory(self, memory_id: str) -> MemoryItem:
-        return await self._runtime.memories.get(memory_id)
+    async def get_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
+        return await self._runtime.memories.get(
+            memory_id,
+            principal_scope=principal_scope,
+        )
 
-    async def list_memories(self) -> list[MemoryItem]:
-        return await self._runtime.memories.list_memories()
+    async def replace_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
+        return await self._runtime.memories.replace(
+            memory,
+            principal_scope=principal_scope,
+        )
 
-    async def delete_memory(self, memory_id: str) -> None:
-        await self._runtime.memories.delete(memory_id)
+    async def list_memories(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        query: MemoryQuery | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[MemoryItem]:
+        return await self._runtime.memories.list_memories(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            query=query,
+            principal_scope=principal_scope,
+        )
+
+    async def delete_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        await self._runtime.memories.delete(
+            memory_id,
+            principal_scope=principal_scope,
+        )
 
     async def select_memories(
         self,
         query: MemoryQuery | None = None,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> MemorySelection:
-        memories = await self._runtime.memories.list_memories()
+        memories = await self._runtime.memories.list_memories(
+            principal_scope=principal_scope,
+        )
         return self._runtime.memory_strategy.select(memories, query)
 
     async def organize_chat_request(
@@ -85,11 +195,18 @@ class ChatApplication(ChatInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest:
-        context = await self._runtime.contexts.get(context_id)
+        context = await self._runtime.contexts.get(
+            context_id,
+            principal_scope=principal_scope,
+        )
         memory_query = memory_query or self._session_memory_query(metadata)
         selected_memories = (
-            await self.select_memories(memory_query)
+            await self.select_memories(
+                memory_query,
+                principal_scope=principal_scope,
+            )
             if memory_query is not None
             else None
         )
@@ -124,8 +241,14 @@ class ChatApplication(ChatInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatResponse:
-        await mark_retry_messages(self._runtime, context_id, retry_from_message_index)
+        await mark_retry_messages(
+            self._runtime,
+            context_id,
+            retry_from_message_index,
+            principal_scope=principal_scope,
+        )
         request = await self.organize_chat_request(
             context_id,
             model_id=model_id,
@@ -134,12 +257,21 @@ class ChatApplication(ChatInterfaceProtocol):
             skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=principal_scope,
         )
         response = await self.chat(provider_id, request)
 
         for message in messages:
-            await self._runtime.contexts.append(context_id, message)
-        await self._runtime.contexts.append(context_id, response.message)
+            await self._runtime.contexts.append(
+                context_id,
+                message,
+                principal_scope=principal_scope,
+            )
+        await self._runtime.contexts.append(
+            context_id,
+            response.message,
+            principal_scope=principal_scope,
+        )
 
         return response
 
@@ -165,8 +297,14 @@ class ChatApplication(ChatInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol:
-        await mark_retry_messages(self._runtime, context_id, retry_from_message_index)
+        await mark_retry_messages(
+            self._runtime,
+            context_id,
+            retry_from_message_index,
+            principal_scope=principal_scope,
+        )
         request = await self.organize_chat_request(
             context_id,
             model_id=model_id,
@@ -175,6 +313,7 @@ class ChatApplication(ChatInterfaceProtocol):
             skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=principal_scope,
         )
         stream = await self.chat_stream(provider_id, request)
         return _ContextAppendingChatStream(
@@ -182,6 +321,7 @@ class ChatApplication(ChatInterfaceProtocol):
             self._runtime,
             context_id,
             messages,
+            principal_scope,
         )
 
     async def close(self) -> None:
@@ -205,11 +345,13 @@ class _ContextAppendingChatStream:
         runtime: RuntimeProtocol,
         context_id: str,
         messages: list[Content],
+        principal_scope: PrincipalScope | None,
     ) -> None:
         self._stream = stream
         self._runtime = runtime
         self._context_id = context_id
         self._messages = messages
+        self._principal_scope = principal_scope
         self._text_deltas: list[str] = []
         self._tool_calls: list[ToolCall] = []
         self._persisted = False
@@ -231,10 +373,18 @@ class _ContextAppendingChatStream:
 
         self._persisted = True
         for message in self._messages:
-            await self._runtime.contexts.append(self._context_id, message)
+            await self._runtime.contexts.append(
+                self._context_id,
+                message,
+                principal_scope=self._principal_scope,
+            )
         assistant_message = self._assistant_message()
         if assistant_message is not None:
-            await self._runtime.contexts.append(self._context_id, assistant_message)
+            await self._runtime.contexts.append(
+                self._context_id,
+                assistant_message,
+                principal_scope=self._principal_scope,
+            )
 
     def _accumulate_assistant_event(self, event: ChatStreamEvent) -> None:
         if event.event_type is ChatStreamEventType.MESSAGE_DELTA:

@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
@@ -83,6 +84,18 @@ async def test_memory_manager_creates_and_deletes_memories() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_manager_updates_existing_memory_timestamp() -> None:
+    manager = MemoryManager(MemoryRegister())
+    original = make_memory("mem-1", content="old")
+    await manager.create(original)
+
+    updated = await manager.replace(original.model_copy(update={"content": "new"}))
+
+    assert updated.content == "new"
+    assert updated.updated_at >= original.updated_at
+
+
+@pytest.mark.asyncio
 async def test_memory_manager_clears_memories() -> None:
     manager = MemoryManager(MemoryRegister())
     await manager.create(make_memory("mem-1"))
@@ -152,6 +165,35 @@ def test_basic_memory_strategy_sorts_by_priority_and_limits() -> None:
         "total_candidates": 3,
         "selected_count": 2,
     }
+
+
+def test_basic_memory_strategy_filters_expired_low_confidence_and_duplicates() -> None:
+    strategy = BasicMemoryStrategy()
+    memories = [
+        make_memory("best", content="Same").model_copy(
+            update={"relevance": 0.9, "confidence": 0.9}
+        ),
+        make_memory("duplicate", content=" same ").model_copy(
+            update={"relevance": 0.8, "confidence": 0.9}
+        ),
+        make_memory("low-confidence", content="Other").model_copy(
+            update={"relevance": 1.0, "confidence": 0.2}
+        ),
+        make_memory("expired", content="Expired").model_copy(
+            update={"expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)}
+        ),
+    ]
+
+    selection = strategy.select(
+        memories,
+        MemoryQuery(
+            minimum_relevance=0.5,
+            minimum_confidence=0.5,
+            deduplicate=True,
+        ),
+    )
+
+    assert [memory.memory_id for memory in selection.memories] == ["best"]
 
 
 def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> None:

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Response, status
+from fastapi import APIRouter, Body, Query, Response, status
 
 from EvernightAI.core.schema.content import Content
 from EvernightAI.core.schema.context import Context
@@ -43,8 +43,17 @@ async def create_context(
     summary="List contexts",
     operation_id="list_contexts",
 )
-async def list_contexts(interface: InterfaceDependency) -> list[Context]:
-    return await interface.chat.list_contexts()
+async def list_contexts(
+    interface: InterfaceDependency,
+    cursor: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    owner_id: str | None = Query(default=None),
+) -> list[Context]:
+    return await interface.chat.list_contexts(
+        cursor=cursor,
+        limit=limit,
+        owner_id=owner_id,
+    )
 
 
 @router.get(
@@ -76,8 +85,13 @@ async def append_context(
         Body(openapi_examples=CONTENT_MESSAGE_EXAMPLES),
     ],
     interface: InterfaceDependency,
+    expected_revision: int | None = Query(default=None, ge=0),
 ) -> Context:
-    return await interface.chat.append_context(context_id, message)
+    return await interface.chat.append_context(
+        context_id,
+        message,
+        expected_revision=expected_revision,
+    )
 
 
 @router.put(

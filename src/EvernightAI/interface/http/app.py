@@ -1,6 +1,9 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -38,6 +41,8 @@ from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 
 HTTP_BEARER_SECURITY_SCHEME = "EvernightBearerAuth"
 HTTP_HEADER_API_KEY_SECURITY_SCHEME = "EvernightApiKey"
+LOGGER = logging.getLogger("EvernightAI.interface.http.access")
+REQUEST_ID_HEADER = "X-Request-ID"
 
 
 def create_http_app(
@@ -46,6 +51,8 @@ def create_http_app(
     auth_device: HttpAuthDeviceProtocol | None = None,
     authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
+    initialize_handler: Callable[[], Awaitable[None]] | None = None,
+    readiness_checker: Callable[[], bool] | None = None,
     startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
     server_header: str | None = None,
     static_files_path: str | Path | None = None,
@@ -53,6 +60,8 @@ def create_http_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
+            if initialize_handler is not None:
+                await initialize_handler()
             for handler in startup_handlers or []:
                 await handler()
             yield
@@ -68,10 +77,12 @@ def create_http_app(
     )
     app.state.interface = interface
     app.state.auth_device = auth_device
+    app.state.readiness_checker = readiness_checker or _always_ready
     app.state.websocket_manager = WebSocketConnectionManager()
     app.state.authorized_interface_factory = (
         authorized_interface_factory or _identity_authorized_interface
     )
+    _add_request_context_middleware(app)
     if server_header is not None and server_header != "":
         _add_server_header_middleware(app, server_header)
     if auth_device is not None:
@@ -111,11 +122,53 @@ def _add_server_header_middleware(app: FastAPI, server_header: str) -> None:
         return response
 
 
+def _add_request_context_middleware(app: FastAPI) -> None:
+    @app.middleware("http")
+    async def add_request_context(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        request_id = request.headers.get(REQUEST_ID_HEADER) or uuid4().hex
+        request.state.request_id = request_id
+        started = perf_counter()
+        response: Response | None = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            session_id, run_id = _resource_ids(request.url.path)
+            LOGGER.info(
+                "HTTP request completed",
+                extra={
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "http_method": request.method,
+                    "http_path": request.url.path,
+                    "http_status": response.status_code if response else 500,
+                    "duration_ms": round((perf_counter() - started) * 1000, 3),
+                },
+            )
+            if response is not None:
+                response.headers[REQUEST_ID_HEADER] = request_id
+
+
+def _resource_ids(path: str) -> tuple[str | None, str | None]:
+    parts = [part for part in path.split("/") if part]
+    session_id = parts[1] if len(parts) > 1 and parts[0] == "sessions" else None
+    run_id = parts[1] if len(parts) > 1 and parts[0] == "agent-runs" else None
+    return session_id, run_id
+
+
 def _identity_authorized_interface(
     interface: EvernightInterfaceProtocol,
     _principal: Principal,
 ) -> EvernightInterfaceProtocol:
     return interface
+
+
+def _always_ready() -> bool:
+    return True
 
 
 def _secured_openapi_factory(app: FastAPI):
@@ -150,7 +203,7 @@ def _secured_openapi_factory(app: FastAPI):
             ),
         }
         for path, methods in schema.get("paths", {}).items():
-            if path == "/health":
+            if path in {"/health", "/ready"}:
                 continue
             for operation in methods.values():
                 if isinstance(operation, dict):

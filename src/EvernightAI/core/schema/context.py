@@ -10,6 +10,8 @@ class Context(EvernightAISchema):
     """会话上下文"""
 
     context_id: str
+    owner_id: str | None = None
+    revision: int = Field(default=0, ge=0)
     messages: list[Content] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

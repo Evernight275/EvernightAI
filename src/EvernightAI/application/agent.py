@@ -4,9 +4,14 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from weakref import WeakKeyDictionary
+from time import perf_counter
 from uuid import uuid4
 
-from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
+from EvernightAI.core.error.agent import (
+    AgentRunTimeoutError,
+    AgentShutdownError,
+    AgentStateError,
+)
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
@@ -28,6 +33,7 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEvent,
     AgentTraceEventType,
 )
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -55,6 +61,18 @@ LOGGER = logging.getLogger("EvernightAI.application.agent")
 _AGENT_RUN_LIFECYCLES: WeakKeyDictionary[object, "_AgentRunLifecycle"] = (
     WeakKeyDictionary()
 )
+
+
+def _owner_scope(owner_id: str | None) -> PrincipalScope | None:
+    return PrincipalScope(owner_id=owner_id) if owner_id is not None else None
+
+
+def _require_request_scope(
+    request: AgentRunRequest,
+    principal_scope: PrincipalScope | None,
+) -> None:
+    if principal_scope is not None and not principal_scope.permits(request.owner_id):
+        raise AgentStateError("Agent run owner does not match the principal scope")
 
 
 def _agent_run_lifecycle(runtime: RuntimeProtocol) -> "_AgentRunLifecycle":
@@ -259,35 +277,66 @@ class AgentApplication(AgentInterfaceProtocol):
 
             return state
 
-    async def start_agent_run(self, request: AgentRunRequest) -> AgentRunState:
-        async with self._lifecycle.active_run():
-            stored_request = (
-                request
-                if request.pause_on_approval
-                else request.model_copy(update={"pause_on_approval": True})
-            )
-            state = self._new_run_state(stored_request)
-            self._save_agent_state(state)
+    async def start_agent_run(
+        self,
+        request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        stored_request, state = self._prepare_agent_run(
+            request,
+            principal_scope=principal_scope,
+        )
+        return await self._execute_prepared_agent_run(
+            stored_request,
+            state,
+            principal_scope=principal_scope,
+        )
 
+    def _prepare_agent_run(
+        self,
+        request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> tuple[AgentRunRequest, AgentRunState]:
+        stored_request = (
+            request
+            if request.pause_on_approval
+            else request.model_copy(update={"pause_on_approval": True})
+        )
+        state = self._new_run_state(stored_request)
+        self._create_agent_state(state, principal_scope=principal_scope)
+        return stored_request, state
+
+    async def _execute_prepared_agent_run(
+        self,
+        stored_request: AgentRunRequest,
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        async with self._lifecycle.active_run():
             async for event in self._run_agent_events(stored_request, state):
                 self._append_agent_trace_event(state.run_id, event)
-                self._save_agent_state(state)
+                self._save_agent_state(state, principal_scope=principal_scope)
 
-            self._save_agent_state(state)
+            self._save_agent_state(state, principal_scope=principal_scope)
             return state
 
     async def resume_agent_run(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         async with self._lifecycle.active_run():
-            state = self._get_agent_state(run_id)
+            state = self._get_agent_state(run_id, principal_scope=principal_scope)
             async for event in self._resume_agent_events(state, approvals):
                 self._append_agent_trace_event(state.run_id, event)
-                self._save_agent_state(state)
+                self._save_agent_state(state, principal_scope=principal_scope)
 
-            self._save_agent_state(state)
+            self._save_agent_state(state, principal_scope=principal_scope)
             return state
 
     async def close(self) -> None:
@@ -550,8 +599,15 @@ class AgentApplication(AgentInterfaceProtocol):
                     )
                     return
 
+                tool_started = perf_counter()
                 try:
                     tool_result = await self._runtime.tools.execute(call)
+                    self._log_tool_execution(
+                        state,
+                        call,
+                        started=tool_started,
+                        success=True,
+                    )
                     tool_message = self._tool_result_to_message(tool_result)
                     state.steps.append(
                         AgentStep(
@@ -572,6 +628,13 @@ class AgentApplication(AgentInterfaceProtocol):
                         ),
                     )
                 except Exception as exc:
+                    self._log_tool_execution(
+                        state,
+                        call,
+                        started=tool_started,
+                        success=False,
+                        error=exc,
+                    )
                     tool_message = self._tool_error_to_message(call, exc)
                     state.steps.append(
                         AgentStep(
@@ -690,12 +753,18 @@ class AgentApplication(AgentInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatResponse:
-        context = await self._runtime.contexts.get(context_id)
+        context = await self._runtime.contexts.get(
+            context_id,
+            principal_scope=principal_scope,
+        )
         memory_query = memory_query or self._session_memory_query(metadata)
         memory_selection = (
             self._runtime.memory_strategy.select(
-                await self._runtime.memories.list_memories(),
+                await self._runtime.memories.list_memories(
+                    principal_scope=principal_scope,
+                ),
                 memory_query,
             )
             if memory_query is not None
@@ -740,6 +809,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 skills=skills,
                 tools=tools,
                 metadata=metadata,
+                principal_scope=_owner_scope(state.owner_id),
             )
             yield self._add_trace(
                 state,
@@ -760,6 +830,7 @@ class AgentApplication(AgentInterfaceProtocol):
             skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=_owner_scope(state.owner_id),
         )
         stream = await self._runtime.providers.chat_stream(provider_id, request)
         response = None
@@ -845,12 +916,18 @@ class AgentApplication(AgentInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest:
-        context = await self._runtime.contexts.get(context_id)
+        context = await self._runtime.contexts.get(
+            context_id,
+            principal_scope=principal_scope,
+        )
         memory_query = memory_query or self._session_memory_query(metadata)
         memory_selection = (
             self._runtime.memory_strategy.select(
-                await self._runtime.memories.list_memories(),
+                await self._runtime.memories.list_memories(
+                    principal_scope=principal_scope,
+                ),
                 memory_query,
             )
             if memory_query is not None
@@ -889,8 +966,13 @@ class AgentApplication(AgentInterfaceProtocol):
         context_id: str,
         state: AgentRunState,
     ) -> None:
+        principal_scope = _owner_scope(state.owner_id)
         for message in self._run_transcript(state):
-            await self._runtime.contexts.append(context_id, message)
+            await self._runtime.contexts.append(
+                context_id,
+                message,
+                principal_scope=principal_scope,
+            )
 
     def _run_transcript(self, state: AgentRunState) -> list[Content]:
         transcript = list(state.request.messages)
@@ -1102,7 +1184,10 @@ class AgentApplication(AgentInterfaceProtocol):
             result,
         )
         for memory in memories:
-            await self._runtime.memories.create(memory)
+            await self._runtime.memories.create(
+                memory,
+                principal_scope=_owner_scope(request.owner_id),
+            )
             memory_step = AgentStep(
                 step_type=AgentStepType.MEMORY_WRITE,
                 metadata={"memory_id": memory.memory_id},
@@ -1180,6 +1265,28 @@ class AgentApplication(AgentInterfaceProtocol):
 
         return "unknown tool"
 
+    def _log_tool_execution(
+        self,
+        state: AgentRunState,
+        call: ToolCall,
+        *,
+        started: float,
+        success: bool,
+        error: Exception | None = None,
+    ) -> None:
+        LOGGER.info(
+            "Agent tool execution completed",
+            extra={
+                "request_id": state.request.metadata.get("request_id"),
+                "session_id": state.request.metadata.get("session_id"),
+                "run_id": state.run_id,
+                "tool_name": self._tool_name(call),
+                "duration_ms": round((perf_counter() - started) * 1000, 3),
+                "success": success,
+                "error_type": error.__class__.__name__ if error else None,
+            },
+        )
+
     def _new_run_state(self, request: AgentRunRequest) -> AgentRunState:
         run_id = AgentRunMetadata.run_id(request.metadata)
         if run_id is None:
@@ -1187,6 +1294,7 @@ class AgentApplication(AgentInterfaceProtocol):
 
         return AgentRunState(
             run_id=run_id,
+            owner_id=request.owner_id,
             request=request,
             remaining_tool_rounds=request.max_tool_rounds,
             metadata=dict(request.metadata),
@@ -1226,19 +1334,40 @@ class AgentApplication(AgentInterfaceProtocol):
             for step in state.steps
         )
 
-    def _get_agent_state(self, run_id: str) -> AgentRunState:
+    def _get_agent_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
         register = self._runtime.agent_state_register
         if register is None:
             raise AgentStateError("Agent state register is not configured")
 
-        return register.get_state(run_id)
+        return register.get_state(run_id, principal_scope=principal_scope)
 
-    def _save_agent_state(self, state: AgentRunState) -> None:
+    def _save_agent_state(
+        self,
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         register = self._runtime.agent_state_register
         if register is None:
             raise AgentStateError("Agent state register is not configured")
 
-        register.save_state(state)
+        register.save_state(state, principal_scope=principal_scope)
+
+    def _create_agent_state(
+        self,
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        register = self._runtime.agent_state_register
+        if register is None:
+            raise AgentStateError("Agent state register is not configured")
+        register.create_state(state, principal_scope=principal_scope)
 
     def _append_agent_trace_event(
         self,
@@ -1266,28 +1395,93 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         self._agent = AgentApplication(runtime)
         self._lifecycle = _agent_run_lifecycle(runtime)
 
-    async def start(self, request: AgentRunRequest) -> AgentRunState:
+    async def start(
+        self,
+        request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        _require_request_scope(request, principal_scope)
+        await self._runtime.contexts.get(
+            request.context_id,
+            principal_scope=principal_scope,
+        )
         await mark_retry_messages(
             self._runtime,
             request.context_id,
             request.retry_from_message_index,
+            principal_scope=principal_scope,
         )
-        return await self._agent.start_agent_run(request)
+        stored_request, state = self._agent._prepare_agent_run(
+            request,
+            principal_scope=principal_scope,
+        )
+        executor = self._runtime.agent_run_executor
+        if executor is None:
+            return await self._agent._execute_prepared_agent_run(
+                stored_request,
+                state,
+                principal_scope=principal_scope,
+            )
+        try:
+            return await executor.execute(
+                state.run_id,
+                lambda: self._agent._execute_prepared_agent_run(
+                    stored_request,
+                    state,
+                    principal_scope=principal_scope,
+                ),
+                timeout_seconds=request.timeout_seconds,
+            )
+        except AgentRunTimeoutError:
+            self._mark_interrupted(
+                state.run_id,
+                "timeout",
+                principal_scope=principal_scope,
+            )
+            raise
 
     async def resume(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
-        return await self._agent.resume_agent_run(run_id, approvals)
+        executor = self._runtime.agent_run_executor
+        if executor is None:
+            return await self._agent.resume_agent_run(
+                run_id,
+                approvals,
+                principal_scope=principal_scope,
+            )
+        state = self.get_state(run_id, principal_scope=principal_scope)
+        try:
+            return await executor.execute(
+                run_id,
+                lambda: self._agent.resume_agent_run(
+                    run_id,
+                    approvals,
+                    principal_scope=principal_scope,
+                ),
+                timeout_seconds=state.request.timeout_seconds,
+            )
+        except AgentRunTimeoutError:
+            self._mark_interrupted(
+                run_id,
+                "timeout",
+                principal_scope=principal_scope,
+            )
+            raise
 
     async def pause(
         self,
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
-        state = self.get_state(run_id)
+        state = self.get_state(run_id, principal_scope=principal_scope)
         if state.status is AgentRunStatus.PAUSED:
             return state
         if state.status is not AgentRunStatus.RUNNING:
@@ -1311,7 +1505,10 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             pause_reason=reason or "pause",
         )
         event.sequence = self._trace_register().append_event(run_id, event)
-        self._state_register().save_state(state)
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
         return state
 
     async def cancel(
@@ -1319,12 +1516,17 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
-        state = self.get_state(run_id)
+        state = self.get_state(run_id, principal_scope=principal_scope)
         if state.status is AgentRunStatus.CANCELED:
             return state
         if state.status in {AgentRunStatus.FINISHED, AgentRunStatus.FAILED}:
             raise AgentStateError("Agent run is already stopped")
+
+        executor = self._runtime.agent_run_executor
+        if executor is not None:
+            executor.cancel(run_id)
 
         metadata = {"reason": "canceled"}
         if reason:
@@ -1346,49 +1548,112 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             cancel_reason=reason or "canceled",
         )
         event.sequence = self._trace_register().append_event(run_id, event)
-        self._state_register().save_state(state)
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
         return state
 
     def start_stream(
         self,
         request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol:
+        _require_request_scope(request, principal_scope)
+        self._runtime.context_register.get(
+            request.context_id,
+            principal_scope=principal_scope,
+        )
         stored_request = (
             request
             if request.pause_on_approval
             else request.model_copy(update={"pause_on_approval": True})
         )
         state = self._agent._new_run_state(stored_request)
-        self._state_register().save_state(state)
-        return _AgentTraceStream(
-            self._lifecycle.track_stream(
-                self._stream_and_store(
-                    self._start_stream_events(stored_request, state),
-                    state,
-                )
+        self._state_register().create_state(
+            state,
+            principal_scope=principal_scope,
+        )
+        events = self._lifecycle.track_stream(
+            self._stream_and_store(
+                self._start_stream_events(stored_request, state),
+                state,
+                principal_scope=principal_scope,
             )
         )
+        executor = self._runtime.agent_run_executor
+        if executor is not None:
+            base_events = events
+            events = self._interrupt_timed_out_stream(
+                state.run_id,
+                executor.stream(
+                    state.run_id,
+                    lambda: base_events,
+                    timeout_seconds=stored_request.timeout_seconds,
+                ),
+                principal_scope=principal_scope,
+            )
+        return _AgentTraceStream(events)
 
     def resume_stream(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol:
-        state = self.get_state(run_id)
-        return _AgentTraceStream(
-            self._lifecycle.track_stream(
-                self._stream_and_store(
-                    self._agent._resume_agent_events(state, approvals),
-                    state,
-                )
+        state = self.get_state(run_id, principal_scope=principal_scope)
+        events = self._lifecycle.track_stream(
+            self._stream_and_store(
+                self._agent._resume_agent_events(state, approvals),
+                state,
+                principal_scope=principal_scope,
             )
         )
+        executor = self._runtime.agent_run_executor
+        if executor is not None:
+            base_events = events
+            events = self._interrupt_timed_out_stream(
+                run_id,
+                executor.stream(
+                    run_id,
+                    lambda: base_events,
+                    timeout_seconds=state.request.timeout_seconds,
+                ),
+                principal_scope=principal_scope,
+            )
+        return _AgentTraceStream(events)
 
-    def get_state(self, run_id: str) -> AgentRunState:
-        return self._state_register().get_state(run_id)
+    def get_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        return self._state_register().get_state(
+            run_id,
+            principal_scope=principal_scope,
+        )
 
-    def list_states(self) -> list[AgentRunState]:
-        return self._state_register().list_states()
+    def list_states(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        status: AgentRunStatus | None = None,
+        context_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AgentRunState]:
+        return self._state_register().query_states(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            status=status,
+            context_id=context_id,
+            principal_scope=principal_scope,
+        )
 
     def list_trace(
         self,
@@ -1396,8 +1661,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         *,
         after_sequence: int = 0,
         limit: int | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> list[AgentTraceEvent]:
-        return self._trace_register().list_events(
+        register = self._trace_register()
+        self.get_state(run_id, principal_scope=principal_scope)
+        return register.list_events(
             run_id,
             after_sequence=after_sequence,
             limit=limit,
@@ -1408,11 +1676,16 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             state_register=self._runtime.agent_state_register,
             trace_register=self._runtime.agent_trace_register,
         )
+        executor = self._runtime.agent_run_executor
+        if executor is not None:
+            await executor.close()
 
     async def _stream_and_store(
         self,
         events: AsyncIterator[AgentTraceEvent],
         state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AsyncIterator[AgentTraceEvent]:
         try:
             async for event in events:
@@ -1420,10 +1693,21 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     state.run_id,
                     event,
                 )
-                self._state_register().save_state(state)
+                self._state_register().save_state(
+                    state,
+                    principal_scope=principal_scope,
+                )
                 yield event
         finally:
-            self._state_register().save_state(state)
+            stored = self._state_register().get_state(
+                state.run_id,
+                principal_scope=principal_scope,
+            )
+            if stored.status is not AgentRunStatus.CANCELED:
+                self._state_register().save_state(
+                    state,
+                    principal_scope=principal_scope,
+                )
 
     async def _start_stream_events(
         self,
@@ -1434,6 +1718,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             self._runtime,
             request.context_id,
             request.retry_from_message_index,
+            principal_scope=_owner_scope(request.owner_id),
         )
         async for event in self._agent._run_agent_events(request, state):
             yield event
@@ -1451,3 +1736,50 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             raise AgentStateError("Agent trace register is not configured")
 
         return register
+
+    def _mark_interrupted(
+        self,
+        run_id: str,
+        reason: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        state = self.get_state(run_id, principal_scope=principal_scope)
+        if state.status is not AgentRunStatus.RUNNING:
+            return
+        event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_PAUSED,
+                metadata={"reason": reason, "interrupted": True},
+            ),
+        )
+        event.sequence = self._trace_register().append_event(run_id, event)
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            interruption_reason=reason,
+        )
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
+
+    async def _interrupt_timed_out_stream(
+        self,
+        run_id: str,
+        events: AsyncIterator[AgentTraceEvent],
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        try:
+            async for event in events:
+                yield event
+        except AgentRunTimeoutError:
+            self._mark_interrupted(
+                run_id,
+                "timeout",
+                principal_scope=principal_scope,
+            )
+            raise

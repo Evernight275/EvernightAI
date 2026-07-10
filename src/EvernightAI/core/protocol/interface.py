@@ -12,7 +12,9 @@ from EvernightAI.core.schema.agent import (
     AgentRunResult,
     AgentRunState,
     AgentTraceEvent,
+    AgentRunStatus,
 )
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
@@ -36,6 +38,7 @@ from EvernightAI.core.schema.session import (
     SessionAgentRunRequest,
     SessionChatRequest,
     SessionChatResult,
+    SessionStatus,
 )
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
@@ -55,29 +58,95 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         config: ProviderConfig,
     ) -> ProviderInstanceProtocol: ...
 
-    async def create_context(self, context: Context) -> Context: ...
+    async def create_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context: ...
 
-    async def get_context(self, context_id: str) -> Context: ...
+    async def get_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context: ...
 
-    async def append_context(self, context_id: str, message: Content) -> Context: ...
+    async def append_context(
+        self,
+        context_id: str,
+        message: Content,
+        *,
+        expected_revision: int | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context: ...
 
-    async def replace_context(self, context: Context) -> Context: ...
+    async def replace_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context: ...
 
-    async def list_contexts(self) -> list[Context]: ...
+    async def list_contexts(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[Context]: ...
 
-    async def delete_context(self, context_id: str) -> None: ...
+    async def delete_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
 
-    async def create_memory(self, memory: MemoryItem) -> MemoryItem: ...
+    async def create_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def get_memory(self, memory_id: str) -> MemoryItem: ...
+    async def get_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def list_memories(self) -> list[MemoryItem]: ...
+    async def replace_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def delete_memory(self, memory_id: str) -> None: ...
+    async def list_memories(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        query: MemoryQuery | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[MemoryItem]: ...
+
+    async def delete_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
 
     async def select_memories(
         self,
         query: MemoryQuery | None = None,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> MemorySelection: ...
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
@@ -94,6 +163,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatResponse: ...
 
     async def chat_stream(
@@ -112,6 +182,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol: ...
 
     async def close(self) -> None: ...
@@ -220,12 +291,19 @@ class AgentInterfaceProtocol(InterfaceProtocol):
 
 
 class AgentRunInterfaceProtocol(InterfaceProtocol):
-    async def start(self, request: AgentRunRequest) -> AgentRunState: ...
+    async def start(
+        self,
+        request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState: ...
 
     async def resume(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
 
     async def pause(
@@ -233,6 +311,7 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
 
     async def cancel(
@@ -240,22 +319,41 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
 
     def start_stream(
         self,
         request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol: ...
 
     def resume_stream(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol: ...
 
-    def get_state(self, run_id: str) -> AgentRunState: ...
+    def get_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState: ...
 
-    def list_states(self) -> list[AgentRunState]: ...
+    def list_states(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        status: AgentRunStatus | None = None,
+        context_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AgentRunState]: ...
 
     def list_trace(
         self,
@@ -263,6 +361,7 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         *,
         after_sequence: int = 0,
         limit: int | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> list[AgentTraceEvent]: ...
 
     async def close(self) -> None: ...
@@ -279,28 +378,67 @@ class SkillInterfaceProtocol(InterfaceProtocol):
 
 
 class SessionInterfaceProtocol(InterfaceProtocol):
-    async def create_session(self, session: Session) -> Session: ...
+    async def create_session(
+        self,
+        session: Session,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session: ...
 
-    async def get_session(self, session_id: str) -> Session: ...
+    async def get_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session: ...
 
-    async def replace_session(self, session: Session) -> Session: ...
+    async def replace_session(
+        self,
+        session: Session,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session: ...
 
-    async def archive_session(self, session_id: str) -> Session: ...
+    async def archive_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session: ...
 
-    async def list_sessions(self) -> list[Session]: ...
+    async def list_sessions(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        status: SessionStatus | None = None,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[Session]: ...
 
-    async def delete_session(self, session_id: str) -> None: ...
+    async def delete_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
 
     async def chat_with_session(
         self,
         session_id: str,
         request: SessionChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> SessionChatResult: ...
 
     async def start_agent_run_for_session(
         self,
         session_id: str,
         request: SessionAgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
 
 

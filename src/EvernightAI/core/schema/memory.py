@@ -1,4 +1,5 @@
 from enum import StrEnum
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import Field
@@ -30,13 +31,19 @@ class MemoryItem(EvernightAISchema):
     """记忆项"""
 
     memory_id: str
+    owner_id: str | None = None
     content: str
     kind: MemoryKind = MemoryKind.FACT
     scope: MemoryScope = MemoryScope.GLOBAL
     scope_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     priority: int = 0
+    relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     is_enabled: bool = True
+    expires_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -47,6 +54,9 @@ class MemoryQuery(EvernightAISchema):
     scope_id: str | None = None
     kinds: list[MemoryKind] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    minimum_relevance: float | None = Field(default=None, ge=0.0, le=1.0)
+    minimum_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    deduplicate: bool = False
     limit: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

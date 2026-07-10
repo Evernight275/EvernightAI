@@ -1,5 +1,6 @@
 from EvernightAI.core.protocol.base import EvernightAIProtocol
 from EvernightAI.core.protocol.agent import (
+    AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
 )
@@ -20,6 +21,7 @@ from EvernightAI.core.protocol.memory import (
     MemoryWriteStrategyProtocol,
 )
 from EvernightAI.core.protocol.provider import (
+    ProviderConfigStoreProtocol,
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
@@ -46,6 +48,9 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def providers(self) -> ProviderManageProtocol: ...
+
+    @property
+    def provider_config_store(self) -> ProviderConfigStoreProtocol | None: ...
 
     @property
     def tool_register(self) -> ToolRegisterProtocol: ...
@@ -105,6 +110,14 @@ class RuntimeProtocol(EvernightAIProtocol):
     def agent_state_register(self) -> AgentRunStateRegisterProtocol | None: ...
 
     @property
+    def agent_run_executor(self) -> AgentRunExecutorProtocol | None: ...
+
+    @property
     def agent_trace_register(self) -> AgentTraceRegisterProtocol | None: ...
+
+    @property
+    def is_ready(self) -> bool: ...
+
+    async def initialize(self) -> None: ...
 
     async def close(self) -> None: ...

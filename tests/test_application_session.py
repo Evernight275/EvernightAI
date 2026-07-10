@@ -29,6 +29,7 @@ from EvernightAI.core.protocol.agent import (
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -470,19 +471,38 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
     def __init__(self) -> None:
         self.states: dict[str, AgentRunState] = {}
 
-    def save_state(self, state: AgentRunState) -> None:
+    def save_state(
+        self,
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self.states[state.run_id] = state
 
-    def get_state(self, run_id: str) -> AgentRunState:
+    def get_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
         try:
             return self.states[run_id]
         except KeyError as exc:
             raise AgentStateError(f"The agent run state {run_id} is not found") from exc
 
-    def list_states(self) -> list[AgentRunState]:
+    def list_states(
+        self,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AgentRunState]:
         return list(self.states.values())
 
-    def delete_state(self, run_id: str) -> None:
+    def delete_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self.states.pop(run_id, None)
 
 

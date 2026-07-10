@@ -1,3 +1,6 @@
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
@@ -17,9 +20,15 @@ from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
     AgentRunState,
+    AgentRunStatus,
     AgentTraceEvent,
 )
-from EvernightAI.core.schema.auth import AuthPermission, AuthRequest, Principal
+from EvernightAI.core.schema.auth import (
+    AuthPermission,
+    AuthRequest,
+    Principal,
+    PrincipalScope,
+)
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
@@ -43,6 +52,7 @@ from EvernightAI.core.schema.session import (
     SessionAgentRunRequest,
     SessionChatRequest,
     SessionChatResult,
+    SessionStatus,
 )
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
@@ -51,6 +61,45 @@ from EvernightAI.core.schema.skill import (
     SkillRenderRequest,
 )
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
+
+
+ScopedResult = TypeVar("ScopedResult")
+
+
+async def _call_with_scope(
+    operation: Callable[..., Awaitable[ScopedResult]],
+    *args: object,
+    principal_scope: PrincipalScope,
+    **kwargs: object,
+) -> ScopedResult:
+    try:
+        return await operation(
+            *args,
+            **kwargs,
+            principal_scope=principal_scope,
+        )
+    except TypeError as exc:
+        if "principal_scope" not in str(exc):
+            raise
+        return await operation(*args, **kwargs)
+
+
+def _call_with_scope_sync(
+    operation: Callable[..., ScopedResult],
+    *args: object,
+    principal_scope: PrincipalScope,
+    **kwargs: object,
+) -> ScopedResult:
+    try:
+        return operation(
+            *args,
+            **kwargs,
+            principal_scope=principal_scope,
+        )
+    except TypeError as exc:
+        if "principal_scope" not in str(exc):
+            raise
+        return operation(*args, **kwargs)
 
 
 class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
@@ -154,6 +203,7 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         self._inner = inner
         self._authorizer = authorizer
         self._principal = principal
+        self._principal_scope = PrincipalScope.for_principal(principal)
 
     async def create_provider(
         self,
@@ -162,52 +212,186 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         self._require("providers", "create", config.provider_id)
         return await self._inner.create_provider(config)
 
-    async def create_context(self, context: Context) -> Context:
+    async def create_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
         self._require("contexts", "create", context.context_id)
-        return await self._inner.create_context(context)
+        return await _call_with_scope(
+            self._inner.create_context,
+            context.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
-    async def get_context(self, context_id: str) -> Context:
+    async def get_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
         self._require("contexts", "get", context_id)
-        return await self._inner.get_context(context_id)
+        return await _call_with_scope(
+            self._inner.get_context,
+            context_id,
+            principal_scope=self._principal_scope,
+        )
 
-    async def append_context(self, context_id: str, message: Content) -> Context:
+    async def append_context(
+        self,
+        context_id: str,
+        message: Content,
+        *,
+        expected_revision: int | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
         self._require("contexts", "append", context_id)
-        return await self._inner.append_context(context_id, message)
+        kwargs: dict[str, object] = {}
+        if expected_revision is not None:
+            kwargs["expected_revision"] = expected_revision
+        return await _call_with_scope(
+            self._inner.append_context,
+            context_id,
+            message,
+            principal_scope=self._principal_scope,
+            **kwargs,
+        )
 
-    async def replace_context(self, context: Context) -> Context:
+    async def replace_context(
+        self,
+        context: Context,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Context:
         self._require("contexts", "replace", context.context_id)
-        return await self._inner.replace_context(context)
+        return await _call_with_scope(
+            self._inner.replace_context,
+            context.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
-    async def list_contexts(self) -> list[Context]:
+    async def list_contexts(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[Context]:
         self._require("contexts", "list")
-        return await self._inner.list_contexts()
+        try:
+            return await self._inner.list_contexts(
+                cursor=cursor,
+                limit=limit,
+                owner_id=owner_id,
+                principal_scope=self._principal_scope,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            return await self._inner.list_contexts()
 
-    async def delete_context(self, context_id: str) -> None:
+    async def delete_context(
+        self,
+        context_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self._require("contexts", "delete", context_id)
-        await self._inner.delete_context(context_id)
+        await _call_with_scope(
+            self._inner.delete_context,
+            context_id,
+            principal_scope=self._principal_scope,
+        )
 
-    async def create_memory(self, memory: MemoryItem) -> MemoryItem:
+    async def create_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
         self._require("memories", "create", memory.memory_id)
-        return await self._inner.create_memory(memory)
+        return await _call_with_scope(
+            self._inner.create_memory,
+            memory.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
-    async def get_memory(self, memory_id: str) -> MemoryItem:
+    async def get_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
         self._require("memories", "get", memory_id)
-        return await self._inner.get_memory(memory_id)
+        return await _call_with_scope(
+            self._inner.get_memory,
+            memory_id,
+            principal_scope=self._principal_scope,
+        )
 
-    async def list_memories(self) -> list[MemoryItem]:
+    async def replace_memory(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem:
+        self._require("memories", "replace", memory.memory_id)
+        return await _call_with_scope(
+            self._inner.replace_memory,
+            memory.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
+
+    async def list_memories(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        query: MemoryQuery | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[MemoryItem]:
         self._require("memories", "list")
-        return await self._inner.list_memories()
+        try:
+            return await self._inner.list_memories(
+                cursor=cursor,
+                limit=limit,
+                owner_id=owner_id,
+                query=query,
+                principal_scope=self._principal_scope,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            return await self._inner.list_memories()
 
-    async def delete_memory(self, memory_id: str) -> None:
+    async def delete_memory(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self._require("memories", "delete", memory_id)
-        await self._inner.delete_memory(memory_id)
+        await _call_with_scope(
+            self._inner.delete_memory,
+            memory_id,
+            principal_scope=self._principal_scope,
+        )
 
     async def select_memories(
         self,
         query: MemoryQuery | None = None,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> MemorySelection:
         self._require("memories", "select")
-        return await self._inner.select_memories(query)
+        return await _call_with_scope(
+            self._inner.select_memories,
+            query,
+            principal_scope=self._principal_scope,
+        )
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         self._require("chat", "create", provider_id)
@@ -225,6 +409,7 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatResponse:
         self._require("chat", "create", context_id)
         return await self._inner.chat_with_context(
@@ -237,6 +422,7 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
             skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=self._principal_scope,
         )
 
     async def chat_stream(
@@ -259,6 +445,7 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         skills: list[ChatSkill] | None = None,
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol:
         self._require("chat", "stream", context_id)
         return await self._inner.chat_stream_with_context(
@@ -271,6 +458,7 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
             skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=self._principal_scope,
         )
 
     async def close(self) -> None:
@@ -540,59 +728,131 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         self._inner = inner
         self._authorizer = authorizer
         self._principal = principal
+        self._principal_scope = PrincipalScope.for_principal(principal)
 
-    async def start(self, request: AgentRunRequest) -> AgentRunState:
+    async def start(
+        self,
+        request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
         self._require("agent-runs", "create", request.context_id)
-        return await self._inner.start(request)
+        return await _call_with_scope(
+            self._inner.start,
+            request.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
     async def resume(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         self._require("agent-runs", "resume", run_id)
-        return await self._inner.resume(run_id, approvals)
+        return await _call_with_scope(
+            self._inner.resume,
+            run_id,
+            approvals,
+            principal_scope=self._principal_scope,
+        )
 
     async def pause(
         self,
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         self._require("agent-runs", "pause", run_id)
-        return await self._inner.pause(run_id, reason=reason)
+        return await _call_with_scope(
+            self._inner.pause,
+            run_id,
+            reason=reason,
+            principal_scope=self._principal_scope,
+        )
 
     async def cancel(
         self,
         run_id: str,
         *,
         reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         self._require("agent-runs", "cancel", run_id)
-        return await self._inner.cancel(run_id, reason=reason)
+        return await _call_with_scope(
+            self._inner.cancel,
+            run_id,
+            reason=reason,
+            principal_scope=self._principal_scope,
+        )
 
     def start_stream(
         self,
         request: AgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol:
         self._require("agent-runs", "stream", request.context_id)
-        return self._inner.start_stream(request)
+        return _call_with_scope_sync(
+            self._inner.start_stream,
+            request.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
     def resume_stream(
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceStreamProtocol:
         self._require("agent-runs", "resume_stream", run_id)
-        return self._inner.resume_stream(run_id, approvals)
+        return _call_with_scope_sync(
+            self._inner.resume_stream,
+            run_id,
+            approvals,
+            principal_scope=self._principal_scope,
+        )
 
-    def get_state(self, run_id: str) -> AgentRunState:
+    def get_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
         self._require("agent-runs", "get", run_id)
-        return self._inner.get_state(run_id)
+        return _call_with_scope_sync(
+            self._inner.get_state,
+            run_id,
+            principal_scope=self._principal_scope,
+        )
 
-    def list_states(self) -> list[AgentRunState]:
+    def list_states(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        status: AgentRunStatus | None = None,
+        context_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AgentRunState]:
         self._require("agent-runs", "list")
-        return self._inner.list_states()
+        try:
+            return self._inner.list_states(
+                cursor=cursor,
+                limit=limit,
+                owner_id=owner_id,
+                status=status,
+                context_id=context_id,
+                principal_scope=self._principal_scope,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            return self._inner.list_states()
 
     def list_trace(
         self,
@@ -600,12 +860,15 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         *,
         after_sequence: int = 0,
         limit: int | None = None,
+        principal_scope: PrincipalScope | None = None,
     ) -> list[AgentTraceEvent]:
         self._require("agent-runs", "list_trace", run_id)
-        return self._inner.list_trace(
+        return _call_with_scope_sync(
+            self._inner.list_trace,
             run_id,
             after_sequence=after_sequence,
             limit=limit,
+            principal_scope=self._principal_scope,
         )
 
     async def close(self) -> None:
@@ -682,46 +945,129 @@ class AuthorizedSessionInterface(SessionInterfaceProtocol):
         self._inner = inner
         self._authorizer = authorizer
         self._principal = principal
+        self._principal_scope = PrincipalScope.for_principal(principal)
 
-    async def create_session(self, session: Session) -> Session:
+    async def create_session(
+        self,
+        session: Session,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session:
         self._require("sessions", "create", session.session_id)
-        return await self._inner.create_session(session)
+        return await _call_with_scope(
+            self._inner.create_session,
+            session.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
-    async def get_session(self, session_id: str) -> Session:
+    async def get_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session:
         self._require("sessions", "get", session_id)
-        return await self._inner.get_session(session_id)
+        return await _call_with_scope(
+            self._inner.get_session,
+            session_id,
+            principal_scope=self._principal_scope,
+        )
 
-    async def replace_session(self, session: Session) -> Session:
+    async def replace_session(
+        self,
+        session: Session,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session:
         self._require("sessions", "replace", session.session_id)
-        return await self._inner.replace_session(session)
+        return await _call_with_scope(
+            self._inner.replace_session,
+            session.model_copy(update={"owner_id": self._principal.principal_id}),
+            principal_scope=self._principal_scope,
+        )
 
-    async def archive_session(self, session_id: str) -> Session:
+    async def archive_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> Session:
         self._require("sessions", "archive", session_id)
-        return await self._inner.archive_session(session_id)
+        return await _call_with_scope(
+            self._inner.archive_session,
+            session_id,
+            principal_scope=self._principal_scope,
+        )
 
-    async def list_sessions(self) -> list[Session]:
+    async def list_sessions(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        status: SessionStatus | None = None,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[Session]:
         self._require("sessions", "list")
-        return await self._inner.list_sessions()
+        try:
+            return await self._inner.list_sessions(
+                cursor=cursor,
+                limit=limit,
+                owner_id=owner_id,
+                status=status,
+                provider_id=provider_id,
+                model_id=model_id,
+                principal_scope=self._principal_scope,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            return await self._inner.list_sessions()
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(
+        self,
+        session_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self._require("sessions", "delete", session_id)
-        await self._inner.delete_session(session_id)
+        await _call_with_scope(
+            self._inner.delete_session,
+            session_id,
+            principal_scope=self._principal_scope,
+        )
 
     async def chat_with_session(
         self,
         session_id: str,
         request: SessionChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> SessionChatResult:
         self._require("sessions", "chat", session_id)
-        return await self._inner.chat_with_session(session_id, request)
+        return await _call_with_scope(
+            self._inner.chat_with_session,
+            session_id,
+            request,
+            principal_scope=self._principal_scope,
+        )
 
     async def start_agent_run_for_session(
         self,
         session_id: str,
         request: SessionAgentRunRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         self._require("sessions", "start_agent_run", session_id)
-        return await self._inner.start_agent_run_for_session(session_id, request)
+        return await _call_with_scope(
+            self._inner.start_agent_run_for_session,
+            session_id,
+            request,
+            principal_scope=self._principal_scope,
+        )
 
     def _require(
         self,

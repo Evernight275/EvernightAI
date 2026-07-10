@@ -37,11 +37,12 @@ from EvernightAI.core.protocol.agent import (
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
     AgentRunState,
     AgentTraceEvent,
     AgentTraceEventType,
 )
-from EvernightAI.core.schema.auth import Principal
+from EvernightAI.core.schema.auth import Principal, PrincipalScope
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -191,6 +192,43 @@ def test_http_app_can_set_custom_server_header() -> None:
 
     assert response.status_code == 200
     assert response.headers["server"] == "EvernightAdmin"
+
+
+def test_http_health_and_readiness_are_independent() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(
+        interface,
+        close_on_shutdown=False,
+        readiness_checker=lambda: False,
+    )
+
+    with TestClient(app) as client:
+        health_response = client.get("/health")
+        ready_response = client.get("/ready")
+
+    assert health_response.status_code == 200
+    assert ready_response.status_code == 503
+
+
+def test_http_request_id_is_returned_and_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with caplog.at_level(logging.INFO, logger="EvernightAI.interface.http.access"):
+        with TestClient(app) as client:
+            response = client.get(
+                "/health",
+                headers={"X-Request-ID": "request-1"},
+            )
+
+    record = next(
+        item for item in caplog.records if item.name == "EvernightAI.interface.http.access"
+    )
+    assert response.headers["X-Request-ID"] == "request-1"
+    assert getattr(record, "request_id") == "request-1"
+    assert getattr(record, "http_status") == 200
 
 
 def test_http_app_can_serve_static_frontend_without_shadowing_api(tmp_path) -> None:
@@ -2677,6 +2715,18 @@ def test_http_websocket_authorizes_subscribed_agent_run_access() -> None:
 
 
 def test_http_websocket_allows_trace_only_subscription_permission() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-1",
+            owner_id="user-1",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+        )
+    )
     trace_register = InMemoryAgentTraceRegister()
     trace_register.append_event(
         "run-1",
@@ -2685,7 +2735,7 @@ def test_http_websocket_allows_trace_only_subscription_permission() -> None:
     app = create_http_app(
         create_interface(
             make_runtime(
-                agent_state_register=InMemoryAgentRunStateRegister(),
+                agent_state_register=state_register,
                 agent_trace_register=trace_register,
             )
         ),
@@ -3022,19 +3072,38 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
     def __init__(self) -> None:
         self.states: dict[str, AgentRunState] = {}
 
-    def save_state(self, state: AgentRunState) -> None:
+    def save_state(
+        self,
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self.states[state.run_id] = state
 
-    def get_state(self, run_id: str) -> AgentRunState:
+    def get_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
         try:
             return self.states[run_id]
         except KeyError as exc:
             raise AgentStateError(f"The agent run state {run_id} is not found") from exc
 
-    def list_states(self) -> list[AgentRunState]:
+    def list_states(
+        self,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AgentRunState]:
         return list(self.states.values())
 
-    def delete_state(self, run_id: str) -> None:
+    def delete_state(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
         self.states.pop(run_id, None)
 
 

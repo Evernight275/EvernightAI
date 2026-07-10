@@ -56,6 +56,7 @@ class RecentLogStore:
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
+            self._next_index = 1
 
 
 class RecentLogHandler(logging.Handler):
@@ -91,6 +92,29 @@ def install_recent_log_handler(level: int = logging.INFO) -> None:
 
 def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
+    for key in (
+        "request_id",
+        "session_id",
+        "run_id",
+        "provider_id",
+        "model_id",
+        "tool_name",
+        "http_method",
+        "http_path",
+        "http_status",
+        "duration_ms",
+        "success",
+        "error_type",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "provider_calls_total",
+        "provider_errors_total",
+        "provider_error_rate",
+    ):
+        value = getattr(record, key, None)
+        if value is not None:
+            metadata[key] = value
     if record.exc_info:
         metadata["exception"] = logging.Formatter().formatException(record.exc_info)
     if record.stack_info:

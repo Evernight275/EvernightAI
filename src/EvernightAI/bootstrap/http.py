@@ -47,12 +47,22 @@ def create_app(
         ),
         shell_timeout_seconds=_env_float("EVERNIGHTAI_SHELL_TIMEOUT_SECONDS", 10.0),
         shell_max_output_chars=_env_int("EVERNIGHTAI_SHELL_MAX_OUTPUT_CHARS", 12000),
+        trace_retention_days=_env_int(
+            "EVERNIGHTAI_TRACE_RETENTION_DAYS",
+            30,
+        ),
+        trace_max_events=_env_int(
+            "EVERNIGHTAI_TRACE_MAX_EVENTS",
+            100_000,
+        ),
     )
     return create_http_app(
         create_interface(runtime),
         auth_device=_env_auth_device(),
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
+        initialize_handler=runtime.initialize,
+        readiness_checker=lambda: runtime.is_ready,
         server_header=_env_optional_string(
             "EVERNIGHTAI_HTTP_SERVER_HEADER",
             "EvernightAI",
@@ -69,6 +79,7 @@ def create_app_from_config(
     close_on_shutdown: bool = True,
 ) -> FastAPI:
     interface = create_unsecured_interface_from_config(config)
+    runtime = interface.runtime
 
     async def register_configured_providers() -> None:
         for provider in config.providers:
@@ -80,6 +91,8 @@ def create_app_from_config(
         auth_device=_config_auth_device(config),
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
+        initialize_handler=runtime.initialize,
+        readiness_checker=lambda: runtime.is_ready,
         startup_handlers=[register_configured_providers],
         server_header=config.http.server_header,
         static_files_path=config.http.static_files_path,

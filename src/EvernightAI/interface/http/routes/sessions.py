@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Response, status
+from fastapi import APIRouter, Body, Query, Response, status
 
 from EvernightAI.core.schema.agent import AgentRunState
 from EvernightAI.core.schema.session import (
@@ -8,6 +8,7 @@ from EvernightAI.core.schema.session import (
     SessionAgentRunRequest,
     SessionChatRequest,
     SessionChatResult,
+    SessionStatus,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.template import (
@@ -51,8 +52,23 @@ async def create_session(
     summary="List sessions",
     operation_id="list_sessions",
 )
-async def list_sessions(interface: InterfaceDependency) -> list[Session]:
-    return await interface.sessions.list_sessions()
+async def list_sessions(
+    interface: InterfaceDependency,
+    cursor: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    owner_id: str | None = Query(default=None),
+    status_filter: SessionStatus | None = Query(default=None, alias="status"),
+    provider_id: str | None = Query(default=None),
+    model_id: str | None = Query(default=None),
+) -> list[Session]:
+    return await interface.sessions.list_sessions(
+        cursor=cursor,
+        limit=limit,
+        owner_id=owner_id,
+        status=status_filter,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
 
 
 @router.get(

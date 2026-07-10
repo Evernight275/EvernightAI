@@ -23,3 +23,15 @@ class AgentShutdownError(AgentError, StateError):
     """
 
     pass
+
+
+class AgentRunTimeoutError(AgentError, StateError):
+    """Agent运行超过执行超时。"""
+
+    pass
+
+
+class AgentRunCanceledError(AgentError, StateError):
+    """Agent运行收到真实任务取消信号。"""
+
+    pass

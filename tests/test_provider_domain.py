@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+import logging
 from typing import cast
 
 import pytest
@@ -10,6 +11,7 @@ from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
+    ChatUsage,
     Content,
     ContentPart,
     ContentPartType,
@@ -136,6 +138,31 @@ async def test_manager_delegates_chat_to_provider_instance() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_manager_logs_stream_usage_after_consumption(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return UsageProvider()
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    await manager.create(make_config())
+
+    with caplog.at_level(logging.INFO, logger="EvernightAI.provider"):
+        stream = await manager.chat_stream(
+            "provider-1",
+            ChatRequest(model_id="model-1", messages=[]),
+        )
+        _ = [event async for event in stream]
+
+    record = next(item for item in caplog.records if item.name == "EvernightAI.provider")
+    assert getattr(record, "prompt_tokens") == 3
+    assert getattr(record, "completion_tokens") == 2
+    assert getattr(record, "total_tokens") == 5
+
+
 class FakeChatStream:
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
@@ -145,5 +172,22 @@ class FakeChatStream:
             event_type=ChatStreamEventType.RAW,
             raw_event="message",
             raw_data={"delta": "ok"},
+        )
+        yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
+
+
+class UsageProvider(FakeProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        return UsageChatStream()
+
+
+class UsageChatStream:
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
+        return self._iter_events()
+
+    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        yield ChatStreamEvent(
+            event_type=ChatStreamEventType.USAGE,
+            usage=ChatUsage(prompt_tokens=3, completion_tokens=2, total_tokens=5),
         )
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

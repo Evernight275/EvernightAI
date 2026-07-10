@@ -25,6 +25,19 @@ class Principal(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PrincipalScope(EvernightAISchema):
+    """Ownership scope passed through application and storage boundaries."""
+
+    owner_id: str | None = None
+
+    @classmethod
+    def for_principal(cls, principal: Principal) -> "PrincipalScope":
+        return cls(owner_id=principal.principal_id)
+
+    def permits(self, owner_id: str | None) -> bool:
+        return self.owner_id is None or owner_id == self.owner_id
+
+
 class AuthPermission(EvernightAISchema):
     action: str
     resource: str = "*"

@@ -5,6 +5,7 @@ from EvernightAI.core.protocol.base import (
     ResponsibilityProtocol,
 )
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 
 
@@ -21,15 +22,43 @@ class MemoryRegisterProtocol(MemoryProtocol, RegisterProtocol):
     记忆注册协议
     """
 
-    def register(self, memory: MemoryItem) -> None: ...
+    def register(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
 
-    def unregister(self, memory_id: str) -> None: ...
+    def unregister(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
 
-    def get(self, memory_id: str) -> MemoryItem: ...
+    def get(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    def has(self, memory_id: str) -> bool: ...
+    def has(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> bool: ...
 
-    def list_memories(self) -> list[MemoryItem]: ...
+    def list_memories(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        query: MemoryQuery | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[MemoryItem]: ...
 
 
 class MemoryResponsibilityProtocol(MemoryProtocol, ResponsibilityProtocol):
@@ -67,12 +96,46 @@ class MemoryManageProtocol(MemoryProtocol, ManageProtocol):
     记忆管理协议
     """
 
-    async def create(self, memory: MemoryItem) -> MemoryItem: ...
+    async def create(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def get(self, memory_id: str) -> MemoryItem: ...
+    async def get(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def list_memories(self) -> list[MemoryItem]: ...
+    async def replace(
+        self,
+        memory: MemoryItem,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> MemoryItem: ...
 
-    async def delete(self, memory_id: str) -> None: ...
+    async def list_memories(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        owner_id: str | None = None,
+        query: MemoryQuery | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[MemoryItem]: ...
 
-    async def clear(self) -> None: ...
+    async def delete(
+        self,
+        memory_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
+
+    async def clear(
+        self,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...

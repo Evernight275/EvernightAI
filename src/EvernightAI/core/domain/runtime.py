@@ -2,6 +2,7 @@ import inspect
 from typing import Any
 
 from EvernightAI.core.protocol.agent import (
+    AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
 )
@@ -26,6 +27,7 @@ from EvernightAI.core.protocol.memory import (
     MemoryWriteStrategyProtocol,
 )
 from EvernightAI.core.protocol.provider import (
+    ProviderConfigStoreProtocol,
     ProviderFactoryProtocol,
     ProviderManageProtocol,
 )
@@ -51,6 +53,7 @@ class RuntimeKernel(RuntimeProtocol):
         *,
         provider_factory: ProviderFactoryProtocol,
         providers: ProviderManageProtocol,
+        provider_config_store: ProviderConfigStoreProtocol | None = None,
         tool_register: ToolRegisterProtocol,
         tools: ToolManageProtocol,
         tool_safety_policy: ToolSafetyPolicyProtocol,
@@ -69,11 +72,15 @@ class RuntimeKernel(RuntimeProtocol):
         skill_register: SkillRegisterProtocol | None = None,
         skills: SkillManageProtocol | None = None,
         agent_state_register: AgentRunStateRegisterProtocol | None = None,
+        agent_run_executor: AgentRunExecutorProtocol | None = None,
         agent_trace_register: AgentTraceRegisterProtocol | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._providers = providers
+        self._provider_config_store = provider_config_store
+        self._initialized = False
+        self._initialization_error: Exception | None = None
         self._tool_register = tool_register
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
@@ -95,6 +102,7 @@ class RuntimeKernel(RuntimeProtocol):
         self._session_register = session_register or SessionRegister()
         self._sessions = sessions or SessionManager(self._session_register)
         self._agent_state_register = agent_state_register
+        self._agent_run_executor = agent_run_executor
         self._agent_trace_register = agent_trace_register
 
     @property
@@ -104,6 +112,10 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def providers(self) -> ProviderManageProtocol:
         return self._providers
+
+    @property
+    def provider_config_store(self) -> ProviderConfigStoreProtocol | None:
+        return self._provider_config_store
 
     @property
     def tool_register(self) -> ToolRegisterProtocol:
@@ -182,21 +194,49 @@ class RuntimeKernel(RuntimeProtocol):
         return self._agent_state_register
 
     @property
+    def agent_run_executor(self) -> AgentRunExecutorProtocol | None:
+        return self._agent_run_executor
+
+    @property
     def agent_trace_register(self) -> AgentTraceRegisterProtocol | None:
         return self._agent_trace_register
 
+    @property
+    def is_ready(self) -> bool:
+        if not self._initialized or self._initialization_error is not None:
+            return False
+        for resource in self._persistent_resources():
+            checker = getattr(resource, "is_ready", None)
+            if callable(checker) and not checker():
+                return False
+        return True
+
+    async def initialize(self) -> None:
+        if self._initialized:
+            return
+        try:
+            await self._providers.restore()
+        except Exception as exc:
+            self._initialization_error = exc
+            raise
+        self._initialization_error = None
+        self._initialized = True
+
     async def close(self) -> None:
         await self._providers.close()
-        for resource in [
+        for resource in [*self._persistent_resources(), self._sandbox]:
+            await _close_if_supported(resource)
+
+    def _persistent_resources(self) -> list[Any]:
+        return [
+            self._provider_config_store,
             self._context_register,
             self._data_analysis_register,
             self._memory_register,
             self._session_register,
             self._agent_state_register,
             self._agent_trace_register,
-            self._sandbox,
-        ]:
-            await _close_if_supported(resource)
+        ]
 
 
 async def _close_if_supported(resource: Any) -> None:

@@ -73,6 +73,22 @@ class ProviderRegisterProtocol(ProviderProtocol, RegisterProtocol):
     def has(self, provider_id: str) -> bool: ...
 
 
+class ProviderConfigStoreProtocol(ProviderProtocol, RegisterProtocol):
+    """可恢复的脱敏Provider配置存储。"""
+
+    def save(self, provider: ProviderConfig) -> None: ...
+
+    def get(self, provider_id: str) -> ProviderConfig: ...
+
+    def list_configs(self, *, enabled_only: bool = False) -> list[ProviderConfig]: ...
+
+    def delete(self, provider_id: str) -> None: ...
+
+
+class ProviderSecretResolverProtocol(ProviderProtocol, ResponsibilityProtocol):
+    def resolve(self, secret_ref: str) -> str: ...
+
+
 class ProviderResponsibilityProtocol(ProviderProtocol, ResponsibilityProtocol):
     """
     提供商职责协议
@@ -111,6 +127,8 @@ class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
     async def delete(self, provider_id: str) -> None: ...
 
     async def close(self) -> None: ...
+
+    async def restore(self) -> list[str]: ...
 
 
 class ProviderFactoryProtocol(ProviderProtocol, FactoryProtocol, RegisterProtocol):

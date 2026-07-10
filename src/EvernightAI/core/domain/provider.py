@@ -1,12 +1,19 @@
+import logging
+from collections.abc import AsyncIterator
+from time import perf_counter
+
 from EvernightAI.core.protocol.provider import (
     ProviderRegisterProtocol,
     ProviderManageProtocol,
     ProviderInstanceProtocol,
     ProviderFactoryProtocol,
     ProviderBuilderProtocol,
+    ProviderConfigStoreProtocol,
+    ProviderSecretResolverProtocol,
 )
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse
+from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatUsage
+from EvernightAI.core.schema.stream import ChatStreamEvent
 
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -15,7 +22,13 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
-from EvernightAI.core.error.provider import ProviderNotFoundError
+from EvernightAI.core.error.provider import (
+    ProviderConfigurationError,
+    ProviderNotFoundError,
+)
+
+
+LOGGER = logging.getLogger("EvernightAI.provider")
 
 
 class ProviderRegister(ProviderRegisterProtocol):
@@ -80,14 +93,25 @@ class ProviderFactory(ProviderFactoryProtocol):
 
 
 class ProviderManager(ProviderManageProtocol):
-    def __init__(self, factory: ProviderFactoryProtocol) -> None:
+    def __init__(
+        self,
+        factory: ProviderFactoryProtocol,
+        config_store: ProviderConfigStoreProtocol | None = None,
+        secret_resolver: ProviderSecretResolverProtocol | None = None,
+    ) -> None:
         self._factory = factory
+        self._config_store = config_store
+        self._secret_resolver = secret_resolver
         self._instances: dict[str, ProviderInstanceProtocol] = {}
         self._infos: dict[str, ProviderInfo] = {}
+        self._call_totals: dict[str, int] = {}
+        self._error_totals: dict[str, int] = {}
 
     async def create(self, provider: ProviderConfig) -> ProviderInstanceProtocol:
         """创建提供实例"""
-        instance = await self._factory.create(provider)
+        resolved = self._resolve_secret(provider)
+        instance = await self._factory.create(resolved)
+        previous = self._instances.get(provider.provider_id)
         self._instances[provider.provider_id] = instance
         self._infos[provider.provider_id] = ProviderInfo(
             provider_id=provider.provider_id,
@@ -97,6 +121,12 @@ class ProviderManager(ProviderManageProtocol):
             model=provider.model,
             metadata=dict(provider.metadata),
         )
+        if self._config_store is not None and not (
+            provider.api_key is not None and provider.api_key_secret_ref is None
+        ):
+            self._config_store.save(provider.model_copy(update={"api_key": None}))
+        if previous is not None and previous is not instance:
+            await previous.close()
         return instance
 
     async def get(self, provider_id: str) -> ProviderInstanceProtocol:
@@ -134,14 +164,48 @@ class ProviderManager(ProviderManageProtocol):
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         """执行聊天请求"""
         instance = await self.get(provider_id)
-        return await instance.chat(request)
+        started = perf_counter()
+        try:
+            response = await instance.chat(request)
+        except Exception as exc:
+            self._record_call(
+                provider_id,
+                request,
+                started=started,
+                error=exc,
+            )
+            raise
+        self._record_call(
+            provider_id,
+            request,
+            started=started,
+            response=response,
+        )
+        return response
 
     async def chat_stream(
         self, provider_id: str, request: ChatRequest
     ) -> ChatStreamProtocol:
         """执行流式聊天请求"""
         instance = await self.get(provider_id)
-        return await instance.chat_stream(request)
+        started = perf_counter()
+        try:
+            stream = await instance.chat_stream(request)
+        except Exception as exc:
+            self._record_call(
+                provider_id,
+                request,
+                started=started,
+                error=exc,
+            )
+            raise
+        return _ObservedChatStream(
+            stream,
+            manager=self,
+            provider_id=provider_id,
+            request=request,
+            started=started,
+        )
 
     async def delete(self, provider_id: str) -> None:
         """删除提供实例"""
@@ -149,6 +213,20 @@ class ProviderManager(ProviderManageProtocol):
         await instance.close()
         self._instances.pop(provider_id, None)
         self._infos.pop(provider_id, None)
+        if self._config_store is not None:
+            try:
+                self._config_store.delete(provider_id)
+            except ProviderNotFoundError:
+                pass
+
+    async def restore(self) -> list[str]:
+        if self._config_store is None:
+            return []
+        restored: list[str] = []
+        for config in self._config_store.list_configs(enabled_only=True):
+            await self.create(config)
+            restored.append(config.provider_id)
+        return restored
 
     async def close(self) -> None:
         """关闭所有提供实例"""
@@ -156,3 +234,95 @@ class ProviderManager(ProviderManageProtocol):
             await instance.close()
         self._instances.clear()
         self._infos.clear()
+
+    def _resolve_secret(self, provider: ProviderConfig) -> ProviderConfig:
+        if provider.api_key is not None or provider.api_key_secret_ref is None:
+            return provider
+        if self._secret_resolver is None:
+            raise ProviderConfigurationError(
+                f"No secret resolver is configured for {provider.api_key_secret_ref}"
+            )
+        return provider.model_copy(
+            update={"api_key": self._secret_resolver.resolve(provider.api_key_secret_ref)}
+        )
+
+    def _record_call(
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        started: float,
+        response: ChatResponse | None = None,
+        usage: ChatUsage | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        total = self._call_totals.get(provider_id, 0) + 1
+        errors = self._error_totals.get(provider_id, 0) + int(error is not None)
+        self._call_totals[provider_id] = total
+        self._error_totals[provider_id] = errors
+        usage = response.usage if response is not None else usage
+        metadata = request.metadata
+        extra = {
+            "request_id": metadata.get("request_id"),
+            "session_id": metadata.get("session_id"),
+            "run_id": metadata.get("run_id"),
+            "provider_id": provider_id,
+            "model_id": request.model_id,
+            "duration_ms": round((perf_counter() - started) * 1000, 3),
+            "success": error is None,
+            "error_type": error.__class__.__name__ if error is not None else None,
+            "prompt_tokens": usage.prompt_tokens if usage is not None else None,
+            "completion_tokens": usage.completion_tokens if usage is not None else None,
+            "total_tokens": usage.total_tokens if usage is not None else None,
+            "provider_calls_total": total,
+            "provider_errors_total": errors,
+            "provider_error_rate": errors / total,
+        }
+        if error is None:
+            LOGGER.info("Provider call completed", extra=extra)
+        else:
+            LOGGER.warning("Provider call failed", extra=extra)
+
+
+class _ObservedChatStream(ChatStreamProtocol):
+    def __init__(
+        self,
+        stream: ChatStreamProtocol,
+        *,
+        manager: ProviderManager,
+        provider_id: str,
+        request: ChatRequest,
+        started: float,
+    ) -> None:
+        self._stream = stream
+        self._manager = manager
+        self._provider_id = provider_id
+        self._request = request
+        self._started = started
+
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
+        return self._events()
+
+    async def _events(self) -> AsyncIterator[ChatStreamEvent]:
+        usage: ChatUsage | None = None
+        try:
+            async for event in self._stream:
+                if event.usage is not None:
+                    usage = event.usage
+                yield event
+        except BaseException as exc:
+            self._manager._record_call(
+                self._provider_id,
+                self._request,
+                started=self._started,
+                usage=usage,
+                error=exc,
+            )
+            raise
+        else:
+            self._manager._record_call(
+                self._provider_id,
+                self._request,
+                started=self._started,
+                usage=usage,
+            )

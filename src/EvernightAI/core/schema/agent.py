@@ -63,6 +63,7 @@ class AgentRunRequest(EvernightAISchema):
     """Agent运行请求"""
 
     provider_id: str
+    owner_id: str | None = None
     context_id: str
     model_id: str
     messages: list[Content] = Field(default_factory=list)
@@ -75,6 +76,7 @@ class AgentRunRequest(EvernightAISchema):
     write_memory: bool = False
     tool_approvals: list[ToolApprovalDecision] = Field(default_factory=list)
     pause_on_approval: bool = False
+    timeout_seconds: float | None = Field(default=None, gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -124,6 +126,7 @@ class AgentRunState(EvernightAISchema):
     """Agent运行状态快照"""
 
     run_id: str
+    owner_id: str | None = None
     request: AgentRunRequest
     status: AgentRunStatus = AgentRunStatus.RUNNING
     response: ChatResponse | None = None

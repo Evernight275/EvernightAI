@@ -25,6 +25,7 @@ class Session(EvernightAISchema):
     """会话"""
 
     session_id: str
+    owner_id: str | None = None
     title: str | None = None
     context_id: str
     provider_id: str | None = None
@@ -56,6 +57,7 @@ class SessionAgentRunRequest(SessionChatRequest):
     write_memory: bool = False
     tool_approvals: list[ToolApprovalDecision] = Field(default_factory=list)
     pause_on_approval: bool = False
+    timeout_seconds: float | None = Field(default=None, gt=0)
 
 
 class SessionChatResult(EvernightAISchema):

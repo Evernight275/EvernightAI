@@ -5,8 +5,15 @@ from EvernightAI.core.domain.context import (
     ContextManager,
     ContextOrganizer,
     ContextRegister,
+    SummarizingContextStrategy,
+    TokenBudgetContextStrategy,
+    WindowTrimmingContextStrategy,
 )
 from EvernightAI.core.error.context import ContextNotFoundError
+from EvernightAI.core.protocol.context import (
+    ContextSummarizerProtocol,
+    ContextTokenEstimatorProtocol,
+)
 from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
@@ -279,3 +286,156 @@ def test_basic_context_strategy_composes_memory_into_chat_request() -> None:
         "memory_selection": {"strategy": "test"},
         "context_id": "ctx-1",
     }
+
+
+def test_window_trimming_strategy_is_independent_from_basic_organizer() -> None:
+    strategy = WindowTrimmingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_messages=2,
+    )
+    context = Context(
+        context_id="ctx-1",
+        messages=[make_message("one"), make_message("two")],
+    )
+
+    request = strategy.compose_chat_request(
+        context,
+        model_id="model-1",
+        messages=[make_message("three")],
+    )
+
+    assert request.messages == [make_message("two"), make_message("three")]
+    assert request.metadata["context_strategy"] == {
+        "name": "WindowTrimmingContextStrategy",
+        "original_message_count": 3,
+    }
+
+
+def test_token_budget_strategy_keeps_newest_messages_within_budget() -> None:
+    strategy = TokenBudgetContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_tokens=2,
+        estimator=_OneTokenEstimator(),
+    )
+    context = Context(
+        context_id="ctx-1",
+        messages=[make_message("one"), make_message("two")],
+    )
+
+    request = strategy.compose_chat_request(
+        context,
+        model_id="model-1",
+        messages=[make_message("three")],
+    )
+
+    assert request.messages == [make_message("two"), make_message("three")]
+    assert request.metadata["context_strategy"]["estimated_tokens"] == 2
+
+
+def test_window_trimming_keeps_tool_protocol_groups_intact() -> None:
+    tool_call = make_assistant_tool_call()
+    tool_result = make_tool_message()
+    strategy = WindowTrimmingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_messages=2,
+    )
+
+    request = strategy.compose_chat_request(
+        Context(
+            context_id="ctx-1",
+            messages=[make_message("old"), tool_call, tool_result],
+        ),
+        model_id="model-1",
+    )
+
+    assert request.messages == [tool_call, tool_result]
+
+
+def test_token_budget_keeps_tool_protocol_groups_intact() -> None:
+    tool_call = make_assistant_tool_call()
+    tool_result = make_tool_message()
+    strategy = TokenBudgetContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_tokens=1,
+        estimator=_OneTokenEstimator(),
+    )
+
+    request = strategy.compose_chat_request(
+        Context(context_id="ctx-1", messages=[tool_call, tool_result]),
+        model_id="model-1",
+    )
+
+    assert request.messages == [tool_call, tool_result]
+
+
+def test_summarizing_strategy_uses_injected_summarizer() -> None:
+    summarizer = _RecordingSummarizer()
+    strategy = SummarizingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        summarizer,
+        summarize_after_messages=2,
+        keep_recent_messages=1,
+    )
+    context = Context(
+        context_id="ctx-1",
+        messages=[make_message("one"), make_message("two")],
+    )
+
+    request = strategy.compose_chat_request(
+        context,
+        model_id="model-1",
+        messages=[make_message("three")],
+    )
+
+    assert summarizer.messages == [[make_message("one"), make_message("two")]]
+    assert request.messages == [
+        Content(
+            role=MessageRole.SYSTEM,
+            content=[ContentPart(type=ContentPartType.TEXT, text="summary")],
+        ),
+        make_message("three"),
+    ]
+    assert request.metadata["context_strategy"] == {
+        "name": "SummarizingContextStrategy",
+        "summarized_message_count": 2,
+    }
+
+
+def test_summarizing_strategy_keeps_recent_tool_group_intact() -> None:
+    tool_call = make_assistant_tool_call()
+    tool_result = make_tool_message()
+    summarizer = _RecordingSummarizer()
+    strategy = SummarizingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        summarizer,
+        summarize_after_messages=2,
+        keep_recent_messages=1,
+    )
+
+    request = strategy.compose_chat_request(
+        Context(
+            context_id="ctx-1",
+            messages=[make_message("old"), tool_call, tool_result],
+        ),
+        model_id="model-1",
+    )
+
+    assert summarizer.messages == [[make_message("old")]]
+    assert request.messages[1:] == [tool_call, tool_result]
+
+
+class _OneTokenEstimator(ContextTokenEstimatorProtocol):
+    def estimate(self, message: Content) -> int:
+        return 1
+
+
+class _RecordingSummarizer(ContextSummarizerProtocol):
+    def __init__(self) -> None:
+        self.messages: list[list[Content]] = []
+
+    def summarize(self, messages: list[Content]) -> Content:
+        self.messages.append(messages)
+        return Content(
+            role=MessageRole.SYSTEM,
+            content=[ContentPart(type=ContentPartType.TEXT, text="summary")],
+        )
