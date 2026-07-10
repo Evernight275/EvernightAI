@@ -154,9 +154,9 @@ class _AgentRunLifecycle:
                 shutdown_reason="shutdown",
             )
             state.trace.append(event)
-            state_register.save_state(state)
             if trace_register is not None:
-                trace_register.append_event(state.run_id, event)
+                event.sequence = trace_register.append_event(state.run_id, event)
+            state_register.save_state(state)
 
 
 class AgentRunMetadata:
@@ -1249,7 +1249,7 @@ class AgentApplication(AgentInterfaceProtocol):
         if register is None:
             raise AgentStateError("Agent trace register is not configured")
 
-        register.append_event(run_id, event)
+        event.sequence = register.append_event(run_id, event)
 
 
 class _AgentTraceStream:
@@ -1310,8 +1310,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
             pause_reason=reason or "pause",
         )
+        event.sequence = self._trace_register().append_event(run_id, event)
         self._state_register().save_state(state)
-        self._trace_register().append_event(run_id, event)
         return state
 
     async def cancel(
@@ -1345,8 +1345,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
             cancel_reason=reason or "canceled",
         )
+        event.sequence = self._trace_register().append_event(run_id, event)
         self._state_register().save_state(state)
-        self._trace_register().append_event(run_id, event)
         return state
 
     def start_stream(
@@ -1390,8 +1390,18 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     def list_states(self) -> list[AgentRunState]:
         return self._state_register().list_states()
 
-    def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
-        return self._trace_register().list_events(run_id)
+    def list_trace(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
+        return self._trace_register().list_events(
+            run_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
 
     async def close(self) -> None:
         await self._lifecycle.close(
@@ -1406,7 +1416,10 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AsyncIterator[AgentTraceEvent]:
         try:
             async for event in events:
-                self._trace_register().append_event(state.run_id, event)
+                event.sequence = self._trace_register().append_event(
+                    state.run_id,
+                    event,
+                )
                 self._state_register().save_state(state)
                 yield event
         finally:

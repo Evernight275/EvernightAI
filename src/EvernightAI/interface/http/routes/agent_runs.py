@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Body, status
+from fastapi import APIRouter, Body, Query, status
 from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
@@ -167,8 +167,14 @@ async def resume_agent_run_stream(
 async def list_agent_trace(
     run_id: str,
     interface: InterfaceDependency,
+    after_sequence: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=1000),
 ) -> list[AgentTraceEvent]:
-    return interface.agent_runs.list_trace(run_id)
+    return interface.agent_runs.list_trace(
+        run_id,
+        after_sequence=after_sequence,
+        limit=limit,
+    )
 
 
 async def _agent_trace_sse_events(

@@ -594,9 +594,19 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         self._require("agent-runs", "list")
         return self._inner.list_states()
 
-    def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
+    def list_trace(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
         self._require("agent-runs", "list_trace", run_id)
-        return self._inner.list_trace(run_id)
+        return self._inner.list_trace(
+            run_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
 
     async def close(self) -> None:
         await self._inner.close()

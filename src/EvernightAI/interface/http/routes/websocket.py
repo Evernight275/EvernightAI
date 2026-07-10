@@ -14,6 +14,7 @@ from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, WebSocket
 from EvernightAI.core.schema.agent import AgentRunRequest
 from EvernightAI.core.schema.stream import (
     WebSocketAgentControlAction,
+    WebSocketClientEvent,
     WebSocketError,
     WebSocketHeartbeat,
     WebSocketHello,
@@ -143,6 +144,10 @@ async def _handle_client_event(
         await _handle_agent_run_subscribe(interface, connection, message)
         return
 
+    if message.client_event.event_name == "agent_run.unsubscribe":
+        await _handle_agent_run_unsubscribe(connection, message)
+        return
+
     if message.client_event.event_name != "agent_run.start":
         await _send_error(
             connection,
@@ -194,6 +199,7 @@ async def _handle_agent_run_subscribe(
         )
         return
 
+    generation = connection.manager.subscription_generation(connection, run_id)
     connection.spawn(
         _subscribe_agent_run(
             interface,
@@ -201,6 +207,7 @@ async def _handle_agent_run_subscribe(
             message,
             run_id,
             after_sequence,
+            generation,
         )
     )
 
@@ -211,24 +218,81 @@ async def _subscribe_agent_run(
     message: WebSocketMessage,
     run_id: str,
     after_sequence: int,
+    generation: int,
 ) -> None:
-    connection.manager.subscribe(connection, run_id)
     try:
-        events = interface.agent_runs.list_trace(run_id)
-        for sequence, event in enumerate(events, start=1):
-            if sequence <= after_sequence:
-                continue
-            await connection.send(
+        def load_messages(cursor: int) -> list[WebSocketMessage]:
+            events = interface.agent_runs.list_trace(
+                run_id,
+                after_sequence=cursor,
+            )
+            replay_messages = [
                 WebSocketMessage(
                     message_type=WebSocketMessageType.AGENT_TRACE,
                     correlation_id=message.message_id,
                     run_id=run_id,
                     trace_event=event,
-                    payload={"sequence": sequence, "replayed": True},
+                    payload=_trace_payload(event.sequence, replayed=True),
+                )
+                for event in events
+            ]
+            subscribed_sequence = (
+                events[-1].sequence if events else cursor
+            )
+            replay_messages.append(
+                WebSocketMessage(
+                    message_type=WebSocketMessageType.CLIENT_EVENT,
+                    correlation_id=message.message_id,
+                    run_id=run_id,
+                    client_event=WebSocketClientEvent(
+                        event_name="agent_run.subscribed",
+                        payload={
+                            "run_id": run_id,
+                            "sequence": subscribed_sequence,
+                        },
+                    ),
                 )
             )
+            return replay_messages
+
+        await connection.manager.replay_run(
+            connection,
+            run_id,
+            load_messages,
+            after_sequence=after_sequence,
+            generation=generation,
+        )
     except Exception as exc:
+        connection.manager.unsubscribe(connection, run_id)
         await _send_error(connection, exc, correlation_id=message.message_id)
+
+
+async def _handle_agent_run_unsubscribe(
+    connection: ManagedWebSocketConnection,
+    message: WebSocketMessage,
+) -> None:
+    assert message.client_event is not None
+    run_id = message.client_event.payload.get("run_id")
+    if not isinstance(run_id, str) or run_id == "":
+        await _send_error(
+            connection,
+            ValueError("Agent run unsubscription requires run_id"),
+            correlation_id=message.message_id,
+        )
+        return
+
+    await connection.manager.unsubscribe_run(connection, run_id)
+    await connection.send(
+        WebSocketMessage(
+            message_type=WebSocketMessageType.CLIENT_EVENT,
+            correlation_id=message.message_id,
+            run_id=run_id,
+            client_event=WebSocketClientEvent(
+                event_name="agent_run.unsubscribed",
+                payload={"run_id": run_id},
+            ),
+        )
+    )
 
 
 async def _handle_tool_approval(
@@ -352,15 +416,15 @@ async def _broadcast_control_trace(
         return
 
     connection.manager.subscribe(connection, run_id)
-    sequence = _trace_sequence(interface, run_id)
+    event = state.trace[-1]
     await connection.manager.broadcast_run(
         run_id,
         WebSocketMessage(
             message_type=WebSocketMessageType.AGENT_TRACE,
             correlation_id=message.message_id,
             run_id=run_id,
-            trace_event=state.trace[-1],
-            payload=_trace_payload(sequence, replayed=False),
+            trace_event=event,
+            payload=_trace_payload(event.sequence, replayed=False),
         ),
     )
 
@@ -378,7 +442,6 @@ async def _start_agent_run_stream(
     try:
         stream = interface.agent_runs.start_stream(request)
         await _send_trace_stream(
-            interface,
             connection,
             stream,
             correlation_id=message.message_id,
@@ -399,7 +462,6 @@ async def _resume_agent_run_stream(
     try:
         stream = interface.agent_runs.resume_stream(run_id, approvals)
         await _send_trace_stream(
-            interface,
             connection,
             stream,
             correlation_id=message.message_id,
@@ -410,7 +472,6 @@ async def _resume_agent_run_stream(
 
 
 async def _send_trace_stream(
-    interface: EvernightInterfaceProtocol,
     session: WebSocketProtocol,
     stream: AgentTraceStreamProtocol,
     *,
@@ -418,13 +479,17 @@ async def _send_trace_stream(
     run_id: str | None = None,
 ) -> None:
     async for event in stream:
-        sequence = _trace_sequence(interface, run_id)
+        trace_event = (
+            event
+            if run_id is not None
+            else event.model_copy(update={"sequence": None})
+        )
         message = WebSocketMessage(
             message_type=WebSocketMessageType.AGENT_TRACE,
             correlation_id=correlation_id,
             run_id=run_id,
-            trace_event=event,
-            payload=_trace_payload(sequence, replayed=False),
+            trace_event=trace_event,
+            payload=_trace_payload(trace_event.sequence, replayed=False),
         )
         if run_id is not None and isinstance(session, ManagedWebSocketConnection):
             await session.manager.broadcast_run(run_id, message)
@@ -511,19 +576,6 @@ def _run_id_for_message(
         return run_id
 
     return None
-
-
-def _trace_sequence(
-    interface: EvernightInterfaceProtocol,
-    run_id: str | None,
-) -> int | None:
-    if run_id is None:
-        return None
-
-    try:
-        return len(interface.agent_runs.list_trace(run_id))
-    except Exception:
-        return None
 
 
 def _trace_payload(

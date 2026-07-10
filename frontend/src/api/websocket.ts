@@ -34,6 +34,12 @@ export type WebSocketError = {
   metadata?: Record<string, unknown>
 }
 
+export type WebSocketClientEvent = {
+  event_name: string
+  payload?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
 export type WebSocketTracePayload = {
   sequence?: number
   replayed?: boolean
@@ -46,6 +52,7 @@ export type WebSocketMessage = {
   run_id?: string | null
   hello?: WebSocketHello | null
   heartbeat?: WebSocketHeartbeat | null
+  client_event?: WebSocketClientEvent | null
   trace_event?: AgentTraceEvent | null
   error?: WebSocketError | null
   payload?: Record<string, unknown>
@@ -56,6 +63,7 @@ type AgentRunSocketHandlers = {
   onStatus?: (status: AgentRunSocketStatus) => void
   onTrace?: (runId: string, event: AgentTraceEvent, payload: WebSocketTracePayload, message: WebSocketMessage) => void
   onError?: (error: WebSocketError, message: WebSocketMessage) => void
+  onSubscription?: (runId: string, subscribed: boolean, sequence: number) => void
 }
 
 export type AgentRunSocketStatus = 'connecting' | 'connected' | 'disconnected'
@@ -67,6 +75,8 @@ export class AgentRunSocketClient {
   private manuallyClosed = false
   private readonly handlers: AgentRunSocketHandlers
   private readonly subscriptions = new Map<string, number>()
+  private readonly pendingMessages: Record<string, unknown>[] = []
+  private readonly pendingStartRunIds = new Set<string>()
 
   constructor(handlers: AgentRunSocketHandlers = {}) {
     this.handlers = handlers
@@ -85,7 +95,9 @@ export class AgentRunSocketClient {
     socket.addEventListener('open', () => {
       this.reconnectDelayMs = 1000
       this.emitStatus('connected')
-      this.resubscribe()
+      this.resubscribe(this.pendingStartRunIds)
+      this.flushPendingMessages()
+      this.pendingStartRunIds.clear()
     })
     socket.addEventListener('message', (event) => this.handleMessage(event))
     socket.addEventListener('close', () => {
@@ -107,11 +119,17 @@ export class AgentRunSocketClient {
     }
     this.socket?.close()
     this.socket = null
+    this.pendingMessages.length = 0
+    this.pendingStartRunIds.clear()
     this.emitStatus('disconnected')
   }
 
   startRun(request: AgentRunRequest) {
-    this.send({
+    const runId = typeof request.metadata?.run_id === 'string' ? request.metadata.run_id : null
+    if (runId) {
+      this.subscriptions.set(runId, 0)
+    }
+    const sent = this.send({
       message_type: 'client_event',
       message_id: messageId('start'),
       client_event: {
@@ -119,15 +137,27 @@ export class AgentRunSocketClient {
         payload: request,
       },
     })
-    const runId = typeof request.metadata?.run_id === 'string' ? request.metadata.run_id : null
-    if (runId) {
-      this.subscribeRun(runId)
+    if (!sent && runId) {
+      this.pendingStartRunIds.add(runId)
     }
   }
 
   subscribeRun(runId: string, afterSequence = this.subscriptions.get(runId) || 0) {
-    this.subscriptions.set(runId, afterSequence)
-    this.sendSubscribe(runId, afterSequence)
+    const cursor = Math.max(this.subscriptions.get(runId) || 0, afterSequence)
+    this.subscriptions.set(runId, cursor)
+    this.sendSubscribe(runId, cursor)
+  }
+
+  unsubscribeRun(runId: string) {
+    this.subscriptions.delete(runId)
+    this.send({
+      message_type: 'client_event',
+      message_id: messageId('unsubscribe'),
+      client_event: {
+        event_name: 'agent_run.unsubscribe',
+        payload: { run_id: runId },
+      },
+    })
   }
 
   controlRun(runId: string, action: WebSocketAgentControlAction, reason?: string) {
@@ -166,9 +196,16 @@ export class AgentRunSocketClient {
     if (message.message_type === 'agent_trace' && message.run_id && message.trace_event) {
       const payload = tracePayload(message.payload)
       if (payload.sequence !== undefined) {
-        this.subscriptions.set(message.run_id, payload.sequence)
+        this.subscriptions.set(
+          message.run_id,
+          Math.max(this.subscriptions.get(message.run_id) || 0, payload.sequence),
+        )
       }
       this.handlers.onTrace?.(message.run_id, message.trace_event, payload, message)
+      return
+    }
+    if (message.message_type === 'client_event' && message.client_event) {
+      this.handleClientEvent(message.client_event)
       return
     }
     if (message.message_type === 'error' && message.error) {
@@ -176,16 +213,40 @@ export class AgentRunSocketClient {
     }
   }
 
-  private send(message: Record<string, unknown>) {
+  private handleClientEvent(event: WebSocketClientEvent) {
+    const runId = typeof event.payload?.run_id === 'string' ? event.payload.run_id : null
+    if (!runId) {
+      return
+    }
+    if (event.event_name === 'agent_run.subscribed') {
+      const sequence = typeof event.payload?.sequence === 'number' ? event.payload.sequence : 0
+      const cursor = Math.max(this.subscriptions.get(runId) || 0, sequence)
+      this.subscriptions.set(runId, cursor)
+      this.handlers.onSubscription?.(runId, true, cursor)
+      return
+    }
+    if (event.event_name === 'agent_run.unsubscribed') {
+      this.subscriptions.delete(runId)
+      this.handlers.onSubscription?.(runId, false, 0)
+    }
+  }
+
+  private send(message: Record<string, unknown>): boolean {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.pendingMessages.push(message)
+      this.connect()
+      return false
+    }
+    this.socket.send(JSON.stringify(message))
+    return true
+  }
+
+  private sendSubscribe(runId: string, afterSequence: number) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       this.connect()
       return
     }
-    this.socket.send(JSON.stringify(message))
-  }
-
-  private sendSubscribe(runId: string, afterSequence: number) {
-    this.send({
+    this.socket.send(JSON.stringify({
       message_type: 'client_event',
       message_id: messageId('subscribe'),
       client_event: {
@@ -195,12 +256,24 @@ export class AgentRunSocketClient {
           after_sequence: afterSequence,
         },
       },
-    })
+    }))
   }
 
-  private resubscribe() {
+  private resubscribe(excludedRunIds: ReadonlySet<string> = new Set()) {
     for (const [runId, afterSequence] of this.subscriptions.entries()) {
+      if (excludedRunIds.has(runId)) {
+        continue
+      }
       this.sendSubscribe(runId, afterSequence)
+    }
+  }
+
+  private flushPendingMessages() {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return
+    }
+    for (const message of this.pendingMessages.splice(0)) {
+      this.socket.send(JSON.stringify(message))
     }
   }
 

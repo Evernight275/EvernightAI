@@ -490,11 +490,26 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
     def __init__(self) -> None:
         self.events: dict[str, list[AgentTraceEvent]] = {}
 
-    def append_event(self, run_id: str, event: AgentTraceEvent) -> None:
-        self.events.setdefault(run_id, []).append(event)
+    def append_event(self, run_id: str, event: AgentTraceEvent) -> int:
+        events = self.events.setdefault(run_id, [])
+        sequence = len(events) + 1
+        event.sequence = sequence
+        events.append(event)
+        return sequence
 
-    def list_events(self, run_id: str) -> list[AgentTraceEvent]:
-        return list(self.events.get(run_id, []))
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
+        events = [
+            event
+            for event in self.events.get(run_id, [])
+            if event.sequence is not None and event.sequence > after_sequence
+        ]
+        return events if limit is None else events[:limit]
 
     def clear_events(self, run_id: str) -> None:
         self.events.pop(run_id, None)

@@ -394,9 +394,12 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
             status=AgentRunStatus.PAUSED,
         )
     )
-    runtime.agent_trace_register.append_event(
-        "run-1",
-        AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED),
+    assert (
+        runtime.agent_trace_register.append_event(
+            "run-1",
+            AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED),
+        )
+        == 1
     )
     await runtime.close()
 
@@ -413,7 +416,10 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
             is AgentRunStatus.PAUSED
         )
         assert reopened.agent_trace_register.list_events("run-1") == [
-            AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED)
+            AgentTraceEvent(
+                sequence=1,
+                event_type=AgentTraceEventType.RUN_STARTED,
+            )
         ]
     finally:
         await reopened.close()

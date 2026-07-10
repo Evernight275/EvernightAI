@@ -55,6 +55,7 @@ export type AgentStep = {
 }
 
 export type AgentTraceEvent = {
+  sequence?: number | null
   event_type: AgentTraceEventType
   summary?: string | null
   step_type?: AgentStepType | null
@@ -132,6 +133,19 @@ export function approvePendingAgentRun(runId: string): Promise<AgentRunState> {
   })
 }
 
-export function listAgentTrace(runId: string): Promise<AgentTraceEvent[]> {
-  return requestJson<AgentTraceEvent[]>(`/agent-runs/${encodeURIComponent(runId)}/trace`)
+export function listAgentTrace(
+  runId: string,
+  options: { afterSequence?: number; limit?: number } = {},
+): Promise<AgentTraceEvent[]> {
+  const query = new URLSearchParams()
+  if (options.afterSequence !== undefined) {
+    query.set('after_sequence', String(options.afterSequence))
+  }
+  if (options.limit !== undefined) {
+    query.set('limit', String(options.limit))
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return requestJson<AgentTraceEvent[]>(
+    `/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`,
+  )
 }

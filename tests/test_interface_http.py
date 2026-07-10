@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -35,7 +36,11 @@ from EvernightAI.core.protocol.agent import (
 )
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
+from EvernightAI.core.schema.agent import (
+    AgentRunState,
+    AgentTraceEvent,
+    AgentTraceEventType,
+)
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -72,7 +77,12 @@ from EvernightAI.core.schema.skill import (
     SkillDefinition,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.schema.stream import (
+    ChatStreamEvent,
+    ChatStreamEventType,
+    WebSocketMessage,
+    WebSocketMessageType,
+)
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolApprovalStatus,
@@ -1436,6 +1446,10 @@ def test_http_app_exposes_persisted_agent_run_routes() -> None:
         get_response = client.get("/agent-runs/run-1")
         list_response = client.get("/agent-runs")
         trace_response = client.get("/agent-runs/run-1/trace")
+        trace_cursor_response = client.get(
+            "/agent-runs/run-1/trace",
+            params={"after_sequence": 1, "limit": 1},
+        )
 
     assert start_response.status_code == 201
     assert start_response.json()["run_id"] == "run-1"
@@ -1450,6 +1464,8 @@ def test_http_app_exposes_persisted_agent_run_routes() -> None:
         "chat_completed",
         "run_stopped",
     ]
+    assert [event["sequence"] for event in trace_response.json()] == [1, 2, 3]
+    assert [event["sequence"] for event in trace_cursor_response.json()] == [2]
 
 
 def test_http_app_streams_agent_trace_events() -> None:
@@ -1893,16 +1909,141 @@ def test_http_websocket_replays_trace_after_reconnect() -> None:
                     },
                 }
             )
-            replayed_messages = [websocket.receive_json() for _ in range(2)]
+            subscription_messages = [websocket.receive_json() for _ in range(3)]
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "unsubscribe-1",
+                    "client_event": {
+                        "event_name": "agent_run.unsubscribe",
+                        "payload": {"run_id": "run-ws"},
+                    },
+                }
+            )
+            unsubscribed = websocket.receive_json()
+
+    replayed_messages = subscription_messages[:2]
+    subscribed = subscription_messages[2]
 
     assert [message["trace_event"]["event_type"] for message in replayed_messages] == [
         "chat_completed",
         "run_stopped",
     ]
     assert [message["payload"]["sequence"] for message in replayed_messages] == [2, 3]
+    assert [
+        message["trace_event"]["sequence"] for message in replayed_messages
+    ] == [2, 3]
     assert {message["payload"]["replayed"] for message in replayed_messages} == {
         True
     }
+    assert subscribed["message_type"] == "client_event"
+    assert subscribed["correlation_id"] == "subscribe-1"
+    assert subscribed["client_event"]["event_name"] == "agent_run.subscribed"
+    assert subscribed["client_event"]["payload"] == {
+        "run_id": "run-ws",
+        "sequence": 3,
+    }
+    assert unsubscribed["message_type"] == "client_event"
+    assert unsubscribed["correlation_id"] == "unsubscribe-1"
+    assert unsubscribed["client_event"]["event_name"] == "agent_run.unsubscribed"
+
+
+@pytest.mark.asyncio
+async def test_websocket_manager_serializes_replay_and_live_broadcasts() -> None:
+    websocket: Any = RecordingWebSocket()
+    manager = WebSocketConnectionManager(
+        heartbeat_interval_seconds=60.0,
+        heartbeat_timeout_seconds=120.0,
+    )
+    connection = await manager.connect(websocket, connection_id="conn-1")
+    broadcasts: list[asyncio.Task[None]] = []
+
+    def trace_message(sequence: int, *, replayed: bool) -> WebSocketMessage:
+        return WebSocketMessage(
+            message_type=WebSocketMessageType.AGENT_TRACE,
+            run_id="run-1",
+            trace_event=AgentTraceEvent(
+                sequence=sequence,
+                event_type=AgentTraceEventType.CHAT_DELTA,
+            ),
+            payload={"sequence": sequence, "replayed": replayed},
+        )
+
+    def load_messages(_cursor: int) -> list[WebSocketMessage]:
+        broadcasts.extend(
+            [
+                asyncio.create_task(
+                    manager.broadcast_run(
+                        "run-1",
+                        trace_message(3, replayed=False),
+                    )
+                ),
+                asyncio.create_task(
+                    manager.broadcast_run(
+                        "run-1",
+                        trace_message(4, replayed=False),
+                    )
+                ),
+            ]
+        )
+        return [trace_message(sequence, replayed=True) for sequence in range(1, 4)]
+
+    await manager.replay_run(connection, "run-1", load_messages)
+    await asyncio.gather(*broadcasts)
+    await manager.unsubscribe_run(connection, "run-1")
+    await manager.broadcast_run("run-1", trace_message(5, replayed=False))
+    await manager.disconnect(connection)
+
+    trace_messages = [
+        message
+        for message in websocket.sent
+        if message["message_type"] == "agent_trace"
+    ]
+    assert [message["payload"]["sequence"] for message in trace_messages] == [
+        1,
+        2,
+        3,
+        4,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_websocket_manager_ignores_stale_replay_after_unsubscribe() -> None:
+    websocket: Any = RecordingWebSocket()
+    manager = WebSocketConnectionManager(
+        heartbeat_interval_seconds=60.0,
+        heartbeat_timeout_seconds=120.0,
+    )
+    connection = await manager.connect(websocket, connection_id="conn-1")
+
+    def trace_message(sequence: int) -> WebSocketMessage:
+        return WebSocketMessage(
+            message_type=WebSocketMessageType.AGENT_TRACE,
+            run_id="run-1",
+            trace_event=AgentTraceEvent(
+                sequence=sequence,
+                event_type=AgentTraceEventType.CHAT_DELTA,
+            ),
+            payload={"sequence": sequence, "replayed": False},
+        )
+
+    generation = manager.subscription_generation(connection, "run-1")
+    await manager.unsubscribe_run(connection, "run-1")
+    await manager.replay_run(
+        connection,
+        "run-1",
+        lambda _cursor: [trace_message(1)],
+        generation=generation,
+    )
+    await manager.broadcast_run("run-1", trace_message(2))
+    await manager.disconnect(connection)
+
+    assert [
+        message
+        for message in websocket.sent
+        if message["message_type"] == "agent_trace"
+    ] == []
+    assert manager.subscription_generation(connection, "run-1") == 0
 
 
 def test_http_websocket_pauses_active_agent_run() -> None:
@@ -2340,6 +2481,11 @@ def test_http_websocket_validates_client_events_and_subscriptions() -> None:
             "after_sequence must be >= 0",
         ),
         (
+            "missing-unsubscribe-run-1",
+            {"event_name": "agent_run.unsubscribe", "payload": {}},
+            "unsubscription requires run_id",
+        ),
+        (
             "invalid-start-1",
             {"event_name": "agent_run.start", "payload": {}},
             "validation errors for AgentRunRequest",
@@ -2528,6 +2674,62 @@ def test_http_websocket_authorizes_subscribed_agent_run_access() -> None:
     assert error["message_type"] == "error"
     assert error["correlation_id"] == "subscribe-1"
     assert error["error"]["error_type"] == "AuthPermissionDeniedError"
+
+
+def test_http_websocket_allows_trace_only_subscription_permission() -> None:
+    trace_register = InMemoryAgentTraceRegister()
+    trace_register.append_event(
+        "run-1",
+        AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED),
+    )
+    app = create_http_app(
+        create_interface(
+            make_runtime(
+                agent_state_register=InMemoryAgentRunStateRegister(),
+                agent_trace_register=trace_register,
+            )
+        ),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(
+                        principal_id="user-1",
+                        permissions=["agent-runs:list_trace"],
+                    ),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws?api_key=secret") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "subscribe-1",
+                    "client_event": {
+                        "event_name": "agent_run.subscribe",
+                        "payload": {"run_id": "run-1"},
+                    },
+                }
+            )
+            replayed = websocket.receive_json()
+            subscribed = websocket.receive_json()
+
+    assert replayed["message_type"] == "agent_trace"
+    assert replayed["trace_event"]["event_type"] == "run_started"
+    assert subscribed["message_type"] == "client_event"
+    assert subscribed["client_event"]["event_name"] == "agent_run.subscribed"
 
 
 def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
@@ -2836,15 +3038,44 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
         self.states.pop(run_id, None)
 
 
+class RecordingWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        pass
+
+    async def send_json(self, message: dict[str, Any]) -> None:
+        self.sent.append(message)
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        pass
+
+
 class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
     def __init__(self) -> None:
         self.events: dict[str, list[AgentTraceEvent]] = {}
 
-    def append_event(self, run_id: str, event: AgentTraceEvent) -> None:
-        self.events.setdefault(run_id, []).append(event)
+    def append_event(self, run_id: str, event: AgentTraceEvent) -> int:
+        events = self.events.setdefault(run_id, [])
+        sequence = len(events) + 1
+        event.sequence = sequence
+        events.append(event)
+        return sequence
 
-    def list_events(self, run_id: str) -> list[AgentTraceEvent]:
-        return list(self.events.get(run_id, []))
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
+        events = [
+            event
+            for event in self.events.get(run_id, [])
+            if event.sequence is not None and event.sequence > after_sequence
+        ]
+        return events if limit is None else events[:limit]
 
     def clear_events(self, run_id: str) -> None:
         self.events.pop(run_id, None)

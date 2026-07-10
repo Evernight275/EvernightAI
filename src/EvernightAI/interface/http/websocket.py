@@ -2,7 +2,7 @@ import asyncio
 import base64
 import binascii
 from collections import defaultdict
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from contextlib import suppress
 from time import monotonic
 from typing import Final
@@ -149,6 +149,9 @@ class WebSocketConnectionManager:
         self._connections: dict[str, ManagedWebSocketConnection] = {}
         self._subscriptions_by_run: dict[str, set[str]] = defaultdict(set)
         self._runs_by_connection: dict[str, set[str]] = defaultdict(set)
+        self._subscription_sequences: dict[tuple[str, str], int] = {}
+        self._subscription_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._subscription_generations: dict[tuple[str, str], int] = {}
         self._tasks_by_run: dict[str, set[asyncio.Task[None]]] = defaultdict(set)
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
@@ -185,25 +188,99 @@ class WebSocketConnectionManager:
     ) -> None:
         self.unsubscribe_all(connection)
         self._connections.pop(connection.connection_id, None)
-        await connection.close(code=code, reason=reason)
+        try:
+            await connection.close(code=code, reason=reason)
+        finally:
+            self._discard_connection_subscription_state(connection.connection_id)
 
     def subscribe(
         self,
         connection: ManagedWebSocketConnection,
         run_id: str,
+        *,
+        after_sequence: int = 0,
     ) -> None:
         self._subscriptions_by_run[run_id].add(connection.connection_id)
         self._runs_by_connection[connection.connection_id].add(run_id)
+        key = (connection.connection_id, run_id)
+        self._subscription_sequences[key] = max(
+            self._subscription_sequences.get(key, 0),
+            after_sequence,
+        )
 
-    def unsubscribe_all(self, connection: ManagedWebSocketConnection) -> None:
-        run_ids = self._runs_by_connection.pop(connection.connection_id, set())
-        for run_id in run_ids:
-            connection_ids = self._subscriptions_by_run.get(run_id)
-            if connection_ids is None:
-                continue
+    def unsubscribe(
+        self,
+        connection: ManagedWebSocketConnection,
+        run_id: str,
+    ) -> None:
+        key = (connection.connection_id, run_id)
+        self._subscription_generations[key] = (
+            self._subscription_generations.get(key, 0) + 1
+        )
+        connection_ids = self._subscriptions_by_run.get(run_id)
+        if connection_ids is not None:
             connection_ids.discard(connection.connection_id)
             if not connection_ids:
                 self._subscriptions_by_run.pop(run_id, None)
+
+        run_ids = self._runs_by_connection.get(connection.connection_id)
+        if run_ids is not None:
+            run_ids.discard(run_id)
+            if not run_ids:
+                self._runs_by_connection.pop(connection.connection_id, None)
+
+        self._subscription_sequences.pop(key, None)
+        self._discard_subscription_lock_if_unused(key)
+
+    def unsubscribe_all(self, connection: ManagedWebSocketConnection) -> None:
+        run_ids = list(self._runs_by_connection.get(connection.connection_id, set()))
+        for run_id in run_ids:
+            self.unsubscribe(connection, run_id)
+
+    async def unsubscribe_run(
+        self,
+        connection: ManagedWebSocketConnection,
+        run_id: str,
+    ) -> None:
+        key = (connection.connection_id, run_id)
+        lock = self._subscription_locks.setdefault(key, asyncio.Lock())
+        try:
+            async with lock:
+                self.unsubscribe(connection, run_id)
+        finally:
+            self._discard_subscription_lock_if_unused(key)
+
+    async def replay_run(
+        self,
+        connection: ManagedWebSocketConnection,
+        run_id: str,
+        load_messages: Callable[[int], Iterable[WebSocketMessage]],
+        *,
+        after_sequence: int = 0,
+        generation: int | None = None,
+    ) -> None:
+        key = (connection.connection_id, run_id)
+        lock = self._subscription_locks.setdefault(key, asyncio.Lock())
+        try:
+            async with lock:
+                if generation is not None and generation != (
+                    self._subscription_generations.get(key, 0)
+                ):
+                    return
+                self.subscribe(
+                    connection,
+                    run_id,
+                    after_sequence=after_sequence,
+                )
+                cursor = self._subscription_sequences[key]
+                for message in load_messages(cursor):
+                    await self._send_subscription_message(
+                        connection,
+                        run_id,
+                        message,
+                    )
+        finally:
+            self._discard_subscription_lock_if_unused(key)
 
     async def broadcast_run(
         self,
@@ -213,8 +290,22 @@ class WebSocketConnectionManager:
         connection_ids = list(self._subscriptions_by_run.get(run_id, set()))
         for connection_id in connection_ids:
             connection = self._connections.get(connection_id)
-            if connection is not None:
-                await connection.send(message)
+            if connection is None:
+                continue
+
+            key = (connection_id, run_id)
+            lock = self._subscription_locks.setdefault(key, asyncio.Lock())
+            try:
+                async with lock:
+                    if not self._is_subscribed(connection_id, run_id):
+                        continue
+                    await self._send_subscription_message(
+                        connection,
+                        run_id,
+                        message,
+                    )
+            finally:
+                self._discard_subscription_lock_if_unused(key)
 
     def track_run_task(
         self,
@@ -247,6 +338,54 @@ class WebSocketConnectionManager:
         if not tasks:
             self._tasks_by_run.pop(run_id, None)
 
+    def subscription_generation(
+        self,
+        connection: ManagedWebSocketConnection,
+        run_id: str,
+    ) -> int:
+        return self._subscription_generations.get((connection.connection_id, run_id), 0)
+
+    async def _send_subscription_message(
+        self,
+        connection: ManagedWebSocketConnection,
+        run_id: str,
+        message: WebSocketMessage,
+    ) -> None:
+        key = (connection.connection_id, run_id)
+        sequence = _trace_message_sequence(message)
+        if sequence is not None:
+            cursor = self._subscription_sequences.get(key, 0)
+            if sequence <= cursor:
+                return
+
+        await connection.send(message)
+        if sequence is not None and self._is_subscribed(connection.connection_id, run_id):
+            self._subscription_sequences[key] = sequence
+
+    def _is_subscribed(self, connection_id: str, run_id: str) -> bool:
+        return connection_id in self._subscriptions_by_run.get(run_id, set())
+
+    def _discard_subscription_lock_if_unused(
+        self,
+        key: tuple[str, str],
+    ) -> None:
+        lock = self._subscription_locks.get(key)
+        if (
+            lock is not None
+            and not lock.locked()
+            and not self._is_subscribed(key[0], key[1])
+        ):
+            self._subscription_locks.pop(key, None)
+
+    def _discard_connection_subscription_state(self, connection_id: str) -> None:
+        for mapping in (
+            self._subscription_sequences,
+            self._subscription_locks,
+            self._subscription_generations,
+        ):
+            for key in [key for key in mapping if key[0] == connection_id]:
+                mapping.pop(key, None)
+
 
 def websocket_query_token(websocket: WebSocket) -> str | None:
     token = websocket.query_params.get("access_token")
@@ -256,6 +395,19 @@ def websocket_query_token(websocket: WebSocket) -> str | None:
     api_key = websocket.query_params.get("api_key")
     if api_key:
         return api_key
+
+    return None
+
+
+def _trace_message_sequence(message: WebSocketMessage) -> int | None:
+    if message.message_type is not WebSocketMessageType.AGENT_TRACE:
+        return None
+    if message.trace_event is not None and message.trace_event.sequence is not None:
+        return message.trace_event.sequence
+
+    sequence = message.payload.get("sequence")
+    if isinstance(sequence, int) and sequence > 0:
+        return sequence
 
     return None
 

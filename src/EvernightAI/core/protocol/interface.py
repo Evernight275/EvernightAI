@@ -257,7 +257,13 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
 
     def list_states(self) -> list[AgentRunState]: ...
 
-    def list_trace(self, run_id: str) -> list[AgentTraceEvent]: ...
+    def list_trace(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]: ...
 
     async def close(self) -> None: ...
 

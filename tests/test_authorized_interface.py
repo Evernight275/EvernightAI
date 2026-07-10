@@ -855,7 +855,13 @@ class FakeAgentRunInterface:
         self.calls.append("list_states")
         return "delegated"
 
-    def list_trace(self, run_id: str) -> str:
+    def list_trace(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> str:
         self.calls.append("list_trace")
         return "delegated"
 

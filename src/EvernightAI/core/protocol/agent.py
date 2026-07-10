@@ -29,8 +29,14 @@ class AgentTraceRegisterProtocol(AgentProtocol, RegisterProtocol):
     Agent追踪事件注册协议
     """
 
-    def append_event(self, run_id: str, event: AgentTraceEvent) -> None: ...
+    def append_event(self, run_id: str, event: AgentTraceEvent) -> int: ...
 
-    def list_events(self, run_id: str) -> list[AgentTraceEvent]: ...
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]: ...
 
     def clear_events(self, run_id: str) -> None: ...

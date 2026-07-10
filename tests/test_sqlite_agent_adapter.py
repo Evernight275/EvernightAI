@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -100,14 +102,17 @@ def test_sqlite_agent_trace_register_persists_events_in_order(
     paused = make_event(AgentTraceEventType.RUN_PAUSED)
 
     register = SQLiteAgentTraceRegister(database_path)
-    register.append_event("run-1", started)
-    register.append_event("run-1", paused)
+    assert register.append_event("run-1", started) == 1
+    assert register.append_event("run-1", paused) == 2
     register.close()
 
     reopened = SQLiteAgentTraceRegister(database_path)
 
     try:
         assert reopened.list_events("run-1") == [started, paused]
+        assert [event.sequence for event in reopened.list_events("run-1")] == [1, 2]
+        assert reopened.list_events("run-1", after_sequence=1) == [paused]
+        assert reopened.list_events("run-1", limit=1) == [started]
         assert reopened.list_events("missing") == []
 
         reopened.clear_events("run-1")
@@ -115,6 +120,77 @@ def test_sqlite_agent_trace_register_persists_events_in_order(
         assert reopened.list_events("run-1") == []
     finally:
         reopened.close()
+
+
+def test_sqlite_agent_trace_register_migrates_legacy_events(tmp_path: Path) -> None:
+    database_path = make_database_path(tmp_path)
+    started = make_event(AgentTraceEventType.RUN_STARTED)
+    paused = make_event(AgentTraceEventType.RUN_PAUSED)
+    connection = sqlite3.connect(database_path)
+    connection.execute(
+        """
+        CREATE TABLE agent_trace_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO agent_trace_events (run_id, payload) VALUES (?, ?)",
+        [
+            ("run-1", started.model_dump_json(exclude_none=True)),
+            ("run-1", paused.model_dump_json(exclude_none=True)),
+            ("run-2", started.model_dump_json(exclude_none=True)),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    register = SQLiteAgentTraceRegister(database_path)
+
+    try:
+        assert [event.sequence for event in register.list_events("run-1")] == [1, 2]
+        assert [event.sequence for event in register.list_events("run-2")] == [1]
+        assert register.append_event(
+            "run-1",
+            make_event(AgentTraceEventType.RUN_STOPPED),
+        ) == 3
+    finally:
+        register.close()
+
+
+def test_sqlite_agent_trace_register_allocates_concurrent_sequences(
+    tmp_path: Path,
+) -> None:
+    database_path = make_database_path(tmp_path)
+    register = SQLiteAgentTraceRegister(database_path)
+    register.close()
+
+    def append_event(_: int) -> int:
+        worker_register = SQLiteAgentTraceRegister(database_path)
+        try:
+            return worker_register.append_event(
+                "run-1",
+                make_event(AgentTraceEventType.CHAT_DELTA),
+            )
+        finally:
+            worker_register.close()
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        sequences = list(executor.map(append_event, range(12)))
+
+    reopened = SQLiteAgentTraceRegister(database_path)
+    try:
+        persisted_sequences = [
+            event.sequence for event in reopened.list_events("run-1")
+        ]
+    finally:
+        reopened.close()
+
+    assert sorted(sequences) == list(range(1, 13))
+    assert persisted_sequences == list(range(1, 13))
 
 
 def test_sqlite_agent_bootstrap_helpers(tmp_path: Path) -> None:

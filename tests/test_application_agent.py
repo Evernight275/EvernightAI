@@ -1215,6 +1215,11 @@ async def test_agent_run_application_facade_manages_persisted_runs() -> None:
         AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
         AgentTraceEventType.RUN_PAUSED,
     ]
+    assert [event.sequence for event in state.trace] == [1, 2, 3, 4]
+    assert [
+        event.sequence
+        for event in app.list_trace("run-1", after_sequence=2, limit=1)
+    ] == [3]
 
     resumed = await app.resume(
         "run-1",
@@ -1239,6 +1244,7 @@ async def test_agent_run_application_facade_manages_persisted_runs() -> None:
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
+    assert [event.sequence for event in resumed.trace] == list(range(1, 9))
 
 
 @pytest.mark.asyncio
@@ -2596,11 +2602,26 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
     def __init__(self) -> None:
         self.events: dict[str, list[AgentTraceEvent]] = {}
 
-    def append_event(self, run_id: str, event: AgentTraceEvent) -> None:
-        self.events.setdefault(run_id, []).append(event)
+    def append_event(self, run_id: str, event: AgentTraceEvent) -> int:
+        events = self.events.setdefault(run_id, [])
+        sequence = len(events) + 1
+        event.sequence = sequence
+        events.append(event)
+        return sequence
 
-    def list_events(self, run_id: str) -> list[AgentTraceEvent]:
-        return list(self.events.get(run_id, []))
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
+        events = [
+            event
+            for event in self.events.get(run_id, [])
+            if event.sequence is not None and event.sequence > after_sequence
+        ]
+        return events if limit is None else events[:limit]
 
     def clear_events(self, run_id: str) -> None:
         self.events.pop(run_id, None)

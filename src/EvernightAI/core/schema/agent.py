@@ -104,6 +104,7 @@ class AgentRunResult(EvernightAISchema):
 class AgentTraceEvent(EvernightAISchema):
     """Agent运行追踪事件"""
 
+    sequence: int | None = Field(default=None, ge=1)
     event_type: AgentTraceEventType
     summary: str | None = None
     step_type: AgentStepType | None = None

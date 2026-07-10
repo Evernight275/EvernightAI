@@ -709,8 +709,19 @@ class FakeAgentRunOperations:
     def get_state(self, run_id: str) -> AgentRunState:
         return self.states[run_id]
 
-    def list_trace(self, run_id: str) -> list[AgentTraceEvent]:
-        return self.traces[run_id]
+    def list_trace(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[AgentTraceEvent]:
+        events = [
+            event
+            for event in self.traces[run_id]
+            if event.sequence is None or event.sequence > after_sequence
+        ]
+        return events if limit is None else events[:limit]
 
     async def start(self, request: AgentRunRequest) -> AgentRunState:
         run_id = str(request.metadata.get("run_id") or "run-1")

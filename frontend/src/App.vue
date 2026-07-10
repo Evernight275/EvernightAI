@@ -277,7 +277,12 @@ function syncRunSubscriptions() {
   }
   runIds.forEach((runId) => {
     const run = runs.value.find((item) => item.run_id === runId)
-    agentRunSocket?.subscribeRun(runId, run?.trace?.length || 0)
+    const trace = run?.trace || []
+    const cursor = trace.reduce(
+      (sequence, event, index) => Math.max(sequence, event.sequence || index + 1),
+      0,
+    )
+    agentRunSocket?.subscribeRun(runId, cursor)
   })
 }
 

@@ -207,6 +207,11 @@ curl -X POST http://127.0.0.1:8000/agent-runs \
 
 Use `/agent-runs/stream` with the same body to receive trace events as SSE.
 
+Each persisted trace event has a 1-based `sequence` scoped to its run. Read a
+trace incrementally with
+`GET /agent-runs/{run_id}/trace?after_sequence=12&limit=100`; the response is
+ordered and contains only events with a sequence greater than the cursor.
+
 ## WebSocket Realtime
 
 Use `/ws` when a client needs bidirectional agent trace and control messages on
@@ -324,6 +329,7 @@ to the start or resume message that produced the stream.
   "correlation_id": "start-1",
   "run_id": "run-1",
   "trace_event": {
+    "sequence": 1,
     "event_type": "run_started",
     "summary": "Agent run started",
     "metadata": {}
@@ -335,7 +341,7 @@ to the start or resume message that produced the stream.
 
 Each trace message includes replay metadata in `payload`:
 
-- `sequence`: 1-based trace sequence for the run when the server can resolve it
+- `sequence`: persisted 1-based trace sequence for the run
 - `replayed`: `false` for live stream messages, `true` for reconnect replay
 
 Reconnect by sending a `client_event` named `agent_run.subscribe`. The server
@@ -357,7 +363,33 @@ stored trace events after the supplied sequence.
 ```
 
 The example above replays trace events with sequence `2` and above, then keeps
-the connection subscribed to live trace messages for `run-1`.
+the connection subscribed to live trace messages for `run-1`. Replay and live
+broadcasts share the same per-connection subscription cursor, so an event
+persisted during reconnect is delivered once in sequence order.
+
+After replay finishes, the server sends a correlated `agent_run.subscribed`
+client event. Its `sequence` is the final server cursor, so clients can treat
+that message as the boundary between reconnect replay and live delivery.
+
+```json
+{
+  "message_type": "client_event",
+  "correlation_id": "subscribe-1",
+  "run_id": "run-1",
+  "client_event": {
+    "event_name": "agent_run.subscribed",
+    "payload": {"run_id": "run-1", "sequence": 3},
+    "metadata": {}
+  },
+  "payload": {},
+  "metadata": {}
+}
+```
+
+Stop live delivery with `agent_run.unsubscribe`. The server responds with a
+correlated `agent_run.unsubscribed` client event after the subscription has
+been removed; no later trace broadcast for that subscription is sent after the
+acknowledgement.
 
 Approve a paused tool call with `tool_approval`:
 
