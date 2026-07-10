@@ -1049,7 +1049,7 @@ onMounted(() => {
             rows="1"
             placeholder="给当前会话发送消息"
             :disabled="disabled || sending"
-            aria-describedby="chat-composer-status"
+            :aria-describedby="error ? 'chat-composer-status' : undefined"
             @focus="modelPickerOpen = false"
             @input="resizeChatInput"
             @keydown.enter.exact.prevent="submit"
@@ -1097,12 +1097,12 @@ onMounted(() => {
           </div>
         </div>
         <span
+          v-if="error"
           id="chat-composer-status"
-          class="chat-composer-hint"
-          :class="{ 'is-error': error }"
-          :role="error ? 'alert' : undefined"
+          class="chat-composer-hint is-error"
+          role="alert"
         >
-          {{ error || 'Enter 发送，默认走 Agent' }}
+          {{ error }}
         </span>
       </form>
     </div>

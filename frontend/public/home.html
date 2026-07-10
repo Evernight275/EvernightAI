@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EvernightAI - Matrix</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --matrix-green: #00ff41;
+        --matrix-dark: #003b00;
+        --matrix-glow: #00ff41;
+        --bg-black: #000000;
+        --bg-deep: #0a0e0a;
+        --text-primary: #00ff41;
+        --text-dim: #00aa2b;
+        --text-ghost: #005f1a;
+        --border-neon: rgba(0, 255, 65, 0.3);
+        --border-bright: rgba(0, 255, 65, 0.6);
+        --shadow-glow: 0 0 20px rgba(0, 255, 65, 0.4);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        overflow-x: hidden;
+      }
+
+      body {
+        color: var(--text-primary);
+        background: var(--bg-black);
+        font-family: "Courier New", Consolas, Monaco, monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        letter-spacing: 0.02em;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        position: relative;
+      }
+
+      /* Matrix Rain Canvas */
+      #matrix-canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        opacity: 0.15;
+        pointer-events: none;
+      }
+
+      /* Scanline Effect */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(0, 0, 0, 0.15),
+          rgba(0, 0, 0, 0.15) 1px,
+          transparent 1px,
+          transparent 2px
+        );
+        z-index: 2;
+        pointer-events: none;
+        animation: scanline 8s linear infinite;
+      }
+
+      @keyframes scanline {
+        0% {
+          transform: translateY(0);
+        }
+        100% {
+          transform: translateY(10px);
+        }
+      }
+
+      /* Glitch Effect */
+      @keyframes glitch {
+        0%, 90%, 100% {
+          transform: translate(0);
+          text-shadow:
+            0 0 10px var(--matrix-glow),
+            0 0 20px var(--matrix-glow),
+            0 0 30px var(--matrix-glow);
+        }
+        92% {
+          transform: translate(-2px, 2px);
+          text-shadow:
+            2px 0 var(--matrix-glow),
+            -2px 0 #ff00ff;
+        }
+        94% {
+          transform: translate(2px, -2px);
+          text-shadow:
+            -2px 0 var(--matrix-glow),
+            2px 0 #00ffff;
+        }
+      }
+
+      /* Pulse Glow */
+      @keyframes pulse-glow {
+        0%, 100% {
+          box-shadow: 0 0 5px var(--border-neon),
+                      0 0 10px var(--border-neon),
+                      inset 0 0 5px rgba(0, 255, 65, 0.1);
+        }
+        50% {
+          box-shadow: 0 0 10px var(--border-bright),
+                      0 0 20px var(--border-bright),
+                      inset 0 0 10px rgba(0, 255, 65, 0.2);
+        }
+      }
+
+      /* Flicker Animation */
+      @keyframes flicker {
+        0%, 100% { opacity: 1; }
+        41%, 43% { opacity: 0.8; }
+        45%, 47% { opacity: 0.9; }
+        50% { opacity: 1; }
+      }
+
+      .home {
+        min-height: 100vh;
+        display: grid;
+        align-items: center;
+        padding: 40px;
+        position: relative;
+        z-index: 3;
+      }
+
+      .showcase {
+        width: min(100%, 1120px);
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+        gap: 40px;
+        align-items: center;
+        opacity: 0;
+        animation: fade-in 1.5s ease-out forwards;
+      }
+
+      @keyframes fade-in {
+        to {
+          opacity: 1;
+        }
+      }
+
+      .identity {
+        display: grid;
+        gap: 24px;
+        align-content: center;
+      }
+
+      .brand-mark {
+        display: inline-grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border: 2px solid var(--matrix-green);
+        border-radius: 4px;
+        color: var(--matrix-green);
+        background: rgba(0, 255, 65, 0.05);
+        font-size: 20px;
+        font-weight: 700;
+        box-shadow: var(--shadow-glow);
+        animation: pulse-glow 3s ease-in-out infinite, flicker 5s infinite;
+      }
+
+      .title-group {
+        display: grid;
+        gap: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 42px;
+        line-height: 1.05;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        color: var(--matrix-green);
+        text-shadow:
+          0 0 10px var(--matrix-glow),
+          0 0 20px var(--matrix-glow),
+          0 0 30px var(--matrix-glow);
+        animation: glitch 8s infinite;
+      }
+
+      .lead {
+        max-width: 560px;
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 17px;
+        line-height: 1.7;
+        text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+      }
+
+      .signal-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .signal {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 30px;
+        padding: 0 10px;
+        border: 1px solid var(--border-neon);
+        border-radius: 4px;
+        color: var(--text-dim);
+        background: rgba(0, 255, 65, 0.05);
+        font-size: 13px;
+        font-weight: 560;
+        box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+        transition: all 0.3s ease;
+      }
+
+      .signal:hover {
+        border-color: var(--border-bright);
+        background: rgba(0, 255, 65, 0.1);
+        box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
+      }
+
+      .signal::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--text-dim);
+        box-shadow: 0 0 8px currentColor;
+        animation: blink 2s ease-in-out infinite;
+      }
+
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+
+      .signal.is-ready::before {
+        background: var(--matrix-green);
+        animation: blink 1.5s ease-in-out infinite;
+      }
+
+      .signal.is-watch::before {
+        background: #ffff00;
+        box-shadow: 0 0 8px #ffff00;
+        animation: blink 1s ease-in-out infinite;
+      }
+
+      .system {
+        display: grid;
+        gap: 16px;
+        align-content: start;
+        border: 2px solid var(--border-neon);
+        border-radius: 4px;
+        padding: 20px;
+        background: rgba(0, 255, 65, 0.02);
+        box-shadow: var(--shadow-glow);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .system::before {
+        content: "";
+        position: absolute;
+        top: -2px;
+        left: -100%;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--matrix-green), transparent);
+        animation: scan-horizontal 3s linear infinite;
+      }
+
+      @keyframes scan-horizontal {
+        0% {
+          left: -100%;
+        }
+        100% {
+          left: 100%;
+        }
+      }
+
+      .system-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--border-neon);
+      }
+
+      .system-kicker,
+      .meta-label {
+        margin: 0;
+        color: var(--text-ghost);
+        font-size: 12px;
+        font-weight: 650;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .system-title {
+        margin: 4px 0 0;
+        font-size: 18px;
+        line-height: 1.35;
+        font-weight: 650;
+        color: var(--matrix-green);
+        text-shadow: 0 0 10px var(--matrix-glow);
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        flex: 0 0 auto;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--matrix-green);
+        border-radius: 4px;
+        color: var(--matrix-green);
+        background: rgba(0, 255, 65, 0.1);
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+        box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+        animation: pulse-glow 2s ease-in-out infinite;
+      }
+
+      .status-pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: 0 0 10px currentColor;
+        animation: blink 1s ease-in-out infinite;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .flow-step {
+        position: relative;
+        min-height: 92px;
+        display: grid;
+        align-content: space-between;
+        gap: 14px;
+        padding: 14px;
+        border: 1px solid var(--border-neon);
+        border-radius: 4px;
+        background: rgba(0, 59, 0, 0.3);
+        box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+        transition: all 0.3s ease;
+        animation: flow-enter 0.6s ease-out backwards;
+      }
+
+      .flow-step:nth-child(1) { animation-delay: 0.1s; }
+      .flow-step:nth-child(2) { animation-delay: 0.2s; }
+      .flow-step:nth-child(3) { animation-delay: 0.3s; }
+      .flow-step:nth-child(4) { animation-delay: 0.4s; }
+
+      @keyframes flow-enter {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .flow-step:hover {
+        border-color: var(--border-bright);
+        background: rgba(0, 59, 0, 0.5);
+        box-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
+        transform: translateY(-2px);
+      }
+
+      .flow-step:not(:last-child)::after {
+        content: "→";
+        position: absolute;
+        top: 45px;
+        right: -15px;
+        color: var(--matrix-green);
+        font-size: 16px;
+        font-weight: bold;
+        text-shadow: 0 0 10px var(--matrix-glow);
+        animation: arrow-pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes arrow-pulse {
+        0%, 100% {
+          opacity: 0.5;
+          transform: translateX(0);
+        }
+        50% {
+          opacity: 1;
+          transform: translateX(3px);
+        }
+      }
+
+      .flow-index {
+        color: var(--matrix-green);
+        font-size: 12px;
+        font-weight: 700;
+        text-shadow: 0 0 8px var(--matrix-glow);
+      }
+
+      .flow-name {
+        color: var(--text-dim);
+        font-weight: 650;
+      }
+
+      .capabilities {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .capability {
+        min-height: 112px;
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        padding: 14px;
+        border: 1px solid var(--border-neon);
+        border-radius: 4px;
+        background: rgba(0, 255, 65, 0.03);
+        box-shadow: 0 0 8px rgba(0, 255, 65, 0.15);
+        transition: all 0.3s ease;
+        animation: capability-enter 0.8s ease-out backwards;
+      }
+
+      .capability:nth-child(1) { animation-delay: 0.2s; }
+      .capability:nth-child(2) { animation-delay: 0.3s; }
+      .capability:nth-child(3) { animation-delay: 0.4s; }
+
+      @keyframes capability-enter {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .capability:hover {
+        border-color: var(--border-bright);
+        background: rgba(0, 255, 65, 0.08);
+        box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+        transform: translateY(-3px);
+      }
+
+      .capability h2 {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.35;
+        font-weight: 650;
+        color: var(--matrix-green);
+        text-shadow: 0 0 8px var(--matrix-glow);
+      }
+
+      .capability p {
+        margin: 0;
+        color: var(--text-ghost);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .meta-item {
+        min-height: 72px;
+        display: grid;
+        align-content: center;
+        gap: 4px;
+        padding: 14px;
+        border: 1px solid var(--border-neon);
+        border-radius: 4px;
+        background: rgba(0, 59, 0, 0.2);
+        box-shadow: 0 0 8px rgba(0, 255, 65, 0.15);
+        transition: all 0.3s ease;
+      }
+
+      .meta-item:hover {
+        border-color: var(--border-bright);
+        background: rgba(0, 59, 0, 0.4);
+        box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+      }
+
+      .meta-value {
+        color: var(--text-dim);
+        font-size: 15px;
+        font-weight: 650;
+        text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+      }
+
+      @media (max-width: 980px) {
+        .home {
+          align-items: start;
+          padding: 28px;
+        }
+
+        .showcase {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 24px;
+        }
+
+        h1 {
+          font-size: 34px;
+        }
+      }
+
+      @media (max-width: 680px) {
+        .home {
+          padding: 18px;
+        }
+
+        .system {
+          gap: 14px;
+        }
+
+        .system-head {
+          display: grid;
+        }
+
+        .flow,
+        .capabilities,
+        .meta {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .flow-step {
+          min-height: 78px;
+        }
+
+        .flow-step:not(:last-child)::after {
+          top: auto;
+          right: auto;
+          bottom: -15px;
+          left: 24px;
+          content: "↓";
+          font-size: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="matrix-canvas"></canvas>
+    <main class="home">
+      <section class="showcase" aria-label="EvernightAI">
+        <div class="identity">
+          <div class="brand-mark" aria-hidden="true">E</div>
+          <div class="title-group">
+            <h1>EvernightAI</h1>
+            <p class="lead">
+              模型、工具、会话与执行流，保持清晰、可控、可追踪。
+            </p>
+          </div>
+          <div class="signal-row" aria-label="能力状态">
+            <span class="signal is-ready">模型接入</span>
+            <span class="signal is-ready">工具审批</span>
+            <span class="signal">上下文窗口</span>
+            <span class="signal is-watch">运行追踪</span>
+          </div>
+        </div>
+
+        <section class="system" aria-label="运行结构">
+          <div class="system-head">
+            <div>
+              <p class="system-kicker">Runtime Console</p>
+              <p class="system-title">从请求到响应的闭环</p>
+            </div>
+            <span class="status-pill">Local Ready</span>
+          </div>
+
+          <div class="flow" aria-label="运行流程">
+            <div class="flow-step">
+              <span class="flow-index">01</span>
+              <span class="flow-name">Runtime Kernel</span>
+            </div>
+            <div class="flow-step">
+              <span class="flow-index">02</span>
+              <span class="flow-name">Chat Application</span>
+            </div>
+            <div class="flow-step">
+              <span class="flow-index">03</span>
+              <span class="flow-name">Provider</span>
+            </div>
+            <div class="flow-step">
+              <span class="flow-index">04</span>
+              <span class="flow-name">Tool / Response</span>
+            </div>
+          </div>
+
+          <div class="capabilities" aria-label="核心能力">
+            <article class="capability">
+              <h2>模型接入</h2>
+              <p>OpenAI-compatible、Gemini、Anthropic 等提供商统一管理。</p>
+            </article>
+            <article class="capability">
+              <h2>工具执行</h2>
+              <p>审批、沙箱、追踪分层处理，运行状态不含糊。</p>
+            </article>
+            <article class="capability">
+              <h2>上下文</h2>
+              <p>会话、记忆与持久化分离，窗口组织更稳定。</p>
+            </article>
+          </div>
+
+          <div class="meta" aria-label="设计原则">
+            <div class="meta-item">
+              <span class="meta-label">Boundary</span>
+              <span class="meta-value">Core / Application / Infra</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Interface</span>
+              <span class="meta-value">HTTP / CLI / Console</span>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      // Matrix Rain Effect
+      const canvas = document.getElementById('matrix-canvas');
+      const ctx = canvas.getContext('2d');
+
+      // Set canvas to full window size
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      // Matrix characters - Katakana, Latin, numbers
+      const matrixChars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const chars = matrixChars.split('');
+
+      const fontSize = 14;
+      const columns = canvas.width / fontSize;
+      const drops = Array(Math.floor(columns)).fill(1);
+
+      function drawMatrix() {
+        // Fade effect
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#00ff41';
+        ctx.font = fontSize + 'px monospace';
+
+        for (let i = 0; i < drops.length; i++) {
+          const char = chars[Math.floor(Math.random() * chars.length)];
+          const x = i * fontSize;
+          const y = drops[i] * fontSize;
+
+          // Brighter at the tip
+          const alpha = Math.random() * 0.5 + 0.5;
+          ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+          ctx.fillText(char, x, y);
+
+          // Dim trail
+          if (y > fontSize && Math.random() > 0.975) {
+            ctx.fillStyle = 'rgba(0, 170, 43, 0.3)';
+            ctx.fillText(chars[Math.floor(Math.random() * chars.length)], x, y - fontSize);
+          }
+
+          // Reset drop to top randomly
+          if (y > canvas.height && Math.random() > 0.975) {
+            drops[i] = 0;
+          }
+
+          drops[i]++;
+        }
+      }
+
+      // Run animation
+      setInterval(drawMatrix, 35);
+
+      // Digital clock effect (optional enhancement)
+      const systemTitle = document.querySelector('.system-title');
+      if (systemTitle) {
+        const originalText = systemTitle.textContent;
+        let glitchInterval;
+
+        function glitchText() {
+          const glitchChars = '!<>-_\\/[]{}—=+*^?#________';
+          let iterations = 0;
+          const maxIterations = originalText.length;
+
+          clearInterval(glitchInterval);
+          glitchInterval = setInterval(() => {
+            systemTitle.textContent = originalText
+              .split('')
+              .map((char, index) => {
+                if (index < iterations) {
+                  return originalText[index];
+                }
+                return glitchChars[Math.floor(Math.random() * glitchChars.length)];
+              })
+              .join('');
+
+            iterations += 1 / 3;
+
+            if (iterations >= maxIterations) {
+              clearInterval(glitchInterval);
+              systemTitle.textContent = originalText;
+            }
+          }, 30);
+        }
+
+        // Trigger glitch effect occasionally
+        setInterval(glitchText, 8000);
+      }
+
+      // Add typing effect to main title on load
+      const mainTitle = document.querySelector('h1');
+      if (mainTitle) {
+        const text = mainTitle.textContent;
+        mainTitle.textContent = '';
+        let charIndex = 0;
+
+        function typeWriter() {
+          if (charIndex < text.length) {
+            mainTitle.textContent += text.charAt(charIndex);
+            charIndex++;
+            setTimeout(typeWriter, 150);
+          }
+        }
+
+        setTimeout(typeWriter, 500);
+      }
+
+      // Add random flicker to signals
+      const signals = document.querySelectorAll('.signal');
+      signals.forEach((signal, index) => {
+        setInterval(() => {
+          if (Math.random() > 0.95) {
+            signal.style.opacity = '0.5';
+            setTimeout(() => {
+              signal.style.opacity = '1';
+            }, 50);
+          }
+        }, 1000 + index * 200);
+      });
+    </script>
+  </body>
+</html>

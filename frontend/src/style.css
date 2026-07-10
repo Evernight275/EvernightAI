@@ -280,6 +280,12 @@
       padding: 0;
     }
 
+    .app.is-workbench-view .main {
+      padding: 0;
+      overflow: hidden;
+      background: #000000;
+    }
+
     .sidebar {
       border-right: 1px solid var(--line);
       padding: 16px 12px;
@@ -309,8 +315,7 @@
 
     .main {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 18px;
+      grid-template-rows: minmax(0, 1fr);
       padding: 24px;
       min-width: 0;
       min-height: 0;
@@ -322,13 +327,9 @@
       margin-inline: auto;
     }
 
-    .page-head {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16px;
-      align-items: center;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--line);
+    .app.is-workbench-view .main > * {
+      width: 100%;
+      margin-inline: 0;
     }
 
     h1,
@@ -362,11 +363,6 @@
     select,
     textarea {
       letter-spacing: 0;
-    }
-
-    .page-head p {
-      margin-top: 4px;
-      font-size: 14px;
     }
 
     p,
@@ -496,19 +492,6 @@
       font-weight: 650;
     }
 
-    .content-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-      gap: 20px;
-      min-height: 0;
-    }
-
-    .primary-stack {
-      display: grid;
-      gap: 20px;
-      align-content: start;
-    }
-
     .panel {
       min-height: 280px;
       padding: 16px;
@@ -626,12 +609,6 @@
       height: 1px;
       background: var(--line);
       animation: pulse-line 3s ease-in-out infinite;
-    }
-
-    .side-stack {
-      display: grid;
-      gap: 20px;
-      align-content: start;
     }
 
     .list {
@@ -1323,96 +1300,14 @@
       line-height: 1.55;
     }
 
-    .home-welcome {
-      min-height: 0;
-      display: grid;
-      gap: 10px;
-      place-items: stretch;
-      align-content: start;
-      border: 0;
-      background: transparent;
-      padding: 0;
-      overflow: visible;
-      box-shadow: none;
-    }
-
-    .home-welcome::before {
-      content: none;
-    }
-
-    .home-welcome h2 {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--ink);
-      letter-spacing: 0;
-    }
-
-    .home-welcome p {
-      text-align: left;
-      max-width: 680px;
-      line-height: 1.5;
-    }
-
-    .quick-start-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 16px;
+    .workbench-showcase {
+      display: block;
       width: 100%;
-      max-width: none;
-      margin-top: 10px;
-    }
-
-    .quick-start-card {
-      display: grid;
-      grid-template-rows: auto auto 1fr;
-      gap: 10px;
-      min-height: 152px;
-      padding: 18px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      background: var(--paper);
-      transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-      text-decoration: none;
-      color: inherit;
-      cursor: pointer;
-      text-align: left;
-      font: inherit;
-      box-shadow: none;
-    }
-
-    .quick-start-card:hover {
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
-      border-color: var(--primary-border);
-      background: #fbfdff;
-    }
-
-    .quick-start-card:active {
-      background: var(--primary-light);
-    }
-
-    .quick-start-card .icon {
-      width: 32px;
-      height: 32px;
-      padding: 8px;
-      border-radius: var(--radius-md);
-      background: var(--primary-light);
-      color: var(--primary);
-      justify-self: start;
-    }
-
-    .quick-start-card h3 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--ink);
-    }
-
-    .quick-start-card p {
-      margin: 0;
-      font-size: 14px;
-      color: var(--muted);
-      text-align: left;
-      line-height: 1.5;
+      height: 100%;
+      min-height: calc(100vh - 56px);
+      border: 0;
+      border-radius: 0;
+      background: #000000;
     }
 
     .provider-config {
@@ -3156,10 +3051,6 @@
     }
 
     @media (max-width: 1180px) {
-      .quick-start-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
       .analytics-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -3243,10 +3134,6 @@
 
       .main {
         padding: 18px;
-      }
-
-      .content-grid {
-        grid-template-columns: minmax(0, 1fr);
       }
 
       .chat-workspace {
@@ -3382,16 +3269,10 @@
         padding: 14px 12px;
       }
 
-      .page-head,
       .metrics,
       .analytics-metrics,
-      .quick-start-grid,
       .status-row {
         grid-template-columns: minmax(0, 1fr);
-      }
-
-      .page-head {
-        padding-bottom: 12px;
       }
 
       h1 {

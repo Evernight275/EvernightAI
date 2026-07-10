@@ -30,7 +30,7 @@ import MemoriesView from './views/MemoriesView.vue'
 import ProvidersView from './views/ProvidersView.vue'
 import ToolsView from './views/ToolsView.vue'
 import WorkbenchView from './views/WorkbenchView.vue'
-import { viewKeys, viewMeta, type ViewKey } from './views/navigation'
+import { viewKeys, type ViewKey } from './views/navigation'
 
 const viewStorageKey = 'evernight.currentView'
 
@@ -112,8 +112,6 @@ const {
 })
 
 const memoryStatus = computed(() => healthOk.value ? '已同步' : '未连接')
-const pageTitle = computed(() => viewMeta[currentView.value].title)
-const pageDescription = computed(() => viewMeta[currentView.value].description)
 
 async function refreshDashboard() {
   const dashboard = await fetchDashboard()
@@ -345,7 +343,13 @@ watch(selectedRunId, () => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'is-chat-view': currentView === 'chat' }">
+  <div
+    class="app"
+    :class="{
+      'is-chat-view': currentView === 'chat',
+      'is-workbench-view': currentView === 'workbench',
+    }"
+  >
     <ToastContainer ref="toastContainer" />
     <AppHeader @configure-api-key="configureApiKey" />
 
@@ -353,14 +357,7 @@ watch(selectedRunId, () => {
       <AppSidebar :current-view="currentView" @navigate="navigate" />
 
       <main class="main">
-        <section v-if="currentView !== 'chat'" class="page-head">
-          <div>
-            <h1>{{ pageTitle }}</h1>
-            <p>{{ pageDescription }}</p>
-          </div>
-        </section>
-
-        <WorkbenchView v-if="currentView === 'workbench'" @navigate="navigate" />
+        <WorkbenchView v-if="currentView === 'workbench'" />
 
         <ChatWorkspace
           v-else-if="currentView === 'chat'"
