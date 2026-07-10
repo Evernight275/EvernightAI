@@ -3,6 +3,8 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from EvernightAI.core.error.chat import ChatInputError
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.provider import ProviderNotFoundError, ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -201,6 +203,217 @@ def test_normalizes_gemini_text_and_function_call_chunks() -> None:
         tool_call_id="resp-1:tool:0:1",
         tool_call={"name": "add", "arguments": {"left": 1}},
     )
+
+
+def test_maps_assistant_tool_calls_empty_messages_and_tool_results() -> None:
+    request = to_gemini_request(
+        [
+            Content(role=MessageRole.USER),
+            Content(
+                role=MessageRole.ASSISTANT,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Checking")],
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id="call-1",
+                        tool_call={"name": "lookup", "arguments": "invalid"},
+                    )
+                ],
+            ),
+            Content(
+                role=MessageRole.TOOL,
+                tool_call_id="call-1",
+                content=[
+                    ContentPart(type=ContentPartType.TEXT, text="result "),
+                    ContentPart(type=ContentPartType.TEXT, text="ok"),
+                ],
+                metadata={"tool_name": "lookup"},
+            ),
+        ]
+    )
+
+    assert request == {
+        "contents": [
+            {"role": "user", "parts": [{"text": ""}]},
+            {
+                "role": "model",
+                "parts": [
+                    {"text": "Checking"},
+                    {"functionCall": {"name": "lookup", "args": {}}},
+                ],
+            },
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "lookup",
+                            "response": {"content": "result ok"},
+                        }
+                    }
+                ],
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "error"),
+    [
+        (
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
+            ),
+            "Unsupported Gemini content part type",
+        ),
+        (
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT)],
+            ),
+            "Text content part requires text",
+        ),
+        (
+            Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[ToolCall(tool_call_id="call-1", tool_call={})],
+            ),
+            "Tool call requires a function name",
+        ),
+        (
+            Content(
+                role=MessageRole.TOOL,
+                tool_call_id="call-1",
+                content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
+            ),
+            "tool message only supports text content",
+        ),
+    ],
+)
+def test_rejects_unsupported_gemini_message_content(
+    message: Content,
+    error: str,
+) -> None:
+    with pytest.raises(ChatInputError, match=error):
+        to_gemini_request([message])
+
+
+@pytest.mark.parametrize(
+    ("response", "error"),
+    [
+        ({}, "did not include candidates"),
+        ({"candidates": [None]}, "candidate is invalid"),
+        ({"candidates": [{}]}, "did not include content"),
+        (
+            {"candidates": [{"content": {"parts": "invalid"}}]},
+            "content parts are invalid",
+        ),
+    ],
+)
+def test_rejects_malformed_gemini_responses(
+    response: dict[str, Any],
+    error: str,
+) -> None:
+    with pytest.raises(ProviderResponseError, match=error):
+        from_gemini_response(response, "fallback-model")
+
+
+def test_maps_gemini_response_fallbacks_and_usage_metadata() -> None:
+    mapped = from_gemini_response(
+        {
+            "responseId": None,
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            None,
+                            {"text": 1},
+                            {"functionCall": {"name": "", "args": {}}},
+                            {"functionCall": {"name": "lookup", "args": []}},
+                        ]
+                    }
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": "3",
+                "candidatesTokenCount": 2,
+                "totalTokenCount": 2,
+                "cachedContentTokenCount": 1,
+            },
+        },
+        "fallback-model",
+    )
+
+    assert mapped.model_id == "fallback-model"
+    assert mapped.message.content is None
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="gemini:tool:0",
+            tool_call={"name": "lookup", "arguments": {}},
+        )
+    ]
+    assert mapped.usage is not None
+    assert mapped.usage.prompt_tokens is None
+    assert mapped.usage.metadata == {"cachedContentTokenCount": 1}
+
+
+def test_normalizes_gemini_usage_finish_and_malformed_stream_parts() -> None:
+    chunk = {
+        "responseId": 7,
+        "modelVersion": [],
+        "usageMetadata": {
+            "promptTokenCount": 2,
+            "candidatesTokenCount": 1,
+            "totalTokenCount": 3,
+            "thoughtsTokenCount": 1,
+        },
+        "candidates": [
+            None,
+            {
+                "index": 2,
+                "content": {
+                    "parts": [
+                        None,
+                        {"text": ""},
+                        {"functionCall": {"name": "missing-args"}},
+                        {"functionCall": {"name": "lookup", "args": {"q": "x"}}},
+                    ]
+                },
+                "finishReason": "MAX_TOKENS",
+            },
+        ],
+    }
+
+    events = from_gemini_stream_chunk(chunk)
+
+    assert [event.event_type for event in events] == [
+        ChatStreamEventType.USAGE,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
+        ChatStreamEventType.MESSAGE_COMPLETED,
+    ]
+    assert events[0].usage is not None
+    assert events[0].usage.metadata == {"thoughtsTokenCount": 1}
+    assert events[1].tool_call_id == "gemini:tool:2:3"
+    assert events[2].finish_reason == "MAX_TOKENS"
+    assert all(event.response_id is None and event.model_id is None for event in events)
+
+
+@pytest.mark.parametrize(
+    "chunk",
+    [
+        {"candidates": "invalid"},
+        {"candidates": [{"content": {"parts": "invalid"}}]},
+        {"candidates": [{"content": {"parts": [{"functionCall": {"name": ""}}]}}]},
+    ],
+)
+def test_preserves_unrecognized_gemini_stream_chunks_as_raw(
+    chunk: dict[str, Any],
+) -> None:
+    events = from_gemini_stream_chunk(chunk)
+
+    assert len(events) == 1
+    assert events[0].event_type is ChatStreamEventType.RAW
+    assert events[0].raw_data == chunk
 
 
 @pytest.mark.asyncio

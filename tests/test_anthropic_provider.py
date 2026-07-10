@@ -3,6 +3,8 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from EvernightAI.core.error.chat import ChatInputError
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.provider import ProviderNotFoundError, ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -267,6 +269,248 @@ def test_normalizes_anthropic_unknown_event_as_raw() -> None:
     assert event.event_type is ChatStreamEventType.RAW
     assert event.response_id == "msg-1"
     assert event.raw_event == "unknown"
+
+
+def test_maps_assistant_tool_calls_empty_messages_and_tool_results() -> None:
+    request = to_anthropic_request(
+        [
+            Content(role=MessageRole.SYSTEM),
+            Content(role=MessageRole.USER),
+            Content(
+                role=MessageRole.ASSISTANT,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Checking")],
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id="toolu-1",
+                        tool_call={"name": "lookup", "arguments": "invalid"},
+                    )
+                ],
+            ),
+            Content(
+                role=MessageRole.TOOL,
+                tool_call_id="toolu-1",
+                content=[ContentPart(type=ContentPartType.TEXT, text="result")],
+            ),
+        ],
+        "claude-test",
+        [ToolDefinition(name="empty", description="No arguments")],
+    )
+
+    assert request == {
+        "model": "claude-test",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": ""}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Checking"},
+                    {
+                        "type": "tool_use",
+                        "id": "toolu-1",
+                        "name": "lookup",
+                        "input": {},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu-1",
+                        "content": "result",
+                    }
+                ],
+            },
+        ],
+        "system": "",
+        "tools": [
+            {
+                "name": "empty",
+                "description": "No arguments",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "error"),
+    [
+        (
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
+            ),
+            "Unsupported Anthropic content part type",
+        ),
+        (
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT)],
+            ),
+            "Text content part requires text",
+        ),
+        (
+            Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[ToolCall(tool_call_id="toolu-1", tool_call={})],
+            ),
+            "Tool call requires a function name",
+        ),
+        (
+            Content(role=MessageRole.TOOL, content=[]),
+            "Tool result requires a tool call id",
+        ),
+        (
+            Content(
+                role=MessageRole.TOOL,
+                tool_call_id="toolu-1",
+                content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
+            ),
+            "tool message only supports text content",
+        ),
+    ],
+)
+def test_rejects_unsupported_anthropic_message_content(
+    message: Content,
+    error: str,
+) -> None:
+    with pytest.raises(ChatInputError, match=error):
+        to_anthropic_request([message], "claude-test")
+
+
+@pytest.mark.parametrize(
+    ("response", "error"),
+    [
+        ({"model": "claude-test"}, "did not include content"),
+        ({"content": []}, "did not include model"),
+    ],
+)
+def test_rejects_malformed_anthropic_responses(
+    response: dict[str, Any],
+    error: str,
+) -> None:
+    with pytest.raises(ProviderResponseError, match=error):
+        from_anthropic_response(response)
+
+
+def test_maps_anthropic_response_fallbacks_and_usage_metadata() -> None:
+    mapped = from_anthropic_response(
+        {
+            "model": "claude-test",
+            "content": [
+                None,
+                {"type": "text", "text": 1},
+                {"type": "tool_use", "id": "", "name": "ignored"},
+                {
+                    "type": "tool_use",
+                    "id": "toolu-1",
+                    "name": "lookup",
+                    "input": [],
+                },
+            ],
+            "usage": {
+                "input_tokens": "3",
+                "output_tokens": 2,
+                "cache_read_input_tokens": 4,
+            },
+        }
+    )
+
+    assert mapped.message.content is None
+    assert mapped.message.tool_calls == [
+        ToolCall(
+            tool_call_id="toolu-1",
+            tool_call={"name": "lookup", "arguments": {}},
+        )
+    ]
+    assert mapped.usage is not None
+    assert mapped.usage.prompt_tokens is None
+    assert mapped.usage.total_tokens is None
+    assert mapped.usage.metadata == {"cache_read_input_tokens": 4}
+
+
+def test_anthropic_stream_normalizer_preserves_malformed_events() -> None:
+    normalizer = AnthropicStreamNormalizer()
+
+    malformed_start = normalizer.map_event("message_start", {"message": []})
+    malformed_block = normalizer.map_event(
+        "content_block_start",
+        {"index": "0", "content_block": {}},
+    )
+    invalid_tool = normalizer.map_event(
+        "content_block_start",
+        {"index": 0, "content_block": {"type": "tool_use", "id": 1}},
+    )
+    unknown_delta = normalizer.map_event(
+        "content_block_delta",
+        {"index": 0, "delta": {"type": "unknown"}},
+    )
+    orphan_delta = normalizer.map_event(
+        "content_block_delta",
+        {
+            "index": 3,
+            "delta": {"type": "input_json_delta", "partial_json": "{}"},
+        },
+    )
+    invalid_stop = normalizer.map_event("content_block_stop", {"index": "0"})
+    idle_delta = normalizer.map_event("message_delta", {"delta": {}})
+
+    for events in [
+        malformed_start,
+        malformed_block,
+        invalid_tool,
+        unknown_delta,
+        orphan_delta,
+        invalid_stop,
+        idle_delta,
+    ]:
+        assert len(events) == 1
+        assert events[0].event_type is ChatStreamEventType.RAW
+
+
+def test_anthropic_stream_normalizer_ignores_empty_text_and_non_tool_blocks() -> None:
+    normalizer = AnthropicStreamNormalizer()
+
+    assert normalizer.map_event(
+        "content_block_start",
+        {"index": 0, "content_block": {"type": "text", "text": ""}},
+    ) == []
+    assert normalizer.map_event(
+        "content_block_delta",
+        {"index": 0, "delta": {"type": "text_delta", "text": ""}},
+    ) == []
+    assert normalizer.map_event("content_block_stop", {"index": 0}) == []
+
+
+@pytest.mark.parametrize("arguments", ["not-json", "[]"])
+def test_anthropic_stream_normalizer_drops_invalid_completed_tool_calls(
+    arguments: str,
+) -> None:
+    normalizer = AnthropicStreamNormalizer()
+    normalizer.map_event(
+        "content_block_start",
+        {
+            "index": 0,
+            "content_block": {
+                "type": "tool_use",
+                "id": "toolu-1",
+                "name": "lookup",
+                "input": {},
+            },
+        },
+    )
+    normalizer.map_event(
+        "content_block_delta",
+        {
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": arguments},
+        },
+    )
+
+    assert normalizer.map_event("content_block_stop", {"index": 0}) == []
 
 
 @pytest.mark.asyncio

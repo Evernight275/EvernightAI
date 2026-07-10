@@ -7,6 +7,7 @@ from typing import Any
 
 import jwt
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
@@ -45,7 +46,6 @@ from EvernightAI.core.schema.content import (
     MessageStatus,
     MessageRole,
 )
-from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
     DataAggregation,
     DataAnalysisRequest,
@@ -2248,6 +2248,286 @@ def test_http_websocket_resumes_agent_run_with_tool_approval() -> None:
     }
     assert tool_executed is True
     assert len(provider.requests) == 2
+
+
+def test_http_websocket_recovers_after_malformed_message() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "heartbeat",
+                    "message_id": "invalid-1",
+                    "heartbeat": {"sequence": -1},
+                }
+            )
+            error = websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "heartbeat",
+                    "message_id": "heartbeat-1",
+                }
+            )
+            heartbeat_ack = websocket.receive_json()
+
+    assert error["message_type"] == "error"
+    assert error["error"]["error_type"] == "ValidationError"
+    assert "greater than or equal to 0" in error["error"]["error_message"]
+    assert heartbeat_ack["message_type"] == "heartbeat_ack"
+    assert heartbeat_ack["correlation_id"] == "heartbeat-1"
+
+
+def test_http_websocket_rejects_messages_with_missing_or_unsupported_payloads() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    messages = [
+        ({"message_type": "hello", "message_id": "hello-1"}, "Unsupported WebSocket"),
+        (
+            {"message_type": "client_event", "message_id": "client-1"},
+            "Client event payload is required",
+        ),
+        (
+            {"message_type": "tool_approval", "message_id": "approval-1"},
+            "Tool approval payload is required",
+        ),
+        (
+            {"message_type": "agent_control", "message_id": "control-1"},
+            "Agent control payload is required",
+        ),
+    ]
+
+    errors: list[dict[str, Any]] = []
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            for message, _expected in messages:
+                websocket.send_json(message)
+                errors.append(websocket.receive_json())
+
+    assert [error["correlation_id"] for error in errors] == [
+        "hello-1",
+        "client-1",
+        "approval-1",
+        "control-1",
+    ]
+    assert all(error["message_type"] == "error" for error in errors)
+    assert all(
+        expected in error["error"]["error_message"]
+        for error, (_message, expected) in zip(errors, messages, strict=True)
+    )
+
+
+def test_http_websocket_validates_client_events_and_subscriptions() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    events = [
+        (
+            "unknown-1",
+            {"event_name": "unknown", "payload": {}},
+            "Unsupported client event",
+        ),
+        (
+            "missing-run-1",
+            {"event_name": "agent_run.subscribe", "payload": {}},
+            "requires run_id",
+        ),
+        (
+            "sequence-1",
+            {
+                "event_name": "agent_run.subscribe",
+                "payload": {"run_id": "run-1", "after_sequence": -1},
+            },
+            "after_sequence must be >= 0",
+        ),
+        (
+            "invalid-start-1",
+            {"event_name": "agent_run.start", "payload": {}},
+            "validation errors for AgentRunRequest",
+        ),
+        (
+            "unknown-run-1",
+            {
+                "event_name": "agent_run.subscribe",
+                "payload": {"run_id": "missing-run"},
+            },
+            "register is not configured",
+        ),
+    ]
+
+    errors: list[dict[str, Any]] = []
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            for message_id, client_event, _expected in events:
+                websocket.send_json(
+                    {
+                        "message_type": "client_event",
+                        "message_id": message_id,
+                        "client_event": client_event,
+                    }
+                )
+                errors.append(websocket.receive_json())
+
+    assert [error["correlation_id"] for error in errors] == [
+        event[0] for event in events
+    ]
+    assert all(
+        expected in error["error"]["error_message"]
+        for error, (_message_id, _event, expected) in zip(errors, events, strict=True)
+    )
+
+
+def test_http_websocket_streams_unpersisted_run_without_client_run_id() -> None:
+    interface = create_interface(
+        make_runtime(
+            provider=FakeProvider(),
+            agent_state_register=InMemoryAgentRunStateRegister(),
+            agent_trace_register=InMemoryAgentTraceRegister(),
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={"provider_id": "provider-1", "name": "Fake", "type": "openai"},
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "start-1",
+                    "client_event": {
+                        "event_name": "agent_run.start",
+                        "payload": {
+                            "provider_id": "provider-1",
+                            "context_id": "ctx-1",
+                            "model_id": "model-1",
+                            "messages": [message_json("Hello")],
+                        },
+                    },
+                }
+            )
+            messages = [websocket.receive_json() for _ in range(3)]
+
+    assert [message["trace_event"]["event_type"] for message in messages] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
+    assert all("run_id" not in message for message in messages)
+    assert all(message["payload"] == {"replayed": False} for message in messages)
+
+
+def test_http_websocket_reports_missing_runs_for_each_control_action() -> None:
+    interface = create_interface(
+        make_runtime(
+            agent_state_register=InMemoryAgentRunStateRegister(),
+            agent_trace_register=InMemoryAgentTraceRegister(),
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    errors: list[dict[str, Any]] = []
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            for action in ["pause", "cancel", "resume"]:
+                websocket.send_json(
+                    {
+                        "message_type": "agent_control",
+                        "message_id": f"{action}-1",
+                        "agent_control": {
+                            "run_id": "missing-run",
+                            "action": action,
+                        },
+                    }
+                )
+                errors.append(websocket.receive_json())
+
+    assert [error["correlation_id"] for error in errors] == [
+        "pause-1",
+        "cancel-1",
+        "resume-1",
+    ]
+    assert all(error["error"]["error_type"] == "AgentStateError" for error in errors)
+    assert all("missing-run" in error["error"]["error_message"] for error in errors)
+
+
+def test_http_websocket_invalid_authentication_closes_with_policy_code() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(principal_id="user-1"),
+                )
+            ]
+        ),
+        close_on_shutdown=False,
+    )
+
+    error: dict[str, Any] | None = None
+    disconnect: WebSocketDisconnect | None = None
+    with TestClient(app) as client:
+        try:
+            with client.websocket_connect("/ws?api_key=wrong") as websocket:
+                error = websocket.receive_json()
+                websocket.receive_json()
+        except WebSocketDisconnect as exc:
+            disconnect = exc
+
+    assert error is not None
+    assert error["message_type"] == "error"
+    assert error["error"]["error_type"] == "AuthRequiredError"
+    assert error["error"]["error_message"] == "Invalid API key"
+    assert disconnect is not None
+    assert disconnect.code == 1008
+    assert disconnect.reason == "AuthRequiredError"
+
+
+def test_http_websocket_authorizes_subscribed_agent_run_access() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(principal_id="user-1", permissions=[]),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
+        ),
+        close_on_shutdown=False,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws?api_key=secret") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "message_type": "client_event",
+                    "message_id": "subscribe-1",
+                    "client_event": {
+                        "event_name": "agent_run.subscribe",
+                        "payload": {"run_id": "run-1"},
+                    },
+                }
+            )
+            error = websocket.receive_json()
+
+    assert error["message_type"] == "error"
+    assert error["correlation_id"] == "subscribe-1"
+    assert error["error"]["error_type"] == "AuthPermissionDeniedError"
 
 
 def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
