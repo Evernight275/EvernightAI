@@ -1,7 +1,6 @@
 <script setup lang="ts">
+import type { ViewKey } from '../views/navigation'
 import Icon from './Icon.vue'
-
-type ViewKey = 'workbench' | 'chat' | 'tools' | 'runs' | 'analytics' | 'agents' | 'memories' | 'logs'
 
 defineProps<{
   currentView: ViewKey
