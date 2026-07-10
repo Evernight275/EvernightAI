@@ -8,6 +8,7 @@ import type {
   ToolCall,
   ToolCallResult,
 } from '../api'
+import { formatStatus } from '../format'
 import Icon from './Icon.vue'
 
 const props = defineProps<{
@@ -228,7 +229,7 @@ function shortId(id: string | undefined): string {
           <p>{{ run.request.provider_id }} · {{ run.request.model_id }}</p>
         </div>
         <div class="run-detail-actions">
-          <span class="tag" :class="statusTone(run.status)">{{ run.status || 'unknown' }}</span>
+          <span class="tag" :class="statusTone(run.status)">{{ formatStatus(run.status) }}</span>
           <span class="tag" :class="realtimeReady ? 'success' : 'warning'">{{ realtimeLabel(realtimeStatus) }}</span>
           <div v-if="hasRunControls" class="run-control-group" aria-label="运行控制">
             <button

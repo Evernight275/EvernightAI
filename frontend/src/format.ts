@@ -18,8 +18,15 @@ export function formatStatus(status?: string | null): string {
   const labels: Record<string, string> = {
     active: '活跃',
     archived: '归档',
+    canceled: '已取消',
+    connected: '已连接',
+    connecting: '连接中',
+    disconnected: '未连接',
+    disabled: '停用',
+    enabled: '启用',
     running: '运行中',
     paused: '暂停',
+    pending: '等待中',
     finished: '完成',
     failed: '失败',
     user: '用户',
@@ -32,6 +39,27 @@ export function formatStatus(status?: string | null): string {
   }
 
   return status ? labels[status] || status : '未知'
+}
+
+export function statusTone(status?: string | null): string {
+  if (!status) {
+    return ''
+  }
+
+  if (['active', 'connected', 'enabled', 'finished', 'safe', 'success', '在线'].includes(status)) {
+    return 'success'
+  }
+  if (['connecting', 'paused', 'pending', 'sensitive', 'warning', '需审批'].includes(status)) {
+    return 'warning'
+  }
+  if (['canceled', 'disabled', 'disconnected', 'failed', 'restricted', 'error'].includes(status)) {
+    return 'danger'
+  }
+  if (status === 'running') {
+    return 'primary'
+  }
+
+  return ''
 }
 
 export function formatTime(value?: string | null): string {

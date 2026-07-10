@@ -20,7 +20,7 @@ const emit = defineEmits<{
         aria-label="设置 API Key"
         @click="emit('configureApiKey')"
       >
-        <Icon name="user-round" />
+        <Icon name="key-round" />
       </button>
     </div>
   </header>

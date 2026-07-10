@@ -1,4 +1,12 @@
-import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  type ComputedRef,
+  type Ref,
+} from 'vue'
 import {
   chatWithContextStream,
   chatWithSession,
@@ -29,6 +37,12 @@ import { useToast } from './useToast'
 
 const toast = useToast()
 const DEFAULT_AGENT_MAX_TOOL_ROUNDS = 8
+const CHAT_SETTINGS_STORAGE_KEY = 'evernight.chatSettings.v1'
+const DEFAULT_CHAT_SETTINGS = {
+  timeoutSeconds: 30,
+  streamEnabled: false,
+  agentEnabled: true,
+}
 
 export type ChatDisplayMessage = Content & {
   outgoing?: boolean
@@ -68,6 +82,7 @@ export function useChatController({
   refreshDashboard,
   syncProviderModelFromSession,
 }: UseChatControllerOptions) {
+  const storedChatSettings = readChatSettings()
   const selectedSessionId = ref<string | null>(null)
   const selectedContext = ref<Context | null>(null)
   const contextLoading = ref(false)
@@ -75,15 +90,56 @@ export function useChatController({
   const pendingChatMessages = ref<ChatDisplayMessage[]>([])
   const pendingChatSessionId = ref<string | null>(null)
   const pendingAssistantHasDelta = ref(false)
-  const chatTimeoutSeconds = ref(30)
-  const chatStreamEnabled = ref(false)
-  const chatAgentEnabled = ref(true)
+  const chatTimeoutSeconds = ref(storedChatSettings.timeoutSeconds)
+  const chatStreamEnabled = ref(storedChatSettings.streamEnabled)
+  const chatAgentEnabled = ref(storedChatSettings.agentEnabled)
+  let syncingStoredChatSettings = false
   const sendingMessage = ref(false)
   const approvingToolApproval = ref(false)
   const creatingSession = ref(false)
   const chatError = ref<string | null>(null)
   const activeAgentRunId = ref<string | null>(null)
   const currentAgentRunPaused = ref(false)
+
+  watch(
+    [chatTimeoutSeconds, chatStreamEnabled, chatAgentEnabled],
+    ([timeoutSeconds, streamEnabled, agentEnabled]) => {
+      if (syncingStoredChatSettings) {
+        return
+      }
+
+      writeChatSettings({
+        timeoutSeconds: normalizeTimeoutSeconds(timeoutSeconds),
+        streamEnabled,
+        agentEnabled,
+      })
+    },
+    { flush: 'sync' },
+  )
+
+  function syncStoredChatSettings(event: StorageEvent) {
+    if (event.key !== null && event.key !== CHAT_SETTINGS_STORAGE_KEY) {
+      return
+    }
+
+    const nextSettings = readChatSettings()
+    syncingStoredChatSettings = true
+    try {
+      chatTimeoutSeconds.value = nextSettings.timeoutSeconds
+      chatStreamEnabled.value = nextSettings.streamEnabled
+      chatAgentEnabled.value = nextSettings.agentEnabled
+    } finally {
+      syncingStoredChatSettings = false
+    }
+  }
+
+  onMounted(() => {
+    window.addEventListener('storage', syncStoredChatSettings)
+  })
+
+  onUnmounted(() => {
+    window.removeEventListener('storage', syncStoredChatSettings)
+  })
 
   const selectedSession = computed(() => (
     sessions.value.find((session) => session.session_id === selectedSessionId.value) || null
@@ -744,6 +800,42 @@ export function useChatController({
     removeSession,
     ensureSelectedSession,
   }
+}
+
+function readChatSettings(): typeof DEFAULT_CHAT_SETTINGS {
+  try {
+    const storedValue = localStorage.getItem(CHAT_SETTINGS_STORAGE_KEY)
+    if (!storedValue) {
+      return { ...DEFAULT_CHAT_SETTINGS }
+    }
+
+    const parsedValue = JSON.parse(storedValue) as Partial<typeof DEFAULT_CHAT_SETTINGS>
+    return {
+      timeoutSeconds: normalizeTimeoutSeconds(parsedValue.timeoutSeconds),
+      streamEnabled: typeof parsedValue.streamEnabled === 'boolean'
+        ? parsedValue.streamEnabled
+        : DEFAULT_CHAT_SETTINGS.streamEnabled,
+      agentEnabled: typeof parsedValue.agentEnabled === 'boolean'
+        ? parsedValue.agentEnabled
+        : DEFAULT_CHAT_SETTINGS.agentEnabled,
+    }
+  } catch {
+    return { ...DEFAULT_CHAT_SETTINGS }
+  }
+}
+
+function writeChatSettings(settings: typeof DEFAULT_CHAT_SETTINGS) {
+  try {
+    localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function normalizeTimeoutSeconds(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 600
+    ? Math.round(value)
+    : DEFAULT_CHAT_SETTINGS.timeoutSeconds
 }
 
 function runMatchesSession(run: AgentRunState, session: Session): boolean {

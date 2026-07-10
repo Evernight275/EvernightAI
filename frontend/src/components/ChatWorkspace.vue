@@ -66,6 +66,19 @@ const selectedModelLabel = computed(() => (
   || props.modelOptions[0]?.label
   || '选择模型'
 ))
+const sendButtonLabel = computed(() => {
+  if (props.sending) {
+    return 'Agent 运行中'
+  }
+  if (props.disabled) {
+    return '请先选择可用模型'
+  }
+  if (model.value.trim() === '') {
+    return '输入消息后发送'
+  }
+
+  return '发送'
+})
 const emit = defineEmits<{
   select: [session: Session]
   send: [text: string]
@@ -124,6 +137,7 @@ function addCodeCopyButtons() {
       button.className = 'code-copy-button'
       button.type = 'button'
       button.title = '复制代码'
+      button.setAttribute('aria-label', '复制代码')
       button.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
 
       const codeElement = block.querySelector('code')
@@ -244,6 +258,25 @@ function toggleSettings() {
   }
 
   settingsOpen.value = !settingsOpen.value
+}
+
+function closePopovers() {
+  modelPickerOpen.value = false
+  settingsOpen.value = false
+}
+
+function handleWorkspaceClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  if (!target.closest('.model-picker')) {
+    modelPickerOpen.value = false
+  }
+  if (!target.closest('.chat-settings')) {
+    settingsOpen.value = false
+  }
 }
 
 function renderMarkdown(text: string): string {
@@ -744,11 +777,23 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="chat-workspace" aria-label="聊天工作区">
+  <section
+    class="chat-workspace"
+    aria-label="聊天工作区"
+    @click="handleWorkspaceClick"
+    @keydown.esc="closePopovers"
+  >
     <aside class="chat-rail">
       <div class="chat-rail-head">
         <strong>会话</strong>
-        <button class="button icon-button" type="button" :disabled="creatingSession" @click="emit('createSession')">
+        <button
+          class="button icon-button"
+          type="button"
+          :disabled="creatingSession"
+          title="新建会话"
+          aria-label="新建会话"
+          @click="emit('createSession')"
+        >
           <Icon name="message-square-plus" />
         </button>
       </div>
@@ -760,7 +805,11 @@ onMounted(() => {
           :class="{ 'is-selected': session.session_id === selectedSessionId }"
           @click="emit('select', session)"
         >
-          <button class="chat-session-main" type="button">
+          <button
+            class="chat-session-main"
+            type="button"
+            :aria-pressed="session.session_id === selectedSessionId"
+          >
             <span>{{ session.title || shortId(session.session_id) }}</span>
           </button>
           <div class="chat-session-actions">
@@ -794,15 +843,17 @@ onMounted(() => {
           type="button"
           :disabled="sending"
           :aria-expanded="settingsOpen"
+          aria-controls="chat-settings-panel"
           @click="toggleSettings"
         >
           <Icon name="settings" />
           <span>设置</span>
+          <Icon name="chevron-down" class="settings-chevron" />
         </button>
         <Transition name="settings-panel">
-          <div v-if="settingsOpen" class="settings-panel">
+          <div v-if="settingsOpen" id="chat-settings-panel" class="settings-panel">
             <label class="setting-row">
-              <span>Timeout</span>
+              <span>超时（秒）</span>
               <input
                 v-model.number="timeoutSeconds"
                 min="1"
@@ -814,11 +865,11 @@ onMounted(() => {
             </label>
             <label class="setting-toggle">
               <span>流式</span>
-              <input v-model="streamEnabled" type="checkbox" :disabled="sending" />
+              <input v-model="streamEnabled" type="checkbox" role="switch" :disabled="sending" />
             </label>
             <label class="setting-toggle">
               <span>Agent 路线</span>
-              <input v-model="agentEnabled" type="checkbox" :disabled="sending" />
+              <input v-model="agentEnabled" type="checkbox" role="switch" :disabled="sending" />
             </label>
           </div>
         </Transition>
@@ -834,7 +885,7 @@ onMounted(() => {
       </header>
 
       <div ref="chatThread" class="chat-thread">
-        <div v-if="loading && messages.length === 0" class="chat-thread-message system">
+        <div v-if="loading && messages.length === 0" class="chat-thread-message system" role="status">
           <div class="message-markdown" v-html="renderMarkdown('正在加载上下文...')"></div>
         </div>
         <div
@@ -955,7 +1006,7 @@ onMounted(() => {
             </button>
           </div>
         </div>
-        <div v-if="loading && messages.length > 0" class="chat-thread-sync">
+        <div v-if="loading && messages.length > 0" class="chat-thread-sync" role="status">
           正在同步上下文...
         </div>
       </div>
@@ -998,6 +1049,7 @@ onMounted(() => {
             rows="1"
             placeholder="给当前会话发送消息"
             :disabled="disabled || sending"
+            aria-describedby="chat-composer-status"
             @focus="modelPickerOpen = false"
             @input="resizeChatInput"
             @keydown.enter.exact.prevent="submit"
@@ -1027,7 +1079,8 @@ onMounted(() => {
                     :aria-selected="option.value === modelSelection"
                     @click="selectModel(option.value)"
                 >
-                  {{ option.label }}
+                  <span>{{ option.label }}</span>
+                  <Icon v-if="option.value === modelSelection" name="check" />
                   </button>
                 </div>
               </Transition>
@@ -1036,14 +1089,21 @@ onMounted(() => {
               class="chat-send-button"
               type="submit"
               :disabled="disabled || sending || model.trim() === ''"
-              :title="sending ? 'Agent 运行中' : '发送'"
-              :aria-label="sending ? 'Agent 运行中' : '发送'"
+              :title="sendButtonLabel"
+              :aria-label="sendButtonLabel"
             >
               <Icon name="send" />
             </button>
           </div>
         </div>
-        <span class="chat-composer-hint">{{ error || 'Enter 发送，默认走 Agent' }}</span>
+        <span
+          id="chat-composer-status"
+          class="chat-composer-hint"
+          :class="{ 'is-error': error }"
+          :role="error ? 'alert' : undefined"
+        >
+          {{ error || 'Enter 发送，默认走 Agent' }}
+        </span>
       </form>
     </div>
   </section>

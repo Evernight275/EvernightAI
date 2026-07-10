@@ -332,7 +332,7 @@ function hasRows(cardId: string): boolean {
   <section class="analytics-dashboard" aria-label="数据统计分析">
     <div class="analytics-toolbar">
       <div>
-        <h2><Icon name="activity" /><span>数据统计分析</span></h2>
+        <h2><Icon name="chart-column" /><span>数据统计分析</span></h2>
         <p>{{ updatedAt ? `最近刷新：${updatedAt}` : '读取 runtime 内置数据源' }}</p>
       </div>
       <button
@@ -340,14 +340,15 @@ function hasRows(cardId: string): boolean {
         :class="{ 'is-spinning': loading }"
         type="button"
         :disabled="loading"
+        :aria-busy="loading"
         @click="refreshAnalytics"
       >
-        <Icon name="activity" />
+        <Icon name="rotate-ccw" />
         <span>{{ loading ? '刷新中' : '刷新数据' }}</span>
       </button>
     </div>
 
-    <p v-if="loadError" class="provider-error">{{ loadError }}</p>
+    <p v-if="loadError" class="provider-error" role="alert">{{ loadError }}</p>
 
     <section class="metrics analytics-metrics" aria-label="数据概览">
       <article v-for="tile in overviewTiles" :key="tile.label" class="metric analytics-metric">

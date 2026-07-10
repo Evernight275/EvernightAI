@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ToolDefinition } from '../api'
-import { formatStatus } from '../format'
+import { formatStatus, statusTone } from '../format'
 import Icon from './Icon.vue'
 
 defineProps<{
@@ -29,7 +29,12 @@ defineProps<{
           <strong>{{ tool.name || '未命名工具' }}</strong>
           <div class="tool-desc">{{ tool.description || '无描述' }}</div>
         </div>
-        <span class="tag">{{ tool.requires_approval ? '需审批' : formatStatus(tool.safety_level || '在线') }}</span>
+        <span
+          class="tag"
+          :class="statusTone(tool.requires_approval ? '需审批' : tool.safety_level || '在线')"
+        >
+          {{ tool.requires_approval ? '需审批' : formatStatus(tool.safety_level || '在线') }}
+        </span>
       </div>
     </div>
   </section>

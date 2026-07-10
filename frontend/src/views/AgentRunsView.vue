@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { AgentRunSocketStatus, AgentRunState } from '../api'
 import AgentRunTraceDetail from '../components/AgentRunTraceDetail.vue'
 import Icon from '../components/Icon.vue'
+import { formatStatus, statusTone } from '../format'
 
 const props = defineProps<{
   runs: AgentRunState[]
@@ -114,7 +115,7 @@ watch([runIds, runPageSize], () => {
                 <span>{{ run.request.model_id }}</span>
               </div>
             </td>
-            <td><span class="tag">{{ run.status || '未知' }}</span></td>
+            <td><span class="tag" :class="statusTone(run.status)">{{ formatStatus(run.status) }}</span></td>
             <td>{{ run.tool_rounds_used ?? 0 }} / {{ run.request.max_tool_rounds ?? 0 }}</td>
             <td>{{ run.trace?.length ?? 0 }}</td>
           </tr>

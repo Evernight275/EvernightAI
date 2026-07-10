@@ -15,11 +15,11 @@ const coreLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
   { view: 'chat', icon: 'message-square', label: '聊天' },
   { view: 'tools', icon: 'wrench', label: '工具列表' },
   { view: 'runs', icon: 'activity', label: '运行队列' },
-  { view: 'analytics', icon: 'layout-dashboard', label: '数据统计' },
+  { view: 'analytics', icon: 'chart-column', label: '数据统计' },
 ]
 
 const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
-  { view: 'agents', icon: 'table-2', label: '模型提供商配置' },
+  { view: 'agents', icon: 'server', label: '模型提供商配置' },
   { view: 'memories', icon: 'database', label: '记忆库' },
   { view: 'logs', icon: 'scroll-text', label: '日志' },
 ]
@@ -35,6 +35,7 @@ const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
             class="side-link"
             :class="{ 'is-active': currentView === link.view }"
             type="button"
+            :aria-current="currentView === link.view ? 'page' : undefined"
             @click="emit('navigate', link.view)"
           >
             <Icon :name="link.icon" />
@@ -51,6 +52,7 @@ const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
             class="side-link"
             :class="{ 'is-active': currentView === link.view }"
             type="button"
+            :aria-current="currentView === link.view ? 'page' : undefined"
             @click="emit('navigate', link.view)"
           >
             <Icon :name="link.icon" />

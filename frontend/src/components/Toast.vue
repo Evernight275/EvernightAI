@@ -99,6 +99,8 @@ onMounted(() => {
   <div
     class="toast-item"
     :class="[`toast-${toast.type}`, { 'toast-visible': visible }]"
+    :role="toast.type === 'error' ? 'alert' : 'status'"
+    :aria-live="toast.type === 'error' ? 'assertive' : 'polite'"
     @mouseenter="pauseTimer"
     @mouseleave="resumeTimer"
   >

@@ -10,7 +10,7 @@ defineProps<{
   <section class="panel view-panel">
     <div class="panel-head">
       <h2><Icon name="database" /><span>记忆库</span></h2>
-      <span>{{ status }}</span>
+      <span class="tag" :class="status === '已同步' ? 'success' : 'danger'">{{ status }}</span>
     </div>
     <div class="memory-empty">
       <div class="memory-empty-content">

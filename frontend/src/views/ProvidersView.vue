@@ -29,7 +29,7 @@ const providerModelCount = computed(() => (
 <template>
   <section class="provider-config" aria-label="模型提供商配置">
     <div class="panel-head">
-      <h2><Icon name="table-2" /><span>模型提供商配置</span></h2>
+      <h2><Icon name="server" /><span>模型提供商配置</span></h2>
       <div class="panel-head-actions">
         <span>{{ enabledProviderCount }}/{{ providers.length }} 个 provider · {{ providerModelCount }} 个模型</span>
         <button
@@ -37,9 +37,10 @@ const providerModelCount = computed(() => (
           :class="{ 'is-spinning': loading }"
           type="button"
           :disabled="loading"
+          :aria-busy="loading"
           @click="emit('refresh')"
         >
-          <Icon name="activity" />
+          <Icon name="rotate-ccw" />
           <span>{{ loading ? '拉取中' : '刷新模型' }}</span>
         </button>
       </div>
@@ -48,7 +49,7 @@ const providerModelCount = computed(() => (
       <span>当前聊天模型：{{ selectedModelLabel }}</span>
       <span>{{ updatedAt ? `最近刷新：${updatedAt}` : '等待刷新' }}</span>
     </div>
-    <p v-if="error" class="provider-error">{{ error }}</p>
+    <p v-if="error" class="provider-error" role="alert">{{ error }}</p>
     <div v-if="providers.length === 0" class="provider-empty">
       <Icon name="inbox" class="empty-state-icon" />
       <div class="empty-state-text">
@@ -67,7 +68,9 @@ const providerModelCount = computed(() => (
             <h3>{{ group.provider.name }}</h3>
             <p>{{ group.provider.provider_id }} · {{ group.provider.type }}</p>
           </div>
-          <span class="tag">{{ group.provider.is_enabled === false ? '停用' : '启用' }}</span>
+          <span class="tag" :class="group.provider.is_enabled === false ? 'danger' : 'success'">
+            {{ group.provider.is_enabled === false ? '停用' : '启用' }}
+          </span>
         </div>
         <div class="provider-models">
           <span v-if="group.models.length === 0" class="provider-model-empty">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Session } from '../api'
-import { formatStatus, formatTime, shortId } from '../format'
+import { formatStatus, formatTime, shortId, statusTone } from '../format'
 import Icon from './Icon.vue'
 
 defineProps<{
@@ -50,7 +50,7 @@ const emit = defineEmits<{
           <td>{{ session.title || shortId(session.session_id) }}</td>
           <td>{{ session.provider_id || '未绑定' }}</td>
           <td>{{ session.model_id || '未指定' }}</td>
-          <td><span class="tag">{{ formatStatus(session.status) }}</span></td>
+          <td><span class="tag" :class="statusTone(session.status)">{{ formatStatus(session.status) }}</span></td>
           <td>{{ formatTime(session.updated_at || session.created_at) }}</td>
         </tr>
       </tbody>

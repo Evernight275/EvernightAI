@@ -20,7 +20,7 @@ const emit = defineEmits<{
       </button>
 
       <button class="quick-start-card" type="button" @click="emit('navigate', 'tools')">
-        <Icon name="tool" class="icon" />
+        <Icon name="wrench" class="icon" />
         <h3>查看工具</h3>
         <p>浏览已注册的工具列表，了解 Agent 可以调用的功能</p>
       </button>
@@ -32,7 +32,7 @@ const emit = defineEmits<{
       </button>
 
       <button class="quick-start-card" type="button" @click="emit('navigate', 'analytics')">
-        <Icon name="activity" class="icon" />
+        <Icon name="chart-column" class="icon" />
         <h3>查看统计</h3>
         <p>查看 Agent run、会话、工具调用和记忆写入数据</p>
       </button>
