@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -40,7 +39,6 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
     ProviderType,
 )
-from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.bootstrap.config import (
@@ -51,6 +49,7 @@ from EvernightAI.bootstrap.config import (
 from EvernightAI.bootstrap.http import create_app_from_config
 from EvernightAI.interface.cli.commands import list_models, list_providers, run_chat
 from EvernightAI.interface.cli.config import parse_config
+from tests.fakes.streams import EmptyStream
 
 
 def test_list_providers_formats_declared_providers() -> None:
@@ -702,12 +701,3 @@ class FakeProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
-
-
-class EmptyStream:
-    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
-        return self._iter_events()
-
-    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
-        if False:
-            yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

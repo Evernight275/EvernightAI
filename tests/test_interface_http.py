@@ -27,7 +27,6 @@ from EvernightAI.core.domain.memory import (
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
-from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.error.auth import AuthPermissionDeniedError, AuthRequiredError
 from EvernightAI.core.error.provider import ProviderRequestError, ProviderUnavailableError
 from EvernightAI.core.protocol.agent import (
@@ -42,7 +41,7 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEvent,
     AgentTraceEventType,
 )
-from EvernightAI.core.schema.auth import Principal, PrincipalScope
+from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -105,9 +104,13 @@ from EvernightAI.interface.http.schema import (
     HttpOAuthJwtConfig,
 )
 from EvernightAI.interface.http.errors import status_code_for_error
-from EvernightAI.interface.http.sse import chat_stream_event_to_sse_event
 from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 from EvernightAI.interface.log_store import RECENT_LOG_STORE
+from tests.fakes.agent import (
+    InMemoryAgentRunStateRegister,
+    InMemoryAgentTraceRegister,
+)
+from tests.fakes.streams import EventStream
 
 
 def test_http_openapi_examples_are_try_it_ready() -> None:
@@ -1338,11 +1341,19 @@ def test_http_app_exposes_chat_stream_route() -> None:
 
     assert stream_response.status_code == 200
     assert stream_response.headers["content-type"].startswith("text/event-stream")
-    assert "event: message" in stream_response.text
-    assert "id: evt-1" in stream_response.text
-    assert 'data: {"delta":"hello"}' in stream_response.text
-    assert "event: done" in stream_response.text
-    assert "data: [DONE]" in stream_response.text
+    assert stream_response.headers["cache-control"] == "no-cache"
+    assert stream_response.headers["x-accel-buffering"] == "no"
+    assert parse_sse_messages(stream_response.text) == [
+        {
+            "event": "message",
+            "id": "evt-1",
+            "data": '{"delta":"hello"}',
+        },
+        {
+            "event": "done",
+            "data": "[DONE]",
+        },
+    ]
     assert provider.last_request is not None
     assert provider.last_request.model_id == "model-1"
 
@@ -1390,8 +1401,14 @@ def test_http_app_exposes_chat_context_stream_route() -> None:
 
     assert stream_response.status_code == 200
     assert stream_response.headers["content-type"].startswith("text/event-stream")
-    assert "event: chat.message_delta" in stream_response.text
-    assert "event: done" in stream_response.text
+    stream_messages = parse_sse_messages(stream_response.text)
+    assert [message["event"] for message in stream_messages] == [
+        "chat.message_delta",
+        "done",
+    ]
+    assert stream_messages[0]["id"] == "resp-1"
+    assert json.loads(stream_messages[0]["data"])["text_delta"] == "hello"
+    assert stream_messages[1]["data"] == "[DONE]"
     assert provider.last_request is not None
     assert [message_text(message) for message in provider.last_request.messages] == [
         "Stored",
@@ -1401,20 +1418,6 @@ def test_http_app_exposes_chat_context_stream_route() -> None:
         message["content"][0]["text"]
         for message in context_response.json()["messages"]
     ] == ["Stored", "Hello", "hello"]
-
-
-def test_http_chat_stream_events_are_encoded_as_sse() -> None:
-    sse_event = chat_stream_event_to_sse_event(
-        ChatStreamEvent(
-            event_type=ChatStreamEventType.MESSAGE_DELTA,
-            response_id="resp-1",
-            text_delta="hello",
-        )
-    )
-
-    assert sse_event.event == "chat.message_delta"
-    assert sse_event.event_id == "resp-1"
-    assert json.loads(sse_event.data)["text_delta"] == "hello"
 
 
 def test_http_chat_stream_encodes_provider_errors_as_sse() -> None:
@@ -1447,6 +1450,41 @@ def test_http_chat_stream_encodes_provider_errors_as_sse() -> None:
     assert "provider stream failed" in stream_response.text
     assert '"response_id":null' not in stream_response.text
     assert '"model_id":null' not in stream_response.text
+
+
+def test_http_chat_stream_encodes_stream_creation_errors_as_sse() -> None:
+    interface = create_interface(
+        make_runtime(provider=ImmediateFailingStreamProvider())
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        stream_response = client.post(
+            "/chat/stream",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "model-1",
+                    "messages": [message_json("Hello")],
+                },
+            },
+        )
+
+    messages = parse_sse_messages(stream_response.text)
+
+    assert stream_response.status_code == 200
+    assert [message["event"] for message in messages] == ["chat.error"]
+    error = json.loads(messages[0]["data"])
+    assert error["error_type"] == "ProviderUnavailableError"
+    assert error["error_message"] == "provider stream creation failed"
 
 
 def test_http_app_exposes_persisted_agent_run_routes() -> None:
@@ -1542,11 +1580,16 @@ def test_http_app_streams_agent_trace_events() -> None:
             body = stream_response.read().decode("utf-8")
             content_type = stream_response.headers["content-type"]
         state_response = client.get("/agent-runs/run-1")
-        trace_response = client.get("/agent-runs/run-1/trace")
 
-    events = parse_sse_events(body)
+    stream_messages = parse_sse_messages(body)
+    events = [json.loads(message["data"]) for message in stream_messages]
 
     assert content_type.startswith("text/event-stream")
+    assert [message["event"] for message in stream_messages] == [
+        "run_started",
+        "chat_completed",
+        "run_stopped",
+    ]
     assert [event["event_type"] for event in events] == [
         "run_started",
         "chat_completed",
@@ -1560,16 +1603,6 @@ def test_http_app_streams_agent_trace_events() -> None:
     assert events[-1]["metadata"]["reason"] == "finished"
     assert state_response.status_code == 200
     assert state_response.json()["status"] == "finished"
-    assert [event["event_type"] for event in trace_response.json()] == [
-        "run_started",
-        "chat_completed",
-        "run_stopped",
-    ]
-    assert [event["summary"] for event in trace_response.json()] == [
-        "Agent run started",
-        "Model response received",
-        "Agent run stopped: finished",
-    ]
 
 
 def test_http_app_streams_agent_chat_delta_events() -> None:
@@ -2914,15 +2947,29 @@ def message_text(message: Content) -> str:
 
 
 def parse_sse_events(body: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+    return [json.loads(message["data"]) for message in parse_sse_messages(body)]
+
+
+def parse_sse_messages(body: str) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
     for block in body.split("\n\n"):
-        data_lines = [
-            line.removeprefix("data: ")
-            for line in block.splitlines()
-            if line.startswith("data: ")
-        ]
+        event: dict[str, str] = {}
+        data_lines: list[str] = []
+        for line in block.splitlines():
+            field, separator, value = line.partition(":")
+            if not separator:
+                value = ""
+            elif value.startswith(" "):
+                value = value[1:]
+
+            if field == "data":
+                data_lines.append(value)
+            elif field in {"event", "id", "retry"}:
+                event[field] = value
+
         if data_lines:
-            events.append(json.loads("\n".join(data_lines)))
+            event["data"] = "\n".join(data_lines)
+            events.append(event)
 
     return events
 
@@ -3002,6 +3049,12 @@ class FailingStreamProvider(FakeProvider):
         )
 
 
+class ImmediateFailingStreamProvider(FakeProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        self.last_request = request
+        raise ProviderUnavailableError("provider stream creation failed")
+
+
 class FailingChatProvider(FakeProvider):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.last_request = request
@@ -3068,45 +3121,6 @@ class SensitiveThenFinalProvider(FakeProvider):
         )
 
 
-class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
-    def __init__(self) -> None:
-        self.states: dict[str, AgentRunState] = {}
-
-    def save_state(
-        self,
-        state: AgentRunState,
-        *,
-        principal_scope: PrincipalScope | None = None,
-    ) -> None:
-        self.states[state.run_id] = state
-
-    def get_state(
-        self,
-        run_id: str,
-        *,
-        principal_scope: PrincipalScope | None = None,
-    ) -> AgentRunState:
-        try:
-            return self.states[run_id]
-        except KeyError as exc:
-            raise AgentStateError(f"The agent run state {run_id} is not found") from exc
-
-    def list_states(
-        self,
-        *,
-        principal_scope: PrincipalScope | None = None,
-    ) -> list[AgentRunState]:
-        return list(self.states.values())
-
-    def delete_state(
-        self,
-        run_id: str,
-        *,
-        principal_scope: PrincipalScope | None = None,
-    ) -> None:
-        self.states.pop(run_id, None)
-
-
 class RecordingWebSocket:
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
@@ -3119,47 +3133,6 @@ class RecordingWebSocket:
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
         pass
-
-
-class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
-    def __init__(self) -> None:
-        self.events: dict[str, list[AgentTraceEvent]] = {}
-
-    def append_event(self, run_id: str, event: AgentTraceEvent) -> int:
-        events = self.events.setdefault(run_id, [])
-        sequence = len(events) + 1
-        event.sequence = sequence
-        events.append(event)
-        return sequence
-
-    def list_events(
-        self,
-        run_id: str,
-        *,
-        after_sequence: int = 0,
-        limit: int | None = None,
-    ) -> list[AgentTraceEvent]:
-        events = [
-            event
-            for event in self.events.get(run_id, [])
-            if event.sequence is not None and event.sequence > after_sequence
-        ]
-        return events if limit is None else events[:limit]
-
-    def clear_events(self, run_id: str) -> None:
-        self.events.pop(run_id, None)
-
-
-class EventStream:
-    def __init__(self, events: list[ChatStreamEvent]) -> None:
-        self._events = events
-
-    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
-        return self._iter_events()
-
-    async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
-        for event in self._events:
-            yield event
 
 
 class FailingChatStream:

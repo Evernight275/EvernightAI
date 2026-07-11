@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Query, status
-from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol
 from EvernightAI.core.schema.agent import (
@@ -21,7 +20,11 @@ from EvernightAI.interface.http.template import (
     AGENT_RUN_EXAMPLES,
     RESUME_AGENT_RUN_EXAMPLES,
 )
-from EvernightAI.interface.http.sse import sse_response_body
+from EvernightAI.interface.http.sse import (
+    SSE_RESPONSE_HEADERS,
+    SSEStreamingResponse,
+    sse_response_body,
+)
 
 
 router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
@@ -63,11 +66,12 @@ async def stream_agent_run(
         Body(openapi_examples=AGENT_RUN_EXAMPLES),
     ],
     interface: InterfaceDependency,
-) -> StreamingResponse:
+) -> SSEStreamingResponse:
     stream = interface.agent_runs.start_stream(request)
-    return StreamingResponse(
+    return SSEStreamingResponse(
         sse_response_body(_agent_trace_sse_events(stream)),
         media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
 
 
@@ -163,11 +167,12 @@ async def resume_agent_run_stream(
         Body(openapi_examples=RESUME_AGENT_RUN_EXAMPLES),
     ],
     interface: InterfaceDependency,
-) -> StreamingResponse:
+) -> SSEStreamingResponse:
     stream = interface.agent_runs.resume_stream(run_id, request.approvals)
-    return StreamingResponse(
+    return SSEStreamingResponse(
         sse_response_body(_agent_trace_sse_events(stream)),
         media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
 
 

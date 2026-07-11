@@ -1,5 +1,9 @@
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 import json
+from typing import Protocol, runtime_checkable
+
+from fastapi.responses import StreamingResponse
+from starlette.types import Send
 
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.schema.stream import (
@@ -7,6 +11,25 @@ from EvernightAI.core.schema.stream import (
     ChatStreamEventType,
     SSEEvent,
 )
+
+
+SSE_RESPONSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
+
+
+@runtime_checkable
+class _AsyncClosable(Protocol):
+    async def aclose(self) -> None: ...
+
+
+class SSEStreamingResponse(StreamingResponse):
+    async def stream_response(self, send: Send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            await _close_async_iterable(self.body_iterator)
 
 
 def sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
@@ -19,12 +42,20 @@ def chat_stream_response_body(
     return _iter_chat_stream_response_body(events)
 
 
+def chat_stream_response_body_from(
+    stream_factory: Callable[[], Awaitable[AsyncIterable[ChatStreamEvent]]],
+) -> AsyncIterator[str]:
+    return _iter_chat_stream_response_body_from(stream_factory)
+
+
 async def _iter_sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
     try:
         async for event in events:
             yield format_sse_event(event)
     except EvernightAIError as error:
         yield format_sse_event(error_to_sse_event(error))
+    finally:
+        await _close_async_iterable(events)
 
 
 async def _iter_chat_stream_response_body(
@@ -35,6 +66,23 @@ async def _iter_chat_stream_response_body(
             yield format_sse_event(chat_stream_event_to_sse_event(event))
     except EvernightAIError as error:
         yield format_sse_event(chat_stream_event_to_sse_event(error_to_chat_stream_event(error)))
+    finally:
+        await _close_async_iterable(events)
+
+
+async def _iter_chat_stream_response_body_from(
+    stream_factory: Callable[[], Awaitable[AsyncIterable[ChatStreamEvent]]],
+) -> AsyncIterator[str]:
+    stream: AsyncIterable[ChatStreamEvent] | None = None
+    try:
+        stream = await stream_factory()
+        async for event in stream:
+            yield format_sse_event(chat_stream_event_to_sse_event(event))
+    except EvernightAIError as error:
+        yield format_sse_event(chat_stream_event_to_sse_event(error_to_chat_stream_event(error)))
+    finally:
+        if stream is not None:
+            await _close_async_iterable(stream)
 
 
 def chat_stream_event_to_sse_event(event: ChatStreamEvent) -> SSEEvent:
@@ -90,12 +138,21 @@ def error_to_sse_event(error: EvernightAIError) -> SSEEvent:
 def format_sse_event(event: SSEEvent) -> str:
     lines: list[str] = []
     if event.event is not None:
-        lines.append(f"event: {event.event}")
+        lines.append(f"event: {_single_line_field(event.event)}")
     if event.event_id is not None:
-        lines.append(f"id: {event.event_id}")
+        lines.append(f"id: {_single_line_field(event.event_id)}")
     if event.retry is not None:
         lines.append(f"retry: {event.retry}")
 
     data_lines = event.data.splitlines() or [""]
     lines.extend(f"data: {line}" for line in data_lines)
     return "\n".join(lines) + "\n\n"
+
+
+def _single_line_field(value: str) -> str:
+    return value.replace("\r", "").replace("\n", "")
+
+
+async def _close_async_iterable(events: AsyncIterable[object]) -> None:
+    if isinstance(events, _AsyncClosable):
+        await events.aclose()

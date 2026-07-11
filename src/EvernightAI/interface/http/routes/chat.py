@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Body
-from fastapi.responses import StreamingResponse
 
 from EvernightAI.core.schema.content import ChatResponse
 from EvernightAI.interface.http.dependencies import InterfaceDependency
@@ -15,7 +14,11 @@ from EvernightAI.interface.http.template import (
     CHAT_STREAM_ERROR_SSE_EXAMPLE,
     DIRECT_CHAT_EXAMPLES,
 )
-from EvernightAI.interface.http.sse import chat_stream_response_body
+from EvernightAI.interface.http.sse import (
+    SSE_RESPONSE_HEADERS,
+    SSEStreamingResponse,
+    chat_stream_response_body_from,
+)
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -56,11 +59,13 @@ async def chat_stream(
         Body(openapi_examples=DIRECT_CHAT_EXAMPLES),
     ],
     interface: InterfaceDependency,
-) -> StreamingResponse:
-    stream = await interface.chat.chat_stream(request.provider_id, request.request)
-    return StreamingResponse(
-        chat_stream_response_body(stream),
+) -> SSEStreamingResponse:
+    return SSEStreamingResponse(
+        chat_stream_response_body_from(
+            lambda: interface.chat.chat_stream(request.provider_id, request.request)
+        ),
         media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
 
 
@@ -112,19 +117,21 @@ async def chat_context_stream(
         Body(openapi_examples=CHAT_WITH_CONTEXT_EXAMPLES),
     ],
     interface: InterfaceDependency,
-) -> StreamingResponse:
-    stream = await interface.chat.chat_stream_with_context(
-        request.provider_id,
-        request.context_id,
-        model_id=request.model_id,
-        messages=request.messages,
-        retry_from_message_index=request.retry_from_message_index,
-        memory_query=request.memory_query,
-        skills=request.skills,
-        tools=request.tools,
-        metadata=request.metadata,
-    )
-    return StreamingResponse(
-        chat_stream_response_body(stream),
+) -> SSEStreamingResponse:
+    return SSEStreamingResponse(
+        chat_stream_response_body_from(
+            lambda: interface.chat.chat_stream_with_context(
+                request.provider_id,
+                request.context_id,
+                model_id=request.model_id,
+                messages=request.messages,
+                retry_from_message_index=request.retry_from_message_index,
+                memory_query=request.memory_query,
+                skills=request.skills,
+                tools=request.tools,
+                metadata=request.metadata,
+            )
+        ),
         media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
