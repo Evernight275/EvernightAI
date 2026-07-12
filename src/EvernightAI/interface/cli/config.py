@@ -17,6 +17,7 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
+    ContextStrategyConfig,
     DataAnalysisConfig,
     EvernightConfig,
     HttpConfig,
@@ -50,6 +51,9 @@ def parse_config(data: dict[str, Any]) -> EvernightConfig:
     try:
         return EvernightConfig(
             runtime=RuntimeConfig.model_validate(data.get("runtime", {})),
+            context_strategy=ContextStrategyConfig.model_validate(
+                data.get("context_strategy", {})
+            ),
             http=HttpConfig.model_validate(data.get("http", {})),
             tools=ToolConfig.model_validate(data.get("tools", {})),
             auth=_parse_auth(data.get("auth", {})),

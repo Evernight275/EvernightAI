@@ -18,7 +18,6 @@ from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (
     MemoryItem,
     MemoryQuery,
-    MemoryScope,
     MemorySelection,
 )
 from EvernightAI.core.schema.provider import ProviderConfig
@@ -27,6 +26,7 @@ from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.application.retry import mark_retry_messages
+from EvernightAI.application.memory import select_memories_for_request
 
 
 class ChatApplication(ChatInterfaceProtocol):
@@ -201,14 +201,13 @@ class ChatApplication(ChatInterfaceProtocol):
             context_id,
             principal_scope=principal_scope,
         )
-        memory_query = memory_query or self._session_memory_query(metadata)
-        selected_memories = (
-            await self.select_memories(
-                memory_query,
-                principal_scope=principal_scope,
-            )
-            if memory_query is not None
-            else None
+        selected_memories = await select_memories_for_request(
+            self._runtime,
+            explicit_query=memory_query,
+            context_id=context.context_id,
+            metadata=metadata,
+            owner_id=context.owner_id,
+            principal_scope=principal_scope,
         )
 
         request = self._runtime.context_strategy.compose_chat_request(
@@ -326,17 +325,6 @@ class ChatApplication(ChatInterfaceProtocol):
 
     async def close(self) -> None:
         await self._runtime.close()
-
-    def _session_memory_query(
-        self,
-        metadata: dict[str, object] | None,
-    ) -> MemoryQuery | None:
-        session_id = (metadata or {}).get("session_id")
-        if isinstance(session_id, str) and session_id:
-            return MemoryQuery(scope=MemoryScope.SESSION, scope_id=session_id)
-
-        return None
-
 
 class _ContextAppendingChatStream:
     def __init__(

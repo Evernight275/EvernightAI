@@ -27,6 +27,7 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
         config.runtime.database_path,
         sandbox=create_sandbox_from_config(config),
         **_runtime_tool_options(config),
+        **_runtime_context_options(config),
     )
     register_configured_data_sources(runtime, config)
     return runtime
@@ -114,6 +115,19 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "project_timeout_seconds": project.timeout_seconds,
         "project_max_output_chars": project.max_output_chars,
         "runtime_data_tools_enabled": runtime_data.enabled,
+    }
+
+
+def _runtime_context_options(config: EvernightConfig) -> dict[str, Any]:
+    context_strategy = config.context_strategy
+    return {
+        "context_max_messages": context_strategy.max_messages,
+        "context_max_tokens": context_strategy.max_tokens,
+        "context_enable_summary": context_strategy.enable_summary,
+        "context_summarize_after_messages": (
+            context_strategy.summarize_after_messages
+        ),
+        "context_keep_recent_messages": context_strategy.keep_recent_messages,
     }
 
 

@@ -43,7 +43,7 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.memory import MemoryQuery, MemoryScope
+from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import (
@@ -55,6 +55,10 @@ from EvernightAI.core.schema.tool import (
 )
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.application.retry import mark_retry_messages
+from EvernightAI.application.memory import (
+    select_memories_for_request,
+    write_memory_candidate,
+)
 
 
 LOGGER = logging.getLogger("EvernightAI.application.agent")
@@ -759,16 +763,13 @@ class AgentApplication(AgentInterfaceProtocol):
             context_id,
             principal_scope=principal_scope,
         )
-        memory_query = memory_query or self._session_memory_query(metadata)
-        memory_selection = (
-            self._runtime.memory_strategy.select(
-                await self._runtime.memories.list_memories(
-                    principal_scope=principal_scope,
-                ),
-                memory_query,
-            )
-            if memory_query is not None
-            else None
+        memory_selection = await select_memories_for_request(
+            self._runtime,
+            explicit_query=memory_query,
+            context_id=context.context_id,
+            metadata=metadata,
+            owner_id=context.owner_id,
+            principal_scope=principal_scope,
         )
         request = self._runtime.context_strategy.compose_chat_request(
             context,
@@ -922,16 +923,13 @@ class AgentApplication(AgentInterfaceProtocol):
             context_id,
             principal_scope=principal_scope,
         )
-        memory_query = memory_query or self._session_memory_query(metadata)
-        memory_selection = (
-            self._runtime.memory_strategy.select(
-                await self._runtime.memories.list_memories(
-                    principal_scope=principal_scope,
-                ),
-                memory_query,
-            )
-            if memory_query is not None
-            else None
+        memory_selection = await select_memories_for_request(
+            self._runtime,
+            explicit_query=memory_query,
+            context_id=context.context_id,
+            metadata=metadata,
+            owner_id=context.owner_id,
+            principal_scope=principal_scope,
         )
         request = self._runtime.context_strategy.compose_chat_request(
             context,
@@ -999,16 +997,6 @@ class AgentApplication(AgentInterfaceProtocol):
                 )
             ],
         )
-
-    def _session_memory_query(
-        self,
-        metadata: dict[str, object] | None,
-    ) -> MemoryQuery | None:
-        session_id = (metadata or {}).get("session_id")
-        if isinstance(session_id, str) and session_id:
-            return MemoryQuery(scope=MemoryScope.SESSION, scope_id=session_id)
-
-        return None
 
     def _tool_error_to_message(self, call: ToolCall, exc: Exception) -> Content:
         payload = {
@@ -1184,13 +1172,17 @@ class AgentApplication(AgentInterfaceProtocol):
             result,
         )
         for memory in memories:
-            await self._runtime.memories.create(
+            written_memory, operation = await write_memory_candidate(
+                self._runtime,
                 memory,
                 principal_scope=_owner_scope(request.owner_id),
             )
             memory_step = AgentStep(
                 step_type=AgentStepType.MEMORY_WRITE,
-                metadata={"memory_id": memory.memory_id},
+                metadata={
+                    "memory_id": written_memory.memory_id,
+                    "operation": operation.value,
+                },
             )
             state.steps.append(memory_step)
             yield self._add_trace(
@@ -1198,7 +1190,10 @@ class AgentApplication(AgentInterfaceProtocol):
                 AgentTraceEvent(
                     event_type=AgentTraceEventType.MEMORY_WRITTEN,
                     step_type=AgentStepType.MEMORY_WRITE,
-                    metadata={"memory_id": memory.memory_id},
+                    metadata={
+                        "memory_id": written_memory.memory_id,
+                        "operation": operation.value,
+                    },
                 ),
             )
 

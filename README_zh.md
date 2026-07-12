@@ -190,6 +190,39 @@ chat 和 agent request 可以声明要使用的 skills。application 编排层�
 provider 前把这些声明渲染成提示词消息并注入本次请求；渲染出来的 skill
 messages 不写回 context 历史。
 
+## Memory / Context 策略
+
+EvernightAI 把 memory 和 context 分成两个职责：
+
+- memory 是持久知识，包括事实、偏好、摘要、定义、指令和事件性记录
+- context 是一次模型调用可见的窗口
+- application 是汇合点：它检索 memory、组合 context window、渲染 skill，
+  然后才调用 provider
+
+默认 memory selection 是确定性的。`MemoryQuery` 支持文本匹配、单作用域或
+多个有序作用域、kind/tag 过滤、relevance/confidence 阈值、是否包含
+disabled/expired、排序、limit 和 deduplicate。默认请求组合的作用域顺序是：
+
+```text
+Context -> Session -> User -> Global
+```
+
+去重时更具体的 scope 胜出。选中的 memory 会作为受保护的 system memory
+message 插入已有 system 前缀之后，不会落在历史对话中段。普通 memory 默认是
+参考数据，不会自动获得高于用户消息的系统指令权限。
+
+Context strategy 会保护必保内容：本轮用户消息不会被静默裁剪，system 前缀
+保持顺序，assistant tool call 与对应 tool result 作为原子组保留。消息数或
+token 预算导致降级时，最终 `ChatRequest.metadata` 会记录
+`context_strategy_steps`、drop 数量和 `degradation_reasons`。
+
+Agent 写 memory 前会先经过治理。候选 memory 会带稳定 `memory_key`、内容指纹、
+provenance metadata，以及 `create`、`replace` 或 `merge` 写入语义。同一个 key
+的 agent summary 会更新已有 memory，不会无限追加。
+
+可以用 `POST /contexts/{context_id}/compose-preview` 查看最终 `ChatRequest`，
+不会调用 provider。Preview 会展示选中的 memory id 和 context strategy 诊断。
+
 ## Skill / Tool / Agent 边界
 
 - `tool` 是原子动作，负责一次具体、可执行、可授权的外部操作

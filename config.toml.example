@@ -10,6 +10,16 @@ database_path = ".evernight/runtime.sqlite3"
 # installed and permitted by the host.
 sandbox_backend = "subprocess"
 
+[context_strategy]
+# Optional model-visible window controls. Basic composition is always first.
+# Summary requires an application-provided summarizer; leave disabled unless
+# your runtime assembly injects one.
+# max_messages = 80
+# max_tokens = 12000
+enable_summary = false
+summarize_after_messages = 100
+keep_recent_messages = 20
+
 [http]
 # Used by both `evernight-http` and `evernight serve`.
 # 注意:

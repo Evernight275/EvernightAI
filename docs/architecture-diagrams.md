@@ -190,30 +190,39 @@ flowchart TD
     SessionStore["session store<br/>SQLite or in-memory register"]
     AgentStore["agent state + trace store<br/>SQLite register"]
 
-    ContextWindow["context window<br/>stored messages + request messages"]
-    MemorySelection["memory selection<br/>durable facts/summaries"]
+    ScopePolicy["scope policy<br/>context -> session -> user -> global"]
+    MemorySelection["memory selection<br/>lexical match + filters + dedupe"]
+    MemoryMessage["protected system memory message"]
+    ContextWindow["context window<br/>protected + elastic lanes"]
+    Preview["compose preview<br/>no provider call"]
     SkillMessages["skill-rendered prompt messages"]
     ToolDefinitions["registered tool definitions"]
 
+    ContextStrategy["context strategy chain<br/>basic -> summarize -> trim -> token budget"]
     ProviderPayload["provider adapter payload"]
     ProviderResponse["provider response"]
     CoreResult["core result schema<br/>ChatResponse / AgentRunResult / stream events"]
     ToolResults["ToolCallResult"]
+    MemoryGovernance["memory write governance<br/>fingerprint + provenance + create/replace/merge"]
 
     Input -- "validated into" --> RequestSchema
 
     RequestSchema -- "context_id/session_id" --> ContextStore
-    RequestSchema -- "memory query" --> MemoryStore
+    RequestSchema -- "memory query + metadata" --> ScopePolicy
+    ScopePolicy --> MemoryStore
     RequestSchema -- "session request" --> SessionStore
 
     ContextStore -- "messages" --> ContextWindow
     MemoryStore -- "selected memories" --> MemorySelection
-    MemorySelection -- "system memory message" --> ContextWindow
+    MemorySelection -- "ids + reasons + scores" --> MemoryMessage
+    MemoryMessage --> ContextWindow
     RequestSchema -- "skill declarations" --> SkillMessages
     SkillMessages --> ContextWindow
     RequestSchema -- "tool declarations" --> ToolDefinitions
 
-    ContextWindow -- "messages" --> ProviderPayload
+    ContextWindow --> ContextStrategy
+    ContextStrategy -- "final messages + diagnostics" --> ProviderPayload
+    ContextStrategy -- "final ChatRequest" --> Preview
     ToolDefinitions -- "available tools" --> ProviderPayload
     ProviderPayload --> ProviderResponse
     ProviderResponse -- "mapped by adapter" --> CoreResult
@@ -222,13 +231,18 @@ flowchart TD
     ToolResults -- "fed back into agent loop" --> ContextWindow
 
     CoreResult -- "append response / traces" --> ContextStore
-    CoreResult -- "write summaries when enabled" --> MemoryStore
+    CoreResult -- "candidate memories" --> MemoryGovernance
+    MemoryGovernance --> MemoryStore
     CoreResult -- "update session result" --> SessionStore
     CoreResult -- "persist run state/trace" --> AgentStore
 ```
 
-Key point: context and memory are separate. Memory selects durable information;
-context organizes the model-visible window.
+Key point: context and memory are separate. Memory selects durable information
+with observable reasons and scores; context organizes the model-visible window.
+The application layer explicitly composes selected memory into the protected
+system area before context strategies trim, summarize, or budget the final
+request. Compose preview stops at the final `ChatRequest` and never calls a
+provider.
 
 ## 5. Permission Boundary
 

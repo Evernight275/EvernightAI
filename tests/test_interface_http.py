@@ -2884,6 +2884,99 @@ def test_http_app_maps_domain_errors() -> None:
     assert missing_agent_storage_response.json()["error"]["type"] == "AgentStateError"
 
 
+def test_http_app_previews_composed_context_without_calling_provider() -> None:
+    provider = FakeProvider()
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/contexts",
+            json={
+                "context_id": "ctx-1",
+                "messages": [message_json("System", role="system")],
+            },
+        )
+        client.post(
+            "/memories",
+            json={
+                "memory_id": "mem-1",
+                "content": "Prefer concise answers",
+            },
+        )
+        response = client.post(
+            "/contexts/ctx-1/compose-preview",
+            json={
+                "model_id": "model-1",
+                "messages": [message_json("Hello")],
+                "memory_query": {"scope": "global"},
+                "metadata": {"request_id": "req-1"},
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert provider.last_request is None
+    assert body["model_id"] == "model-1"
+    assert [message["role"] for message in body["messages"]] == [
+        "system",
+        "system",
+        "user",
+    ]
+    assert body["metadata"]["memory_ids"] == ["mem-1"]
+    assert body["metadata"]["request_id"] == "req-1"
+
+
+def test_http_app_searches_and_toggles_memories() -> None:
+    interface = create_interface(make_runtime())
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/memories",
+            json={
+                "memory_id": "mem-1",
+                "content": "Prefer concise answers",
+                "tags": ["style"],
+                "priority": 1,
+            },
+        )
+        client.post(
+            "/memories",
+            json={
+                "memory_id": "mem-2",
+                "content": "Prefer detailed explanations",
+                "tags": ["style"],
+                "priority": 10,
+            },
+        )
+        disabled_response = client.post("/memories/mem-2/disable")
+        visible_response = client.get(
+            "/memories",
+            params={"text": "prefer", "tag": "style", "sort": "priority"},
+        )
+        inclusive_response = client.get(
+            "/memories",
+            params={
+                "text": "prefer",
+                "tag": "style",
+                "sort": "priority",
+                "include_disabled": "true",
+            },
+        )
+        enabled_response = client.post("/memories/mem-2/enable")
+
+    assert disabled_response.status_code == 200
+    assert disabled_response.json()["is_enabled"] is False
+    assert [item["memory_id"] for item in visible_response.json()] == ["mem-1"]
+    assert [item["memory_id"] for item in inclusive_response.json()] == [
+        "mem-2",
+        "mem-1",
+    ]
+    assert enabled_response.status_code == 200
+    assert enabled_response.json()["is_enabled"] is True
+
+
 def make_runtime(
     *,
     provider: ProviderInstanceProtocol | None = None,

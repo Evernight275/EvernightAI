@@ -45,6 +45,15 @@ class ChatWithContextRequest(EvernightAISchema):
     metadata: dict[str, object] | None = None
 
 
+class ContextComposePreviewRequest(EvernightAISchema):
+    model_id: str
+    messages: list[Content] = Field(default_factory=list)
+    memory_query: MemoryQuery | None = None
+    skills: list[ChatSkill] | None = None
+    tools: list[ToolDefinition] | None = None
+    metadata: dict[str, object] | None = None
+
+
 class DirectChatRequest(EvernightAISchema):
     provider_id: str
     request: ChatRequest

@@ -2,10 +2,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from EvernightAI.core.domain.context import (
+    ApproximateContextTokenEstimator,
     BasicContextStrategy,
     ContextManager,
     ContextOrganizer,
     ContextRegister,
+    SummarizingContextStrategy,
+    TokenBudgetContextStrategy,
+    WindowTrimmingContextStrategy,
 )
 from EvernightAI.core.domain.data_analysis import (
     DataAnalysisManager,
@@ -40,6 +44,9 @@ from EvernightAI.core.schema.agent import (
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
+    ContextStrategyProtocol,
+    ContextSummarizerProtocol,
+    ContextTokenEstimatorProtocol,
 )
 from EvernightAI.core.protocol.data_analysis import (
     DataAnalysisManageProtocol,
@@ -254,8 +261,39 @@ def create_context_organizer() -> ContextOrganizer:
 
 def create_context_strategy(
     organizer: ContextOrganizerProtocol | None = None,
-) -> BasicContextStrategy:
-    return BasicContextStrategy(organizer or create_context_organizer())
+    *,
+    max_messages: int | None = None,
+    max_tokens: int | None = None,
+    estimator: ContextTokenEstimatorProtocol | None = None,
+    enable_summary: bool = False,
+    summarizer: ContextSummarizerProtocol | None = None,
+    summarize_after_messages: int = 100,
+    keep_recent_messages: int = 20,
+) -> ContextStrategyProtocol:
+    strategy: ContextStrategyProtocol = BasicContextStrategy(
+        organizer or create_context_organizer()
+    )
+    if enable_summary:
+        if summarizer is None:
+            raise ValueError("context summary requires a summarizer")
+        strategy = SummarizingContextStrategy(
+            strategy,
+            summarizer,
+            summarize_after_messages=summarize_after_messages,
+            keep_recent_messages=keep_recent_messages,
+        )
+    if max_messages is not None:
+        strategy = WindowTrimmingContextStrategy(
+            strategy,
+            max_messages=max_messages,
+        )
+    if max_tokens is not None:
+        strategy = TokenBudgetContextStrategy(
+            strategy,
+            max_tokens=max_tokens,
+            estimator=estimator or ApproximateContextTokenEstimator(),
+        )
+    return strategy
 
 
 def create_memory_register() -> MemoryRegister:
@@ -391,6 +429,13 @@ def create_sqlite_runtime(
     runtime_data_tools_enabled: bool = False,
     trace_retention_days: int | None = 30,
     trace_max_events: int | None = 100_000,
+    context_max_messages: int | None = None,
+    context_max_tokens: int | None = None,
+    context_token_estimator: ContextTokenEstimatorProtocol | None = None,
+    context_enable_summary: bool = False,
+    context_summarizer: ContextSummarizerProtocol | None = None,
+    context_summarize_after_messages: int = 100,
+    context_keep_recent_messages: int = 20,
 ) -> RuntimeKernel:
     SQLiteMigrationRunner(database_path).run()
     sandbox = sandbox or create_sandbox_executor()
@@ -459,6 +504,13 @@ def create_sqlite_runtime(
         agent_run_executor=agent_run_executor,
         runtime_data_tools_enabled=runtime_data_tools_enabled,
         sandbox=sandbox,
+        context_max_messages=context_max_messages,
+        context_max_tokens=context_max_tokens,
+        context_token_estimator=context_token_estimator,
+        context_enable_summary=context_enable_summary,
+        context_summarizer=context_summarizer,
+        context_summarize_after_messages=context_summarize_after_messages,
+        context_keep_recent_messages=context_keep_recent_messages,
     )
 
 
@@ -480,6 +532,13 @@ def _create_runtime(
     agent_run_executor: AgentRunExecutorProtocol | None = None,
     runtime_data_tools_enabled: bool = False,
     sandbox: SandboxExecuteProtocol | None = None,
+    context_max_messages: int | None = None,
+    context_max_tokens: int | None = None,
+    context_token_estimator: ContextTokenEstimatorProtocol | None = None,
+    context_enable_summary: bool = False,
+    context_summarizer: ContextSummarizerProtocol | None = None,
+    context_summarize_after_messages: int = 100,
+    context_keep_recent_messages: int = 20,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(
@@ -496,7 +555,16 @@ def _create_runtime(
     skills = skills or create_skill_manager(skill_register)
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
-    context_strategy = create_context_strategy(context_organizer)
+    context_strategy = create_context_strategy(
+        context_organizer,
+        max_messages=context_max_messages,
+        max_tokens=context_max_tokens,
+        estimator=context_token_estimator,
+        enable_summary=context_enable_summary,
+        summarizer=context_summarizer,
+        summarize_after_messages=context_summarize_after_messages,
+        keep_recent_messages=context_keep_recent_messages,
+    )
     data_analysis_register = data_analysis_register or create_data_analysis_register()
     data_analysis = data_analysis or create_data_analysis_manager(data_analysis_register)
     memories = MemoryManager(memory_register)

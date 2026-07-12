@@ -2,9 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Query, Response, status
 
-from EvernightAI.core.schema.content import Content
+from EvernightAI.core.schema.content import ChatRequest, Content
 from EvernightAI.core.schema.context import Context
 from EvernightAI.interface.http.dependencies import InterfaceDependency
+from EvernightAI.interface.http.schema import ContextComposePreviewRequest
 from EvernightAI.interface.http.template import (
     CONTENT_MESSAGE_EXAMPLES,
     CONTEXT_EXAMPLES,
@@ -91,6 +92,33 @@ async def append_context(
         context_id,
         message,
         expected_revision=expected_revision,
+    )
+
+
+@router.post(
+    "/{context_id}/compose-preview",
+    response_model=ChatRequest,
+    response_model_exclude_none=True,
+    summary="Preview a composed model request",
+    description=(
+        "Compose the context, current messages, tools, skills, and selected "
+        "memories into the final model-visible request without calling a provider."
+    ),
+    operation_id="compose_context_preview",
+)
+async def compose_context_preview(
+    context_id: str,
+    request: ContextComposePreviewRequest,
+    interface: InterfaceDependency,
+) -> ChatRequest:
+    return await interface.chat.organize_chat_request(
+        context_id,
+        model_id=request.model_id,
+        messages=request.messages,
+        memory_query=request.memory_query,
+        skills=request.skills,
+        tools=request.tools,
+        metadata=request.metadata,
     )
 
 

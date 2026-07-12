@@ -153,6 +153,45 @@ Chat and agent requests may declare skills. Application orchestration renders
 those declarations into prompt messages before the provider call and keeps the
 rendered messages out of stored context history.
 
+## Memory And Context Strategy
+
+EvernightAI treats memory and context as separate responsibilities:
+
+- Memory is durable knowledge: facts, preferences, summaries, definitions,
+  instructions, and episodic records.
+- Context is the model-visible window for one request.
+- Application code is the convergence point. It retrieves memories, composes
+  the context window, renders skills, then calls the provider.
+
+Memory selection is deterministic by default. `MemoryQuery` supports text
+matching, one scope or multiple ordered scopes, kind/tag filters, relevance and
+confidence thresholds, disabled/expired inclusion flags, sort selection, limit,
+and deduplication. The default request selection combines scopes in this order:
+
+```text
+Context -> Session -> User -> Global
+```
+
+More specific scopes win during deduplication. Selected memories are inserted as
+a protected system memory message after the existing system prefix, not in the
+middle of conversation history. Ordinary memories are reference data; they do
+not automatically become higher-authority system instructions.
+
+Context strategies preserve mandatory content. The current user turn is
+protected, system prefixes keep their order, and assistant tool calls stay
+atomic with their tool results. When message or token budgets force degradation,
+the composed request records `context_strategy_steps`, dropped counts, and
+degradation reasons in metadata instead of silently hiding what happened.
+
+Agent memory writing is governed before persistence. Candidate memories carry a
+stable `memory_key`, content fingerprint, provenance metadata, and a
+`write_operation` of `create`, `replace`, or `merge`. Repeated agent summaries
+for the same key update the existing memory instead of appending forever.
+
+Use `POST /contexts/{context_id}/compose-preview` to inspect the final
+`ChatRequest` without calling a provider. The preview includes selected memory
+ids and context strategy diagnostics.
+
 ## Project Rules
 
 These rules are intentionally backed by tests.

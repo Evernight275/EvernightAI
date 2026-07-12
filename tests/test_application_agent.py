@@ -1551,6 +1551,8 @@ async def test_agent_can_write_memory_after_run() -> None:
         AgentTraceEventType.RUN_STOPPED,
     ]
     assert memories[0].metadata["step_count"] == 3
+    assert memories[0].metadata["write_operation"] == "create"
+    assert result.steps[-1].metadata["operation"] == "create"
 
 
 @pytest.mark.asyncio
@@ -1577,6 +1579,46 @@ async def test_agent_writes_memory_to_session_scope_when_session_id_is_present()
     assert memories[0].scope is MemoryScope.SESSION
     assert memories[0].scope_id == "session-1"
     assert memories[0].metadata["context_id"] == "ctx-1"
+
+
+@pytest.mark.asyncio
+async def test_agent_replaces_existing_memory_with_same_memory_key() -> None:
+    runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    first = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Remember first")],
+            write_memory=True,
+        )
+    )
+    second = await app.run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Remember second")],
+            write_memory=True,
+        )
+    )
+
+    memories = await runtime.memories.list_memories()
+
+    assert len(memories) == 1
+    assert "Remember second" in memories[0].content
+    assert "Remember first" not in memories[0].content
+    assert memories[0].metadata["write_operation"] == "replace"
+    assert memories[0].metadata["previous_memory_id"] == memories[0].memory_id
+    assert memories[0].metadata["previous_content_fingerprint"] != (
+        memories[0].metadata["content_fingerprint"]
+    )
+    assert first.steps[-1].metadata["operation"] == "create"
+    assert second.steps[-1].metadata["operation"] == "replace"
 
 
 @pytest.mark.asyncio

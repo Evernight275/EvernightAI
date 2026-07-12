@@ -37,6 +37,13 @@ def make_message(text: str) -> Content:
     )
 
 
+def make_system_message(text: str) -> Content:
+    return Content(
+        role=MessageRole.SYSTEM,
+        content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+    )
+
+
 def make_assistant_tool_call(tool_call_id: str = "tool-call-1") -> Content:
     return Content(
         role=MessageRole.ASSISTANT,
@@ -249,7 +256,7 @@ def test_basic_context_strategy_composes_memory_into_chat_request() -> None:
     strategy = BasicContextStrategy(ContextOrganizer())
     context = Context(
         context_id="ctx-1",
-        messages=[make_message("Existing")],
+        messages=[make_system_message("System"), make_message("Existing")],
         metadata={"topic": "strategy"},
     )
     memory = MemoryItem(
@@ -271,8 +278,9 @@ def test_basic_context_strategy_composes_memory_into_chat_request() -> None:
 
     assert request.model_id == "model-1"
     assert [message.content[0].text for message in request.messages if message.content] == [
-        "Existing",
+        "System",
         "Relevant memory:\n- preference: Prefer concise answers",
+        "Existing",
         "Current",
     ]
     assert request.messages[1].metadata == {
@@ -305,10 +313,12 @@ def test_window_trimming_strategy_is_independent_from_basic_organizer() -> None:
     )
 
     assert request.messages == [make_message("two"), make_message("three")]
-    assert request.metadata["context_strategy"] == {
-        "name": "WindowTrimmingContextStrategy",
-        "original_message_count": 3,
-    }
+    assert request.metadata["context_strategy"]["name"] == "WindowTrimmingContextStrategy"
+    assert request.metadata["context_strategy"]["original_message_count"] == 3
+    assert request.metadata["context_strategy"]["dropped_message_count"] == 1
+    assert request.metadata["context_strategy_steps"] == [
+        request.metadata["context_strategy"]
+    ]
 
 
 def test_token_budget_strategy_keeps_newest_messages_within_budget() -> None:
@@ -422,6 +432,54 @@ def test_summarizing_strategy_keeps_recent_tool_group_intact() -> None:
 
     assert summarizer.messages == [[make_message("old")]]
     assert request.messages[1:] == [tool_call, tool_result]
+
+
+def test_window_trimming_keeps_current_messages_even_when_over_limit() -> None:
+    current = make_message("current")
+    strategy = WindowTrimmingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_messages=1,
+    )
+
+    request = strategy.compose_chat_request(
+        Context(
+            context_id="ctx-1",
+            messages=[make_system_message("system"), make_message("old")],
+        ),
+        model_id="model-1",
+        messages=[current],
+    )
+
+    assert request.messages == [make_system_message("system"), current]
+    assert request.metadata["context_strategy"]["degraded"] is True
+    assert request.metadata["context_strategy"]["degradation_reasons"] == [
+        "protected_messages_exceed_max_messages",
+        "max_messages_dropped_messages",
+    ]
+
+
+def test_token_budget_keeps_current_tool_group_even_when_over_budget() -> None:
+    tool_call = make_assistant_tool_call()
+    tool_result = make_tool_message()
+    strategy = TokenBudgetContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        max_tokens=1,
+        estimator=_OneTokenEstimator(),
+    )
+
+    request = strategy.compose_chat_request(
+        Context(context_id="ctx-1", messages=[make_message("old")]),
+        model_id="model-1",
+        messages=[tool_call, tool_result],
+    )
+
+    assert request.messages == [tool_call, tool_result]
+    assert request.metadata["context_strategy"]["estimated_tokens"] == 2
+    assert request.metadata["context_strategy"]["degraded"] is True
+    assert request.metadata["context_strategy"]["degradation_reasons"] == [
+        "protected_messages_exceed_token_budget",
+        "token_budget_dropped_messages",
+    ]
 
 
 class _OneTokenEstimator(ContextTokenEstimatorProtocol):

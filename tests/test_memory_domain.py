@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime, timedelta, timezone
+from pydantic import ValidationError
 
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
@@ -20,6 +21,8 @@ from EvernightAI.core.schema.memory import (
     MemoryItem,
     MemoryKind,
     MemoryQuery,
+    MemoryScopeSelector,
+    MemorySort,
     MemoryScope,
 )
 
@@ -66,6 +69,48 @@ def test_memory_register_raises_for_missing_memory() -> None:
 
     with pytest.raises(MemoryNotFoundError):
         register.unregister("missing")
+
+
+def test_memory_item_validates_scope_content_tags_and_datetimes() -> None:
+    memory = MemoryItem(
+        memory_id="mem-1",
+        content="  Prefer concise replies  ",
+        scope=MemoryScope.USER,
+        scope_id=" user-1 ",
+        tags=[" Style ", "style", "", "PROFILE"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    assert memory.content == "Prefer concise replies"
+    assert memory.scope_id == "user-1"
+    assert memory.tags == ["style", "profile"]
+    assert memory.expires_at is not None
+    assert memory.expires_at.tzinfo is timezone.utc
+
+    with pytest.raises(ValidationError):
+        MemoryItem(memory_id="empty", content=" ")
+
+    with pytest.raises(ValidationError):
+        MemoryItem(
+            memory_id="missing-scope",
+            content="Scoped memory",
+            scope=MemoryScope.USER,
+        )
+
+    with pytest.raises(ValidationError):
+        MemoryItem(
+            memory_id="global-with-scope",
+            content="Global memory",
+            scope=MemoryScope.GLOBAL,
+            scope_id="not-allowed",
+        )
+
+    with pytest.raises(ValidationError):
+        MemoryItem(
+            memory_id="naive-expiry",
+            content="Naive expiry",
+            expires_at=datetime.now(),
+        )
 
 
 @pytest.mark.asyncio
@@ -160,11 +205,10 @@ def test_basic_memory_strategy_sorts_by_priority_and_limits() -> None:
         "high-a",
         "high-b",
     ]
-    assert selection.metadata == {
-        "strategy": "BasicMemoryStrategy",
-        "total_candidates": 3,
-        "selected_count": 2,
-    }
+    assert selection.metadata["strategy"] == "BasicMemoryStrategy"
+    assert selection.metadata["total_candidates"] == 3
+    assert selection.metadata["selected_count"] == 2
+    assert selection.metadata["filtered_count"] == 0
 
 
 def test_basic_memory_strategy_filters_expired_low_confidence_and_duplicates() -> None:
@@ -194,6 +238,92 @@ def test_basic_memory_strategy_filters_expired_low_confidence_and_duplicates() -
     )
 
     assert [memory.memory_id for memory in selection.memories] == ["best"]
+    assert selection.metadata["filtered_count"] == 3
+
+
+def test_basic_memory_strategy_supports_text_include_flags_and_sorting() -> None:
+    strategy = BasicMemoryStrategy()
+    memories = [
+        make_memory("active", content="Prefers quiet detailed answers").model_copy(
+            update={"relevance": 0.7, "confidence": 0.9}
+        ),
+        make_memory(
+            "disabled",
+            content="Prefers quiet answers",
+            is_enabled=False,
+        ).model_copy(update={"relevance": 1.0}),
+        make_memory("miss", content="Different fact").model_copy(
+            update={"relevance": 1.0}
+        ),
+    ]
+
+    default_selection = strategy.select(
+        memories,
+        MemoryQuery(text="quiet answers", sort=MemorySort.RELEVANCE),
+    )
+    inclusive_selection = strategy.select(
+        memories,
+        MemoryQuery(
+            text="quiet answers",
+            include_disabled=True,
+            sort=MemorySort.RELEVANCE,
+        ),
+    )
+
+    assert [memory.memory_id for memory in default_selection.memories] == ["active"]
+    assert [memory.memory_id for memory in inclusive_selection.memories] == [
+        "disabled",
+        "active",
+    ]
+    assert inclusive_selection.metadata["matches"][0]["reasons"] == [
+        "disabled_included",
+        "text",
+        "score",
+    ]
+
+
+def test_basic_memory_strategy_merges_scopes_by_precedence_before_deduplication() -> None:
+    strategy = BasicMemoryStrategy()
+    memories = [
+        make_memory(
+            "global",
+            content="Same",
+            scope=MemoryScope.GLOBAL,
+            priority=100,
+        ),
+        make_memory(
+            "session",
+            content="Same",
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+            priority=1,
+        ),
+        make_memory(
+            "context",
+            content="Same",
+            scope=MemoryScope.CONTEXT,
+            scope_id="ctx-1",
+            priority=1,
+        ),
+    ]
+
+    selection = strategy.select(
+        memories,
+        MemoryQuery(
+            scopes=[
+                MemoryScopeSelector(scope=MemoryScope.CONTEXT, scope_id="ctx-1"),
+                MemoryScopeSelector(scope=MemoryScope.SESSION, scope_id="session-1"),
+                MemoryScopeSelector(scope=MemoryScope.GLOBAL),
+            ],
+            deduplicate=True,
+        ),
+    )
+
+    assert [memory.memory_id for memory in selection.memories] == ["context"]
+    assert selection.metadata["filtered"][-2:] == [
+        {"memory_id": "session", "reasons": ["duplicate"]},
+        {"memory_id": "global", "reasons": ["duplicate"]},
+    ]
 
 
 def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> None:
@@ -229,11 +359,19 @@ def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> N
     assert memories[0].tags == ["agent", "summary"]
     assert "Remember this" in memories[0].content
     assert "Stored" in memories[0].content
-    assert memories[0].metadata == {
+    assert memories[0].metadata["provider_id"] == "provider-1"
+    assert memories[0].metadata["model_id"] == "model-1"
+    assert memories[0].metadata["stop_reason"] == "finished"
+    assert memories[0].metadata["step_count"] == 0
+    assert memories[0].metadata["source"] == "agent_run"
+    assert memories[0].metadata["memory_key"] == "agent-summary:context:ctx-1"
+    assert isinstance(memories[0].metadata["content_fingerprint"], str)
+    assert memories[0].metadata["provenance"] == {
+        "source": "agent_run",
         "provider_id": "provider-1",
         "model_id": "model-1",
-        "stop_reason": "finished",
-        "step_count": 0,
+        "context_id": "ctx-1",
+        "session_id": None,
     }
 
 
@@ -268,12 +406,20 @@ def test_basic_memory_write_strategy_creates_session_summary_when_session_id_pre
     assert memories[0].scope is MemoryScope.SESSION
     assert memories[0].scope_id == "session-1"
     assert memories[0].tags == ["agent", "summary", "session"]
-    assert memories[0].metadata == {
+    assert memories[0].metadata["provider_id"] == "provider-1"
+    assert memories[0].metadata["model_id"] == "model-1"
+    assert memories[0].metadata["stop_reason"] == "finished"
+    assert memories[0].metadata["step_count"] == 0
+    assert memories[0].metadata["context_id"] == "ctx-1"
+    assert memories[0].metadata["source"] == "agent_run"
+    assert memories[0].metadata["memory_key"] == "agent-summary:session:session-1"
+    assert isinstance(memories[0].metadata["content_fingerprint"], str)
+    assert memories[0].metadata["provenance"] == {
+        "source": "agent_run",
         "provider_id": "provider-1",
         "model_id": "model-1",
-        "stop_reason": "finished",
-        "step_count": 0,
         "context_id": "ctx-1",
+        "session_id": "session-1",
     }
 
 

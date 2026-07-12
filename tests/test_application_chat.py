@@ -144,13 +144,14 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
         "topic": "application",
         "request_id": "req-1",
         "memory_ids": ["mem-style"],
-        "memory_selection": {
-            "strategy": "BasicMemoryStrategy",
-            "total_candidates": 2,
-            "selected_count": 1,
-        },
+        "memory_selection": provider.last_request.metadata["memory_selection"],
         "context_id": "ctx-1",
     }
+    assert provider.last_request.metadata["memory_selection"]["strategy"] == (
+        "BasicMemoryStrategy"
+    )
+    assert provider.last_request.metadata["memory_selection"]["total_candidates"] == 2
+    assert provider.last_request.metadata["memory_selection"]["selected_count"] == 1
 
     context = await app.get_context("ctx-1")
 
@@ -269,6 +270,60 @@ async def test_chat_application_selects_session_memory_from_metadata() -> None:
     ]
     assert provider.last_request.metadata["memory_ids"] == ["session-memory"]
     assert provider.last_request.metadata["session_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_application_combines_context_user_session_and_global_memory() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+
+    await app.create_provider(make_config())
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+    for memory in [
+        MemoryItem(
+            memory_id="global-memory",
+            content="Prefer concise answers",
+            scope=MemoryScope.GLOBAL,
+            priority=100,
+        ),
+        MemoryItem(
+            memory_id="user-memory",
+            content="Prefer concise answers",
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            priority=1,
+        ),
+        MemoryItem(
+            memory_id="session-memory",
+            content="Session detail",
+            scope=MemoryScope.SESSION,
+            scope_id="session-1",
+        ),
+        MemoryItem(
+            memory_id="context-memory",
+            content="Context detail",
+            scope=MemoryScope.CONTEXT,
+            scope_id="ctx-1",
+        ),
+    ]:
+        await app.create_memory(memory)
+
+    await app.chat_with_context(
+        "provider-1",
+        "ctx-1",
+        model_id="model-1",
+        messages=[make_message("Current request")],
+        metadata={"session_id": "session-1"},
+    )
+    provider = await runtime.providers.get("provider-1")
+
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is not None
+    assert provider.last_request.metadata["memory_ids"] == [
+        "context-memory",
+        "session-memory",
+        "user-memory",
+    ]
 
 
 @pytest.mark.asyncio

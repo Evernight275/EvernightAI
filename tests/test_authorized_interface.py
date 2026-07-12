@@ -33,7 +33,6 @@ from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState
 from EvernightAI.core.schema.auth import AuthRequest, Principal
 from EvernightAI.core.schema.content import (
     ChatRequest,
-    ChatResponse,
     Content,
     ContentPart,
     ContentPartType,
@@ -49,27 +48,21 @@ from EvernightAI.core.schema.data_analysis import (
     DataStatisticsRequest,
     DataStatisticsResult,
 )
-from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
+from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.core.schema.provider import (
-    ProviderInfo,
     ProviderModelCapability,
-    ProviderModelConfig,
 )
 from EvernightAI.core.schema.session import (
     Session,
     SessionAgentRunRequest,
     SessionChatRequest,
-    SessionChatResult,
 )
 from EvernightAI.core.schema.skill import (
-    RenderedSkill,
     SkillCapability,
-    SkillDefinition,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.stream import ChatStreamEvent
-from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
+from EvernightAI.core.schema.tool import ToolApprovalDecision
 
 
 def test_require_permission_uses_resource_action_permission_key() -> None:

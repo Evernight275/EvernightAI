@@ -23,6 +23,14 @@ class RuntimeConfig(EvernightAISchema):
     sandbox_backend: SandboxBackend = SandboxBackend.SUBPROCESS
 
 
+class ContextStrategyConfig(EvernightAISchema):
+    max_messages: int | None = Field(default=None, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
+    enable_summary: bool = False
+    summarize_after_messages: int = Field(default=100, ge=1)
+    keep_recent_messages: int = Field(default=20, ge=1)
+
+
 class HttpConfig(EvernightAISchema):
     host: str = "127.0.0.1"
     port: int = 8000
@@ -147,6 +155,9 @@ class DataAnalysisConfig(EvernightAISchema):
 
 class EvernightConfig(EvernightAISchema):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    context_strategy: ContextStrategyConfig = Field(
+        default_factory=ContextStrategyConfig
+    )
     http: HttpConfig = Field(default_factory=HttpConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)

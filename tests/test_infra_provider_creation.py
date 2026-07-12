@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 
 import pytest
@@ -29,7 +28,7 @@ from EvernightAI.core.schema.data_analysis import (
     DataSort,
     DataStatisticsRequest,
 )
-from EvernightAI.core.schema.memory import MemoryItem
+from EvernightAI.core.schema.memory import MemoryItem, MemoryScope
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
@@ -496,6 +495,7 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
         MemoryItem(
             memory_id="mem-1",
             content="Prefer concise answers",
+            scope=MemoryScope.SESSION,
             scope_id="session-1",
         )
     )

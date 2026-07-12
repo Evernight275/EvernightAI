@@ -154,13 +154,19 @@ sequenceDiagram
     participant Interface as EvernightInterfaceProtocol
     participant ChatApp as ChatApplication
     participant Runtime as RuntimeKernel
+    participant Memory as MemoryManager / MemoryStrategy
+    participant Context as ContextStrategy
     participant Providers as ProviderManager
     participant Adapter as Provider adapter
     participant Provider as Real provider
 
     Caller->>Interface: chat / chat_with_context
     Interface->>ChatApp: application request
-    ChatApp->>Runtime: use providers, context, memory, skills
+    ChatApp->>Runtime: load context and runtime roles
+    ChatApp->>Memory: select scoped memories
+    Memory-->>ChatApp: selected memories + diagnostics
+    ChatApp->>Context: compose final ChatRequest
+    Context-->>ChatApp: messages + strategy metadata
     Runtime->>Providers: get provider instance
     Providers->>Adapter: chat / chat_stream
     Adapter->>Provider: provider API call
@@ -170,6 +176,35 @@ sequenceDiagram
     ChatApp-->>Interface: application result
     Interface-->>Caller: transport response
 ```
+
+### Memory And Context Path
+
+```mermaid
+flowchart TD
+    Request["Chat / Agent request"] --> ScopePolicy["application memory scope policy"]
+    ScopePolicy --> ScopeOrder["Context -> Session -> User -> Global"]
+    ScopeOrder --> MemoryStore["Memory store"]
+    MemoryStore --> Selection["MemorySelection<br/>scores + reasons + filtered diagnostics"]
+    Selection --> MemoryMessage["system memory reference message"]
+
+    Request --> ContextStore["Context store"]
+    ContextStore --> Basic["Basic context organization"]
+    MemoryMessage --> Basic
+    Basic --> Summary["Summarize optional"]
+    Summary --> Trim["Message trim optional"]
+    Trim --> Budget["Token budget optional"]
+    Budget --> Final["Final ChatRequest"]
+    Final --> Preview["Compose preview"]
+    Final --> Provider["Provider call"]
+
+    AgentResult["Agent result"] --> Candidate["Memory candidate"]
+    Candidate --> Governance["fingerprint + provenance + create/replace/merge"]
+    Governance --> MemoryStore
+```
+
+Memory remains durable data and context remains the per-call attention window.
+Core defines schemas and strategies; application owns the composition policy;
+bootstrap wires concrete strategy chains from configuration.
 
 ### Tool Path
 

@@ -18,6 +18,8 @@ from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInte
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.core.schema.content import Content, ContentPart, ContentPartType, MessageRole
+from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
     DataSort,
     DataSortDirection,
@@ -56,6 +58,61 @@ def test_interface_bootstrap_wraps_authorized_interface() -> None:
     assert isinstance(authorized, AuthorizedEvernightInterface)
     assert isinstance(authorized, EvernightInterfaceProtocol)
     assert authorized.runtime is interface.runtime
+
+
+def test_configured_context_strategy_composes_runtime_window(tmp_path) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "context_strategy": {
+                "max_messages": 2,
+                "max_tokens": 1000,
+            },
+        }
+    )
+    runtime = create_runtime_from_config(config)
+
+    request = runtime.context_strategy.compose_chat_request(
+        Context(
+            context_id="ctx-1",
+            messages=[
+                _message("one"),
+                _message("two"),
+            ],
+        ),
+        model_id="model-1",
+        messages=[_message("three")],
+    )
+
+    assert [message.content[0].text for message in request.messages if message.content] == [
+        "two",
+        "three",
+    ]
+    assert [
+        step["name"] for step in request.metadata["context_strategy_steps"]
+    ] == [
+        "WindowTrimmingContextStrategy",
+        "TokenBudgetContextStrategy",
+    ]
+
+
+def test_configured_context_summary_requires_summarizer(tmp_path) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "context_strategy": {"enable_summary": True},
+        }
+    )
+
+    with pytest.raises(ValueError, match="requires a summarizer"):
+        create_runtime_from_config(config)
+
+
+def _message(text: str) -> Content:
+    return Content(
+        role=MessageRole.USER,
+        content=[ContentPart(type=ContentPartType.TEXT, text=text)],
+    )
 
 
 @pytest.mark.asyncio

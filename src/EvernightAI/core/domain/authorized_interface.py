@@ -397,6 +397,30 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         self._require("chat", "create", provider_id)
         return await self._inner.chat(provider_id, request)
 
+    async def organize_chat_request(
+        self,
+        context_id: str,
+        *,
+        model_id: str,
+        messages: list[Content] | None = None,
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ChatRequest:
+        self._require("contexts", "preview", context_id)
+        return await self._inner.organize_chat_request(
+            context_id,
+            model_id=model_id,
+            messages=messages,
+            memory_query=memory_query,
+            skills=skills,
+            tools=tools,
+            metadata=metadata,
+            principal_scope=self._principal_scope,
+        )
+
     async def chat_with_context(
         self,
         provider_id: str,

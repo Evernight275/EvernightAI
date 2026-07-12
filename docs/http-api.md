@@ -149,6 +149,75 @@ curl -X POST http://127.0.0.1:8000/chat/context \
 Use `/chat/context/stream` with the same body for SSE streaming. The streamed
 assistant message is persisted after completion.
 
+Preview the exact composed request without calling a provider:
+
+```bash
+curl -X POST http://127.0.0.1:8000/contexts/ctx-1/compose-preview \
+  -H 'content-type: application/json' \
+  -d '{
+    "model_id": "gpt-4.1-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "What would be sent?"}]
+      }
+    ],
+    "memory_query": {
+      "scope": "global",
+      "text": "preference",
+      "deduplicate": true
+    }
+  }'
+```
+
+The response is a `ChatRequest` containing the final messages, selected memory
+ids, and context strategy metadata.
+
+## Memories
+
+Create a durable memory:
+
+```bash
+curl -X POST http://127.0.0.1:8000/memories \
+  -H 'content-type: application/json' \
+  -d '{
+    "memory_id": "mem-style",
+    "content": "Prefer concise answers",
+    "kind": "preference",
+    "scope": "global",
+    "tags": ["style"],
+    "priority": 10
+  }'
+```
+
+Search and include disabled memories:
+
+```bash
+curl 'http://127.0.0.1:8000/memories?text=concise&tag=style&sort=priority&include_disabled=true'
+```
+
+Preview selection diagnostics:
+
+```bash
+curl -X POST http://127.0.0.1:8000/memories/select \
+  -H 'content-type: application/json' \
+  -d '{
+    "text": "concise",
+    "scopes": [
+      {"scope": "context", "scope_id": "ctx-1"},
+      {"scope": "global"}
+    ],
+    "deduplicate": true
+  }'
+```
+
+Disable or re-enable a memory:
+
+```bash
+curl -X POST http://127.0.0.1:8000/memories/mem-style/disable
+curl -X POST http://127.0.0.1:8000/memories/mem-style/enable
+```
+
 ## Sessions
 
 A session binds a user-facing conversation to a context, provider, and model.

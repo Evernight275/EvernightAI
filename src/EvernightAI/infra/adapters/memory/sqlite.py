@@ -184,9 +184,9 @@ class SQLiteMemoryRegister(MemoryRegisterProtocol):
         memories = [MemoryItem.model_validate_json(row[0]) for row in rows]
         if query is None:
             return memories
-        from EvernightAI.core.domain.memory import BasicMemoryStrategy
+        from EvernightAI.core.domain.memory import select_memories
 
-        selected = BasicMemoryStrategy().select(memories, query).memories
+        selected = select_memories(memories, query).memories
         return selected if limit is None else selected[:limit]
 
     def close(self) -> None:

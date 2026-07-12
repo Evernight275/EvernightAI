@@ -324,22 +324,32 @@ class BasicContextStrategy(ContextStrategyProtocol):
         """组合基础聊天请求"""
         next_messages = list(messages or [])
         request_metadata: dict[str, object] = dict(metadata or {})
+        memory_message: Content | None = None
 
         if memory_selection is not None:
             memory_message = self._compose_memory_message(memory_selection)
-            if memory_message is not None:
-                next_messages = [memory_message, *next_messages]
             request_metadata["memory_ids"] = [
                 memory.memory_id for memory in memory_selection.memories
             ]
             request_metadata["memory_selection"] = dict(memory_selection.metadata)
 
-        return self._organizer.to_chat_request(
+        request = self._organizer.to_chat_request(
             context,
             model_id=model_id,
             messages=next_messages,
             tools=tools,
             metadata=request_metadata,
+        )
+        if memory_message is None:
+            return request
+
+        return request.model_copy(
+            update={
+                "messages": _insert_after_system_prefix(
+                    request.messages,
+                    memory_message,
+                )
+            }
         )
 
     def _compose_memory_message(self, selection: MemorySelection) -> Content | None:
@@ -401,15 +411,19 @@ class WindowTrimmingContextStrategy(ContextStrategyProtocol):
             tools=tools,
             metadata=metadata,
         )
-        trimmed = _preserve_system_prefix(
+        trimmed, trim_metadata = _preserve_system_prefix(
             request.messages,
             max_items=self._max_messages,
+            protected_ids=_protected_message_ids(messages),
         )
         return _with_context_strategy_metadata(
             request,
             messages=trimmed,
             strategy=self.__class__.__name__,
             original_message_count=len(request.messages),
+            retained_message_count=len(trimmed),
+            max_messages=self._max_messages,
+            **trim_metadata,
         )
 
 
@@ -445,42 +459,78 @@ class TokenBudgetContextStrategy(ContextStrategyProtocol):
             tools=tools,
             metadata=metadata,
         )
-        selected = self._within_budget(request.messages)
+        selected, budget_metadata = self._within_budget(
+            request.messages,
+            protected_ids=_protected_message_ids(messages),
+        )
         return _with_context_strategy_metadata(
             request,
             messages=selected,
             strategy=self.__class__.__name__,
             token_budget=self._max_tokens,
             estimated_tokens=sum(self._estimator.estimate(item) for item in selected),
+            **budget_metadata,
         )
 
-    def _within_budget(self, messages: list[Content]) -> list[Content]:
+    def _within_budget(
+        self,
+        messages: list[Content],
+        *,
+        protected_ids: set[int] | None = None,
+    ) -> tuple[list[Content], dict[str, object]]:
         prefix, remainder = _system_prefix(messages)
-        selected_prefix: list[Content] = []
-        used = 0
+        protected_ids = protected_ids or set()
+        selected_prefix = list(prefix)
+        used = sum(self._estimator.estimate(message) for message in selected_prefix)
+        reasons: list[str] = []
+        if used > self._max_tokens:
+            reasons.append("system_prefix_exceeds_token_budget")
+
+        groups = _message_groups(remainder)
         for message in prefix:
-            cost = self._estimator.estimate(message)
-            if used + cost > self._max_tokens:
-                break
-            selected_prefix.append(message)
+            protected_ids.add(id(message))
+
+        selected_indexes: set[int] = set()
+        for index, group in enumerate(groups):
+            if not _group_contains_protected_message(group, protected_ids):
+                continue
+            cost = sum(self._estimator.estimate(message) for message in group)
+            selected_indexes.add(index)
             used += cost
 
-        selected_groups: list[list[Content]] = []
-        groups = _message_groups(remainder)
-        for group in reversed(groups):
-            cost = sum(self._estimator.estimate(message) for message in group)
-            if used + cost > self._max_tokens:
+        if used > self._max_tokens and selected_indexes:
+            reasons.append("protected_messages_exceed_token_budget")
+
+        elastic_used = 0
+        for index in reversed(range(len(groups))):
+            if index in selected_indexes:
                 continue
-            selected_groups.append(group)
-            used += cost
+            group = groups[index]
+            cost = sum(self._estimator.estimate(message) for message in group)
+            if used + elastic_used + cost > self._max_tokens:
+                if not selected_indexes and elastic_used == 0 and index == len(groups) - 1:
+                    selected_indexes.add(index)
+                    elastic_used += cost
+                    reasons.append("newest_message_group_exceeds_token_budget")
+                continue
+            selected_indexes.add(index)
+            elastic_used += cost
+
         selected_tail = [
             message
-            for group in reversed(selected_groups)
+            for index, group in enumerate(groups)
+            if index in selected_indexes
             for message in group
         ]
-        if not selected_prefix and not selected_tail and messages:
-            return list(groups[-1]) if groups else [messages[-1]]
-        return [*selected_prefix, *selected_tail]
+        selected = [*selected_prefix, *selected_tail]
+        dropped_count = len(messages) - len(selected)
+        if dropped_count:
+            reasons.append("token_budget_dropped_messages")
+
+        return selected, _degradation_metadata(
+            reasons,
+            dropped_message_count=dropped_count,
+        )
 
 
 class SummarizingContextStrategy(ContextStrategyProtocol):
@@ -553,20 +603,78 @@ def _system_prefix(messages: list[Content]) -> tuple[list[Content], list[Content
     return messages[:index], messages[index:]
 
 
+def _insert_after_system_prefix(
+    messages: list[Content],
+    message: Content,
+) -> list[Content]:
+    prefix, remainder = _system_prefix(messages)
+    return [*prefix, message, *remainder]
+
+
+def _protected_message_ids(messages: list[Content] | None) -> set[int]:
+    if messages is None:
+        return set()
+    return {
+        id(message)
+        for message in messages
+        if message.status in {None, MessageStatus.ACTIVE}
+    }
+
+
 def _preserve_system_prefix(
     messages: list[Content],
     *,
     max_items: int,
-) -> list[Content]:
+    protected_ids: set[int] | None = None,
+) -> tuple[list[Content], dict[str, object]]:
     prefix, remainder = _system_prefix(messages)
-    if len(prefix) >= max_items:
-        return prefix[:max_items]
+    protected_ids = protected_ids or set()
     groups = _message_groups(remainder)
-    selected = _tail_groups_by_message_count(
-        groups,
-        max_items - len(prefix),
+    selected_indexes: set[int] = set()
+    reasons: list[str] = []
+    protected_count = len(prefix)
+    if len(prefix) > max_items:
+        reasons.append("system_prefix_exceeds_max_messages")
+
+    for index, group in enumerate(groups):
+        if not _group_contains_protected_message(group, protected_ids):
+            continue
+        selected_indexes.add(index)
+        protected_count += len(group)
+
+    if protected_count > max_items and selected_indexes:
+        reasons.append("protected_messages_exceed_max_messages")
+
+    remaining = max_items - protected_count
+    selected_count = 0
+    for index in reversed(range(len(groups))):
+        if index in selected_indexes:
+            continue
+        group = groups[index]
+        if remaining >= 0 and selected_count + len(group) <= remaining:
+            selected_indexes.add(index)
+            selected_count += len(group)
+            continue
+        if not selected_indexes and selected_count == 0 and index == len(groups) - 1:
+            selected_indexes.add(index)
+            selected_count += len(group)
+            reasons.append("newest_message_group_exceeds_max_messages")
+
+    selected_tail = [
+        message
+        for index, group in enumerate(groups)
+        if index in selected_indexes
+        for message in group
+    ]
+    selected = [*prefix, *selected_tail]
+    dropped_count = len(messages) - len(selected)
+    if dropped_count:
+        reasons.append("max_messages_dropped_messages")
+
+    return selected, _degradation_metadata(
+        reasons,
+        dropped_message_count=dropped_count,
     )
-    return [*prefix, *(message for group in selected for message in group)]
 
 
 def _message_groups(messages: list[Content]) -> list[list[Content]]:
@@ -594,6 +702,13 @@ def _message_groups(messages: list[Content]) -> list[list[Content]]:
     return groups
 
 
+def _group_contains_protected_message(
+    group: list[Content],
+    protected_ids: set[int],
+) -> bool:
+    return any(id(message) in protected_ids for message in group)
+
+
 def _tail_groups_by_message_count(
     groups: list[list[Content]],
     max_items: int,
@@ -619,12 +734,34 @@ def _with_context_strategy_metadata(
     **values: object,
 ) -> ChatRequest:
     strategy_metadata = {"name": strategy, **values}
+    steps = request.metadata.get("context_strategy_steps")
+    step_list = list(steps) if isinstance(steps, list) else []
+    step_list.append(strategy_metadata)
     return request.model_copy(
         update={
             "messages": messages,
             "metadata": {
                 **request.metadata,
                 "context_strategy": strategy_metadata,
+                "context_strategy_steps": step_list,
             },
         }
     )
+
+
+def _degradation_metadata(
+    reasons: list[str],
+    *,
+    dropped_message_count: int,
+) -> dict[str, object]:
+    if not reasons:
+        return {
+            "degraded": False,
+            "degradation_reasons": [],
+            "dropped_message_count": dropped_message_count,
+        }
+    return {
+        "degraded": True,
+        "degradation_reasons": list(dict.fromkeys(reasons)),
+        "dropped_message_count": dropped_message_count,
+    }

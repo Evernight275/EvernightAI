@@ -1,3 +1,5 @@
+import re
+import hashlib
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -15,6 +17,7 @@ from EvernightAI.core.schema.memory import (
     MemoryItem,
     MemoryKind,
     MemoryQuery,
+    MemorySort,
     MemoryScope,
     MemorySelection,
 )
@@ -105,7 +108,7 @@ class MemoryRegister(MemoryRegisterProtocol):
         if owner_id is not None:
             memories = [item for item in memories if item.owner_id == owner_id]
         if query is not None:
-            memories = [item for item in memories if _memory_matches(item, query)]
+            memories = select_memories(memories, query).memories
         return memories if limit is None else memories[:limit]
 
 
@@ -204,73 +207,243 @@ class BasicMemoryStrategy(MemoryStrategyProtocol):
     ) -> MemorySelection:
         """按基础条件选择记忆"""
         query = query or MemoryQuery()
-        selected = [memory for memory in memories if self._matches(memory, query)]
-        selected.sort(
-            key=lambda memory: (
-                -memory.priority,
-                -memory.relevance,
-                -memory.confidence,
-                memory.memory_id,
-            )
-        )
+        scored: list[tuple[MemoryItem, float, list[str]]] = []
+        filtered: list[dict[str, object]] = []
+        for memory in memories:
+            reasons = self._filter_reasons(memory, query)
+            if reasons:
+                filtered.append({"memory_id": memory.memory_id, "reasons": reasons})
+                continue
+            score = _memory_score(memory, query)
+            scored.append((memory, score, self._match_reasons(memory, query, score)))
+
+        scored.sort(key=lambda item: _sort_key(item[0], query, item[1]))
         if query.deduplicate:
-            deduplicated: list[MemoryItem] = []
+            deduplicated: list[tuple[MemoryItem, float, list[str]]] = []
             seen: set[tuple[object, ...]] = set()
-            for memory in selected:
-                key = (
-                    memory.content.strip().casefold(),
-                    memory.kind,
-                    memory.scope,
-                    memory.scope_id,
-                    memory.owner_id,
-                )
+            for memory, score, reasons in scored:
+                key = _deduplication_key(memory, query)
                 if key in seen:
+                    filtered.append(
+                        {
+                            "memory_id": memory.memory_id,
+                            "reasons": ["duplicate"],
+                        }
+                    )
                     continue
                 seen.add(key)
-                deduplicated.append(memory)
-            selected = deduplicated
+                deduplicated.append((memory, score, reasons))
+            scored = deduplicated
 
         if query.limit is not None:
-            selected = selected[: query.limit]
+            scored = scored[: query.limit]
+
+        selected = [memory for memory, _, _ in scored]
+        matches = [
+            {
+                "memory_id": memory.memory_id,
+                "scope": memory.scope.value,
+                "scope_id": memory.scope_id,
+                "score": score,
+                "reasons": reasons,
+            }
+            for memory, score, reasons in scored
+        ]
 
         return MemorySelection(
             memories=selected,
             metadata={
                 "strategy": self.__class__.__name__,
                 "total_candidates": len(memories),
+                "matched_count": len(scored),
                 "selected_count": len(selected),
+                "filtered_count": len(filtered),
+                "matches": matches,
+                "filtered": filtered,
             },
         )
 
     def _matches(self, memory: MemoryItem, query: MemoryQuery) -> bool:
-        if not memory.is_enabled:
-            return False
-        if query.scope is not None and memory.scope is not query.scope:
-            return False
-        if query.scope_id is not None and memory.scope_id != query.scope_id:
-            return False
+        return not self._filter_reasons(memory, query)
+
+    def _filter_reasons(self, memory: MemoryItem, query: MemoryQuery) -> list[str]:
+        reasons: list[str] = []
+        if not query.include_disabled and not memory.is_enabled:
+            reasons.append("disabled")
+        if not _matches_scope(memory, query):
+            reasons.append("scope")
         if query.kinds and memory.kind not in query.kinds:
-            return False
+            reasons.append("kind")
         if query.tags and not set(query.tags).issubset(memory.tags):
-            return False
-        if memory.expires_at is not None and memory.expires_at <= datetime.now(timezone.utc):
-            return False
+            reasons.append("tags")
+        if (
+            not query.include_expired
+            and memory.expires_at is not None
+            and memory.expires_at <= datetime.now(timezone.utc)
+        ):
+            reasons.append("expired")
         if (
             query.minimum_relevance is not None
             and memory.relevance < query.minimum_relevance
         ):
-            return False
+            reasons.append("minimum_relevance")
         if (
             query.minimum_confidence is not None
             and memory.confidence < query.minimum_confidence
         ):
-            return False
+            reasons.append("minimum_confidence")
+        if query.text is not None and not _lexical_match(memory, query.text):
+            reasons.append("text")
+        return reasons
 
-        return True
+    def _match_reasons(
+        self,
+        memory: MemoryItem,
+        query: MemoryQuery,
+        score: float,
+    ) -> list[str]:
+        reasons = ["enabled" if memory.is_enabled else "disabled_included"]
+        if query.text is not None:
+            reasons.append("text")
+        if query.scopes or query.scope is not None or query.scope_id is not None:
+            reasons.append("scope")
+        if query.kinds:
+            reasons.append("kind")
+        if query.tags:
+            reasons.append("tags")
+        if query.minimum_relevance is not None:
+            reasons.append("minimum_relevance")
+        if query.minimum_confidence is not None:
+            reasons.append("minimum_confidence")
+        if score > 0:
+            reasons.append("score")
+        return reasons
+
+
+def select_memories(
+    memories: list[MemoryItem],
+    query: MemoryQuery | None = None,
+) -> MemorySelection:
+    return BasicMemoryStrategy().select(memories, query)
 
 
 def _memory_matches(memory: MemoryItem, query: MemoryQuery) -> bool:
     return BasicMemoryStrategy()._matches(memory, query)
+
+
+def _matches_scope(memory: MemoryItem, query: MemoryQuery) -> bool:
+    if query.scopes:
+        return any(
+            memory.scope is selector.scope and memory.scope_id == selector.scope_id
+            for selector in query.scopes
+        )
+    if query.scope is not None and memory.scope is not query.scope:
+        return False
+    if query.scope_id is not None and memory.scope_id != query.scope_id:
+        return False
+    return True
+
+
+def _scope_rank(memory: MemoryItem, query: MemoryQuery) -> int:
+    for index, selector in enumerate(query.scopes):
+        if memory.scope is selector.scope and memory.scope_id == selector.scope_id:
+            return index
+    return len(query.scopes)
+
+
+def _lexical_tokens(text: str) -> list[str]:
+    return re.findall(r"[\w]+", text.casefold())
+
+
+def _searchable_text(memory: MemoryItem) -> str:
+    return " ".join(
+        [
+            memory.content,
+            memory.kind.value,
+            memory.scope.value,
+            *(memory.tags),
+        ]
+    ).casefold()
+
+
+def _lexical_match(memory: MemoryItem, text: str) -> bool:
+    tokens = _lexical_tokens(text)
+    if not tokens:
+        return True
+    searchable = _searchable_text(memory)
+    return all(token in searchable for token in tokens)
+
+
+def _lexical_score(memory: MemoryItem, query: MemoryQuery) -> float:
+    if query.text is None:
+        return 0.0
+    tokens = _lexical_tokens(query.text)
+    if not tokens:
+        return 0.0
+    searchable = _searchable_text(memory)
+    matches = sum(1 for token in tokens if token in searchable)
+    return matches / len(tokens)
+
+
+def _memory_score(memory: MemoryItem, query: MemoryQuery) -> float:
+    return round(
+        (memory.priority * 10.0)
+        + memory.relevance
+        + memory.confidence
+        + _lexical_score(memory, query),
+        6,
+    )
+
+
+def _sort_key(memory: MemoryItem, query: MemoryQuery, score: float) -> tuple[object, ...]:
+    scope_rank = _scope_rank(memory, query)
+    if query.sort in {MemorySort.DEFAULT, MemorySort.PRIORITY}:
+        return (
+            scope_rank,
+            -memory.priority,
+            -memory.relevance,
+            -memory.confidence,
+            memory.memory_id,
+        )
+    if query.sort is MemorySort.RELEVANCE:
+        return (
+            scope_rank,
+            -memory.relevance,
+            -memory.priority,
+            -memory.confidence,
+            memory.memory_id,
+        )
+    if query.sort is MemorySort.CONFIDENCE:
+        return (
+            scope_rank,
+            -memory.confidence,
+            -memory.priority,
+            -memory.relevance,
+            memory.memory_id,
+        )
+    if query.sort is MemorySort.UPDATED_AT:
+        return (scope_rank, -memory.updated_at.timestamp(), memory.memory_id)
+    if query.sort is MemorySort.CREATED_AT:
+        return (scope_rank, -memory.created_at.timestamp(), memory.memory_id)
+    if query.sort is MemorySort.MEMORY_ID:
+        return (scope_rank, memory.memory_id)
+    return (scope_rank, -score, memory.memory_id)
+
+
+def _deduplication_key(memory: MemoryItem, query: MemoryQuery) -> tuple[object, ...]:
+    if query.scopes:
+        return (
+            memory.content.strip().casefold(),
+            memory.kind,
+            memory.owner_id,
+        )
+    return (
+        memory.content.strip().casefold(),
+        memory.kind,
+        memory.scope,
+        memory.scope_id,
+        memory.owner_id,
+    )
 
 
 class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
@@ -302,11 +475,23 @@ class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
         scope = MemoryScope.SESSION if session_id is not None else MemoryScope.CONTEXT
         scope_id = session_id or request.context_id
         tags = ["agent", "summary", "session"] if session_id else ["agent", "summary"]
+        memory_key = f"agent-summary:{scope.value}:{scope_id}"
+        content_fingerprint = _content_fingerprint(content)
         metadata = {
+            "source": "agent_run",
+            "memory_key": memory_key,
+            "content_fingerprint": content_fingerprint,
             "provider_id": request.provider_id,
             "model_id": request.model_id,
             "stop_reason": result.stop_reason.value,
             "step_count": len(result.steps),
+            "provenance": {
+                "source": "agent_run",
+                "provider_id": request.provider_id,
+                "model_id": request.model_id,
+                "context_id": request.context_id,
+                "session_id": session_id,
+            },
         }
         if session_id is not None:
             metadata["context_id"] = request.context_id
@@ -341,3 +526,8 @@ class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
             return session_id
 
         return None
+
+
+def _content_fingerprint(content: str) -> str:
+    normalized = " ".join(content.split()).casefold()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()

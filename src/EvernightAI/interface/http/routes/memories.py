@@ -8,6 +8,7 @@ from EvernightAI.core.schema.memory import (
     MemoryQuery,
     MemoryScope,
     MemorySelection,
+    MemorySort,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.template import (
@@ -53,32 +54,47 @@ async def list_memories(
     cursor: str | None = Query(default=None),
     limit: int | None = Query(default=None, ge=1, le=1000),
     owner_id: str | None = Query(default=None),
+    text: str | None = Query(default=None),
     scope: MemoryScope | None = Query(default=None),
     scope_id: str | None = Query(default=None),
     kind: list[MemoryKind] | None = Query(default=None),
+    tag: list[str] | None = Query(default=None),
     minimum_relevance: float | None = Query(default=None, ge=0.0, le=1.0),
     minimum_confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+    include_disabled: bool | None = Query(default=None),
+    include_expired: bool | None = Query(default=None),
     deduplicate: bool | None = Query(default=None),
+    sort: MemorySort | None = Query(default=None),
 ) -> list[MemoryItem]:
     query = None
     if any(
         value is not None
         for value in (
+            text,
             scope,
             scope_id,
             kind,
+            tag,
             minimum_relevance,
             minimum_confidence,
+            include_disabled,
+            include_expired,
             deduplicate,
+            sort,
         )
     ):
         query = MemoryQuery(
+            text=text,
             scope=scope,
             scope_id=scope_id,
             kinds=kind or [],
+            tags=tag or [],
             minimum_relevance=minimum_relevance,
             minimum_confidence=minimum_confidence,
+            include_disabled=bool(include_disabled),
+            include_expired=bool(include_expired),
             deduplicate=bool(deduplicate),
+            sort=sort or MemorySort.DEFAULT,
         )
     return await interface.chat.list_memories(
         cursor=cursor,
@@ -121,6 +137,40 @@ async def replace_memory(
         update={"memory_id": memory_id}
     )
     return await interface.chat.replace_memory(updated)
+
+
+@router.post(
+    "/{memory_id}/enable",
+    response_model=MemoryItem,
+    response_model_exclude_none=True,
+    summary="Enable a memory",
+    operation_id="enable_memory",
+)
+async def enable_memory(
+    memory_id: str,
+    interface: InterfaceDependency,
+) -> MemoryItem:
+    memory = await interface.chat.get_memory(memory_id)
+    return await interface.chat.replace_memory(
+        memory.model_copy(update={"is_enabled": True})
+    )
+
+
+@router.post(
+    "/{memory_id}/disable",
+    response_model=MemoryItem,
+    response_model_exclude_none=True,
+    summary="Disable a memory",
+    operation_id="disable_memory",
+)
+async def disable_memory(
+    memory_id: str,
+    interface: InterfaceDependency,
+) -> MemoryItem:
+    memory = await interface.chat.get_memory(memory_id)
+    return await interface.chat.replace_memory(
+        memory.model_copy(update={"is_enabled": False})
+    )
 
 
 @router.post(

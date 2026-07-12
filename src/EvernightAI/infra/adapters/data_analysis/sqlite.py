@@ -12,7 +12,6 @@ from EvernightAI.core.schema.data_analysis import (
     DataAggregation,
     DataFilter,
     DataFilterOperator,
-    DataSortDirection,
     DataSourceDefinition,
     DataStatisticsRequest,
     DataStatisticsResult,

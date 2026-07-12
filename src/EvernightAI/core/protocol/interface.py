@@ -1,4 +1,3 @@
-from typing import Protocol, runtime_checkable
 
 from EvernightAI.core.protocol.base import EvernightAIProtocol
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
@@ -148,6 +147,19 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> MemorySelection: ...
+
+    async def organize_chat_request(
+        self,
+        context_id: str,
+        *,
+        model_id: str,
+        messages: list[Content] | None = None,
+        memory_query: MemoryQuery | None = None,
+        skills: list[ChatSkill] | None = None,
+        tools: list[ToolDefinition] | None = None,
+        metadata: dict[str, object] | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ChatRequest: ...
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
 
