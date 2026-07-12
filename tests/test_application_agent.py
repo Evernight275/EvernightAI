@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import cast
@@ -368,6 +369,46 @@ async def test_agent_sends_tool_error_message_to_follow_up_chat() -> None:
     ]
     assert provider.requests[1].messages[2].tool_call_id == "tool-call-1"
     assert provider.requests[1].messages[2].metadata["error"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_sends_underlying_tool_error_cause_to_follow_up_chat() -> None:
+    async def broken_tool(arguments: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("pytest executable was not found")
+
+    provider = RecoveringToolErrorProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="missing",
+            description="Fail with an actionable execution error",
+            parameters_schema={"type": "object"},
+        ),
+        broken_tool,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    await AgentApplication(runtime).run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Run tests")],
+            recover_tool_errors=True,
+        )
+    )
+
+    error_message = provider.requests[1].messages[2]
+    payload = json.loads(message_text(error_message))
+    assert payload == {
+        "error_type": "ToolExecutionError",
+        "error_message": "The tool missing execution failed",
+        "cause": {
+            "error_type": "RuntimeError",
+            "error_message": "pytest executable was not found",
+        },
+    }
 
 
 @pytest.mark.asyncio

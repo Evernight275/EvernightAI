@@ -35,6 +35,12 @@ class ToolApprovalStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class ToolApprovalMode(StrEnum):
+    AUTO = "auto"
+    REQUIRED = "required"
+    NEVER = "never"
+
+
 class ToolDefinition(EvernightAISchema):
     """
     工具定义schema
@@ -46,6 +52,7 @@ class ToolDefinition(EvernightAISchema):
     permissions: list[ToolPermission] = Field(default_factory=list)
     safety_level: ToolSafetyLevel = ToolSafetyLevel.SAFE
     requires_approval: bool = False
+    approval_mode: ToolApprovalMode = ToolApprovalMode.AUTO
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

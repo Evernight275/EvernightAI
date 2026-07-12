@@ -45,6 +45,33 @@ async def test_restricted_shell_requires_approval(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_restricted_shell_can_disable_approval(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_shell_tool(
+        register,
+        allowed_commands={sys.executable},
+        working_directory=tmp_path,
+        requires_approval=False,
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "restricted_shell",
+                "arguments": {
+                    "command": [sys.executable, "-c", "print('hello')"],
+                },
+            },
+        )
+    )
+
+    assert result.tool_call_result["returncode"] == 0
+    assert result.tool_call_result["stdout"].splitlines() == ["hello"]
+
+
+@pytest.mark.asyncio
 async def test_restricted_shell_runs_allowlisted_command(tmp_path) -> None:
     register = ToolRegister()
     register_restricted_shell_tool(
@@ -73,6 +100,47 @@ async def test_restricted_shell_runs_allowlisted_command(tmp_path) -> None:
 
     assert result.tool_call_result["returncode"] == 0
     assert result.tool_call_result["stdout"].splitlines() == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
+    exact_rule = f"{sys.executable} --version"
+    register = ToolRegister()
+    register_restricted_shell_tool(
+        register,
+        allowed_commands={exact_rule},
+        working_directory=tmp_path,
+        requires_approval=False,
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "restricted_shell",
+                "arguments": {"command": [sys.executable, "--version"]},
+            },
+        )
+    )
+
+    assert result.tool_call_result["returncode"] == 0
+    assert "Python" in result.tool_call_result["stdout"]
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-2",
+                tool_call={
+                    "name": "restricted_shell",
+                    "arguments": {
+                        "command": [sys.executable, "-c", "print('not allowed')"],
+                    },
+                },
+            )
+        )
+
+    assert isinstance(exc_info.value.cause, ToolInputError)
     assert result.tool_call_result["stderr"] == ""
     assert result.tool_call_result["truncated"] is False
 

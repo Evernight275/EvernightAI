@@ -54,6 +54,7 @@ class ShellToolConfig(EvernightAISchema):
     working_directory: str | None = None
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
+    is_need_approval: bool = True
     allowed_env_keys: list[str] | None = None
 
 
@@ -77,6 +78,7 @@ class ProjectToolConfig(EvernightAISchema):
     enabled: bool = False
     working_directory: str = "."
     commands: dict[str, list[str]] = Field(default_factory=dict)
+    projects: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
     timeout_seconds: float = 120.0
     max_output_chars: int = 20000
 

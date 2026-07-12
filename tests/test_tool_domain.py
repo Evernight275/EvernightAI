@@ -9,6 +9,7 @@ from EvernightAI.core.error.tool import (
     ToolResultError,
 )
 from EvernightAI.core.schema.tool import (
+    ToolApprovalMode,
     ToolApprovalDecision,
     ToolApprovalStatus,
     ToolCall,
@@ -203,6 +204,29 @@ def test_tool_safety_policy_allows_safe_filesystem_read() -> None:
     )
 
     decision = policy.authorize(tool, call)
+
+    assert decision.allowed is True
+    assert decision.requires_approval is False
+    assert decision.approval_request is None
+
+
+def test_tool_safety_policy_allows_explicit_approval_exemption() -> None:
+    policy = BasicToolSafetyPolicy()
+    tool = ToolDefinition(
+        name="trusted_process",
+        description="Run a configured process without per-call approval",
+        permissions=[ToolPermission.PROCESS],
+        safety_level=ToolSafetyLevel.SENSITIVE,
+        approval_mode=ToolApprovalMode.NEVER,
+    )
+
+    decision = policy.authorize(
+        tool,
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "trusted_process", "arguments": {}},
+        ),
+    )
 
     assert decision.allowed is True
     assert decision.requires_approval is False

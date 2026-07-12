@@ -12,6 +12,7 @@ def register_restricted_project_tools(
     *,
     working_directory: str | Path,
     commands: dict[str, list[str]],
+    project_commands: dict[str, dict[str, list[str]]] | None = None,
     timeout_seconds: float = 120.0,
     max_output_chars: int = 20000,
     sandbox: SandboxExecuteProtocol | None = None,
@@ -19,6 +20,7 @@ def register_restricted_project_tools(
     tool = RestrictedProjectTaskTool(
         working_directory=working_directory,
         commands=commands,
+        project_commands=project_commands,
         timeout_seconds=timeout_seconds,
         max_output_chars=max_output_chars,
         sandbox=sandbox,

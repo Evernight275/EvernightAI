@@ -66,10 +66,12 @@ allow_write = false
 [tools.shell]
 # Keep disabled unless you intentionally want shell tools exposed.
 enabled = false
-allowed_commands = ["python --version"]
+# A single executable allows its arguments; a multi-part entry matches exactly.
+allowed_commands = ["python --version", "uv"]
 working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
+is_need_approval = true
 # Set to a list to restrict per-call env overrides; leave unset to allow any
 # env key when the shell tool is enabled.
 # allowed_env_keys = ["PYTHONPATH"]
@@ -98,6 +100,11 @@ working_directory = "."
 timeout_seconds = 120.0
 max_output_chars = 20000
 commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/bin/pyright"], format = ["python", "-m", "compileall", "src"], dependency_scan = ["python", "-m", "pip", "check"] }
+
+# Optional per-project task overrides. Missing project tasks fall back to the
+# global commands above.
+# [tools.project.projects.EvernightAI]
+# tests = ["uv", "run", "pytest"]
 
 [tools.runtime_data]
 # Enables tools that can write contexts and memories through the runtime.

@@ -96,6 +96,25 @@ def test_configured_context_strategy_composes_runtime_window(tmp_path) -> None:
     ]
 
 
+def test_configured_shell_can_disable_tool_approval(tmp_path) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "shell": {
+                    "enabled": True,
+                    "allowed_commands": ["uv"],
+                    "is_need_approval": False,
+                }
+            },
+        }
+    )
+
+    runtime = create_runtime_from_config(config)
+
+    assert runtime.tool_register.get("restricted_shell").requires_approval is False
+
+
 def test_configured_context_summary_requires_summarizer(tmp_path) -> None:
     config = parse_config(
         {

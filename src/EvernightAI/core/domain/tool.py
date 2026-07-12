@@ -16,6 +16,7 @@ from EvernightAI.core.protocol.tool import (
 from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolApprovalRequest,
+    ToolApprovalMode,
     ToolApprovalStatus,
     ToolCallResult,
     ToolDefinition,
@@ -161,11 +162,16 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
                 reason=f"Blocked permissions: {self._format_permissions(blocked)}",
             )
 
-        requires_approval = (
-            tool.requires_approval
-            or tool.safety_level is not ToolSafetyLevel.SAFE
-            or bool(permissions & self._approval_required_permissions)
-        )
+        if tool.approval_mode is ToolApprovalMode.REQUIRED:
+            requires_approval = True
+        elif tool.approval_mode is ToolApprovalMode.NEVER:
+            requires_approval = False
+        else:
+            requires_approval = (
+                tool.requires_approval
+                or tool.safety_level is not ToolSafetyLevel.SAFE
+                or bool(permissions & self._approval_required_permissions)
+            )
         approval = call.approval
         approved = (
             approval is not None

@@ -90,6 +90,7 @@ export function useChatController({
   const pendingChatMessages = ref<ChatDisplayMessage[]>([])
   const pendingChatSessionId = ref<string | null>(null)
   const pendingAssistantHasDelta = ref(false)
+  const hiddenApprovalIds = ref<Set<string>>(new Set())
   const chatTimeoutSeconds = ref(storedChatSettings.timeoutSeconds)
   const chatStreamEnabled = ref(storedChatSettings.streamEnabled)
   const chatAgentEnabled = ref(storedChatSettings.agentEnabled)
@@ -388,8 +389,12 @@ export function useChatController({
 
     approvingToolApproval.value = true
     chatError.value = null
+    const approval = approvalMessage.metadata.approval_request
+    const pendingSnapshot = [...pendingChatMessages.value]
+    const assistantDeltaSnapshot = pendingAssistantHasDelta.value
+    hideApproval(approval.approval_id)
+    clearPendingApprovalArtifacts(approval.tool_call_id)
     try {
-      const approval = approvalMessage.metadata.approval_request
       if (status === 'approved') {
         await approvePendingAgentRun(approvalMessage.metadata.run_id)
       } else {
@@ -410,6 +415,9 @@ export function useChatController({
       await loadSelectedContext()
       clearPendingMessages()
     } catch (error) {
+      pendingChatMessages.value = pendingSnapshot
+      pendingAssistantHasDelta.value = assistantDeltaSnapshot
+      showApproval(approval.approval_id)
       chatError.value = error instanceof Error ? error.message : '工具审批失败'
     } finally {
       approvingToolApproval.value = false
@@ -751,6 +759,32 @@ export function useChatController({
     })
   }
 
+  function hideApproval(approvalId: string) {
+    hiddenApprovalIds.value = new Set(hiddenApprovalIds.value).add(approvalId)
+    removePendingApproval(approvalId)
+  }
+
+  function showApproval(approvalId: string) {
+    const next = new Set(hiddenApprovalIds.value)
+    next.delete(approvalId)
+    hiddenApprovalIds.value = next
+  }
+
+  function clearPendingApprovalArtifacts(toolCallId: string) {
+    pendingChatMessages.value = pendingChatMessages.value.filter((message) => {
+      if (message.role === 'assistant' && message.pending) {
+        return false
+      }
+      if (!message.pending) {
+        return true
+      }
+      return !(message.tool_calls || []).some((call) => (
+        call.tool_call_id === toolCallId
+      ))
+    })
+    pendingAssistantHasDelta.value = false
+  }
+
   function approvalMessagesForSession(
     session: Session,
     pendingMessages: ChatDisplayMessage[],
@@ -767,6 +801,7 @@ export function useChatController({
       .filter((run) => runMatchesSession(run, session))
       .flatMap((run) => (
         (run.pending_approval_requests || [])
+          .filter((approval) => !hiddenApprovalIds.value.has(approval.approval_id))
           .filter((approval) => !pendingApprovalIds.has(approval.approval_id))
           .map((approval) => makeApprovalMessage(
             run.run_id,

@@ -47,6 +47,10 @@ def create_app(
         ),
         shell_timeout_seconds=_env_float("EVERNIGHTAI_SHELL_TIMEOUT_SECONDS", 10.0),
         shell_max_output_chars=_env_int("EVERNIGHTAI_SHELL_MAX_OUTPUT_CHARS", 12000),
+        shell_requires_approval=_env_bool(
+            "EVERNIGHTAI_SHELL_IS_NEED_APPROVAL",
+            True,
+        ),
         trace_retention_days=_env_int(
             "EVERNIGHTAI_TRACE_RETENTION_DAYS",
             30,

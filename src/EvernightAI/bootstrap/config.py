@@ -92,6 +92,7 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "shell_working_directory": shell.working_directory,
         "shell_timeout_seconds": shell.timeout_seconds,
         "shell_max_output_chars": shell.max_output_chars,
+        "shell_requires_approval": shell.is_need_approval,
         "shell_allowed_env_keys": (
             set(shell.allowed_env_keys)
             if shell.enabled and shell.allowed_env_keys is not None
@@ -112,6 +113,7 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
             project.working_directory if project.enabled else None
         ),
         "project_commands": project.commands if project.enabled else None,
+        "project_command_overrides": project.projects if project.enabled else None,
         "project_timeout_seconds": project.timeout_seconds,
         "project_max_output_chars": project.max_output_chars,
         "runtime_data_tools_enabled": runtime_data.enabled,

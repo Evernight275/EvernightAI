@@ -38,6 +38,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "enabled": True,
                     "allowed_commands": ["python", "pytest"],
                     "timeout_seconds": 3.5,
+                    "is_need_approval": False,
                     "allowed_env_keys": ["PYTHONPATH"],
                 },
                 "web": {
@@ -54,6 +55,11 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "enabled": True,
                     "working_directory": ".",
                     "commands": {"tests": ["python", "-m", "pytest"]},
+                    "projects": {
+                        "EvernightAI": {
+                            "tests": ["uv", "run", "pytest"],
+                        }
+                    },
                 },
                 "runtime_data": {
                     "enabled": True,
@@ -148,6 +154,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.shell.enabled is True
     assert config.tools.shell.allowed_commands == ["python", "pytest"]
     assert config.tools.shell.timeout_seconds == 3.5
+    assert config.tools.shell.is_need_approval is False
     assert config.tools.shell.allowed_env_keys == ["PYTHONPATH"]
     assert config.tools.web.enabled is True
     assert config.tools.web.allowed_hosts == ["example.test"]
@@ -157,6 +164,9 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.git.repository_directory == "."
     assert config.tools.project.enabled is True
     assert config.tools.project.commands == {"tests": ["python", "-m", "pytest"]}
+    assert config.tools.project.projects == {
+        "EvernightAI": {"tests": ["uv", "run", "pytest"]}
+    }
     assert config.tools.runtime_data.enabled is True
     assert config.data_analysis.sqlite_sources[0].source_id == "orders"
     assert config.data_analysis.sqlite_sources[0].name == "Orders"

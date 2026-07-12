@@ -67,6 +67,23 @@ _AGENT_RUN_LIFECYCLES: WeakKeyDictionary[object, "_AgentRunLifecycle"] = (
 )
 
 
+def _tool_error_payload(exc: Exception, *, max_cause_depth: int = 3) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "error_type": exc.__class__.__name__,
+        "error_message": str(exc),
+    }
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, str) and detail:
+        payload["error_detail"] = detail
+    cause = getattr(exc, "cause", None)
+    if isinstance(cause, Exception) and max_cause_depth > 0:
+        payload["cause"] = _tool_error_payload(
+            cause,
+            max_cause_depth=max_cause_depth - 1,
+        )
+    return payload
+
+
 def _owner_scope(owner_id: str | None) -> PrincipalScope | None:
     return PrincipalScope(owner_id=owner_id) if owner_id is not None else None
 
@@ -999,10 +1016,7 @@ class AgentApplication(AgentInterfaceProtocol):
         )
 
     def _tool_error_to_message(self, call: ToolCall, exc: Exception) -> Content:
-        payload = {
-            "error_type": exc.__class__.__name__,
-            "error_message": str(exc),
-        }
+        payload = _tool_error_payload(exc)
         return Content(
             role=MessageRole.TOOL,
             tool_call_id=call.tool_call_id,
@@ -1017,7 +1031,6 @@ class AgentApplication(AgentInterfaceProtocol):
                 "error_type": exc.__class__.__name__,
             },
         )
-
     def _tool_approvals_by_call_id(
         self,
         approvals: list[ToolApprovalDecision],

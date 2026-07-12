@@ -1,4 +1,5 @@
 from pathlib import Path
+import shlex
 from typing import Any
 
 from EvernightAI.core.error.tool import ToolInputError
@@ -13,6 +14,7 @@ from EvernightAI.core.schema.sandbox import (
     SandboxResourceLimits,
 )
 from EvernightAI.core.schema.tool import (
+    ToolApprovalMode,
     ToolDefinition,
     ToolPermission,
     ToolSafetyLevel,
@@ -31,6 +33,7 @@ class RestrictedShellTool:
         working_directory: str | Path,
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
+        requires_approval: bool = True,
         allowed_env_keys: set[str] | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
@@ -38,6 +41,7 @@ class RestrictedShellTool:
         self._working_directory = Path(working_directory).resolve()
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
+        self._requires_approval = requires_approval
         self._allowed_env_keys = allowed_env_keys
         self._sandbox = sandbox or SubprocessSandboxExecutor()
 
@@ -65,7 +69,12 @@ class RestrictedShellTool:
             },
             permissions=[ToolPermission.PROCESS],
             safety_level=ToolSafetyLevel.SENSITIVE,
-            requires_approval=True,
+            requires_approval=self._requires_approval,
+            approval_mode=(
+                ToolApprovalMode.REQUIRED
+                if self._requires_approval
+                else ToolApprovalMode.NEVER
+            ),
             metadata={
                 "allowed_commands": sorted(self._allowed_commands),
                 "working_directory": str(self._working_directory),
@@ -85,9 +94,8 @@ class RestrictedShellTool:
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = self._parse_command(arguments)
-        executable = command[0]
-        if executable not in self._allowed_commands:
-            raise ToolInputError(f"The command {executable} is not allowed")
+        if not self._is_allowed_command(command):
+            raise ToolInputError(f"The command {' '.join(command)} is not allowed")
         result = await self._sandbox.execute(
             SandboxExecutionRequest(
                 request_id="restricted_shell",
@@ -119,7 +127,7 @@ class RestrictedShellTool:
 
     def _sandbox_policy(self) -> SandboxPolicy:
         return SandboxPolicy(
-            command_allowlist=sorted(self._allowed_commands),
+            command_allowlist=sorted(self._allowed_executables()),
             filesystem_mounts=[
                 SandboxFilesystemMount(
                     host_path=str(self._working_directory),
@@ -137,6 +145,25 @@ class RestrictedShellTool:
                 max_output_chars=self._max_output_chars,
             ),
         )
+
+    def _is_allowed_command(self, command: list[str]) -> bool:
+        if command[0] in self._allowed_commands:
+            return True
+        return any(self._parse_command_rule(rule) == command for rule in self._allowed_commands)
+
+    def _allowed_executables(self) -> set[str]:
+        executables: set[str] = set()
+        for rule in self._allowed_commands:
+            parts = self._parse_command_rule(rule)
+            if parts:
+                executables.add(parts[0])
+        return executables
+
+    def _parse_command_rule(self, rule: str) -> list[str]:
+        try:
+            return shlex.split(rule)
+        except ValueError:
+            return []
 
     def _parse_command(self, arguments: dict[str, Any]) -> list[str]:
         command = arguments.get("command")

@@ -76,6 +76,68 @@ async def test_restricted_project_task_runs_allowlisted_task(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_restricted_project_task_uses_named_project_command(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"tests": [sys.executable, "-c", "print('global')"]},
+        project_commands={
+            "EvernightAI": {
+                "tests": [sys.executable, "-c", "print('project')"],
+            }
+        },
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "run_project_task",
+                "arguments": {"project": "EvernightAI", "task": "tests"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["project"] == "EvernightAI"
+    assert result.tool_call_result["command_scope"] == "project"
+    assert result.tool_call_result["stdout"].splitlines() == ["project"]
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_falls_back_to_global_command(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"typecheck": [sys.executable, "-c", "print('global')"]},
+        project_commands={
+            "EvernightAI": {
+                "tests": [sys.executable, "-c", "print('project')"],
+            }
+        },
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "run_project_task",
+                "arguments": {"project": "EvernightAI", "task": "typecheck"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["project"] == "EvernightAI"
+    assert result.tool_call_result["command_scope"] == "global"
+    assert result.tool_call_result["stdout"].splitlines() == ["global"]
+
+
+@pytest.mark.asyncio
 async def test_restricted_project_task_rejects_unlisted_task(tmp_path) -> None:
     register = ToolRegister()
     register_restricted_project_tools(

@@ -94,9 +94,12 @@ const copiedMessageIndex = ref<number | null>(null)
 const copiedCodeBlock = ref<string | null>(null)
 let threadRefreshTimer: number | undefined
 
-const displayMessages = computed<ChatMessage[]>(() => groupToolActivityMessages(props.messages))
+const groupedMessages = computed<ChatMessage[]>(() => groupToolActivityMessages(props.messages))
 const primaryApprovalMessage = computed<ChatMessage | null>(() => (
-  displayMessages.value.find((message) => isToolApprovalMessage(message)) || null
+  groupedMessages.value.find((message) => isToolApprovalMessage(message)) || null
+))
+const displayMessages = computed<ChatMessage[]>(() => (
+  groupedMessages.value.filter((message) => !isToolApprovalMessage(message))
 ))
 
 function copyToClipboard(text: string, identifier: string | number) {
