@@ -16,6 +16,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.providers.image_input import image_url
 
 
 def to_openai_response_input(messages: Iterable[Content]) -> list[dict[str, Any]]:
@@ -413,14 +414,10 @@ def _input_content_part(part: ContentPart) -> dict[str, Any]:
         return {"type": "input_text", "text": part.text}
 
     if part.type is ContentPartType.IMAGE:
-        url = part.url or part.data
-        if not url:
-            raise ChatInputError("Image content part requires url or data")
-
         return _without_none(
             {
                 "type": "input_image",
-                "image_url": url,
+                "image_url": image_url(part),
                 "detail": part.detail,
             }
         )

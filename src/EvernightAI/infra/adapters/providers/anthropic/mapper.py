@@ -14,6 +14,10 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.providers.image_input import (
+    inline_image,
+    validate_image_source,
+)
 
 
 class AnthropicStreamNormalizer:
@@ -392,6 +396,24 @@ def _content_part(part: ContentPart) -> dict[str, Any]:
             raise ChatInputError("Text content part requires text")
 
         return {"type": "text", "text": part.text}
+
+    if part.type is ContentPartType.IMAGE:
+        validate_image_source(part)
+        if part.url:
+            return {
+                "type": "image",
+                "source": {"type": "url", "url": part.url},
+            }
+
+        mime_type, data = inline_image(part)
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": mime_type,
+                "data": data,
+            },
+        }
 
     raise ChatInputError(f"Unsupported Anthropic content part type: {part.type}")
 

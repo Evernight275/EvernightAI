@@ -445,6 +445,7 @@ def format_config_summary(config: EvernightConfig) -> str:
         f"tools.filesystem.enabled: {config.tools.filesystem.enabled}",
         f"tools.shell.enabled: {config.tools.shell.enabled}",
         f"tools.shell.allowed_commands: {len(config.tools.shell.allowed_commands)}",
+        f"tools.shell.blocked_commands: {len(config.tools.shell.blocked_commands)}",
     ]
 
     return "\n".join(lines)

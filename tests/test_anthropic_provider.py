@@ -106,6 +106,48 @@ def test_maps_tools_to_anthropic_request() -> None:
     }
 
 
+def test_maps_url_and_base64_images_to_anthropic_request() -> None:
+    message = Content(
+        role=MessageRole.USER,
+        content=[
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                url="https://example.test/image.webp",
+            ),
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="aW1hZ2U=",
+                mime_type="image/png",
+            ),
+        ],
+    )
+
+    request = to_anthropic_request([message], "claude-test")
+
+    assert request["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "https://example.test/image.webp",
+                    },
+                },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "aW1hZ2U=",
+                    },
+                },
+            ],
+        }
+    ]
+
+
 def test_maps_anthropic_response_to_chat_response() -> None:
     mapped = from_anthropic_response(
         {
@@ -338,13 +380,6 @@ def test_maps_assistant_tool_calls_empty_messages_and_tool_results() -> None:
 @pytest.mark.parametrize(
     ("message", "error"),
     [
-        (
-            Content(
-                role=MessageRole.USER,
-                content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
-            ),
-            "Unsupported Anthropic content part type",
-        ),
         (
             Content(
                 role=MessageRole.USER,

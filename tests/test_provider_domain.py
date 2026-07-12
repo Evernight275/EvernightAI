@@ -5,7 +5,10 @@ from typing import cast
 import pytest
 
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
-from EvernightAI.core.error.provider import ProviderNotFoundError
+from EvernightAI.core.error.provider import (
+    ProviderCapabilityUnsupportedError,
+    ProviderNotFoundError,
+)
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
@@ -136,6 +139,99 @@ async def test_manager_delegates_chat_to_provider_instance() -> None:
         ChatStreamEventType.RAW,
         ChatStreamEventType.DONE,
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_manager_rejects_images_for_declared_text_only_model(
+    stream: bool,
+) -> None:
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return FakeProvider()
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    await manager.create(
+        ProviderConfig(
+            provider_id="provider-1",
+            name="OpenAI",
+            type=ProviderType.OPENAI,
+            model={
+                "text": ProviderModelConfig(
+                    model_id="model-1",
+                    capabilities=[ProviderModelCapability.CHAT],
+                )
+            },
+        )
+    )
+    request = ChatRequest(
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        url="https://example.com/image.png",
+                    )
+                ],
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ProviderCapabilityUnsupportedError,
+        match="model-1 does not support image recognition",
+    ):
+        if stream:
+            await manager.chat_stream("provider-1", request)
+        else:
+            await manager.chat("provider-1", request)
+
+
+@pytest.mark.asyncio
+async def test_manager_allows_images_for_declared_vision_model() -> None:
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return FakeProvider()
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    await manager.create(
+        ProviderConfig(
+            provider_id="provider-1",
+            name="OpenAI",
+            type=ProviderType.OPENAI,
+            model={
+                "vision": ProviderModelConfig(
+                    model_id="model-1",
+                    capabilities=[
+                        ProviderModelCapability.CHAT,
+                        ProviderModelCapability.IMAGE_RECOGNITION,
+                    ],
+                )
+            },
+        )
+    )
+    request = ChatRequest(
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        url="https://example.com/image.png",
+                    )
+                ],
+            )
+        ],
+    )
+
+    response = await manager.chat("provider-1", request)
+
+    assert response.model_id == "model-1"
 
 
 @pytest.mark.asyncio

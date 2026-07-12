@@ -10,6 +10,7 @@ def register_restricted_shell_tool(
     *,
     allowed_commands: set[str],
     working_directory: str | Path,
+    blocked_commands: set[str] | None = None,
     timeout_seconds: float = 10.0,
     max_output_chars: int = 12000,
     requires_approval: bool = True,
@@ -18,6 +19,7 @@ def register_restricted_shell_tool(
 ) -> None:
     tool = RestrictedShellTool(
         allowed_commands=allowed_commands,
+        blocked_commands=blocked_commands,
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
         max_output_chars=max_output_chars,
@@ -25,4 +27,8 @@ def register_restricted_shell_tool(
         allowed_env_keys=allowed_env_keys,
         sandbox=sandbox,
     )
-    register.register(tool.definition, tool.executor())
+    register.register(
+        tool.definition,
+        tool.executor(),
+        preflight_policy=tool.preflight_policy(),
+    )

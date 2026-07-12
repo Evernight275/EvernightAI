@@ -23,6 +23,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.providers.image_input import image_url
 
 
 def to_openai_messages(messages: Iterable[Content]) -> list[ChatCompletionMessageParam]:
@@ -431,17 +432,13 @@ def to_openai_content_part(part: ContentPart) -> ChatCompletionContentPartParam:
         return {"type": "text", "text": part.text}
 
     if part.type is ContentPartType.IMAGE:
-        url = part.url or part.data
-        if not url:
-            raise ChatInputError("Image content part requires url or data")
-
-        image_url: dict[str, str] = {"url": url}
+        mapped_image_url: dict[str, str] = {"url": image_url(part)}
         if part.detail:
-            image_url["detail"] = part.detail
+            mapped_image_url["detail"] = part.detail
 
         return cast(
             ChatCompletionContentPartParam,
-            {"type": "image_url", "image_url": image_url},
+            {"type": "image_url", "image_url": mapped_image_url},
         )
 
     raise ChatInputError(f"Unsupported content part type: {part.type}")

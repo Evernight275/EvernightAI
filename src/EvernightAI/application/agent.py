@@ -1108,8 +1108,7 @@ class AgentApplication(AgentInterfaceProtocol):
             return None
 
         try:
-            tool = self._runtime.tool_register.get(tool_name)
-            return self._runtime.tool_safety_policy.authorize(tool, call)
+            return self._runtime.tools.authorize(call)
         except Exception:
             return None
 

@@ -11,14 +11,22 @@ from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.skill import SkillApplication
 from EvernightAI.application.tool import ToolApplication
 from EvernightAI.bootstrap.config import create_runtime_from_config
-from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
+from EvernightAI.bootstrap.interface import (
+    create_authorized_interface,
+    create_interface,
+)
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
-from EvernightAI.core.schema.content import Content, ContentPart, ContentPartType, MessageRole
+from EvernightAI.core.schema.content import (
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
     DataSort,
@@ -84,13 +92,13 @@ def test_configured_context_strategy_composes_runtime_window(tmp_path) -> None:
         messages=[_message("three")],
     )
 
-    assert [message.content[0].text for message in request.messages if message.content] == [
+    assert [
+        message.content[0].text for message in request.messages if message.content
+    ] == [
         "two",
         "three",
     ]
-    assert [
-        step["name"] for step in request.metadata["context_strategy_steps"]
-    ] == [
+    assert [step["name"] for step in request.metadata["context_strategy_steps"]] == [
         "WindowTrimmingContextStrategy",
         "TokenBudgetContextStrategy",
     ]
@@ -104,6 +112,7 @@ def test_configured_shell_can_disable_tool_approval(tmp_path) -> None:
                 "shell": {
                     "enabled": True,
                     "allowed_commands": ["uv"],
+                    "blocked_commands": ["uv publish"],
                     "is_need_approval": False,
                 }
             },
@@ -112,7 +121,50 @@ def test_configured_shell_can_disable_tool_approval(tmp_path) -> None:
 
     runtime = create_runtime_from_config(config)
 
-    assert runtime.tool_register.get("restricted_shell").requires_approval is False
+    definition = runtime.tool_register.get("restricted_shell")
+
+    assert definition.requires_approval is False
+    assert definition.metadata["blocked_commands"] == ["uv publish"]
+
+
+def test_configured_project_directories_register_with_runtime(tmp_path) -> None:
+    project_directory = tmp_path / "other-project"
+    project_directory.mkdir()
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "filesystem": {
+                    "enabled": True,
+                    "root": str(tmp_path),
+                },
+                "project": {
+                    "enabled": True,
+                    "working_directory": str(tmp_path),
+                    "commands": {"inspect": ["python", "--version"]},
+                    "project_directories": {"OtherProject": str(project_directory)},
+                },
+            },
+        }
+    )
+
+    runtime = create_runtime_from_config(config)
+    definition = runtime.tool_register.get("run_project_task")
+    read_definition = runtime.tool_register.get("read_text_file")
+    write_definition = runtime.tool_register.get("write_text_file")
+
+    assert definition.metadata["project_directories"] == ["OtherProject"]
+    assert read_definition.metadata["projects"] == ["OtherProject"]
+    assert read_definition.parameters_schema is not None
+    assert read_definition.parameters_schema["properties"]["project"] == {
+        "type": "string",
+        "enum": ["OtherProject"],
+    }
+    assert write_definition.parameters_schema is not None
+    assert write_definition.parameters_schema["properties"]["project"] == {
+        "type": "string",
+        "enum": ["OtherProject"],
+    }
 
 
 def test_configured_context_summary_requires_summarizer(tmp_path) -> None:

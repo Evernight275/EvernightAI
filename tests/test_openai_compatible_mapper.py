@@ -80,6 +80,70 @@ def test_maps_user_image_content_part() -> None:
     }
 
 
+def test_maps_base64_image_content_part_to_data_uri() -> None:
+    message = Content(
+        role=MessageRole.USER,
+        content=[
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="aW1hZ2U=",
+                mime_type="image/png",
+            )
+        ],
+    )
+
+    assert to_openai_message(message) == {
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
+            }
+        ],
+    }
+
+
+def test_rejects_base64_image_without_mime_type() -> None:
+    with pytest.raises(ChatInputError, match="requires mime_type"):
+        to_openai_content_part(
+            ContentPart(type=ContentPartType.IMAGE, data="aW1hZ2U=")
+        )
+
+
+def test_rejects_mismatched_image_data_uri_mime_type() -> None:
+    with pytest.raises(ChatInputError, match="does not match"):
+        to_openai_content_part(
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="data:image/png;base64,aW1hZ2U=",
+                mime_type="image/jpeg",
+            )
+        )
+
+
+def test_rejects_ambiguous_image_sources() -> None:
+    with pytest.raises(ChatInputError, match="either url or data"):
+        to_openai_content_part(
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                url="https://example.test/image.png",
+                data="aW1hZ2U=",
+                mime_type="image/png",
+            )
+        )
+
+
+def test_rejects_invalid_base64_image_data() -> None:
+    with pytest.raises(ChatInputError, match="valid base64"):
+        to_openai_content_part(
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="not-base64",
+                mime_type="image/png",
+            )
+        )
+
+
 def test_maps_tool_definition_to_chat_completion_tool_param() -> None:
     tool = ToolDefinition(
         name="add",

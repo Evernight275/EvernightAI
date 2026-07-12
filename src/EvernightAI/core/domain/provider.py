@@ -12,7 +12,12 @@ from EvernightAI.core.protocol.provider import (
     ProviderSecretResolverProtocol,
 )
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatUsage
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    ChatUsage,
+    ContentPartType,
+)
 from EvernightAI.core.schema.stream import ChatStreamEvent
 
 from EvernightAI.core.schema.provider import (
@@ -23,6 +28,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.error.provider import (
+    ProviderCapabilityUnsupportedError,
     ProviderConfigurationError,
     ProviderNotFoundError,
 )
@@ -164,6 +170,7 @@ class ProviderManager(ProviderManageProtocol):
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         """执行聊天请求"""
         instance = await self.get(provider_id)
+        self._validate_request_capabilities(provider_id, request)
         started = perf_counter()
         try:
             response = await instance.chat(request)
@@ -188,6 +195,7 @@ class ProviderManager(ProviderManageProtocol):
     ) -> ChatStreamProtocol:
         """执行流式聊天请求"""
         instance = await self.get(provider_id)
+        self._validate_request_capabilities(provider_id, request)
         started = perf_counter()
         try:
             stream = await instance.chat_stream(request)
@@ -245,6 +253,35 @@ class ProviderManager(ProviderManageProtocol):
         return provider.model_copy(
             update={"api_key": self._secret_resolver.resolve(provider.api_key_secret_ref)}
         )
+
+    def _validate_request_capabilities(
+        self,
+        provider_id: str,
+        request: ChatRequest,
+    ) -> None:
+        model = next(
+            (
+                configured
+                for configured in self._infos[provider_id].model.values()
+                if configured.model_id == request.model_id
+            ),
+            None,
+        )
+        if model is None:
+            return
+
+        has_image = any(
+            part.type is ContentPartType.IMAGE
+            for message in request.messages
+            for part in message.content or []
+        )
+        if (
+            has_image
+            and ProviderModelCapability.IMAGE_RECOGNITION not in model.capabilities
+        ):
+            raise ProviderCapabilityUnsupportedError(
+                f"The model {request.model_id} does not support image recognition"
+            )
 
     def _record_call(
         self,

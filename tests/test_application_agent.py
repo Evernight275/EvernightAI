@@ -76,6 +76,9 @@ from EvernightAI.core.schema.tool import (
     ToolPermission,
     ToolSafetyLevel,
 )
+from EvernightAI.infra.registrations.tool.restricted_shell import (
+    register_restricted_shell_tool,
+)
 from tests.fakes.agent import (
     InMemoryAgentRunStateRegister,
     InMemoryAgentTraceRegister,
@@ -720,6 +723,45 @@ async def test_agent_run_until_pause_returns_pending_approval_state() -> None:
         AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
         AgentTraceEventType.RUN_PAUSED,
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_blocked_shell_command_without_approval(tmp_path) -> None:
+    runtime = make_runtime(provider=BlockedShellToolProvider())
+    register_restricted_shell_tool(
+        runtime.tool_register,
+        allowed_commands={"uv"},
+        blocked_commands={"uv publish"},
+        working_directory=tmp_path,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentApplication(runtime)
+    state = await app.run_agent_until_pause(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Publish the package")],
+            tools=runtime.tools.list_tools(),
+            recover_tool_errors=False,
+        )
+    )
+
+    assert state.status is AgentRunStatus.FAILED
+    assert state.stop_reason is AgentStopReason.TOOL_ERROR
+    assert [event.event_type for event in state.trace] == [
+        AgentTraceEventType.RUN_STARTED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_FAILED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert state.pending_approval_requests == []
+    assert not any(
+        event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED
+        for event in state.trace
+    )
 
 
 @pytest.mark.asyncio
@@ -2406,6 +2448,27 @@ class SensitiveToolProvider(ToolCallingProvider):
             model_id=request.model_id,
             message=make_message("Written", role=MessageRole.ASSISTANT),
             finish_reason="stop",
+        )
+
+
+class BlockedShellToolProvider(ToolCallingProvider):
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        return ChatResponse(
+            model_id=request.model_id,
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id="tool-call-1",
+                        tool_call={
+                            "name": "restricted_shell",
+                            "arguments": {"command": ["uv", "publish"]},
+                        },
+                    )
+                ],
+            ),
+            finish_reason="tool_calls",
         )
 
 

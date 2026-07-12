@@ -42,6 +42,7 @@ def create_app(
         ),
         allow_file_overwrite=_env_bool("EVERNIGHTAI_ALLOW_FILE_OVERWRITE", False),
         shell_allowed_commands=_env_optional_set("EVERNIGHTAI_SHELL_ALLOWED_COMMANDS"),
+        shell_blocked_commands=_env_optional_set("EVERNIGHTAI_SHELL_BLOCKED_COMMANDS"),
         shell_working_directory=_env_optional_path(
             "EVERNIGHTAI_SHELL_WORKING_DIRECTORY"
         ),

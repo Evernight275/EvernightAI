@@ -14,6 +14,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 ToolExecutorProtocol = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+ToolPreflightPolicy = Callable[
+    [ToolDefinition, dict[str, Any]],
+    ToolSafetyDecision | None,
+]
 
 
 class ToolProtocol(EvernightAIProtocol):
@@ -51,6 +55,8 @@ class ToolManageProtocol(ToolProtocol, ManageProtocol):
 
     def list_tools(self) -> list[ToolDefinition]: ...
 
+    def authorize(self, call: ToolCall) -> ToolSafetyDecision: ...
+
     async def execute(self, call: ToolCall) -> ToolCallResult: ...
 
 
@@ -60,7 +66,10 @@ class ToolRegisterProtocol(ToolProtocol, RegisterProtocol):
     """
 
     def register(
-        self, tool: ToolDefinition, executor: ToolExecutorProtocol
+        self,
+        tool: ToolDefinition,
+        executor: ToolExecutorProtocol,
+        preflight_policy: ToolPreflightPolicy | None = None,
     ) -> None: ...
 
     def unregister(self, tool_name: str) -> None: ...
@@ -68,6 +77,11 @@ class ToolRegisterProtocol(ToolProtocol, RegisterProtocol):
     def get(self, tool_name: str) -> ToolDefinition: ...
 
     def get_executor(self, tool_name: str) -> ToolExecutorProtocol: ...
+
+    def get_preflight_policy(
+        self,
+        tool_name: str,
+    ) -> ToolPreflightPolicy | None: ...
 
     def has(self, tool_name: str) -> bool: ...
 

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
@@ -15,6 +17,7 @@ from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolDefinition,
     ToolPermission,
+    ToolSafetyDecision,
     ToolSafetyLevel,
 )
 
@@ -32,6 +35,18 @@ def make_tool() -> ToolDefinition:
             "required": ["left", "right"],
         },
     )
+
+
+class RejectingPreflightPolicy:
+    def authorize(
+        self,
+        _tool: ToolDefinition,
+        _arguments: dict[str, Any],
+    ) -> ToolSafetyDecision:
+        return ToolSafetyDecision(
+            allowed=False,
+            reason="Blocked before approval or execution",
+        )
 
 
 @pytest.mark.asyncio
@@ -78,6 +93,41 @@ async def test_tool_manager_rejects_invalid_call_arguments() -> None:
                 tool_call={"name": "add", "arguments": ["not", "a", "dict"]},
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_rejects_preflight_policy_before_approval_and_execution(
+) -> None:
+    executed = False
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        nonlocal executed
+        executed = True
+        return {"ok": True}
+
+    register = ToolRegister()
+    register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+        preflight_policy=RejectingPreflightPolicy().authorize,
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "write_file", "arguments": {}},
+            )
+        )
+
+    assert exc_info.value.detail == "Blocked before approval or execution"
+    assert executed is False
 
 
 @pytest.mark.asyncio

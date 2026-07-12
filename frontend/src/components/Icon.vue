@@ -90,6 +90,13 @@ const icons: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M12 16v-4' } },
     { tag: 'path', attrs: { d: 'M12 8h.01' } },
   ],
+  'image-plus': [
+    { tag: 'rect', attrs: { x: 3, y: 3, width: 18, height: 18, rx: 2 } },
+    { tag: 'circle', attrs: { cx: 9, cy: 9, r: 2 } },
+    { tag: 'path', attrs: { d: 'm21 15-5-5L5 21' } },
+    { tag: 'path', attrs: { d: 'M17 3v6' } },
+    { tag: 'path', attrs: { d: 'M14 6h6' } },
+  ],
   'key-round': [
     { tag: 'path', attrs: { d: 'M21 2l-9.6 9.6' } },
     { tag: 'circle', attrs: { cx: 7.5, cy: 15.5, r: 5.5 } },

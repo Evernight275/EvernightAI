@@ -4,8 +4,6 @@ import pytest
 
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.error.tool import (
-    ToolExecutionError,
-    ToolInputError,
     ToolPolicyError,
 )
 from EvernightAI.core.schema.tool import ToolCall
@@ -50,6 +48,7 @@ async def test_restricted_shell_can_disable_approval(tmp_path) -> None:
     register_restricted_shell_tool(
         register,
         allowed_commands={sys.executable},
+        blocked_commands={f"{sys.executable} -c"},
         working_directory=tmp_path,
         requires_approval=False,
     )
@@ -61,14 +60,14 @@ async def test_restricted_shell_can_disable_approval(tmp_path) -> None:
             tool_call={
                 "name": "restricted_shell",
                 "arguments": {
-                    "command": [sys.executable, "-c", "print('hello')"],
+                    "command": [sys.executable, "--version"],
                 },
             },
         )
     )
 
     assert result.tool_call_result["returncode"] == 0
-    assert result.tool_call_result["stdout"].splitlines() == ["hello"]
+    assert "Python" in result.tool_call_result["stdout"]
 
 
 @pytest.mark.asyncio
@@ -127,7 +126,7 @@ async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
     assert result.tool_call_result["returncode"] == 0
     assert "Python" in result.tool_call_result["stdout"]
 
-    with pytest.raises(ToolExecutionError) as exc_info:
+    with pytest.raises(ToolPolicyError) as exc_info:
         await manager.execute(
             ToolCall(
                 tool_call_id="call-2",
@@ -140,9 +139,57 @@ async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
             )
         )
 
-    assert isinstance(exc_info.value.cause, ToolInputError)
+    assert exc_info.value.detail is not None
+    assert "is not allowed" in exc_info.value.detail
     assert result.tool_call_result["stderr"] == ""
     assert result.tool_call_result["truncated"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("blocked_rule", "command", "requires_approval"),
+    [
+        (sys.executable, [sys.executable, "--version"], False),
+        (
+            f"{sys.executable} -c",
+            [
+                sys.executable,
+                "-c",
+                "raise RuntimeError('blocked command executed')",
+            ],
+            True,
+        ),
+    ],
+)
+async def test_restricted_shell_rejects_blocked_command_rule(
+    tmp_path,
+    blocked_rule,
+    command,
+    requires_approval,
+) -> None:
+    register = ToolRegister()
+    register_restricted_shell_tool(
+        register,
+        allowed_commands={sys.executable},
+        blocked_commands={blocked_rule},
+        working_directory=tmp_path,
+        requires_approval=requires_approval,
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "restricted_shell",
+                    "arguments": {"command": command},
+                },
+            )
+        )
+
+    assert exc_info.value.detail is not None
+    assert "is blocked" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -155,7 +202,7 @@ async def test_restricted_shell_rejects_unlisted_command(tmp_path) -> None:
     )
     manager = ToolManager(register)
 
-    with pytest.raises(ToolExecutionError) as exc_info:
+    with pytest.raises(ToolPolicyError) as exc_info:
         await manager.execute(
             ToolCall(
                 tool_call_id="call-1",
@@ -167,7 +214,8 @@ async def test_restricted_shell_rejects_unlisted_command(tmp_path) -> None:
             )
         )
 
-    assert isinstance(exc_info.value.cause, ToolInputError)
+    assert exc_info.value.detail is not None
+    assert "is not allowed" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

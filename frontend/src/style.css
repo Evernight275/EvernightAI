@@ -114,6 +114,18 @@
       box-sizing: border-box;
     }
 
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+
     ::selection {
       color: var(--primary-dark);
       background: var(--primary-border);
@@ -2298,6 +2310,27 @@
       overflow-wrap: anywhere;
     }
 
+    .message-content {
+      min-width: 0;
+    }
+
+    .message-images {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 220px));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .message-images img {
+      display: block;
+      width: 100%;
+      max-height: 280px;
+      object-fit: contain;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--soft);
+    }
+
     .message-markdown p,
     .message-markdown ul,
     .message-markdown ol,
@@ -2845,6 +2878,49 @@
       transition: border-color 160ms ease, box-shadow 160ms ease;
     }
 
+    .composer-images {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 8px 10px 0;
+    }
+
+    .composer-image {
+      position: relative;
+      flex: 0 0 72px;
+      width: 72px;
+      height: 72px;
+    }
+
+    .composer-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .composer-image button {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid rgb(255 255 255 / 45%);
+      border-radius: 50%;
+      color: white;
+      background: rgb(15 23 42 / 82%);
+      cursor: pointer;
+    }
+
+    .composer-image button .icon {
+      width: 13px;
+      height: 13px;
+    }
+
     .chat-input-shell:focus-within {
       border-color: var(--primary);
       box-shadow: 0 0 0 2px var(--primary-light);
@@ -2872,7 +2948,7 @@
 
     .chat-input-actions {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
       gap: 12px;
       align-items: center;
       padding: 8px 10px 10px 14px;
@@ -3002,6 +3078,7 @@
     }
 
     .chat-send-button {
+      justify-self: end;
       width: 38px;
       height: 38px;
       display: inline-flex;
@@ -3013,6 +3090,29 @@
       background: var(--primary);
       cursor: pointer;
       transition: background-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .chat-attach-button {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .chat-attach-button:hover:not(:disabled) {
+      color: var(--ink);
+      background: var(--soft);
+    }
+
+    .chat-attach-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
     }
 
     .chat-send-button:hover:not(:disabled) {

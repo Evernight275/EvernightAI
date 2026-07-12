@@ -316,7 +316,7 @@ flowchart TD
         SQLite["runtime SQLite database<br/>.evernight/runtime.sqlite3 or configured path"]
         FSRoot["configured filesystem root"]
         GitRepo["configured git repository"]
-        ProjectRoot["configured project working directory"]
+        ProjectRoots["configured project directories"]
     end
 
     subgraph External["external systems"]
@@ -340,8 +340,9 @@ flowchart TD
     Runtime -- "provider adapters call" --> Providers
     Runtime -- "web tools call" --> WebTargets
     Runtime -- "filesystem tools constrain access to" --> FSRoot
+    Runtime -- "filesystem tools select named roots" --> ProjectRoots
     Runtime -- "git tools constrain access to" --> GitRepo
-    Runtime -- "project task tool runs allowlisted commands in" --> ProjectRoot
+    Runtime -- "project task tool runs allowlisted commands in" --> ProjectRoots
     Runtime -- "shell tool runs allowlisted commands" --> ShellCommands
 ```
 

@@ -909,6 +909,57 @@ def test_http_validation_errors_use_error_response_shape() -> None:
     assert body["error"]["detail"][0]["loc"] == ["body", "type"]
 
 
+def test_http_chat_preserves_image_input_for_provider() -> None:
+    provider = FakeProvider()
+    interface = create_interface(make_runtime(provider=provider))
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        response = client.post(
+            "/chat",
+            json={
+                "provider_id": "provider-1",
+                "request": {
+                    "model_id": "vision-model",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Describe this"},
+                                {
+                                    "type": "image",
+                                    "data": "aW1hZ2U=",
+                                    "mime_type": "image/png",
+                                    "detail": "high",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert provider.last_request is not None
+    assert provider.last_request.messages[0].content == [
+        ContentPart(type=ContentPartType.TEXT, text="Describe this"),
+        ContentPart(
+            type=ContentPartType.IMAGE,
+            data="aW1hZ2U=",
+            mime_type="image/png",
+            detail="high",
+        ),
+    ]
+
+
 def test_http_domain_errors_use_error_response_shape() -> None:
     provider = FailingChatProvider()
     interface = create_interface(make_runtime(provider=provider))

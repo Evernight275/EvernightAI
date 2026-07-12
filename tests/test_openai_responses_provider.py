@@ -128,6 +128,31 @@ def test_maps_messages_to_openai_response_input() -> None:
     ]
 
 
+def test_maps_base64_image_to_openai_response_input() -> None:
+    message = Content(
+        role=MessageRole.USER,
+        content=[
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="aW1hZ2U=",
+                mime_type="image/webp",
+                detail="high",
+            )
+        ],
+    )
+
+    assert to_openai_response_input_item(message) == {
+        "role": "user",
+        "content": [
+            {
+                "type": "input_image",
+                "image_url": "data:image/webp;base64,aW1hZ2U=",
+                "detail": "high",
+            }
+        ],
+    }
+
+
 def test_maps_empty_assistant_message_to_empty_output_text() -> None:
     assert to_openai_response_input_item(Content(role=MessageRole.ASSISTANT)) == {
         "role": "assistant",

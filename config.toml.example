@@ -68,6 +68,10 @@ allow_write = false
 enabled = false
 # A single executable allows its arguments; a multi-part entry matches exactly.
 allowed_commands = ["python --version", "uv"]
+# Blocked rules win over allowed commands and are rejected before approval or
+# execution. A single executable blocks every argument; a multi-part entry
+# blocks that command prefix and its arguments.
+blocked_commands = ["uv publish", "git reset --hard", "rm"]
 working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
@@ -102,7 +106,11 @@ max_output_chars = 20000
 commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/bin/pyright"], format = ["python", "-m", "compileall", "src"], dependency_scan = ["python", "-m", "pip", "check"] }
 
 # Optional per-project task overrides. Missing project tasks fall back to the
-# global commands above.
+# global commands above. Project directories must be declared here; the tool
+# call uses the project name and can never supply an arbitrary working path.
+# Filesystem tools also accept these names through `project`; writes keep their
+# normal approval requirements and remain confined to the selected root.
+# project_directories = { EvernightAI = "/home/cyrene/EvernightAI" }
 # [tools.project.projects.EvernightAI]
 # tests = ["uv", "run", "pytest"]
 
@@ -144,7 +152,7 @@ api_key_env = "OPENAI_API_KEY"
 
 [provider.main.model.chat]
 model_id = "gpt-4.1-mini"
-capabilities = ["chat", "tool_call"]
+capabilities = ["chat", "tool_call", "image_recognition"]
 
 # Additional provider examples:
 #
@@ -160,7 +168,7 @@ capabilities = ["chat", "tool_call"]
 #
 # [provider.openai_responses.model.chat]
 # model_id = "gpt-4.1-mini"
-# capabilities = ["chat", "tool_call"]
+# capabilities = ["chat", "tool_call", "image_recognition"]
 #
 # [provider.deepseek]
 # name = "DeepSeek"
@@ -179,7 +187,7 @@ capabilities = ["chat", "tool_call"]
 #
 # [provider.gemini.model.flash]
 # model_id = "gemini-2.0-flash"
-# capabilities = ["chat"]
+# capabilities = ["chat", "image_recognition"]
 #
 # [provider.anthropic]
 # name = "Anthropic"

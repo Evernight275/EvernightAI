@@ -37,6 +37,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "shell": {
                     "enabled": True,
                     "allowed_commands": ["python", "pytest"],
+                    "blocked_commands": ["python -c"],
                     "timeout_seconds": 3.5,
                     "is_need_approval": False,
                     "allowed_env_keys": ["PYTHONPATH"],
@@ -55,6 +56,9 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "enabled": True,
                     "working_directory": ".",
                     "commands": {"tests": ["python", "-m", "pytest"]},
+                    "project_directories": {
+                        "EvernightAI": "/home/cyrene/EvernightAI"
+                    },
                     "projects": {
                         "EvernightAI": {
                             "tests": ["uv", "run", "pytest"],
@@ -153,6 +157,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.filesystem.allow_write is True
     assert config.tools.shell.enabled is True
     assert config.tools.shell.allowed_commands == ["python", "pytest"]
+    assert config.tools.shell.blocked_commands == ["python -c"]
     assert config.tools.shell.timeout_seconds == 3.5
     assert config.tools.shell.is_need_approval is False
     assert config.tools.shell.allowed_env_keys == ["PYTHONPATH"]
@@ -164,6 +169,9 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.git.repository_directory == "."
     assert config.tools.project.enabled is True
     assert config.tools.project.commands == {"tests": ["python", "-m", "pytest"]}
+    assert config.tools.project.project_directories == {
+        "EvernightAI": "/home/cyrene/EvernightAI"
+    }
     assert config.tools.project.projects == {
         "EvernightAI": {"tests": ["uv", "run", "pytest"]}
     }
@@ -251,6 +259,7 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.tools.project.enabled is False
     assert config.tools.runtime_data.enabled is False
     assert config.tools.shell.allowed_commands == []
+    assert config.tools.shell.blocked_commands == []
     assert config.auth.enabled is False
     assert config.auth.principals == []
     assert config.data_analysis.sqlite_sources == []

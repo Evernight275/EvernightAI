@@ -13,6 +13,10 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.providers.image_input import (
+    inline_image,
+    validate_image_source,
+)
 
 
 def to_gemini_request(
@@ -301,6 +305,15 @@ def _content_part(part: ContentPart) -> dict[str, Any]:
             raise ChatInputError("Text content part requires text")
 
         return {"text": part.text}
+
+    if part.type is ContentPartType.IMAGE:
+        validate_image_source(part)
+        if part.url:
+            raise ChatInputError(
+                "Gemini image content requires inline data; remote URLs are not supported"
+            )
+        mime_type, data = inline_image(part)
+        return {"inlineData": {"mimeType": mime_type, "data": data}}
 
     raise ChatInputError(f"Unsupported Gemini content part type: {part.type}")
 

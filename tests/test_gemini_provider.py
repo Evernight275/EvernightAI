@@ -106,6 +106,37 @@ def test_maps_tools_to_gemini_request() -> None:
     }
 
 
+def test_maps_inline_image_to_gemini_request() -> None:
+    message = Content(
+        role=MessageRole.USER,
+        content=[
+            ContentPart(type=ContentPartType.TEXT, text="Describe this"),
+            ContentPart(
+                type=ContentPartType.IMAGE,
+                data="aW1hZ2U=",
+                mime_type="image/png",
+            ),
+        ],
+    )
+
+    assert to_gemini_request([message]) == {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": "Describe this"},
+                    {
+                        "inlineData": {
+                            "mimeType": "image/png",
+                            "data": "aW1hZ2U=",
+                        }
+                    },
+                ],
+            }
+        ]
+    }
+
+
 def test_maps_gemini_response_to_chat_response() -> None:
     mapped = from_gemini_response(
         {
@@ -264,7 +295,7 @@ def test_maps_assistant_tool_calls_empty_messages_and_tool_results() -> None:
                 role=MessageRole.USER,
                 content=[ContentPart(type=ContentPartType.IMAGE, url="image.png")],
             ),
-            "Unsupported Gemini content part type",
+            "remote URLs are not supported",
         ),
         (
             Content(

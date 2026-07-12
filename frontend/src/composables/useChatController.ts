@@ -23,6 +23,7 @@ import {
   type AgentTraceEvent,
   type ChatStreamEvent,
   type Content,
+  type ContentPart,
   type Context,
   type Session,
   type ToolCall,
@@ -49,6 +50,11 @@ export type ChatDisplayMessage = Content & {
   text: string
   pending?: boolean
   contextIndex?: number
+}
+
+type ChatMessageInput = {
+  text: string
+  images: ContentPart[]
 }
 type ToolApprovalMessage = ChatDisplayMessage & {
   metadata: {
@@ -233,9 +239,10 @@ export function useChatController({
     }
   }
 
-  async function sendChatMessage(text: string) {
+  async function sendChatMessage(input: ChatMessageInput) {
     await sendChatMessageInternal({
-      text,
+      text: input.text,
+      images: input.images,
       retryFromMessageIndex: null,
     })
   }
@@ -247,20 +254,26 @@ export function useChatController({
 
     await sendChatMessageInternal({
       text: '',
+      images: [],
       retryFromMessageIndex: message.contextIndex,
     })
   }
 
   async function sendChatMessageInternal(options: {
     text: string
+    images: ContentPart[]
     retryFromMessageIndex: number | null
   }) {
     const session = selectedSession.value || await createChatSession('新会话')
     const messageText = options.text.trim()
     const retryFromMessageIndex = options.retryFromMessageIndex
     const isRetry = retryFromMessageIndex !== null
+    const messageParts: ContentPart[] = [
+      ...(messageText ? [{ type: 'text' as const, text: messageText }] : []),
+      ...options.images,
+    ]
 
-    if (!session || (!isRetry && messageText === '')) {
+    if (!session || (!isRetry && messageParts.length === 0)) {
       return
     }
 
@@ -278,8 +291,8 @@ export function useChatController({
           ? []
           : [{
               role: 'user',
-              content: [{ type: 'text', text: messageText }],
-              text: messageText,
+              content: messageParts,
+              text: messageText || `发送了 ${options.images.length} 张图片`,
             } satisfies ChatDisplayMessage]
       ),
       {
@@ -300,7 +313,7 @@ export function useChatController({
           : [
               {
                 role: 'user',
-                content: [{ type: 'text', text: messageText }],
+                content: messageParts,
               },
             ],
         retry_from_message_index: retryFromMessageIndex,

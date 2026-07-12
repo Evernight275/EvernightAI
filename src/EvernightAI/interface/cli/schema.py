@@ -51,6 +51,7 @@ class FilesystemToolConfig(EvernightAISchema):
 class ShellToolConfig(EvernightAISchema):
     enabled: bool = False
     allowed_commands: list[str] = Field(default_factory=list)
+    blocked_commands: list[str] = Field(default_factory=list)
     working_directory: str | None = None
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
@@ -79,6 +80,7 @@ class ProjectToolConfig(EvernightAISchema):
     working_directory: str = "."
     commands: dict[str, list[str]] = Field(default_factory=dict)
     projects: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    project_directories: dict[str, str] = Field(default_factory=dict)
     timeout_seconds: float = 120.0
     max_output_chars: int = 20000
 

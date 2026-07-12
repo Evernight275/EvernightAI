@@ -196,7 +196,9 @@ async def test_write_text_file_can_overwrite_when_enabled(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_directory_lists_entries_inside_root_without_approval(tmp_path) -> None:
+async def test_list_directory_lists_entries_inside_root_without_approval(
+    tmp_path,
+) -> None:
     (tmp_path / "a.txt").write_text("a", encoding="utf-8")
     (tmp_path / "b").mkdir()
     register = ToolRegister()
@@ -249,6 +251,142 @@ async def test_list_directory_limits_entries(tmp_path) -> None:
         {"name": "a.txt", "path": "a.txt", "type": "file"}
     ]
     assert result.tool_call_result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_read_tools_access_configured_project_root(tmp_path) -> None:
+    default_root = tmp_path / "current-project"
+    project_root = tmp_path / "other-project"
+    default_root.mkdir()
+    project_root.mkdir()
+    (project_root / "README.md").write_text("other project", encoding="utf-8")
+    register = ToolRegister()
+    register_restricted_filesystem_tools(
+        register,
+        root_directory=default_root,
+        project_directories={"OtherProject": project_root},
+    )
+    manager = ToolManager(register)
+
+    listed = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "list_directory",
+                "arguments": {"project": "OtherProject", "path": "."},
+            },
+        )
+    )
+    read = await manager.execute(
+        ToolCall(
+            tool_call_id="call-2",
+            tool_call={
+                "name": "read_text_file",
+                "arguments": {
+                    "project": "OtherProject",
+                    "path": "README.md",
+                },
+            },
+        )
+    )
+
+    assert listed.tool_call_result["project"] == "OtherProject"
+    assert listed.tool_call_result["entries"] == [
+        {"name": "README.md", "path": "README.md", "type": "file"}
+    ]
+    assert read.tool_call_result == {
+        "project": "OtherProject",
+        "path": "README.md",
+        "content": "other project",
+        "truncated": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_read_tools_reject_unknown_project_root(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_filesystem_tools(
+        register,
+        root_directory=tmp_path,
+        project_directories={},
+    )
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "list_directory",
+                    "arguments": {"project": "Unknown", "path": "."},
+                },
+            )
+        )
+
+    assert exc_info.value.detail == "The project Unknown is not configured"
+
+
+@pytest.mark.asyncio
+async def test_write_tools_modify_configured_project_root_when_approved(
+    tmp_path,
+) -> None:
+    default_root = tmp_path / "current-project"
+    project_root = tmp_path / "other-project"
+    default_root.mkdir()
+    project_root.mkdir()
+    register = ToolRegister()
+    register_restricted_filesystem_tools(
+        register,
+        root_directory=default_root,
+        project_directories={"OtherProject": project_root},
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "write_text_file",
+                "arguments": {
+                    "project": "OtherProject",
+                    "path": "notes/new.txt",
+                    "content": "changed",
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert not (default_root / "notes" / "new.txt").exists()
+    assert (project_root / "notes" / "new.txt").read_text(encoding="utf-8") == (
+        "changed"
+    )
+    assert result.tool_call_result["project"] == "OtherProject"
+
+
+@pytest.mark.asyncio
+async def test_write_tools_reject_unknown_project_before_approval(tmp_path) -> None:
+    register = ToolRegister()
+    register_restricted_filesystem_tools(register, root_directory=tmp_path)
+    manager = ToolManager(register)
+
+    with pytest.raises(ToolPolicyError) as exc_info:
+        await manager.execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={
+                    "name": "write_text_file",
+                    "arguments": {
+                        "project": "Unknown",
+                        "path": "note.txt",
+                        "content": "blocked",
+                    },
+                },
+            )
+        )
+
+    assert exc_info.value.detail == "The project Unknown is not configured"
+    assert not (tmp_path / "note.txt").exists()
 
 
 @pytest.mark.asyncio
@@ -499,9 +637,7 @@ async def test_find_paths_finds_matching_files(tmp_path) -> None:
         )
     )
 
-    assert result.tool_call_result["matches"] == [
-        {"path": "a.py", "type": "file"}
-    ]
+    assert result.tool_call_result["matches"] == [{"path": "a.py", "type": "file"}]
 
 
 @pytest.mark.asyncio
@@ -550,8 +686,7 @@ async def test_file_hash_returns_sha256(tmp_path) -> None:
 
     assert result.tool_call_result["algorithm"] == "sha256"
     assert result.tool_call_result["hexdigest"] == (
-        "2cf24dba5fb0a30e26e83b2ac5b9e29e"
-        "1b161e5c1fa7425e73043362938b9824"
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
     )
 
 
@@ -613,13 +748,13 @@ async def test_list_and_find_paths_reject_invalid_inputs_and_truncate(tmp_path) 
 
     assert file_result["matches"] == [{"path": "src/a.py", "type": "file"}]
     assert file_result["truncated"] is True
-    assert directory_result["matches"] == [
-        {"path": "src/pkg", "type": "directory"}
-    ]
+    assert directory_result["matches"] == [{"path": "src/pkg", "type": "directory"}]
 
 
 @pytest.mark.asyncio
-async def test_search_text_files_rejects_invalid_inputs_and_limits_results(tmp_path) -> None:
+async def test_search_text_files_rejects_invalid_inputs_and_limits_results(
+    tmp_path,
+) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.txt").write_text("Alpha\nalpha\n", encoding="utf-8")
     (tmp_path / "src" / "b.txt").write_text("alpha\n", encoding="utf-8")
@@ -707,7 +842,9 @@ async def test_read_lines_rejects_invalid_file_and_range_inputs(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_move_path_rejects_invalid_inputs_and_overwrites_when_enabled(tmp_path) -> None:
+async def test_move_path_rejects_invalid_inputs_and_overwrites_when_enabled(
+    tmp_path,
+) -> None:
     (tmp_path / "source.txt").write_text("new", encoding="utf-8")
     (tmp_path / "target.txt").write_text("old", encoding="utf-8")
     (tmp_path / "target_dir").mkdir()
@@ -770,7 +907,9 @@ async def test_move_path_rejects_invalid_inputs_and_overwrites_when_enabled(tmp_
 
 
 @pytest.mark.asyncio
-async def test_delete_path_rejects_invalid_inputs_and_deletes_directory(tmp_path) -> None:
+async def test_delete_path_rejects_invalid_inputs_and_deletes_directory(
+    tmp_path,
+) -> None:
     (tmp_path / "dir").mkdir()
     (tmp_path / "dir" / "note.txt").write_text("hello", encoding="utf-8")
 
@@ -814,7 +953,9 @@ async def test_apply_patch_rejects_invalid_inputs_and_replaces_all(tmp_path) -> 
             }
         )
     with pytest.raises(ToolInputError, match="not found"):
-        await tool.execute({"path": "note.txt", "old_text": "missing", "new_text": "hi"})
+        await tool.execute(
+            {"path": "note.txt", "old_text": "missing", "new_text": "hi"}
+        )
 
     result = await tool.execute(
         {
@@ -854,7 +995,9 @@ async def test_hash_and_path_info_reject_invalid_inputs(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_make_directory_rejects_invalid_options_and_reports_existing(tmp_path) -> None:
+async def test_make_directory_rejects_invalid_options_and_reports_existing(
+    tmp_path,
+) -> None:
     (tmp_path / "existing").mkdir()
 
     with pytest.raises(ToolInputError, match="parents value must be a boolean"):
@@ -939,7 +1082,9 @@ async def test_copy_path_rejects_invalid_inputs_and_overwrites_files_and_directo
 
 
 @pytest.mark.asyncio
-async def test_json_tools_reject_invalid_inputs_and_overwrite_when_enabled(tmp_path) -> None:
+async def test_json_tools_reject_invalid_inputs_and_overwrite_when_enabled(
+    tmp_path,
+) -> None:
     (tmp_path / "invalid.json").write_text("{", encoding="utf-8")
     (tmp_path / "data.json").write_text('{"old": true}', encoding="utf-8")
 

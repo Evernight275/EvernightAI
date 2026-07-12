@@ -4,6 +4,7 @@ import pytest
 
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.error.tool import (
+    ToolConfigurationError,
     ToolExecutionError,
     ToolInputError,
     ToolPolicyError,
@@ -104,6 +105,61 @@ async def test_restricted_project_task_uses_named_project_command(tmp_path) -> N
     assert result.tool_call_result["project"] == "EvernightAI"
     assert result.tool_call_result["command_scope"] == "project"
     assert result.tool_call_result["stdout"].splitlines() == ["project"]
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_task_uses_configured_project_directory(
+    tmp_path,
+) -> None:
+    project_directory = tmp_path / "other-project"
+    project_directory.mkdir()
+    register = ToolRegister()
+    register_restricted_project_tools(
+        register,
+        working_directory=tmp_path,
+        commands={"placeholder": ["not-used"]},
+        project_commands={
+            "OtherProject": {
+                "inspect": [
+                    sys.executable,
+                    "-c",
+                    "import pathlib; print(pathlib.Path.cwd().name)",
+                ]
+            }
+        },
+        project_directories={"OtherProject": project_directory},
+    )
+    manager = ToolManager(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={
+                "name": "run_project_task",
+                "arguments": {"project": "OtherProject", "task": "inspect"},
+            },
+            metadata={"approved": True},
+        )
+    )
+
+    assert result.tool_call_result["command_scope"] == "project"
+    assert result.tool_call_result["working_directory"] == str(project_directory)
+    assert result.tool_call_result["stdout"].splitlines() == ["other-project"]
+
+
+def test_restricted_project_task_requires_existing_absolute_project_directory(
+    tmp_path,
+) -> None:
+    for project_directory in ["relative-project", tmp_path / "missing-project"]:
+        register = ToolRegister()
+
+        with pytest.raises(ToolConfigurationError):
+            register_restricted_project_tools(
+                register,
+                working_directory=tmp_path,
+                commands={"inspect": [sys.executable, "--version"]},
+                project_directories={"OtherProject": project_directory},
+            )
 
 
 @pytest.mark.asyncio

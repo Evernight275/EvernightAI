@@ -18,6 +18,7 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
+from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 
 
 SANDBOX_MOUNT_PATH = "/workspace"
@@ -30,11 +31,16 @@ class RestrictedProjectTaskTool:
         working_directory: str | Path,
         commands: dict[str, list[str]],
         project_commands: dict[str, dict[str, list[str]]] | None = None,
+        project_directories: dict[str, str | Path] | None = None,
         timeout_seconds: float = 120.0,
         max_output_chars: int = 20000,
         sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
-        self._working_directory = Path(working_directory).resolve()
+        self._roots = ProjectRootResolver(
+            default_root=working_directory,
+            project_directories=project_directories,
+        )
+        self._working_directory = self._roots.default_root
         self._commands = dict(commands)
         self._project_commands = {
             project: dict(project_tasks)
@@ -48,7 +54,7 @@ class RestrictedProjectTaskTool:
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="run_project_task",
-            description="Run an allowlisted project task in a fixed working directory",
+            description="Run an allowlisted project task in a configured working directory",
             parameters_schema={
                 "type": "object",
                 "properties": {
@@ -67,6 +73,7 @@ class RestrictedProjectTaskTool:
                     project: sorted(tasks)
                     for project, tasks in sorted(self._project_commands.items())
                 },
+                "project_directories": self._roots.project_names,
                 "timeout_seconds": self._timeout_seconds,
                 "max_output_chars": self._max_output_chars,
                 "sandbox_mount_path": SANDBOX_MOUNT_PATH,
@@ -84,9 +91,7 @@ class RestrictedProjectTaskTool:
         if project is not None and (not isinstance(project, str) or not project):
             raise ToolInputError("The project name must be a non-empty string")
         project_tasks = (
-            self._project_commands.get(project, {})
-            if isinstance(project, str)
-            else {}
+            self._project_commands.get(project, {}) if isinstance(project, str) else {}
         )
         command_scope = "project" if task in project_tasks else "global"
         command = (
@@ -99,6 +104,10 @@ class RestrictedProjectTaskTool:
             raise ToolInputError(f"The project task {task}{qualifier} is not allowed")
         if not command or not all(isinstance(part, str) and part for part in command):
             raise ToolInputError(f"The project task {task} command is invalid")
+        _, working_directory = self._roots.resolve(
+            project,
+            require_configured=False,
+        )
 
         result = await self._sandbox.execute(
             SandboxExecutionRequest(
@@ -108,7 +117,7 @@ class RestrictedProjectTaskTool:
                     cwd=SANDBOX_MOUNT_PATH,
                     timeout_seconds=self._timeout_seconds,
                 ),
-                policy=self._sandbox_policy(),
+                policy=self._sandbox_policy(working_directory),
             )
         )
 
@@ -116,6 +125,7 @@ class RestrictedProjectTaskTool:
             "project": project,
             "task": task,
             "command_scope": command_scope,
+            "working_directory": str(working_directory),
             "command": result.command,
             "returncode": result.returncode,
             "stdout": result.stdout,
@@ -123,14 +133,12 @@ class RestrictedProjectTaskTool:
             "truncated": result.truncated,
         }
 
-    def _sandbox_policy(self) -> SandboxPolicy:
+    def _sandbox_policy(self, working_directory: Path) -> SandboxPolicy:
         return SandboxPolicy(
-            command_allowlist=sorted(
-                {command[0] for command in self._commands.values() if command}
-            ),
+            command_allowlist=sorted(self._allowed_executables()),
             filesystem_mounts=[
                 SandboxFilesystemMount(
-                    host_path=str(self._working_directory),
+                    host_path=str(working_directory),
                     mount_path=SANDBOX_MOUNT_PATH,
                     access=SandboxFilesystemAccess.READ_WRITE,
                 )
@@ -140,3 +148,12 @@ class RestrictedProjectTaskTool:
                 max_output_chars=self._max_output_chars,
             ),
         )
+
+    def _allowed_executables(self) -> set[str]:
+        commands = [*self._commands.values()]
+        commands.extend(
+            command
+            for project_tasks in self._project_commands.values()
+            for command in project_tasks.values()
+        )
+        return {command[0] for command in commands if command}

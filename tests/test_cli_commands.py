@@ -40,6 +40,7 @@ def test_format_config_summary_reports_runtime_and_provider_counts() -> None:
             "tools.filesystem.enabled: True",
             "tools.shell.enabled: True",
             "tools.shell.allowed_commands: 1",
+            "tools.shell.blocked_commands: 0",
         ]
     )
 

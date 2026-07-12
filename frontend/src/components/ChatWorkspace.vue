@@ -11,7 +11,13 @@ import python from 'highlight.js/lib/languages/python'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import katex from 'katex'
-import type { Content, Session, ToolApprovalRequest } from '../api'
+import type {
+  Content,
+  ContentPart,
+  ProviderModelCapability,
+  Session,
+  ToolApprovalRequest,
+} from '../api'
 import { shortId } from '../format'
 import Icon from './Icon.vue'
 import { useToast } from '../composables/useToast'
@@ -19,6 +25,7 @@ import { useToast } from '../composables/useToast'
 type ModelOption = {
   value: string
   label: string
+  capabilities: ProviderModelCapability[]
 }
 
 type MathPlaceholder = {
@@ -61,10 +68,22 @@ const modelPickerOpen = ref(false)
 const settingsOpen = ref(false)
 const chatThread = ref<HTMLElement | null>(null)
 const chatInput = ref<HTMLTextAreaElement | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
+const selectedImages = ref<ContentPart[]>([])
+const MAX_IMAGE_COUNT = 4
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const selectedModelOption = computed(() => (
+  props.modelOptions.find((option) => option.value === modelSelection.value)
+  || props.modelOptions[0]
+))
 const selectedModelLabel = computed(() => (
-  props.modelOptions.find((option) => option.value === modelSelection.value)?.label
+  selectedModelOption.value?.label
   || props.modelOptions[0]?.label
   || '选择模型'
+))
+const supportsImageInput = computed(() => (
+  selectedModelOption.value?.capabilities.includes('image_recognition') === true
 ))
 const sendButtonLabel = computed(() => {
   if (props.sending) {
@@ -73,7 +92,10 @@ const sendButtonLabel = computed(() => {
   if (props.disabled) {
     return '请先选择可用模型'
   }
-  if (model.value.trim() === '') {
+  if (selectedImages.value.length > 0 && !supportsImageInput.value) {
+    return '当前模型不支持图片识别'
+  }
+  if (!canSubmit.value) {
     return '输入消息后发送'
   }
 
@@ -81,7 +103,7 @@ const sendButtonLabel = computed(() => {
 })
 const emit = defineEmits<{
   select: [session: Session]
-  send: [text: string]
+  send: [message: { text: string; images: ContentPart[] }]
   retryMessage: [message: ChatMessage]
   approveToolApproval: [message: ChatMessage]
   denyToolApproval: [message: ChatMessage]
@@ -89,6 +111,10 @@ const emit = defineEmits<{
   renameSession: [session: Session]
   deleteSession: [session: Session]
 }>()
+const canSubmit = computed(() => (
+  (model.value.trim() !== '' || selectedImages.value.length > 0)
+  && (selectedImages.value.length === 0 || supportsImageInput.value)
+))
 
 const copiedMessageIndex = ref<number | null>(null)
 const copiedCodeBlock = ref<string | null>(null)
@@ -216,10 +242,91 @@ markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, self) 
 
 function submit() {
   const text = model.value.trim()
-  if (text !== '') {
+  if (canSubmit.value) {
     modelPickerOpen.value = false
-    emit('send', text)
+    emit('send', { text, images: [...selectedImages.value] })
+    selectedImages.value = []
   }
+}
+
+function openImagePicker() {
+  if (!supportsImageInput.value) {
+    toast.warning('当前模型未声明图片识别能力')
+    return
+  }
+  imageInput.value?.click()
+}
+
+async function selectImages(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+
+  for (const file of files) {
+    if (selectedImages.value.length >= MAX_IMAGE_COUNT) {
+      toast.warning(`每条消息最多添加 ${MAX_IMAGE_COUNT} 张图片`)
+      break
+    }
+    if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
+      toast.error(`不支持的图片格式：${file.name}`)
+      continue
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error(`图片超过 5 MiB：${file.name}`)
+      continue
+    }
+
+    try {
+      selectedImages.value.push({
+        type: 'image',
+        data: await readImageData(file),
+        mime_type: file.type,
+        metadata: { name: file.name, size: file.size },
+      })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `无法读取图片：${file.name}`)
+    }
+  }
+}
+
+function readImageData(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const separator = result.indexOf(',')
+      if (separator === -1) {
+        reject(new Error(`无法读取图片：${file.name}`))
+        return
+      }
+      resolve(result.slice(separator + 1))
+    }
+    reader.onerror = () => reject(reader.error || new Error(`无法读取图片：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function removeImage(index: number) {
+  selectedImages.value.splice(index, 1)
+}
+
+function imageSource(part: ContentPart): string | null {
+  if (part.url) {
+    return part.url
+  }
+  if (!part.data) {
+    return null
+  }
+  if (part.data.startsWith('data:')) {
+    return part.data
+  }
+  return part.mime_type ? `data:${part.mime_type};base64,${part.data}` : null
+}
+
+function messageImages(message: Content): ContentPart[] {
+  return (message.content || []).filter(
+    (part) => part.type === 'image' && imageSource(part) !== null,
+  )
 }
 
 function toggleModelPicker() {
@@ -985,7 +1092,21 @@ onMounted(() => {
               <pre><code>{{ toolCallDetail(message) }}</code></pre>
             </details>
           </div>
-          <div v-else class="message-markdown" v-html="renderMarkdown(message.text || '无文本内容')"></div>
+          <div v-else class="message-content">
+            <div v-if="messageImages(message).length" class="message-images">
+              <img
+                v-for="(part, imageIndex) in messageImages(message)"
+                :key="imageIndex"
+                :src="imageSource(part) || undefined"
+                :alt="String(part.metadata?.name || `图片 ${imageIndex + 1}`)"
+              />
+            </div>
+            <div
+              v-if="message.text || messageImages(message).length === 0"
+              class="message-markdown"
+              v-html="renderMarkdown(message.text || '无文本内容')"
+            ></div>
+          </div>
           <div class="message-actions">
             <button
               v-if="message.role === 'assistant' && !message.pending"
@@ -1046,6 +1167,14 @@ onMounted(() => {
 
       <form class="chat-composer" @submit.prevent="submit">
         <div class="chat-input-shell">
+          <div v-if="selectedImages.length" class="composer-images">
+            <div v-for="(part, index) in selectedImages" :key="index" class="composer-image">
+              <img :src="imageSource(part) || undefined" :alt="String(part.metadata?.name || '待发送图片')" />
+              <button type="button" title="移除图片" aria-label="移除图片" @click="removeImage(index)">
+                <Icon name="x" />
+              </button>
+            </div>
+          </div>
           <textarea
             ref="chatInput"
             v-model="model"
@@ -1058,6 +1187,25 @@ onMounted(() => {
             @keydown.enter.exact.prevent="submit"
           ></textarea>
           <div class="chat-input-actions">
+            <input
+              ref="imageInput"
+              class="visually-hidden"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              tabindex="-1"
+              @change="selectImages"
+            />
+            <button
+              class="chat-attach-button"
+              type="button"
+              :disabled="disabled || sending || !supportsImageInput || selectedImages.length >= MAX_IMAGE_COUNT"
+              :title="supportsImageInput ? '添加图片' : '当前模型不支持图片识别'"
+              :aria-label="supportsImageInput ? '添加图片' : '当前模型不支持图片识别'"
+              @click="openImagePicker"
+            >
+              <Icon name="image-plus" />
+            </button>
             <div class="model-picker" :class="{ 'is-open': modelPickerOpen }">
               <button
                 class="model-picker-trigger"
@@ -1091,7 +1239,7 @@ onMounted(() => {
             <button
               class="chat-send-button"
               type="submit"
-              :disabled="disabled || sending || model.trim() === ''"
+              :disabled="disabled || sending || !canSubmit"
               :title="sendButtonLabel"
               :aria-label="sendButtonLabel"
             >

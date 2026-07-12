@@ -4,7 +4,10 @@ from typing import Any
 
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
-from EvernightAI.core.protocol.tool import ToolExecutorProtocol
+from EvernightAI.core.protocol.tool import (
+    ToolExecutorProtocol,
+    ToolPreflightPolicy,
+)
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -17,6 +20,7 @@ from EvernightAI.core.schema.tool import (
     ToolApprovalMode,
     ToolDefinition,
     ToolPermission,
+    ToolSafetyDecision,
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
@@ -31,6 +35,7 @@ class RestrictedShellTool:
         *,
         allowed_commands: set[str],
         working_directory: str | Path,
+        blocked_commands: set[str] | None = None,
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
         requires_approval: bool = True,
@@ -38,6 +43,7 @@ class RestrictedShellTool:
         sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._allowed_commands = allowed_commands
+        self._blocked_commands = set(blocked_commands or ())
         self._working_directory = Path(working_directory).resolve()
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
@@ -77,6 +83,7 @@ class RestrictedShellTool:
             ),
             metadata={
                 "allowed_commands": sorted(self._allowed_commands),
+                "blocked_commands": sorted(self._blocked_commands),
                 "working_directory": str(self._working_directory),
                 "timeout_seconds": self._timeout_seconds,
                 "max_output_chars": self._max_output_chars,
@@ -92,10 +99,25 @@ class RestrictedShellTool:
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
+    def preflight_policy(self) -> ToolPreflightPolicy:
+        return self.authorize
+
+    def authorize(
+        self,
+        _tool: ToolDefinition,
+        arguments: dict[str, Any],
+    ) -> ToolSafetyDecision | None:
+        command = self._parse_command(arguments)
+        reason = self._command_rejection_reason(command)
+        if reason is None:
+            return None
+        return ToolSafetyDecision(allowed=False, reason=reason)
+
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = self._parse_command(arguments)
-        if not self._is_allowed_command(command):
-            raise ToolInputError(f"The command {' '.join(command)} is not allowed")
+        reason = self._command_rejection_reason(command)
+        if reason is not None:
+            raise ToolInputError(reason)
         result = await self._sandbox.execute(
             SandboxExecutionRequest(
                 request_id="restricted_shell",
@@ -150,6 +172,22 @@ class RestrictedShellTool:
         if command[0] in self._allowed_commands:
             return True
         return any(self._parse_command_rule(rule) == command for rule in self._allowed_commands)
+
+    def _command_rejection_reason(self, command: list[str]) -> str | None:
+        rendered_command = " ".join(command)
+        if self._is_blocked_command(command):
+            return f"The command {rendered_command} is blocked"
+        if not self._is_allowed_command(command):
+            return f"The command {rendered_command} is not allowed"
+        return None
+
+    def _is_blocked_command(self, command: list[str]) -> bool:
+        return any(
+            parts and command[: len(parts)] == parts
+            for parts in (
+                self._parse_command_rule(rule) for rule in self._blocked_commands
+            )
+        )
 
     def _allowed_executables(self) -> set[str]:
         executables: set[str] = set()

@@ -6,32 +6,85 @@ from pathlib import Path
 from typing import Any
 
 from EvernightAI.core.error.tool import ToolInputError
-from EvernightAI.core.protocol.tool import ToolExecutorProtocol
+from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
+    ToolSafetyDecision,
     ToolSafetyLevel,
 )
+from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 
 
-class RestrictedReadTextFileTool:
+class _ProjectAwareFilesystemTool:
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
+    ) -> None:
+        self._roots = ProjectRootResolver(
+            default_root=root_directory,
+            project_directories=project_directories,
+        )
+        self._root_directory = self._roots.default_root
+
+    def _resolve_root(self, arguments: dict[str, Any]) -> tuple[str | None, Path]:
+        return self._roots.resolve(
+            arguments.get("project"),
+            require_configured=True,
+        )
+
+    def _root_metadata(self) -> dict[str, Any]:
+        return {
+            "root_directory": str(self._root_directory),
+            "projects": self._roots.project_names,
+        }
+
+    def _project_schema(self) -> dict[str, Any]:
+        return {
+            "type": "string",
+            "enum": self._roots.project_names,
+        }
+
+    def preflight_policy(self) -> ToolPreflightPolicy:
+        return self.authorize
+
+    def authorize(
+        self,
+        _tool: ToolDefinition,
+        arguments: dict[str, Any],
+    ) -> ToolSafetyDecision | None:
+        try:
+            self._resolve_root(arguments)
+        except ToolInputError as exc:
+            return ToolSafetyDecision(allowed=False, reason=str(exc))
+        return None
+
+
+class RestrictedReadTextFileTool(_ProjectAwareFilesystemTool):
+    def __init__(
+        self,
+        *,
+        root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         max_chars: int = 12000,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._max_chars = max_chars
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="read_text_file",
-            description="Read a UTF-8 text file inside a fixed root directory",
+            description="Read a UTF-8 text file from the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                 },
                 "required": ["path"],
@@ -39,7 +92,7 @@ class RestrictedReadTextFileTool:
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "max_chars": self._max_chars,
             },
         )
@@ -48,7 +101,8 @@ class RestrictedReadTextFileTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.is_file():
             raise ToolInputError(f"The file {path.name} does not exist")
 
@@ -57,31 +111,39 @@ class RestrictedReadTextFileTool:
         if truncated:
             text = text[: self._max_chars]
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "content": text,
-            "truncated": truncated,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "content": text,
+                "truncated": truncated,
+            },
+            project,
+        )
 
 
-class RestrictedWriteTextFileTool:
+class RestrictedWriteTextFileTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         allow_overwrite: bool = False,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._allow_overwrite = allow_overwrite
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="write_text_file",
-            description="Write a UTF-8 text file inside a fixed root directory",
+            description="Write a UTF-8 text file in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "content": {"type": "string"},
                 },
@@ -91,7 +153,7 @@ class RestrictedWriteTextFileTool:
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "allow_overwrite": self._allow_overwrite,
             },
         )
@@ -100,7 +162,8 @@ class RestrictedWriteTextFileTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         content = arguments.get("content")
         if not isinstance(content, str):
             raise ToolInputError("The file content must be a string")
@@ -111,29 +174,37 @@ class RestrictedWriteTextFileTool:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "bytes_written": len(content.encode("utf-8")),
-            "overwritten": existed,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "bytes_written": len(content.encode("utf-8")),
+                "overwritten": existed,
+            },
+            project,
+        )
 
 
-class RestrictedAppendTextFileTool:
+class RestrictedAppendTextFileTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="append_text_file",
-            description="Append UTF-8 text to a file inside a fixed root directory",
+            description="Append UTF-8 text in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "content": {"type": "string"},
                     "create": {"type": "boolean"},
@@ -143,14 +214,15 @@ class RestrictedAppendTextFileTool:
             permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         content = arguments.get("content")
         create = arguments.get("create", True)
         if not isinstance(content, str):
@@ -165,38 +237,46 @@ class RestrictedAppendTextFileTool:
         with path.open("a", encoding="utf-8") as file:
             file.write(content)
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "bytes_written": len(content.encode("utf-8")),
-            "created": not existed,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "bytes_written": len(content.encode("utf-8")),
+                "created": not existed,
+            },
+            project,
+        )
 
 
-class RestrictedListDirectoryTool:
+class RestrictedListDirectoryTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         max_entries: int = 100,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._max_entries = max_entries
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="list_directory",
-            description="List files and directories inside a fixed root directory",
+            description="List files and directories in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                 },
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "max_entries": self._max_entries,
             },
         )
@@ -205,46 +285,55 @@ class RestrictedListDirectoryTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        project, root_directory = self._resolve_root(arguments)
         raw_path = arguments.get("path", ".")
-        path = _resolve_path(self._root_directory, raw_path)
+        path = _resolve_path(root_directory, raw_path)
         if not path.is_dir():
             raise ToolInputError(f"The directory {path.name} does not exist")
 
         entries = sorted(path.iterdir(), key=lambda entry: entry.name)
         limited_entries = entries[: self._max_entries]
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "entries": [
-                {
-                    "name": entry.name,
-                    "path": _relative_path(self._root_directory, entry),
-                    "type": "directory" if entry.is_dir() else "file",
-                }
-                for entry in limited_entries
-            ],
-            "truncated": len(entries) > self._max_entries,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "entries": [
+                    {
+                        "name": entry.name,
+                        "path": _relative_path(root_directory, entry),
+                        "type": "directory" if entry.is_dir() else "file",
+                    }
+                    for entry in limited_entries
+                ],
+                "truncated": len(entries) > self._max_entries,
+            },
+            project,
+        )
 
 
-class RestrictedFindPathsTool:
+class RestrictedFindPathsTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         max_results: int = 100,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._max_results = max_results
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="find_paths",
-            description="Find files or directories by name pattern inside a fixed root directory",
+            description="Find paths by name in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "pattern": {"type": "string"},
                     "type": {"type": "string", "enum": ["file", "directory", "any"]},
@@ -254,7 +343,7 @@ class RestrictedFindPathsTool:
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "max_results": self._max_results,
             },
         )
@@ -263,7 +352,8 @@ class RestrictedFindPathsTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        root = _resolve_path(self._root_directory, arguments.get("path", "."))
+        project, root_directory = self._resolve_root(arguments)
+        root = _resolve_path(root_directory, arguments.get("path", "."))
         if not root.is_dir():
             raise ToolInputError(f"The directory {root.name} does not exist")
 
@@ -285,28 +375,35 @@ class RestrictedFindPathsTool:
                 continue
             matches.append(
                 {
-                    "path": _relative_path(self._root_directory, path),
+                    "path": _relative_path(root_directory, path),
                     "type": path_type,
                 }
             )
 
-        return {
-            "path": _relative_path(self._root_directory, root),
-            "pattern": pattern,
-            "matches": matches,
-            "truncated": len(matches) >= self._max_results,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, root),
+                "pattern": pattern,
+                "matches": matches,
+                "truncated": len(matches) >= self._max_results,
+            },
+            project,
+        )
 
 
-class RestrictedSearchTextFilesTool:
+class RestrictedSearchTextFilesTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         max_results: int = 100,
         max_file_chars: int = 200000,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._max_results = max_results
         self._max_file_chars = max_file_chars
 
@@ -314,10 +411,11 @@ class RestrictedSearchTextFilesTool:
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="search_text_files",
-            description="Search UTF-8 text files inside a fixed root directory",
+            description="Search text files in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "query": {"type": "string"},
                     "pattern": {"type": "string"},
@@ -328,7 +426,7 @@ class RestrictedSearchTextFilesTool:
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "max_results": self._max_results,
                 "max_file_chars": self._max_file_chars,
             },
@@ -338,7 +436,8 @@ class RestrictedSearchTextFilesTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        root = _resolve_path(self._root_directory, arguments.get("path", "."))
+        project, root_directory = self._resolve_root(arguments)
+        root = _resolve_path(root_directory, arguments.get("path", "."))
         if not root.is_dir():
             raise ToolInputError(f"The directory {root.name} does not exist")
 
@@ -381,7 +480,7 @@ class RestrictedSearchTextFilesTool:
                     continue
                 matches.append(
                     {
-                        "path": _relative_path(self._root_directory, path),
+                        "path": _relative_path(root_directory, path),
                         "line_number": line_number,
                         "line": line,
                     }
@@ -389,35 +488,43 @@ class RestrictedSearchTextFilesTool:
                 if len(matches) >= self._max_results:
                     break
 
-        return {
-            "path": _relative_path(self._root_directory, root),
-            "query": query,
-            "pattern": pattern,
-            "matches": matches,
-            "scanned_files": scanned_files,
-            "skipped_files": skipped_files,
-            "truncated": len(matches) >= self._max_results,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, root),
+                "query": query,
+                "pattern": pattern,
+                "matches": matches,
+                "scanned_files": scanned_files,
+                "skipped_files": skipped_files,
+                "truncated": len(matches) >= self._max_results,
+            },
+            project,
+        )
 
 
-class RestrictedReadTextFileLinesTool:
+class RestrictedReadTextFileLinesTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         max_lines: int = 200,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._max_lines = max_lines
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="read_text_file_lines",
-            description="Read a line range from a UTF-8 text file inside a fixed root directory",
+            description="Read text lines from the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "start_line": {"type": "integer"},
                     "line_count": {"type": "integer"},
@@ -427,7 +534,7 @@ class RestrictedReadTextFileLinesTool:
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "max_lines": self._max_lines,
             },
         )
@@ -436,7 +543,8 @@ class RestrictedReadTextFileLinesTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.is_file():
             raise ToolInputError(f"The file {path.name} does not exist")
 
@@ -450,36 +558,44 @@ class RestrictedReadTextFileLinesTool:
         effective_count = min(line_count, self._max_lines)
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         selected = lines[start_line - 1 : start_line - 1 + effective_count]
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "start_line": start_line,
-            "line_count": len(selected),
-            "lines": [
-                {"line_number": start_line + index, "text": line}
-                for index, line in enumerate(selected)
-            ],
-            "truncated": line_count > self._max_lines,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "start_line": start_line,
+                "line_count": len(selected),
+                "lines": [
+                    {"line_number": start_line + index, "text": line}
+                    for index, line in enumerate(selected)
+                ],
+                "truncated": line_count > self._max_lines,
+            },
+            project,
+        )
 
 
-class RestrictedMovePathTool:
+class RestrictedMovePathTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         allow_overwrite: bool = False,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._allow_overwrite = allow_overwrite
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="move_path",
-            description="Move a file or directory inside a fixed root directory",
+            description="Move a path in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "source_path": {"type": "string"},
                     "destination_path": {"type": "string"},
                     "overwrite": {"type": "boolean"},
@@ -490,7 +606,7 @@ class RestrictedMovePathTool:
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "allow_overwrite": self._allow_overwrite,
             },
         )
@@ -499,9 +615,10 @@ class RestrictedMovePathTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        source = _resolve_path(self._root_directory, arguments.get("source_path"))
+        project, root_directory = self._resolve_root(arguments)
+        source = _resolve_path(root_directory, arguments.get("source_path"))
         destination = _resolve_path(
-            self._root_directory,
+            root_directory,
             arguments.get("destination_path"),
         )
         if not source.exists():
@@ -525,29 +642,37 @@ class RestrictedMovePathTool:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
 
-        return {
-            "source_path": _relative_path(self._root_directory, source),
-            "destination_path": _relative_path(self._root_directory, destination),
-            "overwritten": existed,
-        }
+        return _with_project(
+            {
+                "source_path": _relative_path(root_directory, source),
+                "destination_path": _relative_path(root_directory, destination),
+                "overwritten": existed,
+            },
+            project,
+        )
 
 
-class RestrictedDeletePathTool:
+class RestrictedDeletePathTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="delete_path",
-            description="Delete a file or directory inside a fixed root directory",
+            description="Delete a path in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "recursive": {"type": "boolean"},
                 },
@@ -556,14 +681,15 @@ class RestrictedDeletePathTool:
             permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         recursive = arguments.get("recursive", False)
         if not isinstance(recursive, bool):
             raise ToolInputError("The recursive value must be a boolean")
@@ -578,29 +704,37 @@ class RestrictedDeletePathTool:
         else:
             path.unlink()
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "type": path_type,
-            "deleted": True,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "type": path_type,
+                "deleted": True,
+            },
+            project,
+        )
 
 
-class RestrictedApplyTextPatchTool:
+class RestrictedApplyTextPatchTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="apply_text_patch",
-            description="Apply an exact text replacement to a UTF-8 file inside a fixed root directory",
+            description="Apply a text replacement in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "old_text": {"type": "string"},
                     "new_text": {"type": "string"},
@@ -611,14 +745,15 @@ class RestrictedApplyTextPatchTool:
             permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.is_file():
             raise ToolInputError(f"The file {path.name} does not exist")
 
@@ -645,29 +780,37 @@ class RestrictedApplyTextPatchTool:
             replacements = 1
 
         path.write_text(next_text, encoding="utf-8")
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "replacements": replacements,
-            "bytes_written": len(next_text.encode("utf-8")),
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "replacements": replacements,
+                "bytes_written": len(next_text.encode("utf-8")),
+            },
+            project,
+        )
 
 
-class RestrictedFileHashTool:
+class RestrictedFileHashTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="file_hash",
-            description="Compute a file hash inside a fixed root directory",
+            description="Compute a file hash in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "algorithm": {"type": "string", "enum": ["sha256", "sha1", "md5"]},
                 },
@@ -675,14 +818,15 @@ class RestrictedFileHashTool:
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.is_file():
             raise ToolInputError(f"The file {path.name} does not exist")
 
@@ -695,70 +839,89 @@ class RestrictedFileHashTool:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "algorithm": algorithm,
-            "hexdigest": digest.hexdigest(),
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "algorithm": algorithm,
+                "hexdigest": digest.hexdigest(),
+            },
+            project,
+        )
 
 
-class RestrictedPathInfoTool:
+class RestrictedPathInfoTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="path_info",
-            description="Return metadata for a file or directory inside a fixed root directory",
+            description="Inspect a path in the default root or a configured project",
             parameters_schema={
                 "type": "object",
-                "properties": {"path": {"type": "string"}},
+                "properties": {
+                    "project": self._project_schema(),
+                    "path": {"type": "string"},
+                },
                 "required": ["path"],
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.exists():
             raise ToolInputError(f"The path {path.name} does not exist")
 
         stat = path.stat()
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "type": "directory" if path.is_dir() else "file",
-            "size_bytes": stat.st_size,
-            "modified_at": stat.st_mtime,
-            "is_symlink": path.is_symlink(),
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "type": "directory" if path.is_dir() else "file",
+                "size_bytes": stat.st_size,
+                "modified_at": stat.st_mtime,
+                "is_symlink": path.is_symlink(),
+            },
+            project,
+        )
 
 
-class RestrictedMakeDirectoryTool:
+class RestrictedMakeDirectoryTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="make_directory",
-            description="Create a directory inside a fixed root directory",
+            description="Create a directory in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "parents": {"type": "boolean"},
                     "exist_ok": {"type": "boolean"},
@@ -768,14 +931,15 @@ class RestrictedMakeDirectoryTool:
             permissions=[ToolPermission.WRITE, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         parents = arguments.get("parents", True)
         exist_ok = arguments.get("exist_ok", True)
         if not isinstance(parents, bool):
@@ -785,31 +949,39 @@ class RestrictedMakeDirectoryTool:
 
         existed = path.exists()
         path.mkdir(parents=parents, exist_ok=exist_ok)
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "created": not existed,
-            "existed": existed,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "created": not existed,
+                "existed": existed,
+            },
+            project,
+        )
 
 
-class RestrictedCopyPathTool:
+class RestrictedCopyPathTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         allow_overwrite: bool = False,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._allow_overwrite = allow_overwrite
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="copy_path",
-            description="Copy a file or directory inside a fixed root directory",
+            description="Copy a path in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "source_path": {"type": "string"},
                     "destination_path": {"type": "string"},
                     "overwrite": {"type": "boolean"},
@@ -820,7 +992,7 @@ class RestrictedCopyPathTool:
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "allow_overwrite": self._allow_overwrite,
             },
         )
@@ -829,9 +1001,10 @@ class RestrictedCopyPathTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        source = _resolve_path(self._root_directory, arguments.get("source_path"))
+        project, root_directory = self._resolve_root(arguments)
+        source = _resolve_path(root_directory, arguments.get("source_path"))
         destination = _resolve_path(
-            self._root_directory,
+            root_directory,
             arguments.get("destination_path"),
         )
         if not source.exists():
@@ -860,42 +1033,53 @@ class RestrictedCopyPathTool:
             shutil.copy2(source, destination)
             path_type = "file"
 
-        return {
-            "source_path": _relative_path(self._root_directory, source),
-            "destination_path": _relative_path(self._root_directory, destination),
-            "type": path_type,
-            "overwritten": existed,
-        }
+        return _with_project(
+            {
+                "source_path": _relative_path(root_directory, source),
+                "destination_path": _relative_path(root_directory, destination),
+                "type": path_type,
+                "overwritten": existed,
+            },
+            project,
+        )
 
 
-class RestrictedReadJsonFileTool:
+class RestrictedReadJsonFileTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="read_json_file",
-            description="Read a JSON file inside a fixed root directory",
+            description="Read a JSON file from the default root or a configured project",
             parameters_schema={
                 "type": "object",
-                "properties": {"path": {"type": "string"}},
+                "properties": {
+                    "project": self._project_schema(),
+                    "path": {"type": "string"},
+                },
                 "required": ["path"],
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
-            metadata={"root_directory": str(self._root_directory)},
+            metadata=self._root_metadata(),
         )
 
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         if not path.is_file():
             raise ToolInputError(f"The file {path.name} does not exist")
 
@@ -904,30 +1088,38 @@ class RestrictedReadJsonFileTool:
         except json.JSONDecodeError as exc:
             raise ToolInputError("The file is not valid JSON") from exc
 
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "data": data,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "data": data,
+            },
+            project,
+        )
 
 
-class RestrictedWriteJsonFileTool:
+class RestrictedWriteJsonFileTool(_ProjectAwareFilesystemTool):
     def __init__(
         self,
         *,
         root_directory: str | Path,
+        project_directories: dict[str, str | Path] | None = None,
         allow_overwrite: bool = False,
     ) -> None:
-        self._root_directory = Path(root_directory).resolve()
+        super().__init__(
+            root_directory=root_directory,
+            project_directories=project_directories,
+        )
         self._allow_overwrite = allow_overwrite
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="write_json_file",
-            description="Write a JSON file inside a fixed root directory",
+            description="Write a JSON file in the default root or a configured project",
             parameters_schema={
                 "type": "object",
                 "properties": {
+                    "project": self._project_schema(),
                     "path": {"type": "string"},
                     "data": {},
                     "indent": {"type": "integer"},
@@ -938,7 +1130,7 @@ class RestrictedWriteJsonFileTool:
             safety_level=ToolSafetyLevel.SENSITIVE,
             requires_approval=True,
             metadata={
-                "root_directory": str(self._root_directory),
+                **self._root_metadata(),
                 "allow_overwrite": self._allow_overwrite,
             },
         )
@@ -947,7 +1139,8 @@ class RestrictedWriteJsonFileTool:
         return self.execute
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = _resolve_path(self._root_directory, arguments.get("path"))
+        project, root_directory = self._resolve_root(arguments)
+        path = _resolve_path(root_directory, arguments.get("path"))
         data = arguments.get("data")
         indent = arguments.get("indent", 2)
         if not isinstance(indent, int):
@@ -964,11 +1157,14 @@ class RestrictedWriteJsonFileTool:
 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{content}\n", encoding="utf-8")
-        return {
-            "path": _relative_path(self._root_directory, path),
-            "bytes_written": len(f"{content}\n".encode("utf-8")),
-            "overwritten": existed,
-        }
+        return _with_project(
+            {
+                "path": _relative_path(root_directory, path),
+                "bytes_written": len(f"{content}\n".encode("utf-8")),
+                "overwritten": existed,
+            },
+            project,
+        )
 
 
 def _resolve_path(root_directory: Path, raw_path: object) -> Path:
@@ -986,3 +1182,12 @@ def _resolve_path(root_directory: Path, raw_path: object) -> Path:
 
 def _relative_path(root_directory: Path, path: Path) -> str:
     return path.relative_to(root_directory).as_posix()
+
+
+def _with_project(
+    result: dict[str, Any],
+    project: str | None,
+) -> dict[str, Any]:
+    if project is not None:
+        result["project"] = project
+    return result

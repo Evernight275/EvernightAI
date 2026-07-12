@@ -88,6 +88,38 @@ curl -X POST http://127.0.0.1:8000/chat \
 
 Use `/chat/stream` with the same body for SSE streaming.
 
+### Image Input
+
+Image input uses the same `ContentPart` message shape for one-off chat,
+context chat, sessions, and agent runs. Use a remote URL:
+
+```json
+{
+  "type": "image",
+  "url": "https://example.com/image.png",
+  "detail": "high"
+}
+```
+
+Or send raw base64 data with its MIME type:
+
+```json
+{
+  "type": "image",
+  "data": "iVBORw0KGgoAAA...",
+  "mime_type": "image/png"
+}
+```
+
+Do not set both `url` and `data`. OpenAI-compatible chat, OpenAI Responses,
+and Anthropic accept URL images. All four built-in adapters accept base64
+images; Gemini requires the base64 form because ordinary remote image URLs are
+not valid Gemini inline image inputs. The web chat can select, preview, remove,
+send, and display JPEG, PNG, WebP, and GIF images (up to four images and 5 MiB
+per image). Declare `image_recognition` in a model's configured `capabilities`
+to enable image attachment for that model. Declared models without the
+capability reject image requests before a provider call is made.
+
 ## Provider-Specific Metadata
 
 Provider-specific controls belong in request `metadata`, not in the core

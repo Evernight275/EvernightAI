@@ -1,6 +1,7 @@
 import { computed, ref, type Ref } from 'vue'
 import type {
   AgentRunState,
+  ProviderModelCapability,
   ProviderModelGroup,
   Session,
 } from '../api'
@@ -10,6 +11,7 @@ export type ProviderModelChoice = {
   providerId: string
   modelId: string
   label: string
+  capabilities: ProviderModelCapability[]
 }
 
 export const defaultModelChoice: ProviderModelChoice = {
@@ -17,6 +19,7 @@ export const defaultModelChoice: ProviderModelChoice = {
   providerId: 'main',
   modelId: 'gpt-4.1-mini',
   label: 'main / gpt-4.1-mini',
+  capabilities: [],
 }
 
 export function useProviderModels(
@@ -31,7 +34,13 @@ export function useProviderModels(
 
     providerModelGroups.value.forEach(({ provider, models }) => {
       models.forEach((model) => {
-        addProviderModelChoice(choices, provider.provider_id, model.model_id, provider.name)
+        addProviderModelChoice(
+          choices,
+          provider.provider_id,
+          model.model_id,
+          provider.name,
+          model.capabilities,
+        )
       })
     })
 
@@ -97,6 +106,7 @@ function addProviderModelChoice(
   providerId: string | null | undefined,
   modelId: string | null | undefined,
   providerName?: string | null,
+  capabilities: ProviderModelCapability[] = [],
 ) {
   const cleanProviderId = providerId?.trim()
   const cleanModelId = modelId?.trim()
@@ -115,5 +125,6 @@ function addProviderModelChoice(
     providerId: cleanProviderId,
     modelId: cleanModelId,
     label: `${providerName?.trim() || cleanProviderId} / ${cleanModelId}`,
+    capabilities: [...capabilities],
   })
 }

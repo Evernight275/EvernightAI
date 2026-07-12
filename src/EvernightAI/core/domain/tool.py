@@ -10,6 +10,7 @@ from EvernightAI.core.error.tool import (
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
     ToolManageProtocol,
+    ToolPreflightPolicy,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
 )
@@ -30,13 +31,21 @@ class ToolRegister(ToolRegisterProtocol):
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
         self._executors: dict[str, ToolExecutorProtocol] = {}
+        self._preflight_policies: dict[str, ToolPreflightPolicy] = {}
 
     def register(
-        self, tool: ToolDefinition, executor: ToolExecutorProtocol
+        self,
+        tool: ToolDefinition,
+        executor: ToolExecutorProtocol,
+        preflight_policy: ToolPreflightPolicy | None = None,
     ) -> None:
         """注册工具"""
         self._tools[tool.name] = tool
         self._executors[tool.name] = executor
+        if preflight_policy is None:
+            self._preflight_policies.pop(tool.name, None)
+        else:
+            self._preflight_policies[tool.name] = preflight_policy
 
     def unregister(self, tool_name: str) -> None:
         """注销工具"""
@@ -44,6 +53,7 @@ class ToolRegister(ToolRegisterProtocol):
             raise ToolNotFoundError(f"The tool {tool_name} is not registered")
         self._tools.pop(tool_name, None)
         self._executors.pop(tool_name, None)
+        self._preflight_policies.pop(tool_name, None)
 
     def get(self, tool_name: str) -> ToolDefinition:
         """获取工具定义"""
@@ -56,6 +66,13 @@ class ToolRegister(ToolRegisterProtocol):
         if self.has(tool_name):
             return self._executors[tool_name]
         raise ToolNotFoundError(f"The tool {tool_name} is not registered")
+
+    def get_preflight_policy(
+        self,
+        tool_name: str,
+    ) -> ToolPreflightPolicy | None:
+        self.get(tool_name)
+        return self._preflight_policies.get(tool_name)
 
     def has(self, tool_name: str) -> bool:
         """检查工具是否存在"""
@@ -79,12 +96,22 @@ class ToolManager(ToolManageProtocol):
         """列出所有工具定义"""
         return self._register.list_tools()
 
+    def authorize(self, call: ToolCall) -> ToolSafetyDecision:
+        tool_name = self._get_tool_name(call.tool_call)
+        arguments = self._get_arguments(call.tool_call)
+        tool = self._register.get(tool_name)
+        preflight_policy = self._register.get_preflight_policy(tool_name)
+        if preflight_policy is not None:
+            preflight_decision = preflight_policy(tool, arguments)
+            if preflight_decision is not None and not preflight_decision.allowed:
+                return preflight_decision
+        return self._safety_policy.authorize(tool, call)
+
     async def execute(self, call: ToolCall) -> ToolCallResult:
         """执行工具调用"""
         tool_name = self._get_tool_name(call.tool_call)
         arguments = self._get_arguments(call.tool_call)
-        tool = self._register.get(tool_name)
-        decision = self._safety_policy.authorize(tool, call)
+        decision = self.authorize(call)
         if not decision.allowed:
             raise ToolPolicyError(
                 f"The tool {tool_name} call was rejected by policy",
