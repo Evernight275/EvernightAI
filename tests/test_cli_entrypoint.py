@@ -557,17 +557,21 @@ def create_skill_interface():
 class FailingChatInterface:
     def __init__(self) -> None:
         self.chat = FailingChatCommand()
+        self.providers = FailingProviderCommand()
 
     async def close(self) -> None:
         pass
 
 
-class FailingChatCommand:
+class FailingProviderCommand:
     async def create_provider(
         self,
         _config: ProviderConfig,
     ) -> ProviderInstanceProtocol:
         return FailingProvider()
+
+
+class FailingChatCommand:
 
     async def chat(
         self,

@@ -9,7 +9,6 @@ from EvernightAI.application.data_analysis import DataAnalysisApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.skill import SkillApplication
-from EvernightAI.application.tool import ToolApplication
 from EvernightAI.bootstrap.config import create_runtime_from_config
 from EvernightAI.bootstrap.interface import (
     create_authorized_interface,
@@ -46,7 +45,7 @@ def test_interface_bootstrap_wraps_existing_runtime() -> None:
     assert interface.runtime is runtime
     assert isinstance(interface.chat, ChatApplication)
     assert isinstance(interface.providers, ProviderApplication)
-    assert isinstance(interface.tools, ToolApplication)
+    assert interface.tools is runtime.tools
     assert isinstance(interface.data_analysis, DataAnalysisApplication)
     assert isinstance(interface.agent, AgentApplication)
     assert isinstance(interface.agent_runs, AgentRunApplication)

@@ -55,7 +55,7 @@ async def test_real_gemini_chat_flow() -> None:
     app = ChatApplication(runtime)
 
     try:
-        await app.create_provider(
+        await runtime.providers.create(
             ProviderConfig(
                 provider_id="real-gemini",
                 name="Real Gemini provider",

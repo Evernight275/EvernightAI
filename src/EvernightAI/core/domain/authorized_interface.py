@@ -13,7 +13,6 @@ from EvernightAI.core.protocol.interface import (
     SkillInterfaceProtocol,
     ToolInterfaceProtocol,
 )
-from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, ChatStreamProtocol
 from EvernightAI.core.schema.agent import (
@@ -204,13 +203,6 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         self._authorizer = authorizer
         self._principal = principal
         self._principal_scope = PrincipalScope.for_principal(principal)
-
-    async def create_provider(
-        self,
-        config: ProviderConfig,
-    ) -> ProviderInstanceProtocol:
-        self._require("providers", "create", config.provider_id)
-        return await self._inner.create_provider(config)
 
     async def create_context(
         self,
@@ -484,9 +476,6 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
             metadata=metadata,
             principal_scope=self._principal_scope,
         )
-
-    async def close(self) -> None:
-        await self._inner.close()
 
     def _require(
         self,

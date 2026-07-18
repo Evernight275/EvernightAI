@@ -1,6 +1,5 @@
 
 from EvernightAI.core.protocol.base import EvernightAIProtocol
-from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
     AgentTraceStreamProtocol,
@@ -52,11 +51,6 @@ class InterfaceProtocol(EvernightAIProtocol): ...
 
 
 class ChatInterfaceProtocol(InterfaceProtocol):
-    async def create_provider(
-        self,
-        config: ProviderConfig,
-    ) -> ProviderInstanceProtocol: ...
-
     async def create_context(
         self,
         context: Context,
@@ -196,9 +190,6 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol: ...
-
-    async def close(self) -> None: ...
-
 
 class ProviderInterfaceProtocol(InterfaceProtocol):
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...

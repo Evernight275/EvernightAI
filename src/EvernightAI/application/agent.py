@@ -53,10 +53,9 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolSafetyDecision,
 )
-from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
+from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.retry import mark_retry_messages
 from EvernightAI.application.memory import (
-    select_memories_for_request,
     write_memory_candidate,
 )
 
@@ -253,6 +252,7 @@ class AgentRunMetadata:
 class AgentApplication(AgentInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
+        self._request_composer = ChatRequestComposer(runtime)
         self._lifecycle = _agent_run_lifecycle(runtime)
 
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResult:
@@ -776,31 +776,16 @@ class AgentApplication(AgentInterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatResponse:
-        context = await self._runtime.contexts.get(
+        request = await self._request_composer.compose(
             context_id,
-            principal_scope=principal_scope,
-        )
-        memory_selection = await select_memories_for_request(
-            self._runtime,
-            explicit_query=memory_query,
-            context_id=context.context_id,
-            metadata=metadata,
-            owner_id=context.owner_id,
-            principal_scope=principal_scope,
-        )
-        request = self._runtime.context_strategy.compose_chat_request(
-            context,
             model_id=model_id,
             messages=messages,
-            memory_selection=memory_selection,
+            memory_query=memory_query,
+            skills=skills,
             tools=tools,
             metadata=metadata,
-        )
-        request = request.model_copy(update={"skills": skills})
-        request = await compose_skill_prompted_chat_request(
-            self._runtime,
-            request,
-            SkillCapability.AGENT,
+            principal_scope=principal_scope,
+            skill_capability=SkillCapability.AGENT,
         )
         return await self._runtime.providers.chat(provider_id, request)
 
@@ -936,31 +921,16 @@ class AgentApplication(AgentInterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest:
-        context = await self._runtime.contexts.get(
+        return await self._request_composer.compose(
             context_id,
-            principal_scope=principal_scope,
-        )
-        memory_selection = await select_memories_for_request(
-            self._runtime,
-            explicit_query=memory_query,
-            context_id=context.context_id,
-            metadata=metadata,
-            owner_id=context.owner_id,
-            principal_scope=principal_scope,
-        )
-        request = self._runtime.context_strategy.compose_chat_request(
-            context,
             model_id=model_id,
             messages=messages,
-            memory_selection=memory_selection,
+            memory_query=memory_query,
+            skills=skills,
             tools=tools,
             metadata=metadata,
-        )
-        request = request.model_copy(update={"skills": skills})
-        return await compose_skill_prompted_chat_request(
-            self._runtime,
-            request,
-            SkillCapability.AGENT,
+            principal_scope=principal_scope,
+            skill_capability=SkillCapability.AGENT,
         )
 
     def _chat_stream_text_delta(self, event: ChatStreamEvent) -> str | None:
@@ -1109,8 +1079,15 @@ class AgentApplication(AgentInterfaceProtocol):
 
         try:
             return self._runtime.tools.authorize(call)
-        except Exception:
-            return None
+        except Exception as exc:
+            return ToolSafetyDecision(
+                allowed=False,
+                reason=f"Tool safety policy failed: {exc}",
+                metadata={
+                    "safety_policy_error": True,
+                    "error_type": exc.__class__.__name__,
+                },
+            )
 
     def _should_pause_for_approval(
         self,

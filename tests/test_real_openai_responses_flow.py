@@ -60,7 +60,7 @@ async def test_real_openai_responses_chat_flow() -> None:
     app = ChatApplication(runtime)
 
     try:
-        await app.create_provider(
+        await runtime.providers.create(
             ProviderConfig(
                 provider_id="real-openai-responses",
                 name="Real OpenAI Responses provider",

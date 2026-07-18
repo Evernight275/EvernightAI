@@ -416,7 +416,7 @@ async def run_chat(
             f"Provider '{provider_id}' is disabled in config"
         )
 
-    await interface.chat.create_provider(provider_config)
+    await interface.providers.create_provider(provider_config)
     request = ChatRequest(
         model_id=model_id,
         messages=[

@@ -181,14 +181,6 @@ def make_session(session_id: str) -> Session:
 @pytest.mark.parametrize(
     ("method_name", "args", "kwargs", "expected_resource", "expected_action", "expected_id"),
     [
-        (
-            "create_provider",
-            (ProviderConfig(provider_id="provider-1", name="Fake", type=ProviderType.OPENAI),),
-            {},
-            "providers",
-            "create",
-            "provider-1",
-        ),
         ("create_context", (Context(context_id="ctx-1"),), {}, "contexts", "create", "ctx-1"),
         ("get_context", ("ctx-1",), {}, "contexts", "get", "ctx-1"),
         (
@@ -598,10 +590,6 @@ class RecordingAuthorizer:
 class FakeChatInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
-
-    async def create_provider(self, config: ProviderConfig) -> str:
-        self.calls.append("create_provider")
-        return "delegated"
 
     async def create_context(self, context: Context) -> str:
         self.calls.append("create_context")

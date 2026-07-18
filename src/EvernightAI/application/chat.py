@@ -1,6 +1,5 @@
 from collections.abc import AsyncIterator
 
-from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.interface import ChatInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
@@ -20,24 +19,18 @@ from EvernightAI.core.schema.memory import (
     MemoryQuery,
     MemorySelection,
 )
-from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.application.retry import mark_retry_messages
-from EvernightAI.application.memory import select_memories_for_request
 
 
 class ChatApplication(ChatInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
-
-    async def create_provider(
-        self,
-        config: ProviderConfig,
-    ) -> ProviderInstanceProtocol:
-        return await self._runtime.providers.create(config)
+        self._request_composer = ChatRequestComposer(runtime)
 
     async def create_context(
         self,
@@ -197,28 +190,16 @@ class ChatApplication(ChatInterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest:
-        context = await self._runtime.contexts.get(
+        return await self._request_composer.compose(
             context_id,
-            principal_scope=principal_scope,
-        )
-        selected_memories = await select_memories_for_request(
-            self._runtime,
-            explicit_query=memory_query,
-            context_id=context.context_id,
-            metadata=metadata,
-            owner_id=context.owner_id,
-            principal_scope=principal_scope,
-        )
-
-        request = self._runtime.context_strategy.compose_chat_request(
-            context,
             model_id=model_id,
             messages=messages,
-            memory_selection=selected_memories,
+            memory_query=memory_query,
+            skills=skills,
             tools=tools,
             metadata=metadata,
+            principal_scope=principal_scope,
         )
-        return request.model_copy(update={"skills": skills})
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         request = await compose_skill_prompted_chat_request(
@@ -322,9 +303,6 @@ class ChatApplication(ChatInterfaceProtocol):
             messages,
             principal_scope,
         )
-
-    async def close(self) -> None:
-        await self._runtime.close()
 
 class _ContextAppendingChatStream:
     def __init__(

@@ -59,7 +59,7 @@ async def test_chat_application_commands_core_runtime() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     response = await app.chat(
         "provider-1",
         ChatRequest(model_id="model-1", messages=[]),
@@ -79,7 +79,6 @@ async def test_chat_application_commands_core_runtime() -> None:
         ChatStreamEventType.DONE,
     ]
 
-    await app.close()
 
 
 @pytest.mark.asyncio
@@ -87,7 +86,7 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(
         Context(
             context_id="ctx-1",
@@ -168,7 +167,7 @@ async def test_chat_application_streams_with_context_and_persists_messages() -> 
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(
         Context(
             context_id="ctx-1",
@@ -208,7 +207,7 @@ async def test_chat_application_stream_with_context_persists_partial_message_on_
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(Context(context_id="ctx-1"))
 
     stream = await app.chat_stream_with_context(
@@ -234,7 +233,7 @@ async def test_chat_application_selects_session_memory_from_metadata() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(Context(context_id="ctx-1"))
     await app.create_memory(
         MemoryItem(
@@ -277,7 +276,7 @@ async def test_chat_application_combines_context_user_session_and_global_memory(
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
     for memory in [
         MemoryItem(
@@ -331,7 +330,7 @@ async def test_chat_application_respects_explicit_memory_query_over_session_meta
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(Context(context_id="ctx-1"))
     await app.create_memory(
         MemoryItem(
@@ -375,7 +374,7 @@ async def test_chat_application_renders_skills_into_prompt_messages() -> None:
     app = ChatApplication(runtime)
     register_style_skill(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.chat(
         "provider-1",
         ChatRequest(
@@ -408,7 +407,7 @@ async def test_chat_application_keeps_rendered_skills_out_of_context() -> None:
     app = ChatApplication(runtime)
     register_style_skill(runtime)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
     await app.create_context(Context(context_id="ctx-1"))
     await app.chat_with_context(
         "provider-1",
@@ -443,7 +442,7 @@ async def test_chat_application_rejects_unsupported_skill_capability() -> None:
     app = ChatApplication(runtime)
     register_style_skill(runtime, capability=SkillCapability.AGENT)
 
-    await app.create_provider(make_config())
+    await runtime.providers.create(make_config())
 
     with pytest.raises(SkillInputError, match="does not support chat"):
         await app.chat(

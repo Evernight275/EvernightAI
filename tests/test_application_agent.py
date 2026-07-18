@@ -2135,12 +2135,15 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
         == "unknown tool"
     )
     assert app._tool_safety_decision(ToolCall(tool_call_id="call-1", tool_call={})) is None
-    assert (
-        app._tool_safety_decision(
-            ToolCall(tool_call_id="call-2", tool_call={"name": "missing"})
-        )
-        is None
+    missing_tool_decision = app._tool_safety_decision(
+        ToolCall(tool_call_id="call-2", tool_call={"name": "missing"})
     )
+    assert missing_tool_decision is not None
+    assert missing_tool_decision.allowed is False
+    assert missing_tool_decision.reason == (
+        "Tool safety policy failed: The tool missing is not found"
+    )
+    assert missing_tool_decision.metadata["safety_policy_error"] is True
     assert app._chat_stream_text_delta(
         ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_DELTA)
     ) is None
