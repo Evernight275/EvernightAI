@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import shlex
 from typing import Any
@@ -199,9 +200,17 @@ class RestrictedShellTool:
 
     def _parse_command_rule(self, rule: str) -> list[str]:
         try:
-            return shlex.split(rule)
+            parts = shlex.split(rule, posix=os.name != "nt")
         except ValueError:
             return []
+        if os.name == "nt":
+            return [self._strip_matching_quotes(part) for part in parts]
+        return parts
+
+    def _strip_matching_quotes(self, value: str) -> str:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            return value[1:-1]
+        return value
 
     def _parse_command(self, arguments: dict[str, Any]) -> list[str]:
         command = arguments.get("command")
