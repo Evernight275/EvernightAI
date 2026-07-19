@@ -498,10 +498,15 @@ function isToolTimelineMessage(message: ChatMessage): boolean {
 }
 
 function toolActivitySummary(messages: ChatMessage[]): string {
-  const callCount = messages.filter((message) => isToolCallMessage(message)).length
+  const roundCount = messages.filter((message) => isToolCallMessage(message)).length
+  const callCount = messages.reduce(
+    (count, message) => count + (message.tool_calls?.length || 0),
+    0,
+  )
   const resultCount = messages.filter((message) => isToolResultMessage(message)).length
   const pendingCount = messages.filter((message) => message.pending).length
   const parts = [
+    roundCount > 1 ? `${roundCount} 轮` : '',
     callCount > 0 ? `${callCount} 个调用` : '',
     resultCount > 0 ? `${resultCount} 个结果` : '',
     pendingCount > 0 ? `${pendingCount} 个进行中` : '',
@@ -519,7 +524,23 @@ function toolActivityNames(messages: ChatMessage[]): string {
       })
   ))
 
-  return names.length > 0 ? names.slice(0, 5).join(' / ') : '工具活动'
+  if (names.length === 0) {
+    return '工具活动'
+  }
+
+  const counts = new Map<string, number>()
+  names.forEach((name) => {
+    counts.set(name, (counts.get(name) || 0) + 1)
+  })
+  const entries = [...counts.entries()]
+  const visible = entries.slice(0, 3).map(([name, count]) => (
+    count > 1 ? `${name} × ${count}` : name
+  ))
+  if (entries.length > visible.length) {
+    visible.push(`另 ${entries.length - visible.length} 类`)
+  }
+
+  return visible.join(' · ')
 }
 
 function toolActivityItems(message: ChatMessage): ChatMessage[] {
@@ -1044,14 +1065,19 @@ onMounted(() => {
               </button>
             </div>
           </div>
-          <div v-else-if="isToolActivityMessage(message)" class="tool-activity-card">
-            <div class="tool-activity-head">
+          <details
+            v-else-if="isToolActivityMessage(message)"
+            class="tool-activity-card"
+            :open="message.pending"
+          >
+            <summary class="tool-activity-head">
               <Icon name="wrench" />
               <div>
                 <strong>工具活动</strong>
                 <span>{{ toolActivitySummaryForMessage(message) }} · {{ toolActivityNamesForMessage(message) }}</span>
               </div>
-            </div>
+              <Icon name="chevron-down" class="tool-activity-chevron" />
+            </summary>
             <div class="tool-activity-list">
               <details
                 v-for="(item, itemIndex) in toolActivityItems(message)"
@@ -1065,7 +1091,7 @@ onMounted(() => {
                 <pre><code>{{ isToolResultMessage(item) ? toolResultDetail(item) : toolCallDetail(item) }}</code></pre>
               </details>
             </div>
-          </div>
+          </details>
           <div v-else-if="isToolResultMessage(message)" class="tool-message-card">
             <div class="tool-message-head">
               <Icon name="file-text" />

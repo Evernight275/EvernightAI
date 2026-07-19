@@ -3,769 +3,664 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EvernightAI - Matrix</title>
+    <title>EvernightAI</title>
     <style>
+      @font-face {
+        font-family: "Geist";
+        src: url("/Geist-Variable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+
       :root {
-        color-scheme: dark;
-        --matrix-green: #00ff41;
-        --matrix-dark: #003b00;
-        --matrix-glow: #00ff41;
-        --bg-black: #000000;
-        --bg-deep: #0a0e0a;
-        --text-primary: #00ff41;
-        --text-dim: #00aa2b;
-        --text-ghost: #005f1a;
-        --border-neon: rgba(0, 255, 65, 0.3);
-        --border-bright: rgba(0, 255, 65, 0.6);
-        --shadow-glow: 0 0 20px rgba(0, 255, 65, 0.4);
+        color-scheme: light;
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --subtle: #f8fafc;
+        --text: #172033;
+        --muted: #526077;
+        --tertiary: #78869b;
+        --line: #d9e1eb;
+        --line-soft: #e8edf3;
+        --primary: #2563eb;
+        --primary-dark: #1e40af;
+        --primary-light: #eff6ff;
+        --success: #16835a;
+        --success-light: #ecfdf5;
+        --warning: #b7791f;
+        --shadow: 0 18px 42px rgba(23, 32, 51, 0.11), 0 4px 12px rgba(23, 32, 51, 0.05);
       }
 
       * {
         box-sizing: border-box;
       }
 
-      html,
+      html {
+        scroll-behavior: smooth;
+      }
+
       body {
-        min-height: 100%;
         margin: 0;
-        overflow-x: hidden;
-      }
-
-      body {
-        color: var(--text-primary);
-        background: var(--bg-black);
-        font-family: "Courier New", Consolas, Monaco, monospace;
-        font-size: 14px;
-        line-height: 1.5;
-        letter-spacing: 0.02em;
+        color: var(--text);
+        background: var(--bg);
+        font-family: "Geist", "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        letter-spacing: 0;
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .site-header {
+        position: fixed;
+        inset: 0 0 auto;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 64px;
+        padding: 0 max(24px, calc((100vw - 1180px) / 2));
+        border-bottom: 1px solid rgba(217, 225, 235, 0.86);
+        background: rgba(255, 255, 255, 0.94);
+        backdrop-filter: blur(14px);
+      }
+
+      .home-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        font-weight: 700;
+      }
+
+      .home-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        color: var(--primary-dark);
+        background: var(--primary-light);
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .home-nav {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 560;
+      }
+
+      .header-action {
+        white-space: nowrap;
+      }
+
+      .home-nav a:hover {
+        color: var(--primary-dark);
+      }
+
+      .header-action,
+      .primary-action,
+      .secondary-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-weight: 620;
+        transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      }
+
+      .header-action,
+      .primary-action {
+        color: #ffffff;
+        border-color: var(--primary);
+        background: var(--primary);
+        box-shadow: 0 2px 5px rgba(37, 99, 235, 0.2);
+      }
+
+      .secondary-action {
+        color: var(--text);
+        background: var(--surface);
+      }
+
+      .header-action:hover,
+      .primary-action:hover,
+      .secondary-action:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 22px rgba(23, 32, 51, 0.12);
+      }
+
+      .hero {
         position: relative;
-      }
-
-      /* Matrix Rain Canvas */
-      #matrix-canvas {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 1;
-        opacity: 0.15;
-        pointer-events: none;
-      }
-
-      /* Scanline Effect */
-      body::before {
-        content: "";
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: repeating-linear-gradient(
-          0deg,
-          rgba(0, 0, 0, 0.15),
-          rgba(0, 0, 0, 0.15) 1px,
-          transparent 1px,
-          transparent 2px
-        );
-        z-index: 2;
-        pointer-events: none;
-        animation: scanline 8s linear infinite;
-      }
-
-      @keyframes scanline {
-        0% {
-          transform: translateY(0);
-        }
-        100% {
-          transform: translateY(10px);
-        }
-      }
-
-      /* Glitch Effect */
-      @keyframes glitch {
-        0%, 90%, 100% {
-          transform: translate(0);
-          text-shadow:
-            0 0 10px var(--matrix-glow),
-            0 0 20px var(--matrix-glow),
-            0 0 30px var(--matrix-glow);
-        }
-        92% {
-          transform: translate(-2px, 2px);
-          text-shadow:
-            2px 0 var(--matrix-glow),
-            -2px 0 #ff00ff;
-        }
-        94% {
-          transform: translate(2px, -2px);
-          text-shadow:
-            -2px 0 var(--matrix-glow),
-            2px 0 #00ffff;
-        }
-      }
-
-      /* Pulse Glow */
-      @keyframes pulse-glow {
-        0%, 100% {
-          box-shadow: 0 0 5px var(--border-neon),
-                      0 0 10px var(--border-neon),
-                      inset 0 0 5px rgba(0, 255, 65, 0.1);
-        }
-        50% {
-          box-shadow: 0 0 10px var(--border-bright),
-                      0 0 20px var(--border-bright),
-                      inset 0 0 10px rgba(0, 255, 65, 0.2);
-        }
-      }
-
-      /* Flicker Animation */
-      @keyframes flicker {
-        0%, 100% { opacity: 1; }
-        41%, 43% { opacity: 0.8; }
-        45%, 47% { opacity: 0.9; }
-        50% { opacity: 1; }
-      }
-
-      .home {
-        min-height: 100vh;
+        isolation: isolate;
+        min-height: min(720px, calc(100vh - 72px));
+        padding: 128px max(24px, calc((100vw - 1180px) / 2)) 72px;
         display: grid;
         align-items: center;
-        padding: 40px;
-        position: relative;
-        z-index: 3;
+        overflow: hidden;
+        border-bottom: 1px solid var(--line-soft);
+        background-color: var(--surface);
+        background-image: url("/console-preview.png");
+        background-repeat: no-repeat;
+        background-position: right 82px;
+        background-size: auto calc(100% - 140px);
       }
 
-      .showcase {
-        width: min(100%, 1120px);
-        margin: 0 auto;
-        display: grid;
-        grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
-        gap: 40px;
-        align-items: center;
-        opacity: 0;
-        animation: fade-in 1.5s ease-out forwards;
-      }
-
-      @keyframes fade-in {
-        to {
-          opacity: 1;
-        }
-      }
-
-      .identity {
+      .hero-content {
+        width: min(520px, 43vw);
         display: grid;
         gap: 24px;
-        align-content: center;
       }
 
-      .brand-mark {
-        display: inline-grid;
-        place-items: center;
-        width: 44px;
-        height: 44px;
-        border: 2px solid var(--matrix-green);
-        border-radius: 4px;
-        color: var(--matrix-green);
-        background: rgba(0, 255, 65, 0.05);
-        font-size: 20px;
-        font-weight: 700;
-        box-shadow: var(--shadow-glow);
-        animation: pulse-glow 3s ease-in-out infinite, flicker 5s infinite;
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: fit-content;
+        color: var(--primary-dark);
+        font-size: 12px;
+        font-weight: 680;
       }
 
-      .title-group {
-        display: grid;
-        gap: 14px;
+      .eyebrow::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 0 4px rgba(22, 131, 90, 0.12);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
       }
 
       h1 {
-        margin: 0;
-        font-size: 42px;
-        line-height: 1.05;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        color: var(--matrix-green);
-        text-shadow:
-          0 0 10px var(--matrix-glow),
-          0 0 20px var(--matrix-glow),
-          0 0 30px var(--matrix-glow);
-        animation: glitch 8s infinite;
+        font-size: 52px;
+        line-height: 1.03;
+        font-weight: 740;
+        letter-spacing: 0;
       }
 
-      .lead {
-        max-width: 560px;
-        margin: 0;
-        color: var(--text-dim);
-        font-size: 17px;
+      .hero-lead {
+        max-width: 500px;
+        color: var(--muted);
+        font-size: 18px;
         line-height: 1.7;
-        text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
       }
 
-      .signal-row {
+      .hero-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .signal {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        min-height: 30px;
-        padding: 0 10px;
-        border: 1px solid var(--border-neon);
-        border-radius: 4px;
-        color: var(--text-dim);
-        background: rgba(0, 255, 65, 0.05);
-        font-size: 13px;
-        font-weight: 560;
-        box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
-        transition: all 0.3s ease;
-      }
-
-      .signal:hover {
-        border-color: var(--border-bright);
-        background: rgba(0, 255, 65, 0.1);
-        box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
-      }
-
-      .signal::before {
-        content: "";
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: var(--text-dim);
-        box-shadow: 0 0 8px currentColor;
-        animation: blink 2s ease-in-out infinite;
-      }
-
-      @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
-      }
-
-      .signal.is-ready::before {
-        background: var(--matrix-green);
-        animation: blink 1.5s ease-in-out infinite;
-      }
-
-      .signal.is-watch::before {
-        background: #ffff00;
-        box-shadow: 0 0 8px #ffff00;
-        animation: blink 1s ease-in-out infinite;
-      }
-
-      .system {
-        display: grid;
-        gap: 16px;
-        align-content: start;
-        border: 2px solid var(--border-neon);
-        border-radius: 4px;
-        padding: 20px;
-        background: rgba(0, 255, 65, 0.02);
-        box-shadow: var(--shadow-glow);
-        position: relative;
-        overflow: hidden;
-      }
-
-      .system::before {
-        content: "";
-        position: absolute;
-        top: -2px;
-        left: -100%;
-        width: 100%;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, var(--matrix-green), transparent);
-        animation: scan-horizontal 3s linear infinite;
-      }
-
-      @keyframes scan-horizontal {
-        0% {
-          left: -100%;
-        }
-        100% {
-          left: 100%;
-        }
-      }
-
-      .system-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-        padding-bottom: 14px;
-        border-bottom: 1px solid var(--border-neon);
-      }
-
-      .system-kicker,
-      .meta-label {
-        margin: 0;
-        color: var(--text-ghost);
-        font-size: 12px;
-        font-weight: 650;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-      }
-
-      .system-title {
-        margin: 4px 0 0;
-        font-size: 18px;
-        line-height: 1.35;
-        font-weight: 650;
-        color: var(--matrix-green);
-        text-shadow: 0 0 10px var(--matrix-glow);
-      }
-
-      .status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        flex: 0 0 auto;
-        min-height: 28px;
-        padding: 0 10px;
-        border: 1px solid var(--matrix-green);
-        border-radius: 4px;
-        color: var(--matrix-green);
-        background: rgba(0, 255, 65, 0.1);
-        font-size: 12px;
-        font-weight: 650;
-        white-space: nowrap;
-        box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
-        animation: pulse-glow 2s ease-in-out infinite;
-      }
-
-      .status-pill::before {
-        content: "";
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: currentColor;
-        box-shadow: 0 0 10px currentColor;
-        animation: blink 1s ease-in-out infinite;
-      }
-
-      .flow {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
       }
 
-      .flow-step {
-        position: relative;
-        min-height: 92px;
-        display: grid;
-        align-content: space-between;
-        gap: 14px;
-        padding: 14px;
-        border: 1px solid var(--border-neon);
-        border-radius: 4px;
-        background: rgba(0, 59, 0, 0.3);
-        box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
-        transition: all 0.3s ease;
-        animation: flow-enter 0.6s ease-out backwards;
+      .hero-actions a {
+        min-height: 42px;
+        padding-inline: 18px;
       }
 
-      .flow-step:nth-child(1) { animation-delay: 0.1s; }
-      .flow-step:nth-child(2) { animation-delay: 0.2s; }
-      .flow-step:nth-child(3) { animation-delay: 0.3s; }
-      .flow-step:nth-child(4) { animation-delay: 0.4s; }
-
-      @keyframes flow-enter {
-        from {
-          opacity: 0;
-          transform: translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      .flow-step:hover {
-        border-color: var(--border-bright);
-        background: rgba(0, 59, 0, 0.5);
-        box-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
-        transform: translateY(-2px);
-      }
-
-      .flow-step:not(:last-child)::after {
-        content: "→";
-        position: absolute;
-        top: 45px;
-        right: -15px;
-        color: var(--matrix-green);
-        font-size: 16px;
-        font-weight: bold;
-        text-shadow: 0 0 10px var(--matrix-glow);
-        animation: arrow-pulse 2s ease-in-out infinite;
-      }
-
-      @keyframes arrow-pulse {
-        0%, 100% {
-          opacity: 0.5;
-          transform: translateX(0);
-        }
-        50% {
-          opacity: 1;
-          transform: translateX(3px);
-        }
-      }
-
-      .flow-index {
-        color: var(--matrix-green);
+      .trust-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        color: var(--tertiary);
         font-size: 12px;
-        font-weight: 700;
-        text-shadow: 0 0 8px var(--matrix-glow);
+        font-weight: 550;
       }
 
-      .flow-name {
-        color: var(--text-dim);
-        font-weight: 650;
+      .trust-row span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
 
-      .capabilities {
+      .trust-row span::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+
+      .section {
+        padding: 76px max(24px, calc((100vw - 1180px) / 2));
+      }
+
+      .section.is-white {
+        background: var(--surface);
+      }
+
+      .section-head {
+        display: grid;
+        gap: 10px;
+        max-width: 660px;
+        margin-bottom: 32px;
+      }
+
+      .section-head span {
+        color: var(--primary-dark);
+        font-size: 12px;
+        font-weight: 680;
+      }
+
+      .section-head h2 {
+        font-size: 30px;
+        line-height: 1.2;
+        font-weight: 710;
+      }
+
+      .section-head p {
+        color: var(--muted);
+      }
+
+      .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
+        gap: 14px;
       }
 
-      .capability {
-        min-height: 112px;
+      .feature {
+        min-height: 178px;
+        padding: 22px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 1px 3px rgba(23, 32, 51, 0.05);
+      }
+
+      .feature-index {
         display: grid;
-        align-content: start;
-        gap: 10px;
-        padding: 14px;
-        border: 1px solid var(--border-neon);
-        border-radius: 4px;
-        background: rgba(0, 255, 65, 0.03);
-        box-shadow: 0 0 8px rgba(0, 255, 65, 0.15);
-        transition: all 0.3s ease;
-        animation: capability-enter 0.8s ease-out backwards;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        margin-bottom: 24px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        color: var(--primary-dark);
+        background: var(--primary-light);
+        font-size: 12px;
+        font-weight: 720;
       }
 
-      .capability:nth-child(1) { animation-delay: 0.2s; }
-      .capability:nth-child(2) { animation-delay: 0.3s; }
-      .capability:nth-child(3) { animation-delay: 0.4s; }
-
-      @keyframes capability-enter {
-        from {
-          opacity: 0;
-          transform: scale(0.95);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1);
-        }
+      .feature:nth-child(2) .feature-index {
+        color: #116149;
+        border-color: #ccecdf;
+        background: var(--success-light);
       }
 
-      .capability:hover {
-        border-color: var(--border-bright);
-        background: rgba(0, 255, 65, 0.08);
-        box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
-        transform: translateY(-3px);
+      .feature:nth-child(3) .feature-index {
+        color: #8a5b16;
+        border-color: #f0dfb0;
+        background: #fffbeb;
       }
 
-      .capability h2 {
-        margin: 0;
+      .feature h3 {
+        margin-bottom: 8px;
+        font-size: 16px;
+        font-weight: 680;
+      }
+
+      .feature p {
+        color: var(--muted);
         font-size: 14px;
-        line-height: 1.35;
-        font-weight: 650;
-        color: var(--matrix-green);
-        text-shadow: 0 0 8px var(--matrix-glow);
       }
 
-      .capability p {
-        margin: 0;
-        color: var(--text-ghost);
-        font-size: 13px;
-        line-height: 1.55;
-      }
-
-      .meta {
+      .architecture {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 0.85fr) minmax(460px, 1.15fr);
+        gap: 56px;
+        align-items: center;
+      }
+
+      .architecture-copy {
+        display: grid;
+        gap: 18px;
+      }
+
+      .architecture-copy h2 {
+        font-size: 30px;
+        line-height: 1.2;
+        font-weight: 710;
+      }
+
+      .architecture-copy p {
+        color: var(--muted);
+      }
+
+      .principles {
+        display: grid;
         gap: 10px;
       }
 
-      .meta-item {
-        min-height: 72px;
+      .principles span {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 570;
+      }
+
+      .principles span::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--success);
+      }
+
+      .layer-stack {
         display: grid;
-        align-content: center;
-        gap: 4px;
-        padding: 14px;
-        border: 1px solid var(--border-neon);
-        border-radius: 4px;
-        background: rgba(0, 59, 0, 0.2);
-        box-shadow: 0 0 8px rgba(0, 255, 65, 0.15);
-        transition: all 0.3s ease;
+        gap: 8px;
+        padding: 18px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: var(--subtle);
+        box-shadow: var(--shadow);
       }
 
-      .meta-item:hover {
-        border-color: var(--border-bright);
-        background: rgba(0, 59, 0, 0.4);
-        box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+      .layer {
+        display: grid;
+        grid-template-columns: 130px minmax(0, 1fr);
+        gap: 18px;
+        align-items: center;
+        min-height: 58px;
+        padding: 10px 14px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: var(--surface);
       }
 
-      .meta-value {
-        color: var(--text-dim);
-        font-size: 15px;
-        font-weight: 650;
-        text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+      .layer strong {
+        color: var(--primary-dark);
+        font-size: 13px;
       }
 
-      @media (max-width: 980px) {
-        .home {
-          align-items: start;
-          padding: 28px;
+      .layer span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .cta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+        padding: 38px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: var(--primary-light);
+      }
+
+      .cta div {
+        display: grid;
+        gap: 6px;
+      }
+
+      .cta h2 {
+        font-size: 24px;
+        font-weight: 710;
+      }
+
+      .cta p {
+        color: var(--muted);
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 22px max(24px, calc((100vw - 1180px) / 2));
+        border-top: 1px solid var(--line-soft);
+        color: var(--tertiary);
+        background: var(--surface);
+        font-size: 12px;
+      }
+
+      @media (min-width: 921px) and (max-width: 1500px) {
+        .hero {
+          background-position: right center;
+          background-size: auto 480px;
+        }
+      }
+
+      @media (max-width: 920px) {
+        .hero {
+          min-height: 760px;
+          align-items: end;
+          padding-top: 430px;
+          background-position: center 82px;
+          background-size: auto 360px;
         }
 
-        .showcase {
+        .hero-content {
+          width: min(100%, 680px);
+        }
+
+        .feature-grid {
           grid-template-columns: minmax(0, 1fr);
-          gap: 24px;
+        }
+
+        .feature {
+          min-height: 0;
+        }
+
+        .architecture {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 640px) {
+        .site-header {
+          min-height: 56px;
+          padding-inline: 16px;
+        }
+
+        .home-brand {
+          flex: 1 1 auto;
+        }
+
+        .home-nav {
+          flex: 0 0 auto;
+        }
+
+        .home-nav > a:not(.header-action) {
+          display: none;
+        }
+
+        .header-action {
+          min-height: 34px;
+          padding-inline: 10px;
+        }
+
+        .hero {
+          min-height: 700px;
+          padding: 350px 18px 42px;
+          background-position: center 68px;
+          background-size: auto 270px;
         }
 
         h1 {
-          font-size: 34px;
+          font-size: 38px;
+        }
+
+        .hero-lead {
+          font-size: 16px;
+        }
+
+        .section {
+          padding: 56px 18px;
+        }
+
+        .section-head h2,
+        .architecture-copy h2 {
+          font-size: 25px;
+        }
+
+        .layer-stack {
+          padding: 10px;
+        }
+
+        .layer {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 2px;
+        }
+
+        .cta {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 26px;
+        }
+
+        footer {
+          align-items: flex-start;
+          flex-direction: column;
+          padding-inline: 18px;
         }
       }
 
-      @media (max-width: 680px) {
-        .home {
-          padding: 18px;
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
         }
 
-        .system {
-          gap: 14px;
-        }
-
-        .system-head {
-          display: grid;
-        }
-
-        .flow,
-        .capabilities,
-        .meta {
-          grid-template-columns: minmax(0, 1fr);
-        }
-
-        .flow-step {
-          min-height: 78px;
-        }
-
-        .flow-step:not(:last-child)::after {
-          top: auto;
-          right: auto;
-          bottom: -15px;
-          left: 24px;
-          content: "↓";
-          font-size: 16px;
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
         }
       }
     </style>
   </head>
   <body>
-    <canvas id="matrix-canvas"></canvas>
-    <main class="home">
-      <section class="showcase" aria-label="EvernightAI">
-        <div class="identity">
-          <div class="brand-mark" aria-hidden="true">E</div>
-          <div class="title-group">
-            <h1>EvernightAI</h1>
-            <p class="lead">
-              模型、工具、会话与执行流，保持清晰、可控、可追踪。
-            </p>
+    <header class="site-header">
+      <a class="home-brand" href="#top" aria-label="EvernightAI 首页">
+        <span class="home-mark">EA</span>
+        <span>EvernightAI</span>
+      </a>
+      <nav class="home-nav" aria-label="主页导航">
+        <a href="#capabilities">能力</a>
+        <a href="#architecture">架构</a>
+        <a
+          class="header-action"
+          href="/"
+          target="_top"
+          onclick="localStorage.setItem('evernight.currentView', 'chat')"
+        >进入控制台</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-label="EvernightAI 产品概览">
+        <div class="hero-content">
+          <span class="eyebrow">Runtime ready</span>
+          <h1>EvernightAI</h1>
+          <p class="hero-lead">
+            面向真实工作流的 Agent 平台。模型、工具、记忆、上下文与审批在同一套清晰边界中协同运行。
+          </p>
+          <div class="hero-actions">
+            <a
+              class="primary-action"
+              href="/"
+              target="_top"
+              onclick="localStorage.setItem('evernight.currentView', 'chat')"
+            >开始对话</a>
+            <a class="secondary-action" href="#architecture">查看架构</a>
           </div>
-          <div class="signal-row" aria-label="能力状态">
-            <span class="signal is-ready">模型接入</span>
-            <span class="signal is-ready">工具审批</span>
-            <span class="signal">上下文窗口</span>
-            <span class="signal is-watch">运行追踪</span>
+          <div class="trust-row" aria-label="平台能力">
+            <span>多 Provider</span>
+            <span>工具审批</span>
+            <span>持久记忆</span>
+            <span>实时 Trace</span>
           </div>
         </div>
+      </section>
 
-        <section class="system" aria-label="运行结构">
-          <div class="system-head">
-            <div>
-              <p class="system-kicker">Runtime Console</p>
-              <p class="system-title">从请求到响应的闭环</p>
-            </div>
-            <span class="status-pill">Local Ready</span>
-          </div>
+      <section id="capabilities" class="section">
+        <div class="section-head">
+          <span>核心能力</span>
+          <h2>从模型调用到可审计运行</h2>
+          <p>控制台围绕高频工作流组织信息，保留完整接口能力，同时让运行状态、上下文和安全决策可见。</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-index">01</span>
+            <h3>统一模型入口</h3>
+            <p>OpenAI、Gemini 与 Anthropic 等 Provider 通过一致协议接入，模型能力显式声明。</p>
+          </article>
+          <article class="feature">
+            <span class="feature-index">02</span>
+            <h3>安全工具执行</h3>
+            <p>项目边界、命令阻断与审批状态在执行前生效，运行过程通过 Trace 完整呈现。</p>
+          </article>
+          <article class="feature">
+            <span class="feature-index">03</span>
+            <h3>记忆与上下文治理</h3>
+            <p>持久记忆与模型可见窗口相互独立，按作用域组合、去重并保留选择来源。</p>
+          </article>
+        </div>
+      </section>
 
-          <div class="flow" aria-label="运行流程">
-            <div class="flow-step">
-              <span class="flow-index">01</span>
-              <span class="flow-name">Runtime Kernel</span>
-            </div>
-            <div class="flow-step">
-              <span class="flow-index">02</span>
-              <span class="flow-name">Chat Application</span>
-            </div>
-            <div class="flow-step">
-              <span class="flow-index">03</span>
-              <span class="flow-name">Provider</span>
-            </div>
-            <div class="flow-step">
-              <span class="flow-index">04</span>
-              <span class="flow-name">Tool / Response</span>
-            </div>
-          </div>
-
-          <div class="capabilities" aria-label="核心能力">
-            <article class="capability">
-              <h2>模型接入</h2>
-              <p>OpenAI-compatible、Gemini、Anthropic 等提供商统一管理。</p>
-            </article>
-            <article class="capability">
-              <h2>工具执行</h2>
-              <p>审批、沙箱、追踪分层处理，运行状态不含糊。</p>
-            </article>
-            <article class="capability">
-              <h2>上下文</h2>
-              <p>会话、记忆与持久化分离，窗口组织更稳定。</p>
-            </article>
-          </div>
-
-          <div class="meta" aria-label="设计原则">
-            <div class="meta-item">
-              <span class="meta-label">Boundary</span>
-              <span class="meta-value">Core / Application / Infra</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Interface</span>
-              <span class="meta-value">HTTP / CLI / Console</span>
+      <section id="architecture" class="section is-white">
+        <div class="architecture">
+          <div class="architecture-copy">
+            <span class="eyebrow">Architecture first</span>
+            <h2>边界先于能力，能力服从系统</h2>
+            <p>EvernightAI 将领域规则、应用编排、基础设施与外部接口保持在明确层级中。Bootstrap 是唯一具体组装位置。</p>
+            <div class="principles">
+              <span>Core 不依赖 Application 与 Infra</span>
+              <span>Application 只协调协议角色</span>
+              <span>Interface 不组装具体 Runtime</span>
+              <span>工具权限在执行边界再次验证</span>
             </div>
           </div>
-        </section>
+          <div class="layer-stack" aria-label="EvernightAI 分层架构">
+            <div class="layer"><strong>Interface</strong><span>HTTP、CLI、WebSocket 与控制台</span></div>
+            <div class="layer"><strong>Application</strong><span>Chat、Agent、Session 与 Memory 编排</span></div>
+            <div class="layer"><strong>Core</strong><span>Schema、Protocol、Domain 与不变量</span></div>
+            <div class="layer"><strong>Infrastructure</strong><span>Provider、SQLite、Sandbox 与工具适配</span></div>
+            <div class="layer"><strong>Bootstrap</strong><span>具体角色注册与 Runtime 组装</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="cta">
+          <div>
+            <h2>进入 Agent 工作区</h2>
+            <p>从聊天开始，查看工具审批、运行 Trace、上下文与记忆来源。</p>
+          </div>
+          <a
+            class="primary-action"
+            href="/"
+            target="_top"
+            onclick="localStorage.setItem('evernight.currentView', 'chat')"
+          >打开控制台</a>
+        </div>
       </section>
     </main>
 
-    <script>
-      // Matrix Rain Effect
-      const canvas = document.getElementById('matrix-canvas');
-      const ctx = canvas.getContext('2d');
-
-      // Set canvas to full window size
-      function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-      }
-      resizeCanvas();
-      window.addEventListener('resize', resizeCanvas);
-
-      // Matrix characters - Katakana, Latin, numbers
-      const matrixChars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-      const chars = matrixChars.split('');
-
-      const fontSize = 14;
-      const columns = canvas.width / fontSize;
-      const drops = Array(Math.floor(columns)).fill(1);
-
-      function drawMatrix() {
-        // Fade effect
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = '#00ff41';
-        ctx.font = fontSize + 'px monospace';
-
-        for (let i = 0; i < drops.length; i++) {
-          const char = chars[Math.floor(Math.random() * chars.length)];
-          const x = i * fontSize;
-          const y = drops[i] * fontSize;
-
-          // Brighter at the tip
-          const alpha = Math.random() * 0.5 + 0.5;
-          ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
-          ctx.fillText(char, x, y);
-
-          // Dim trail
-          if (y > fontSize && Math.random() > 0.975) {
-            ctx.fillStyle = 'rgba(0, 170, 43, 0.3)';
-            ctx.fillText(chars[Math.floor(Math.random() * chars.length)], x, y - fontSize);
-          }
-
-          // Reset drop to top randomly
-          if (y > canvas.height && Math.random() > 0.975) {
-            drops[i] = 0;
-          }
-
-          drops[i]++;
-        }
-      }
-
-      // Run animation
-      setInterval(drawMatrix, 35);
-
-      // Digital clock effect (optional enhancement)
-      const systemTitle = document.querySelector('.system-title');
-      if (systemTitle) {
-        const originalText = systemTitle.textContent;
-        let glitchInterval;
-
-        function glitchText() {
-          const glitchChars = '!<>-_\\/[]{}—=+*^?#________';
-          let iterations = 0;
-          const maxIterations = originalText.length;
-
-          clearInterval(glitchInterval);
-          glitchInterval = setInterval(() => {
-            systemTitle.textContent = originalText
-              .split('')
-              .map((char, index) => {
-                if (index < iterations) {
-                  return originalText[index];
-                }
-                return glitchChars[Math.floor(Math.random() * glitchChars.length)];
-              })
-              .join('');
-
-            iterations += 1 / 3;
-
-            if (iterations >= maxIterations) {
-              clearInterval(glitchInterval);
-              systemTitle.textContent = originalText;
-            }
-          }, 30);
-        }
-
-        // Trigger glitch effect occasionally
-        setInterval(glitchText, 8000);
-      }
-
-      // Add typing effect to main title on load
-      const mainTitle = document.querySelector('h1');
-      if (mainTitle) {
-        const text = mainTitle.textContent;
-        mainTitle.textContent = '';
-        let charIndex = 0;
-
-        function typeWriter() {
-          if (charIndex < text.length) {
-            mainTitle.textContent += text.charAt(charIndex);
-            charIndex++;
-            setTimeout(typeWriter, 150);
-          }
-        }
-
-        setTimeout(typeWriter, 500);
-      }
-
-      // Add random flicker to signals
-      const signals = document.querySelectorAll('.signal');
-      signals.forEach((signal, index) => {
-        setInterval(() => {
-          if (Math.random() > 0.95) {
-            signal.style.opacity = '0.5';
-            setTimeout(() => {
-              signal.style.opacity = '1';
-            }, 50);
-          }
-        }, 1000 + index * 200);
-      });
-    </script>
+    <footer>
+      <span>EvernightAI Agent Platform</span>
+      <span>Clear boundaries. Observable runs. Controlled tools.</span>
+    </footer>
   </body>
 </html>

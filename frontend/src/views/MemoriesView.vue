@@ -348,22 +348,26 @@ onMounted(() => {
               <option v-for="sort in sortOptions" :key="sort" :value="sort">{{ sort }}</option>
             </select>
           </label>
-          <label class="memory-check">
-            <input v-model="filters.include_disabled" type="checkbox" />
-            <span>disabled</span>
-          </label>
-          <label class="memory-check">
-            <input v-model="filters.deduplicate" type="checkbox" />
-            <span>dedupe</span>
-          </label>
-          <button class="button compact-button primary" type="button" @click="refreshMemories">
-            <Icon name="search" />
-            <span>查询</span>
-          </button>
-          <button class="button compact-button" type="button" @click="runSelectionPreview">
-            <Icon name="list-filter" />
-            <span>选择预览</span>
-          </button>
+          <div class="memory-filter-options">
+            <label class="memory-check">
+              <input v-model="filters.include_disabled" type="checkbox" />
+              <span>disabled</span>
+            </label>
+            <label class="memory-check">
+              <input v-model="filters.deduplicate" type="checkbox" />
+              <span>dedupe</span>
+            </label>
+          </div>
+          <div class="memory-filter-actions">
+            <button class="button compact-button primary" type="button" @click="refreshMemories">
+              <Icon name="search" />
+              <span>查询</span>
+            </button>
+            <button class="button compact-button" type="button" @click="runSelectionPreview">
+              <Icon name="list-filter" />
+              <span>选择预览</span>
+            </button>
+          </div>
         </div>
         <p v-if="error" class="memory-error" role="alert">{{ error }}</p>
       </div>
@@ -549,7 +553,7 @@ onMounted(() => {
 <style scoped>
 .memory-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   gap: 16px;
   align-items: start;
 }
@@ -575,8 +579,25 @@ onMounted(() => {
 }
 
 .memory-filters {
-  grid-template-columns: minmax(160px, 1.4fr) repeat(5, minmax(110px, 1fr)) auto auto auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
+}
+
+.memory-filter-options,
+.memory-filter-actions {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  gap: 10px;
+}
+
+.memory-filter-options {
+  grid-column: 1;
+}
+
+.memory-filter-actions {
+  grid-column: 2 / -1;
+  justify-content: flex-end;
 }
 
 .memory-filters label,
@@ -632,11 +653,15 @@ onMounted(() => {
 }
 
 .memory-table {
+  width: 100%;
+  max-width: 100%;
   max-height: 680px;
+  overflow: auto;
 }
 
 .memory-table table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -783,6 +808,19 @@ onMounted(() => {
   .memory-filters,
   .memory-number-grid {
     grid-template-columns: 1fr;
+  }
+
+  .memory-filter-options,
+  .memory-filter-actions {
+    grid-column: 1;
+  }
+
+  .memory-filter-actions {
+    justify-content: stretch;
+  }
+
+  .memory-filter-actions .button {
+    flex: 1 1 0;
   }
 
   .panel-head {

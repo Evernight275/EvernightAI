@@ -28,13 +28,14 @@ const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
 <template>
   <aside class="sidebar">
     <section class="sidebar-section">
-      <h2 class="sidebar-title">核心</h2>
+      <h2 class="sidebar-title">工作区</h2>
       <ul>
         <li v-for="link in coreLinks" :key="link.view">
           <button
             class="side-link"
             :class="{ 'is-active': currentView === link.view }"
             type="button"
+            :title="link.label"
             :aria-current="currentView === link.view ? 'page' : undefined"
             @click="emit('navigate', link.view)"
           >
@@ -45,13 +46,14 @@ const manageLinks: Array<{ view: ViewKey; icon: string; label: string }> = [
       </ul>
     </section>
     <section class="sidebar-section">
-      <h2 class="sidebar-title">管理</h2>
+      <h2 class="sidebar-title">系统管理</h2>
       <ul>
         <li v-for="link in manageLinks" :key="link.view">
           <button
             class="side-link"
             :class="{ 'is-active': currentView === link.view }"
             type="button"
+            :title="link.label"
             :aria-current="currentView === link.view ? 'page' : undefined"
             @click="emit('navigate', link.view)"
           >

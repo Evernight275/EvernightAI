@@ -351,7 +351,7 @@ watch(selectedRunId, () => {
     }"
   >
     <ToastContainer ref="toastContainer" />
-    <AppHeader @configure-api-key="configureApiKey" />
+    <AppHeader :health-ok="healthOk" @configure-api-key="configureApiKey" />
 
     <div class="shell">
       <AppSidebar :current-view="currentView" @navigate="navigate" />
