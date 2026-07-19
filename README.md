@@ -163,6 +163,7 @@ remote tools.
 
 ```toml
 [tools.mcp.server.github]
+transport = "streamable_http"
 url = "https://mcp.example.com/mcp"
 namespace = "github"
 token_env = "GITHUB_MCP_TOKEN"
@@ -173,6 +174,8 @@ max_definition_chars = 12000
 timeout_seconds = 30.0
 max_output_chars = 20000
 is_need_approval = true
+watch_tool_changes = true
+# refresh_interval_seconds = 60.0
 ```
 
 The model sees names such as `github__search_code`; it cannot choose the MCP
@@ -182,6 +185,24 @@ permissions, blocked tools are never registered, output is bounded, and
 tool counts and definitions are bounded. Approval is required unless the
 operator explicitly disables it. A configured server that cannot initialize
 fails runtime startup instead of silently removing capabilities.
+
+MCP transport selection is explicit:
+
+- `streamable_http` is the default remote transport.
+- `sse` supports legacy MCP servers. EvernightAI does not automatically
+  downgrade to it after a Streamable HTTP failure.
+- `stdio` launches one fixed `command` and `args` declared by the operator. It
+  does not invoke a shell, and secrets enter the child only through `env_from`
+  mappings to host environment variables. The child is trusted runtime
+  infrastructure, not a restricted shell invocation; run untrusted stdio
+  servers under OS-level or container isolation.
+
+When a server advertises `notifications/tools/list_changed`, the runtime
+refreshes its definitions automatically. `refresh_interval_seconds` enables
+polling for older servers. A refresh constructs and validates the complete new
+source snapshot before atomically replacing the old one. Failed refreshes keep
+the last usable snapshot, mark readiness as degraded, and retry without exposing
+a partially updated registry.
 
 ## Memory And Context Strategy
 

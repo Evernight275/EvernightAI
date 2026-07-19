@@ -17,10 +17,16 @@ from EvernightAI.core.schema.data_analysis import DataSourceDefinition
 from EvernightAI.infra.registrations.data_analysis.sqlite import (
     register_sqlite_data_source,
 )
-from EvernightAI.infra.registrations.tool.mcp import create_mcp_tool_source
+from EvernightAI.infra.registrations.tool.mcp import (
+    create_mcp_sse_tool_source,
+    create_mcp_stdio_tool_source,
+    create_mcp_streamable_http_tool_source,
+)
 from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
 from EvernightAI.interface.cli.schema import (
     EvernightConfig,
+    McpServerConfig,
+    McpTransport,
     SandboxBackend,
     SQLiteDataSourceConfig,
 )
@@ -136,33 +142,79 @@ def _configured_mcp_tool_sources(config: EvernightConfig) -> list[ToolSourceProt
     for server_id, server in config.tools.mcp.server.items():
         if not server.enabled:
             continue
-        bearer_token = None
-        if server.token_env is not None:
-            bearer_token = os.getenv(server.token_env)
-            if bearer_token is None or bearer_token == "":
-                raise ToolConfigurationError(
-                    f"MCP token environment variable is not set: {server.token_env}"
-                )
-        sources.append(
-            create_mcp_tool_source(
-                server_id=server_id,
-                url=server.url,
-                namespace=server.namespace,
-                bearer_token=bearer_token,
-                allowed_tools=(
-                    set(server.allowed_tools)
-                    if server.allowed_tools is not None
-                    else None
-                ),
-                blocked_tools=set(server.blocked_tools),
-                max_tools=server.max_tools,
-                max_definition_chars=server.max_definition_chars,
-                timeout_seconds=server.timeout_seconds,
-                max_output_chars=server.max_output_chars,
-                requires_approval=server.is_need_approval,
-            )
-        )
+        sources.append(_configured_mcp_tool_source(server_id, server))
     return sources
+
+
+def _configured_mcp_tool_source(
+    server_id: str,
+    server: McpServerConfig,
+) -> ToolSourceProtocol:
+    common_options: dict[str, Any] = {
+        "server_id": server_id,
+        "namespace": server.namespace,
+        "allowed_tools": (
+            set(server.allowed_tools) if server.allowed_tools is not None else None
+        ),
+        "blocked_tools": set(server.blocked_tools),
+        "max_tools": server.max_tools,
+        "max_definition_chars": server.max_definition_chars,
+        "timeout_seconds": server.timeout_seconds,
+        "max_output_chars": server.max_output_chars,
+        "requires_approval": server.is_need_approval,
+        "watch_tool_changes": server.watch_tool_changes,
+        "refresh_interval_seconds": server.refresh_interval_seconds,
+        "refresh_retry_seconds": server.refresh_retry_seconds,
+    }
+    if server.transport is McpTransport.STDIO:
+        if server.command is None:
+            raise ToolConfigurationError("MCP stdio command is required")
+        return create_mcp_stdio_tool_source(
+            command=server.command,
+            args=server.args,
+            cwd=server.cwd,
+            env=_configured_mcp_stdio_env(server),
+            **common_options,
+        )
+
+    if server.url is None:
+        raise ToolConfigurationError(f"MCP {server.transport.value} URL is required")
+    bearer_token = _configured_secret(server.token_env, label="MCP token")
+    if server.transport is McpTransport.SSE:
+        return create_mcp_sse_tool_source(
+            url=server.url,
+            bearer_token=bearer_token,
+            sse_read_timeout_seconds=server.sse_read_timeout_seconds,
+            **common_options,
+        )
+    return create_mcp_streamable_http_tool_source(
+        url=server.url,
+        bearer_token=bearer_token,
+        **common_options,
+    )
+
+
+def _configured_mcp_stdio_env(server: McpServerConfig) -> dict[str, str] | None:
+    if not server.env_from:
+        return None
+    resolved: dict[str, str] = {}
+    for target_name, source_name in server.env_from.items():
+        value = _configured_secret(source_name, label="MCP stdio environment")
+        if value is None:
+            raise ToolConfigurationError(
+                f"MCP stdio environment variable is not set: {source_name}"
+            )
+        resolved[target_name] = value
+    return resolved
+
+
+def _configured_secret(name: str | None, *, label: str) -> str | None:
+    if name is None:
+        return None
+    value = os.getenv(name)
+    if value is None or value == "":
+        raise ToolConfigurationError(f"{label} variable is not set: {name}")
+    return value
 
 
 def _runtime_context_options(config: EvernightConfig) -> dict[str, Any]:

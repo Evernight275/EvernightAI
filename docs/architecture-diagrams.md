@@ -66,8 +66,8 @@ flowchart TD
         ToolManager["ToolManager"]
         ToolPolicy["BasicToolSafetyPolicy"]
         ToolRegs["infra tool registrations<br/>filesystem / shell / web / git / project / runtime_data"]
-        McpSources["MCP ToolSource adapters<br/>Streamable HTTP"]
-        RemoteMcp["remote MCP servers"]
+        McpSources["MCP ToolSource adapters<br/>Streamable HTTP / SSE / stdio"]
+        RemoteMcp["remote or local MCP servers"]
     end
 
     subgraph SkillSide["skill side"]
@@ -100,8 +100,8 @@ flowchart TD
     ToolRegs -- "tool definitions + executors" --> ToolRegister
     RuntimeFactory -- "creates configured sources" --> McpSources
     Runtime -- "initialize / close" --> McpSources
-    McpSources -- "tools/list + tools/call" --> RemoteMcp
-    McpSources -- "namespaced definitions + executors" --> ToolRegister
+    McpSources -- "tools/list + tools/call + list_changed" --> RemoteMcp
+    McpSources -- "atomic source snapshot" --> ToolRegister
     ToolRegister -- "owned by" --> Runtime
     ToolManager -- "uses" --> ToolRegister
     ToolManager -- "checks" --> ToolPolicy

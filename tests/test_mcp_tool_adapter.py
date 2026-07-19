@@ -1,8 +1,13 @@
 import asyncio
+from collections.abc import Callable
+from pathlib import Path
+import socket
+import sys
 from typing import Any
 
-import pytest
 import httpx
+import pytest
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, Tool as McpTool
@@ -22,7 +27,9 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.tool.mcp import (
+    McpSseClient,
     McpStreamableHttpClient,
+    McpStdioClient,
     McpToolSource,
 )
 
@@ -34,13 +41,21 @@ class FakeMcpClient:
         *,
         results: dict[str, CallToolResult] | None = None,
         connect_error: Exception | None = None,
+        supports_tool_list_changes: bool = True,
     ) -> None:
         self.tools = tools
         self.results = results or {}
         self.connect_error = connect_error
+        self.supports_tool_list_changes = supports_tool_list_changes
         self.connected = False
         self.closed = False
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.tool_list_changed_handler: Callable[[], None] | None = None
+        self.failure_handler: Callable[[Exception], None] | None = None
+
+    @property
+    def transport_name(self) -> str:
+        return "fake"
 
     async def connect(self) -> None:
         if self.connect_error is not None:
@@ -57,6 +72,26 @@ class FakeMcpClient:
     ) -> CallToolResult:
         self.calls.append((name, arguments))
         return self.results.get(name, _text_result(f"called {name}"))
+
+    def set_tool_list_changed_handler(
+        self,
+        handler: Callable[[], None] | None,
+    ) -> None:
+        self.tool_list_changed_handler = handler
+
+    def notify_tool_list_changed(self) -> None:
+        if self.tool_list_changed_handler is not None:
+            self.tool_list_changed_handler()
+
+    def set_failure_handler(
+        self,
+        handler: Callable[[Exception], None] | None,
+    ) -> None:
+        self.failure_handler = handler
+
+    def notify_failure(self, error: Exception) -> None:
+        if self.failure_handler is not None:
+            self.failure_handler(error)
 
     async def close(self) -> None:
         self.connected = False
@@ -113,6 +148,7 @@ async def test_mcp_source_registers_namespaced_tools_with_local_safety() -> None
         "remote": True,
         "mcp_server_id": "github",
         "mcp_tool_name": "search",
+        "mcp_transport": "fake",
     }
 
     with pytest.raises(ToolPolicyError, match="rejected by policy"):
@@ -308,6 +344,91 @@ async def test_mcp_source_truncates_oversized_results() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_source_hot_refreshes_tools_from_notification() -> None:
+    client = FakeMcpClient([_tool("search")])
+    source = McpToolSource(
+        server_id="github",
+        namespace="github",
+        client=client,
+    )
+    register = ToolRegister()
+    await source.load(register)
+
+    client.tools = [_tool("get_file")]
+    client.notify_tool_list_changed()
+    await _wait_for_tool_names(register, ["github__get_file"])
+
+    assert source.is_ready() is True
+    await source.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_source_polls_when_change_notifications_are_unavailable() -> None:
+    client = FakeMcpClient(
+        [_tool("search")],
+        supports_tool_list_changes=False,
+    )
+    source = McpToolSource(
+        server_id="legacy",
+        namespace="legacy",
+        client=client,
+        watch_tool_changes=False,
+        refresh_interval_seconds=0.01,
+    )
+    register = ToolRegister()
+    await source.load(register)
+
+    client.tools = [_tool("get_file")]
+    await _wait_for_tool_names(register, ["legacy__get_file"])
+
+    await source.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_source_marks_readiness_degraded_on_transport_failure() -> None:
+    client = FakeMcpClient([_tool("search")])
+    source = McpToolSource(
+        server_id="github",
+        namespace="github",
+        client=client,
+        watch_tool_changes=False,
+    )
+    await source.load(ToolRegister())
+
+    client.notify_failure(RuntimeError("connection lost"))
+
+    assert source.is_ready() is False
+    await source.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_source_keeps_last_snapshot_when_refresh_fails() -> None:
+    client = FakeMcpClient([_tool("search")])
+    source = McpToolSource(
+        server_id="github",
+        namespace="github",
+        client=client,
+        max_tools=1,
+    )
+    register = ToolRegister()
+    await source.load(register)
+
+    client.tools = [_tool("one"), _tool("two")]
+    with pytest.raises(ToolConfigurationError, match="too many tools"):
+        await source.refresh()
+
+    assert [tool.name for tool in register.list_tools()] == ["github__search"]
+    assert source.is_ready() is False
+
+    client.tools = [_tool("get_file")]
+    await source.refresh()
+
+    assert [tool.name for tool in register.list_tools()] == ["github__get_file"]
+    assert source.is_ready() is True
+    await source.close()
+
+
+@pytest.mark.asyncio
 async def test_runtime_loads_and_closes_mcp_tool_sources(tmp_path) -> None:
     client = FakeMcpClient([_tool("search")])
     source = McpToolSource(
@@ -412,3 +533,111 @@ async def test_streamable_http_client_discovers_and_calls_real_mcp_server() -> N
 
             assert result.tool_call_result["structuredContent"] == {"result": 5}
             await source.close()
+
+
+@pytest.mark.asyncio
+async def test_stdio_client_discovers_and_calls_real_mcp_process() -> None:
+    client = McpStdioClient(
+        command=sys.executable,
+        args=[str(Path(__file__).parent / "fakes" / "mcp_stdio_server.py")],
+        timeout_seconds=10,
+    )
+    source = McpToolSource(
+        server_id="math_stdio",
+        namespace="math_stdio",
+        client=client,
+        requires_approval=False,
+        watch_tool_changes=False,
+    )
+    register = ToolRegister()
+    manager = ToolManager(register)
+    await source.load(register)
+
+    result = await manager.execute(
+        ToolCall(
+            tool_call_id="call-stdio",
+            tool_call={
+                "name": "math_stdio__multiply",
+                "arguments": {"left": 6, "right": 7},
+            },
+        )
+    )
+
+    assert result.tool_call_result["structuredContent"] == {"result": 42}
+    await source.close()
+
+
+@pytest.mark.asyncio
+async def test_sse_client_discovers_and_calls_real_legacy_mcp_server() -> None:
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(128)
+    listener.setblocking(False)
+    port = listener.getsockname()[1]
+    server = FastMCP(
+        "sse-test",
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=[f"127.0.0.1:{port}"],
+        ),
+    )
+
+    @server.tool()
+    def subtract(left: int, right: int) -> dict[str, int]:
+        """Subtract two integers."""
+        return {"result": left - right}
+
+    http_server = uvicorn.Server(
+        uvicorn.Config(
+            server.sse_app(),
+            log_level="critical",
+            lifespan="on",
+            ws="none",
+        )
+    )
+    server_task = asyncio.create_task(http_server.serve(sockets=[listener]))
+    await _wait_for_server_start(http_server)
+    source = McpToolSource(
+        server_id="legacy",
+        namespace="legacy",
+        client=McpSseClient(url=f"http://127.0.0.1:{port}/sse"),
+        requires_approval=False,
+        watch_tool_changes=False,
+    )
+    register = ToolRegister()
+    manager = ToolManager(register)
+    try:
+        await source.load(register)
+        result = await manager.execute(
+            ToolCall(
+                tool_call_id="call-sse",
+                tool_call={
+                    "name": "legacy__subtract",
+                    "arguments": {"left": 9, "right": 4},
+                },
+            )
+        )
+        assert result.tool_call_result["structuredContent"] == {"result": 5}
+    finally:
+        await source.close()
+        http_server.should_exit = True
+        await server_task
+        listener.close()
+
+
+async def _wait_for_tool_names(
+    register: ToolRegister,
+    expected: list[str],
+) -> None:
+    for _ in range(100):
+        if [tool.name for tool in register.list_tools()] == expected:
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError(f"Tool names did not become {expected}")
+
+
+async def _wait_for_server_start(server: uvicorn.Server) -> None:
+    for _ in range(1000):
+        if server.started:
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError("Test MCP server did not start")

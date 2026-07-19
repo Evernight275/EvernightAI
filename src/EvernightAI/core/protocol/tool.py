@@ -11,6 +11,7 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyDecision,
 )
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 ToolExecutorProtocol = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -18,6 +19,13 @@ ToolPreflightPolicy = Callable[
     [ToolDefinition, dict[str, Any]],
     ToolSafetyDecision | None,
 ]
+
+
+@dataclass(frozen=True)
+class ToolRegistration:
+    tool: ToolDefinition
+    executor: ToolExecutorProtocol
+    preflight_policy: ToolPreflightPolicy | None = None
 
 
 class ToolProtocol(EvernightAIProtocol):
@@ -74,6 +82,12 @@ class ToolRegisterProtocol(ToolProtocol, RegisterProtocol):
 
     def unregister(self, tool_name: str) -> None: ...
 
+    def replace_source(
+        self,
+        source_id: str,
+        registrations: list[ToolRegistration],
+    ) -> None: ...
+
     def get(self, tool_name: str) -> ToolDefinition: ...
 
     def get_executor(self, tool_name: str) -> ToolExecutorProtocol: ...
@@ -92,6 +106,8 @@ class ToolSourceProtocol(ToolProtocol, ResponsibilityProtocol):
     """Load tools from an external source into a runtime register."""
 
     async def load(self, register: ToolRegisterProtocol) -> None: ...
+
+    async def refresh(self) -> None: ...
 
     def is_ready(self) -> bool: ...
 

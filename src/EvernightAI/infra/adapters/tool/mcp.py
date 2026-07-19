@@ -1,15 +1,35 @@
+import asyncio
 import json
 import logging
 import re
-from contextlib import AsyncExitStack
+import sys
+from collections.abc import Callable
+from contextlib import (
+    AbstractAsyncContextManager,
+    AsyncExitStack,
+    asynccontextmanager,
+    suppress,
+)
 from datetime import timedelta
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Protocol, TextIO
 from urllib.parse import urlparse
 
 import httpx
-from mcp import ClientSession
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CallToolResult, TextContent, Tool as McpTool
+from mcp.shared._httpx_utils import McpHttpClientFactory
+from mcp.shared.message import SessionMessage
+from mcp.types import (
+    CallToolResult,
+    ServerNotification,
+    TextContent,
+    Tool as McpTool,
+    ToolListChangedNotification,
+)
 
 from EvernightAI.core.error.tool import (
     ToolConfigurationError,
@@ -19,6 +39,7 @@ from EvernightAI.core.error.tool import (
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
     ToolRegisterProtocol,
+    ToolRegistration,
     ToolSourceProtocol,
 )
 from EvernightAI.core.schema.tool import (
@@ -33,6 +54,13 @@ LOGGER = logging.getLogger("EvernightAI.infra.tool.mcp")
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _MAX_TOOL_NAME_LENGTH = 64
 
+McpReadStream = MemoryObjectReceiveStream[SessionMessage | Exception]
+McpWriteStream = MemoryObjectSendStream[SessionMessage]
+McpTransportContext = AbstractAsyncContextManager[tuple[McpReadStream, McpWriteStream]]
+McpTransportFactory = Callable[[], McpTransportContext]
+ToolListChangedHandler = Callable[[], None]
+McpFailureHandler = Callable[[Exception], None]
+
 
 class McpClientProtocol(Protocol):
     async def connect(self) -> None: ...
@@ -45,29 +73,38 @@ class McpClientProtocol(Protocol):
         arguments: dict[str, Any],
     ) -> CallToolResult: ...
 
+    @property
+    def transport_name(self) -> str: ...
+
+    @property
+    def supports_tool_list_changes(self) -> bool: ...
+
+    def set_tool_list_changed_handler(
+        self,
+        handler: ToolListChangedHandler | None,
+    ) -> None: ...
+
+    def set_failure_handler(self, handler: McpFailureHandler | None) -> None: ...
+
     async def close(self) -> None: ...
 
 
-class McpStreamableHttpClient(McpClientProtocol):
+class _McpSessionClient(McpClientProtocol):
     def __init__(
         self,
         *,
-        url: str,
-        headers: dict[str, str] | None = None,
-        timeout_seconds: float = 30.0,
-        http_client: httpx.AsyncClient | None = None,
+        transport_factory: McpTransportFactory,
+        transport_name: str,
+        timeout_seconds: float,
     ) -> None:
-        _validate_url(url)
-        if http_client is not None and headers:
-            raise ToolConfigurationError(
-                "MCP headers must be configured on the supplied HTTP client"
-            )
-        self._url = url
-        self._headers = dict(headers or {})
+        self._transport_factory = transport_factory
+        self._transport_name = transport_name
         self._timeout_seconds = timeout_seconds
-        self._http_client = http_client
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
+        self._supports_tool_list_changes = False
+        self._tool_list_changed_handler: ToolListChangedHandler | None = None
+        self._failure_handler: McpFailureHandler | None = None
 
     async def connect(self) -> None:
         if self._session is not None:
@@ -75,36 +112,26 @@ class McpStreamableHttpClient(McpClientProtocol):
 
         stack = AsyncExitStack()
         try:
-            http_client = self._http_client
-            if http_client is None:
-                http_client = await stack.enter_async_context(
-                    httpx.AsyncClient(
-                        headers=self._headers,
-                        timeout=httpx.Timeout(
-                            self._timeout_seconds,
-                            read=max(self._timeout_seconds, 300.0),
-                        ),
-                        follow_redirects=False,
-                    )
-                )
-            read_stream, write_stream, _ = await stack.enter_async_context(
-                streamable_http_client(
-                    self._url,
-                    http_client=http_client,
-                )
+            read_stream, write_stream = await stack.enter_async_context(
+                self._transport_factory()
             )
             session = await stack.enter_async_context(
                 ClientSession(
                     read_stream,
                     write_stream,
                     read_timeout_seconds=timedelta(seconds=self._timeout_seconds),
+                    message_handler=self._handle_message,
                 )
             )
-            await session.initialize()
+            initialization = await session.initialize()
         except BaseException:
             await stack.aclose()
             raise
 
+        tools_capability = initialization.capabilities.tools
+        self._supports_tool_list_changes = bool(
+            tools_capability is not None and tools_capability.listChanged
+        )
         self._stack = stack
         self._session = session
 
@@ -136,17 +163,136 @@ class McpStreamableHttpClient(McpClientProtocol):
             read_timeout_seconds=timedelta(seconds=self._timeout_seconds),
         )
 
+    @property
+    def transport_name(self) -> str:
+        return self._transport_name
+
+    @property
+    def supports_tool_list_changes(self) -> bool:
+        return self._supports_tool_list_changes
+
+    def set_tool_list_changed_handler(
+        self,
+        handler: ToolListChangedHandler | None,
+    ) -> None:
+        self._tool_list_changed_handler = handler
+
+    def set_failure_handler(self, handler: McpFailureHandler | None) -> None:
+        self._failure_handler = handler
+
     async def close(self) -> None:
         stack = self._stack
         self._stack = None
         self._session = None
+        self._supports_tool_list_changes = False
         if stack is not None:
             await stack.aclose()
+
+    async def _handle_message(
+        self,
+        message: object,
+    ) -> None:
+        if isinstance(message, ServerNotification) and isinstance(
+            message.root,
+            ToolListChangedNotification,
+        ):
+            handler = self._tool_list_changed_handler
+            if handler is not None:
+                handler()
+        elif isinstance(message, Exception):
+            LOGGER.warning(
+                "MCP transport reported an error",
+                extra={"error_type": message.__class__.__name__},
+            )
+            handler = self._failure_handler
+            if handler is not None:
+                handler(message)
 
     def _require_session(self) -> ClientSession:
         if self._session is None:
             raise ToolStateError("The MCP client is not connected")
         return self._session
+
+
+class McpStreamableHttpClient(_McpSessionClient):
+    def __init__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout_seconds: float = 30.0,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        _validate_url(url)
+        if http_client is not None and headers:
+            raise ToolConfigurationError(
+                "MCP headers must be configured on the supplied HTTP client"
+            )
+        super().__init__(
+            transport_factory=lambda: _streamable_http_transport(
+                url=url,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+                http_client=http_client,
+            ),
+            transport_name="streamable_http",
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class McpSseClient(_McpSessionClient):
+    def __init__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout_seconds: float = 30.0,
+        sse_read_timeout_seconds: float = 300.0,
+        httpx_client_factory: McpHttpClientFactory | None = None,
+    ) -> None:
+        _validate_url(url)
+        super().__init__(
+            transport_factory=lambda: _sse_transport(
+                url=url,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+                sse_read_timeout_seconds=sse_read_timeout_seconds,
+                httpx_client_factory=(
+                    httpx_client_factory or _create_no_redirect_http_client
+                ),
+            ),
+            transport_name="sse",
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class McpStdioClient(_McpSessionClient):
+    def __init__(
+        self,
+        *,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | Path | None = None,
+        env: dict[str, str] | None = None,
+        timeout_seconds: float = 30.0,
+        errlog: TextIO | None = None,
+    ) -> None:
+        if not command:
+            raise ToolConfigurationError("MCP stdio command must not be empty")
+        parameters = StdioServerParameters(
+            command=command,
+            args=list(args or []),
+            cwd=cwd,
+            env=dict(env) if env is not None else None,
+        )
+        super().__init__(
+            transport_factory=lambda: _stdio_transport(
+                parameters,
+                errlog=errlog or sys.stderr,
+            ),
+            transport_name="stdio",
+            timeout_seconds=timeout_seconds,
+        )
 
 
 class McpToolSource(ToolSourceProtocol):
@@ -162,6 +308,9 @@ class McpToolSource(ToolSourceProtocol):
         max_definition_chars: int = 12000,
         requires_approval: bool = True,
         max_output_chars: int = 20000,
+        watch_tool_changes: bool = True,
+        refresh_interval_seconds: float | None = None,
+        refresh_retry_seconds: float = 5.0,
     ) -> None:
         _validate_name(namespace, label="MCP namespace")
         if max_output_chars < 1:
@@ -170,8 +319,15 @@ class McpToolSource(ToolSourceProtocol):
             raise ToolConfigurationError("MCP max_tools must be positive")
         if max_definition_chars < 1:
             raise ToolConfigurationError("MCP max_definition_chars must be positive")
+        if refresh_interval_seconds is not None and refresh_interval_seconds <= 0:
+            raise ToolConfigurationError(
+                "MCP refresh_interval_seconds must be positive"
+            )
+        if refresh_retry_seconds <= 0:
+            raise ToolConfigurationError("MCP refresh_retry_seconds must be positive")
 
         self._server_id = server_id
+        self._source_id = f"mcp:{server_id}"
         self._namespace = namespace
         self._client = client
         self._allowed_tools = allowed_tools
@@ -180,8 +336,14 @@ class McpToolSource(ToolSourceProtocol):
         self._max_definition_chars = max_definition_chars
         self._requires_approval = requires_approval
         self._max_output_chars = max_output_chars
+        self._watch_tool_changes = watch_tool_changes
+        self._refresh_interval_seconds = refresh_interval_seconds
+        self._refresh_retry_seconds = refresh_retry_seconds
         self._register: ToolRegisterProtocol | None = None
         self._registered_names: list[str] = []
+        self._refresh_event = asyncio.Event()
+        self._refresh_lock = asyncio.Lock()
+        self._refresh_task: asyncio.Task[None] | None = None
         self._ready = False
 
     async def load(self, register: ToolRegisterProtocol) -> None:
@@ -195,19 +357,17 @@ class McpToolSource(ToolSourceProtocol):
                 detail=", ".join(sorted(overlap)),
             )
 
+        self._register = register
+        self._client.set_tool_list_changed_handler(self._request_refresh)
+        self._client.set_failure_handler(self._handle_client_failure)
         try:
             await self._client.connect()
-            remote_tools = await self._client.list_tools()
-            selected_tools = self._select_tools(remote_tools)
-            definitions = [self._definition(tool) for tool in selected_tools]
-            self._validate_registrations(register, definitions)
-            for remote_tool, definition in zip(
-                selected_tools, definitions, strict=True
-            ):
-                register.register(definition, self._executor(remote_tool.name))
-                self._registered_names.append(definition.name)
+            await self.refresh()
         except BaseException as exc:
-            self._rollback_registration(register)
+            register.replace_source(self._source_id, [])
+            self._register = None
+            self._client.set_tool_list_changed_handler(None)
+            self._client.set_failure_handler(None)
             await self._client.close()
             if not isinstance(exc, Exception):
                 raise
@@ -219,25 +379,130 @@ class McpToolSource(ToolSourceProtocol):
                 cause=exc,
             ) from exc
 
-        self._register = register
         self._ready = True
+        self._start_refresh_task()
+        if self._watch_tool_changes and not self._client.supports_tool_list_changes:
+            LOGGER.info(
+                "MCP server does not advertise tool list change notifications",
+                extra={
+                    "mcp_server_id": self._server_id,
+                    "mcp_transport": self._client.transport_name,
+                },
+            )
         LOGGER.info(
             "MCP tool source loaded",
             extra={
                 "mcp_server_id": self._server_id,
+                "mcp_transport": self._client.transport_name,
                 "mcp_tool_count": len(self._registered_names),
             },
         )
+
+    async def refresh(self) -> None:
+        register = self._register
+        if register is None:
+            raise ToolStateError(f"The MCP source {self._server_id} is not loaded")
+
+        async with self._refresh_lock:
+            try:
+                remote_tools = await self._client.list_tools()
+                selected_tools = self._select_tools(remote_tools)
+                registrations = [
+                    ToolRegistration(
+                        tool=self._definition(tool),
+                        executor=self._executor(tool.name),
+                    )
+                    for tool in selected_tools
+                ]
+                register.replace_source(self._source_id, registrations)
+            except ToolStateError as exc:
+                self._ready = False
+                raise ToolConfigurationError(
+                    str(exc),
+                    detail=exc.detail or str(exc),
+                    cause=exc,
+                ) from exc
+            except Exception:
+                self._ready = False
+                raise
+            self._registered_names = [
+                registration.tool.name for registration in registrations
+            ]
+            self._ready = True
+            LOGGER.info(
+                "MCP tool source refreshed",
+                extra={
+                    "mcp_server_id": self._server_id,
+                    "mcp_transport": self._client.transport_name,
+                    "mcp_tool_count": len(self._registered_names),
+                },
+            )
 
     def is_ready(self) -> bool:
         return self._ready
 
     async def close(self) -> None:
+        task = self._refresh_task
+        self._refresh_task = None
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        self._client.set_tool_list_changed_handler(None)
+        self._client.set_failure_handler(None)
         if self._register is not None:
-            self._rollback_registration(self._register)
+            self._register.replace_source(self._source_id, [])
         self._register = None
+        self._registered_names.clear()
         self._ready = False
         await self._client.close()
+
+    def _start_refresh_task(self) -> None:
+        if not self._watch_tool_changes and self._refresh_interval_seconds is None:
+            return
+        if self._refresh_task is None:
+            self._refresh_task = asyncio.create_task(
+                self._refresh_loop(),
+                name=f"mcp-tool-refresh:{self._server_id}",
+            )
+
+    def _request_refresh(self) -> None:
+        if self._watch_tool_changes:
+            self._refresh_event.set()
+
+    def _handle_client_failure(self, _error: Exception) -> None:
+        self._ready = False
+        if self._refresh_task is not None:
+            self._refresh_event.set()
+
+    async def _refresh_loop(self) -> None:
+        while True:
+            interval = self._refresh_interval_seconds
+            if interval is None:
+                await self._refresh_event.wait()
+            else:
+                try:
+                    await asyncio.wait_for(self._refresh_event.wait(), timeout=interval)
+                except TimeoutError:
+                    pass
+            self._refresh_event.clear()
+            try:
+                await self.refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._ready = False
+                LOGGER.error(
+                    "MCP tool source refresh failed",
+                    extra={
+                        "mcp_server_id": self._server_id,
+                        "mcp_transport": self._client.transport_name,
+                        "error_type": exc.__class__.__name__,
+                    },
+                    exc_info=exc,
+                )
+                await asyncio.sleep(self._refresh_retry_seconds)
+                self._refresh_event.set()
 
     def _select_tools(self, tools: list[McpTool]) -> list[McpTool]:
         if len(tools) > self._max_tools:
@@ -297,25 +562,9 @@ class McpToolSource(ToolSourceProtocol):
                 "remote": True,
                 "mcp_server_id": self._server_id,
                 "mcp_tool_name": tool.name,
+                "mcp_transport": self._client.transport_name,
             },
         )
-
-    def _validate_registrations(
-        self,
-        register: ToolRegisterProtocol,
-        definitions: list[ToolDefinition],
-    ) -> None:
-        names = [definition.name for definition in definitions]
-        if len(names) != len(set(names)):
-            raise ToolConfigurationError(
-                f"The MCP server {self._server_id} produced duplicate local tool names"
-            )
-        conflicts = [name for name in names if register.has(name)]
-        if conflicts:
-            raise ToolConfigurationError(
-                "MCP tool names conflict with registered tools",
-                detail=", ".join(sorted(conflicts)),
-            )
 
     def _executor(self, remote_name: str) -> ToolExecutorProtocol:
         async def execute(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -329,11 +578,74 @@ class McpToolSource(ToolSourceProtocol):
 
         return execute
 
-    def _rollback_registration(self, register: ToolRegisterProtocol) -> None:
-        for name in reversed(self._registered_names):
-            if register.has(name):
-                register.unregister(name)
-        self._registered_names.clear()
+
+@asynccontextmanager
+async def _streamable_http_transport(
+    *,
+    url: str,
+    headers: dict[str, str] | None,
+    timeout_seconds: float,
+    http_client: httpx.AsyncClient | None,
+):
+    async with AsyncExitStack() as stack:
+        client = http_client
+        if client is None:
+            client = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    headers=headers,
+                    timeout=httpx.Timeout(
+                        timeout_seconds,
+                        read=max(timeout_seconds, 300.0),
+                    ),
+                    follow_redirects=False,
+                )
+            )
+        read_stream, write_stream, _ = await stack.enter_async_context(
+            streamable_http_client(url, http_client=client)
+        )
+        yield read_stream, write_stream
+
+
+@asynccontextmanager
+async def _sse_transport(
+    *,
+    url: str,
+    headers: dict[str, str] | None,
+    timeout_seconds: float,
+    sse_read_timeout_seconds: float,
+    httpx_client_factory: McpHttpClientFactory,
+):
+    async with sse_client(
+        url,
+        headers=headers,
+        timeout=timeout_seconds,
+        sse_read_timeout=sse_read_timeout_seconds,
+        httpx_client_factory=httpx_client_factory,
+    ) as streams:
+        yield streams
+
+
+@asynccontextmanager
+async def _stdio_transport(
+    parameters: StdioServerParameters,
+    *,
+    errlog: TextIO,
+):
+    async with stdio_client(parameters, errlog=errlog) as streams:
+        yield streams
+
+
+def _create_no_redirect_http_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        headers=headers,
+        timeout=timeout,
+        auth=auth,
+        follow_redirects=False,
+    )
 
 
 def _result_payload(result: CallToolResult, max_chars: int) -> dict[str, Any]:

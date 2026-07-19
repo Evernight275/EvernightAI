@@ -123,6 +123,7 @@ enabled = false
 # remains local: remote tools always receive network/external_api permissions.
 [tools.mcp.server.example]
 enabled = false
+transport = "streamable_http"
 url = "https://mcp.example.com/mcp"
 namespace = "example"
 # The token value is read from the environment and is never copied into tool
@@ -137,6 +138,33 @@ max_definition_chars = 12000
 timeout_seconds = 30.0
 max_output_chars = 20000
 is_need_approval = true
+watch_tool_changes = true
+# Polling is optional fallback for servers that do not advertise
+# notifications/tools/list_changed.
+# refresh_interval_seconds = 60.0
+refresh_retry_seconds = 5.0
+
+# Legacy SSE is explicit; EvernightAI never silently downgrades transports.
+# [tools.mcp.server.legacy]
+# enabled = true
+# transport = "sse"
+# url = "https://mcp.example.com/sse"
+# namespace = "legacy"
+# token_env = "LEGACY_MCP_TOKEN"
+# sse_read_timeout_seconds = 300.0
+
+# stdio executes one fixed, operator-declared process without a shell. Values
+# in env_from map child variable names to host environment variable names.
+# The process is trusted runtime infrastructure and is not confined by the
+# restricted shell tool. Isolate untrusted servers at the OS/container layer.
+# [tools.mcp.server.local]
+# enabled = true
+# transport = "stdio"
+# command = "uvx"
+# args = ["mcp-server-example"]
+# cwd = "."
+# env_from = { API_TOKEN = "LOCAL_MCP_API_TOKEN" }
+# namespace = "local"
 
 # SQLite data analysis sources expose read-only aggregate statistics over a
 # table or view in the runtime database.

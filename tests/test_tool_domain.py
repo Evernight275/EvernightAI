@@ -9,7 +9,9 @@ from EvernightAI.core.error.tool import (
     ToolNotFoundError,
     ToolPolicyError,
     ToolResultError,
+    ToolStateError,
 )
+from EvernightAI.core.protocol.tool import ToolRegistration
 from EvernightAI.core.schema.tool import (
     ToolApprovalMode,
     ToolApprovalDecision,
@@ -80,6 +82,47 @@ def test_tool_register_raises_for_missing_tool() -> None:
 
     with pytest.raises(ToolNotFoundError):
         register.get("missing")
+
+
+def test_tool_register_atomically_replaces_source_owned_tools() -> None:
+    async def execute(arguments: dict[str, Any]) -> dict[str, Any]:
+        return arguments
+
+    register = ToolRegister()
+    register.register(make_tool(), execute)
+    register.replace_source(
+        "remote-1",
+        [
+            ToolRegistration(
+                ToolDefinition(name="remote_old", description="Old"),
+                execute,
+            )
+        ],
+    )
+
+    register.replace_source(
+        "remote-1",
+        [
+            ToolRegistration(
+                ToolDefinition(name="remote_new", description="New"),
+                execute,
+            )
+        ],
+    )
+
+    assert [tool.name for tool in register.list_tools()] == ["add", "remote_new"]
+    with pytest.raises(ToolNotFoundError):
+        register.get("remote_old")
+    with pytest.raises(ToolStateError, match="managed by source"):
+        register.unregister("remote_new")
+
+    with pytest.raises(ToolStateError, match="conflicts"):
+        register.replace_source(
+            "remote-1",
+            [ToolRegistration(make_tool(), execute)],
+        )
+
+    assert [tool.name for tool in register.list_tools()] == ["add", "remote_new"]
 
 
 @pytest.mark.asyncio

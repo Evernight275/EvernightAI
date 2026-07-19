@@ -8,7 +8,7 @@ from EvernightAI.core.schema.data_analysis import (
     DataMetricDefinition,
 )
 from EvernightAI.core.schema.provider import ProviderConfig
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class SandboxBackend(StrEnum):
@@ -89,9 +89,20 @@ class RuntimeDataToolConfig(EvernightAISchema):
     enabled: bool = False
 
 
+class McpTransport(StrEnum):
+    STREAMABLE_HTTP = "streamable_http"
+    SSE = "sse"
+    STDIO = "stdio"
+
+
 class McpServerConfig(EvernightAISchema):
     enabled: bool = True
-    url: str
+    transport: McpTransport = McpTransport.STREAMABLE_HTTP
+    url: str | None = None
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    cwd: str | None = None
+    env_from: dict[str, str] = Field(default_factory=dict)
     namespace: str | None = None
     token_env: str | None = None
     allowed_tools: list[str] | None = None
@@ -99,8 +110,34 @@ class McpServerConfig(EvernightAISchema):
     max_tools: int = Field(default=100, ge=1)
     max_definition_chars: int = Field(default=12000, ge=1)
     timeout_seconds: float = Field(default=30.0, gt=0)
+    sse_read_timeout_seconds: float = Field(default=300.0, gt=0)
     max_output_chars: int = Field(default=20000, ge=1)
     is_need_approval: bool = True
+    watch_tool_changes: bool = True
+    refresh_interval_seconds: float | None = Field(default=None, gt=0)
+    refresh_retry_seconds: float = Field(default=5.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_transport_fields(self) -> "McpServerConfig":
+        if self.transport is McpTransport.STDIO:
+            if not self.command:
+                raise ValueError("MCP stdio transport requires command")
+            if self.url is not None:
+                raise ValueError("MCP stdio transport does not accept url")
+            if self.token_env is not None:
+                raise ValueError("MCP stdio credentials must use env_from")
+            for target_name, source_name in self.env_from.items():
+                if not target_name or "=" in target_name or not source_name:
+                    raise ValueError("MCP stdio env_from contains an invalid mapping")
+            return self
+
+        if not self.url:
+            raise ValueError(f"MCP {self.transport.value} transport requires url")
+        if self.command is not None or self.args or self.cwd is not None or self.env_from:
+            raise ValueError(
+                f"MCP {self.transport.value} transport does not accept stdio fields"
+            )
+        return self
 
 
 class McpToolConfig(EvernightAISchema):

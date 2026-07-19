@@ -1,11 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from EvernightAI.core.schema.provider import (
     ProviderModelCapability,
     ProviderType,
 )
 from EvernightAI.core.error.base import ConfigurationError
-from EvernightAI.interface.cli.schema import SandboxBackend
+from EvernightAI.interface.cli.schema import McpTransport, SandboxBackend
 from EvernightAI.interface.cli.config import load_config, parse_config
 
 
@@ -78,6 +80,8 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                             "blocked_tools": ["delete_repository"],
                             "max_tools": 25,
                             "max_definition_chars": 4000,
+                            "watch_tool_changes": True,
+                            "refresh_interval_seconds": 60,
                             "timeout_seconds": 15,
                             "max_output_chars": 6000,
                             "is_need_approval": False,
@@ -194,12 +198,15 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.tools.runtime_data.enabled is True
     mcp_server = config.tools.mcp.server["github"]
     assert mcp_server.url == "https://mcp.example.test/mcp"
+    assert mcp_server.transport is McpTransport.STREAMABLE_HTTP
     assert mcp_server.namespace == "gh"
     assert mcp_server.token_env == "GITHUB_MCP_TOKEN"
     assert mcp_server.allowed_tools == ["search", "get_file"]
     assert mcp_server.blocked_tools == ["delete_repository"]
     assert mcp_server.max_tools == 25
     assert mcp_server.max_definition_chars == 4000
+    assert mcp_server.watch_tool_changes is True
+    assert mcp_server.refresh_interval_seconds == 60
     assert mcp_server.timeout_seconds == 15
     assert mcp_server.max_output_chars == 6000
     assert mcp_server.is_need_approval is False
@@ -315,3 +322,47 @@ def test_parse_config_rejects_unknown_provider_model_fields() -> None:
         assert "del_id" in str(exc.detail)
     else:
         raise AssertionError("Expected ConfigurationError")
+
+
+def test_parse_config_validates_mcp_transport_specific_fields() -> None:
+    config = parse_config(
+        {
+            "tools": {
+                "mcp": {
+                    "server": {
+                        "local": {
+                            "transport": "stdio",
+                            "command": "python",
+                            "args": ["server.py"],
+                            "cwd": ".",
+                            "env_from": {"API_TOKEN": "MCP_API_TOKEN"},
+                        },
+                        "legacy": {
+                            "transport": "sse",
+                            "url": "https://mcp.example.test/sse",
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    assert config.tools.mcp.server["local"].transport is McpTransport.STDIO
+    assert config.tools.mcp.server["local"].command == "python"
+    assert config.tools.mcp.server["legacy"].transport is McpTransport.SSE
+
+    with pytest.raises(ConfigurationError, match="Invalid EvernightAI config"):
+        parse_config(
+            {
+                "tools": {
+                    "mcp": {
+                        "server": {
+                            "invalid": {
+                                "transport": "stdio",
+                                "url": "https://mcp.example.test/mcp",
+                            }
+                        }
+                    }
+                }
+            }
+        )

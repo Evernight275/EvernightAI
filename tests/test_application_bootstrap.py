@@ -148,6 +148,7 @@ def test_configured_mcp_server_creates_runtime_tool_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MCP_TOKEN", "secret")
+    monkeypatch.setenv("MCP_STDIO_TOKEN", "stdio-secret")
     config = parse_config(
         {
             "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
@@ -163,6 +164,12 @@ def test_configured_mcp_server_creates_runtime_tool_source(
                             "enabled": False,
                             "url": "https://disabled.example.test/mcp",
                         },
+                        "local": {
+                            "transport": "stdio",
+                            "command": "python",
+                            "args": ["server.py"],
+                            "env_from": {"API_TOKEN": "MCP_STDIO_TOKEN"},
+                        },
                     }
                 }
             },
@@ -171,7 +178,7 @@ def test_configured_mcp_server_creates_runtime_tool_source(
 
     runtime = create_runtime_from_config(config)
 
-    assert len(runtime.tool_sources) == 1
+    assert len(runtime.tool_sources) == 2
 
 
 def test_configured_mcp_server_requires_declared_token_environment(

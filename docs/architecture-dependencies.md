@@ -216,9 +216,9 @@ flowchart LR
     Policy --> Executor["registered tool executor"]
     Executor --> Adapter["infra tool adapter"]
     Runtime["RuntimeKernel initialize"] --> Source["ToolSourceProtocol"]
-    Source --> McpAdapter["MCP Streamable HTTP adapter"]
-    McpAdapter --> Remote["remote MCP server"]
-    Source --> Executor
+    Source --> McpAdapter["MCP Session<br/>Streamable HTTP / SSE / stdio"]
+    McpAdapter --> Remote["remote or local MCP server"]
+    Source -- "atomic refresh snapshot" --> Executor
     Adapter --> Result["ToolCallResult"]
     Result --> AgentApp
 ```

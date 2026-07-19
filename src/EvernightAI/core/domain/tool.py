@@ -1,4 +1,5 @@
 from typing import Any
+from dataclasses import dataclass
 
 from EvernightAI.core.error.tool import (
     ToolExecutionError,
@@ -6,11 +7,13 @@ from EvernightAI.core.error.tool import (
     ToolNotFoundError,
     ToolPolicyError,
     ToolResultError,
+    ToolStateError,
 )
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
     ToolManageProtocol,
     ToolPreflightPolicy,
+    ToolRegistration,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
 )
@@ -27,11 +30,17 @@ from EvernightAI.core.schema.tool import (
 )
 
 
+@dataclass(frozen=True)
+class _ToolRegisterSnapshot:
+    tools: dict[str, ToolDefinition]
+    executors: dict[str, ToolExecutorProtocol]
+    preflight_policies: dict[str, ToolPreflightPolicy]
+    source_owners: dict[str, str]
+
+
 class ToolRegister(ToolRegisterProtocol):
     def __init__(self) -> None:
-        self._tools: dict[str, ToolDefinition] = {}
-        self._executors: dict[str, ToolExecutorProtocol] = {}
-        self._preflight_policies: dict[str, ToolPreflightPolicy] = {}
+        self._snapshot = _ToolRegisterSnapshot({}, {}, {}, {})
 
     def register(
         self,
@@ -40,31 +49,117 @@ class ToolRegister(ToolRegisterProtocol):
         preflight_policy: ToolPreflightPolicy | None = None,
     ) -> None:
         """注册工具"""
-        self._tools[tool.name] = tool
-        self._executors[tool.name] = executor
+        snapshot = self._snapshot
+        owner = snapshot.source_owners.get(tool.name)
+        if owner is not None:
+            raise ToolStateError(
+                f"The tool {tool.name} is managed by source {owner}"
+            )
+        tools = dict(snapshot.tools)
+        executors = dict(snapshot.executors)
+        preflight_policies = dict(snapshot.preflight_policies)
+        tools[tool.name] = tool
+        executors[tool.name] = executor
         if preflight_policy is None:
-            self._preflight_policies.pop(tool.name, None)
+            preflight_policies.pop(tool.name, None)
         else:
-            self._preflight_policies[tool.name] = preflight_policy
+            preflight_policies[tool.name] = preflight_policy
+        self._snapshot = _ToolRegisterSnapshot(
+            tools,
+            executors,
+            preflight_policies,
+            dict(snapshot.source_owners),
+        )
 
     def unregister(self, tool_name: str) -> None:
         """注销工具"""
         if not self.has(tool_name):
             raise ToolNotFoundError(f"The tool {tool_name} is not registered")
-        self._tools.pop(tool_name, None)
-        self._executors.pop(tool_name, None)
-        self._preflight_policies.pop(tool_name, None)
+        snapshot = self._snapshot
+        owner = snapshot.source_owners.get(tool_name)
+        if owner is not None:
+            raise ToolStateError(
+                f"The tool {tool_name} is managed by source {owner}"
+            )
+        tools = dict(snapshot.tools)
+        executors = dict(snapshot.executors)
+        preflight_policies = dict(snapshot.preflight_policies)
+        tools.pop(tool_name, None)
+        executors.pop(tool_name, None)
+        preflight_policies.pop(tool_name, None)
+        self._snapshot = _ToolRegisterSnapshot(
+            tools,
+            executors,
+            preflight_policies,
+            dict(snapshot.source_owners),
+        )
+
+    def replace_source(
+        self,
+        source_id: str,
+        registrations: list[ToolRegistration],
+    ) -> None:
+        if not source_id:
+            raise ToolStateError("The tool source id must not be empty")
+        names = [registration.tool.name for registration in registrations]
+        if len(names) != len(set(names)):
+            raise ToolStateError(
+                f"The tool source {source_id} contains duplicate tool names"
+            )
+
+        snapshot = self._snapshot
+        conflicts = [
+            name
+            for name in names
+            if name in snapshot.tools
+            and snapshot.source_owners.get(name) != source_id
+        ]
+        if conflicts:
+            raise ToolStateError(
+                f"The tool source {source_id} conflicts with registered tools",
+                detail=", ".join(sorted(conflicts)),
+            )
+
+        tools = dict(snapshot.tools)
+        executors = dict(snapshot.executors)
+        preflight_policies = dict(snapshot.preflight_policies)
+        source_owners = dict(snapshot.source_owners)
+        owned_names = [
+            name for name, owner in source_owners.items() if owner == source_id
+        ]
+        for name in owned_names:
+            tools.pop(name, None)
+            executors.pop(name, None)
+            preflight_policies.pop(name, None)
+            source_owners.pop(name, None)
+
+        for registration in registrations:
+            name = registration.tool.name
+            tools[name] = registration.tool
+            executors[name] = registration.executor
+            if registration.preflight_policy is None:
+                preflight_policies.pop(name, None)
+            else:
+                preflight_policies[name] = registration.preflight_policy
+            source_owners[name] = source_id
+
+        self._snapshot = _ToolRegisterSnapshot(
+            tools,
+            executors,
+            preflight_policies,
+            source_owners,
+        )
 
     def get(self, tool_name: str) -> ToolDefinition:
         """获取工具定义"""
         if self.has(tool_name):
-            return self._tools[tool_name]
+            return self._snapshot.tools[tool_name]
         raise ToolNotFoundError(f"The tool {tool_name} is not found")
 
     def get_executor(self, tool_name: str) -> ToolExecutorProtocol:
         """获取工具执行器"""
         if self.has(tool_name):
-            return self._executors[tool_name]
+            return self._snapshot.executors[tool_name]
         raise ToolNotFoundError(f"The tool {tool_name} is not registered")
 
     def get_preflight_policy(
@@ -72,15 +167,16 @@ class ToolRegister(ToolRegisterProtocol):
         tool_name: str,
     ) -> ToolPreflightPolicy | None:
         self.get(tool_name)
-        return self._preflight_policies.get(tool_name)
+        return self._snapshot.preflight_policies.get(tool_name)
 
     def has(self, tool_name: str) -> bool:
         """检查工具是否存在"""
-        return tool_name in self._tools and tool_name in self._executors
+        snapshot = self._snapshot
+        return tool_name in snapshot.tools and tool_name in snapshot.executors
 
     def list_tools(self) -> list[ToolDefinition]:
         """列出所有工具定义"""
-        return list(self._tools.values())
+        return list(self._snapshot.tools.values())
 
 
 class ToolManager(ToolManageProtocol):
