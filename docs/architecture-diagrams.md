@@ -66,6 +66,8 @@ flowchart TD
         ToolManager["ToolManager"]
         ToolPolicy["BasicToolSafetyPolicy"]
         ToolRegs["infra tool registrations<br/>filesystem / shell / web / git / project / runtime_data"]
+        McpSources["MCP ToolSource adapters<br/>Streamable HTTP"]
+        RemoteMcp["remote MCP servers"]
     end
 
     subgraph SkillSide["skill side"]
@@ -96,6 +98,10 @@ flowchart TD
 
     SQLiteRuntime -- "registers enabled tools" --> ToolRegs
     ToolRegs -- "tool definitions + executors" --> ToolRegister
+    RuntimeFactory -- "creates configured sources" --> McpSources
+    Runtime -- "initialize / close" --> McpSources
+    McpSources -- "tools/list + tools/call" --> RemoteMcp
+    McpSources -- "namespaced definitions + executors" --> ToolRegister
     ToolRegister -- "owned by" --> Runtime
     ToolManager -- "uses" --> ToolRegister
     ToolManager -- "checks" --> ToolPolicy

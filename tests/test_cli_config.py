@@ -68,6 +68,22 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                 "runtime_data": {
                     "enabled": True,
                 },
+                "mcp": {
+                    "server": {
+                        "github": {
+                            "url": "https://mcp.example.test/mcp",
+                            "namespace": "gh",
+                            "token_env": "GITHUB_MCP_TOKEN",
+                            "allowed_tools": ["search", "get_file"],
+                            "blocked_tools": ["delete_repository"],
+                            "max_tools": 25,
+                            "max_definition_chars": 4000,
+                            "timeout_seconds": 15,
+                            "max_output_chars": 6000,
+                            "is_need_approval": False,
+                        }
+                    }
+                },
             },
             "auth": {
                 "enabled": True,
@@ -176,6 +192,17 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
         "EvernightAI": {"tests": ["uv", "run", "pytest"]}
     }
     assert config.tools.runtime_data.enabled is True
+    mcp_server = config.tools.mcp.server["github"]
+    assert mcp_server.url == "https://mcp.example.test/mcp"
+    assert mcp_server.namespace == "gh"
+    assert mcp_server.token_env == "GITHUB_MCP_TOKEN"
+    assert mcp_server.allowed_tools == ["search", "get_file"]
+    assert mcp_server.blocked_tools == ["delete_repository"]
+    assert mcp_server.max_tools == 25
+    assert mcp_server.max_definition_chars == 4000
+    assert mcp_server.timeout_seconds == 15
+    assert mcp_server.max_output_chars == 6000
+    assert mcp_server.is_need_approval is False
     assert config.data_analysis.sqlite_sources[0].source_id == "orders"
     assert config.data_analysis.sqlite_sources[0].name == "Orders"
     assert config.data_analysis.sqlite_sources[0].table == "orders_view"
@@ -258,6 +285,7 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.tools.git.enabled is False
     assert config.tools.project.enabled is False
     assert config.tools.runtime_data.enabled is False
+    assert config.tools.mcp.server == {}
     assert config.tools.shell.allowed_commands == []
     assert config.tools.shell.blocked_commands == []
     assert config.auth.enabled is False

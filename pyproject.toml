@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn[standard]",
     "pyjwt[crypto]>=2.13.0",
     "ruff",
+    "mcp>=1.0,<2",
 ]
 
 [project.scripts]

@@ -89,6 +89,24 @@ class RuntimeDataToolConfig(EvernightAISchema):
     enabled: bool = False
 
 
+class McpServerConfig(EvernightAISchema):
+    enabled: bool = True
+    url: str
+    namespace: str | None = None
+    token_env: str | None = None
+    allowed_tools: list[str] | None = None
+    blocked_tools: list[str] = Field(default_factory=list)
+    max_tools: int = Field(default=100, ge=1)
+    max_definition_chars: int = Field(default=12000, ge=1)
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    max_output_chars: int = Field(default=20000, ge=1)
+    is_need_approval: bool = True
+
+
+class McpToolConfig(EvernightAISchema):
+    server: dict[str, McpServerConfig] = Field(default_factory=dict)
+
+
 class ToolConfig(EvernightAISchema):
     filesystem: FilesystemToolConfig = Field(default_factory=FilesystemToolConfig)
     shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
@@ -96,6 +114,7 @@ class ToolConfig(EvernightAISchema):
     git: GitToolConfig = Field(default_factory=GitToolConfig)
     project: ProjectToolConfig = Field(default_factory=ProjectToolConfig)
     runtime_data: RuntimeDataToolConfig = Field(default_factory=RuntimeDataToolConfig)
+    mcp: McpToolConfig = Field(default_factory=McpToolConfig)
 
 
 class AuthPrincipalConfig(EvernightAISchema):

@@ -35,6 +35,7 @@ from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
+    ToolSourceProtocol,
 )
 
 
@@ -60,6 +61,9 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol: ...
+
+    @property
+    def tool_sources(self) -> list[ToolSourceProtocol]: ...
 
     @property
     def sandbox(self) -> SandboxExecuteProtocol | None: ...

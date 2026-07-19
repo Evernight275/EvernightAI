@@ -71,6 +71,9 @@ class EvernightInterface(EvernightInterfaceProtocol):
     def sessions(self) -> SessionInterfaceProtocol:
         return self._sessions
 
+    async def initialize(self) -> None:
+        await self._runtime.initialize()
+
     async def close(self) -> None:
         await self.agent_runs.close()
-        await self.runtime.close()
+        await self._runtime.close()

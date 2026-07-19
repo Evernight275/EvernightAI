@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
@@ -8,12 +9,15 @@ from EvernightAI.bootstrap.runtime import (
 )
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
+from EvernightAI.core.protocol.tool import ToolSourceProtocol
 from EvernightAI.core.schema.data_analysis import DataSourceDefinition
 from EvernightAI.infra.registrations.data_analysis.sqlite import (
     register_sqlite_data_source,
 )
+from EvernightAI.infra.registrations.tool.mcp import create_mcp_tool_source
 from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
 from EvernightAI.interface.cli.schema import (
     EvernightConfig,
@@ -123,7 +127,42 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "project_timeout_seconds": project.timeout_seconds,
         "project_max_output_chars": project.max_output_chars,
         "runtime_data_tools_enabled": runtime_data.enabled,
+        "tool_sources": _configured_mcp_tool_sources(config),
     }
+
+
+def _configured_mcp_tool_sources(config: EvernightConfig) -> list[ToolSourceProtocol]:
+    sources: list[ToolSourceProtocol] = []
+    for server_id, server in config.tools.mcp.server.items():
+        if not server.enabled:
+            continue
+        bearer_token = None
+        if server.token_env is not None:
+            bearer_token = os.getenv(server.token_env)
+            if bearer_token is None or bearer_token == "":
+                raise ToolConfigurationError(
+                    f"MCP token environment variable is not set: {server.token_env}"
+                )
+        sources.append(
+            create_mcp_tool_source(
+                server_id=server_id,
+                url=server.url,
+                namespace=server.namespace,
+                bearer_token=bearer_token,
+                allowed_tools=(
+                    set(server.allowed_tools)
+                    if server.allowed_tools is not None
+                    else None
+                ),
+                blocked_tools=set(server.blocked_tools),
+                max_tools=server.max_tools,
+                max_definition_chars=server.max_definition_chars,
+                timeout_seconds=server.timeout_seconds,
+                max_output_chars=server.max_output_chars,
+                requires_approval=server.is_need_approval,
+            )
+        )
+    return sources
 
 
 def _runtime_context_options(config: EvernightConfig) -> dict[str, Any]:

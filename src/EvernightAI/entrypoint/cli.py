@@ -668,6 +668,7 @@ def _handle_chat(args: argparse.Namespace) -> str:
 
     async def _flow() -> str:
         try:
+            await interface.initialize()
             return await run_chat(
                 interface,
                 config,
@@ -697,6 +698,7 @@ def _run_interface_command(
     async def _flow() -> str:
         interface = _build_interface(load_config(config_path))
         try:
+            await interface.initialize()
             return command(interface)
         finally:
             await interface.close()
@@ -711,6 +713,7 @@ def _run_async_interface_command(
     async def _flow() -> str:
         interface = _build_interface(load_config(config_path))
         try:
+            await interface.initialize()
             result = command(interface)
             if asyncio.iscoroutine(result):
                 result = await result

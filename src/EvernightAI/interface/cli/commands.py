@@ -436,6 +436,7 @@ def format_config_summary(config: EvernightConfig) -> str:
         for provider in config.providers
         if provider.is_enabled
     ]
+    mcp_servers = list(config.tools.mcp.server.values())
     lines = [
         "Config OK",
         f"runtime.database_path: {config.runtime.database_path}",
@@ -446,6 +447,8 @@ def format_config_summary(config: EvernightConfig) -> str:
         f"tools.shell.enabled: {config.tools.shell.enabled}",
         f"tools.shell.allowed_commands: {len(config.tools.shell.allowed_commands)}",
         f"tools.shell.blocked_commands: {len(config.tools.shell.blocked_commands)}",
+        f"tools.mcp.servers: {len(mcp_servers)}",
+        f"tools.mcp.servers.enabled: {sum(server.enabled for server in mcp_servers)}",
     ]
 
     return "\n".join(lines)

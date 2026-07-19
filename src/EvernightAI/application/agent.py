@@ -21,7 +21,10 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, ChatStreamProtocol
+from EvernightAI.core.protocol.stream import (
+    AgentTraceStreamProtocol,
+    ChatStreamProtocol,
+)
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
@@ -59,14 +62,15 @@ from EvernightAI.application.memory import (
     write_memory_candidate,
 )
 
-
 LOGGER = logging.getLogger("EvernightAI.application.agent")
 _AGENT_RUN_LIFECYCLES: WeakKeyDictionary[object, "_AgentRunLifecycle"] = (
     WeakKeyDictionary()
 )
 
 
-def _tool_error_payload(exc: Exception, *, max_cause_depth: int = 3) -> dict[str, object]:
+def _tool_error_payload(
+    exc: Exception, *, max_cause_depth: int = 3
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "error_type": exc.__class__.__name__,
         "error_message": str(exc),
@@ -705,8 +709,6 @@ class AgentApplication(AgentInterfaceProtocol):
 
             remaining_rounds -= 1
             state.remaining_tool_rounds = remaining_rounds
-            if remaining_rounds < 0:
-                break
 
             next_response = None
             async for event in self._chat_events(
@@ -884,11 +886,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 tool_calls.append(event.tool_call)
 
         text = "".join(text_deltas)
-        content = (
-            [ContentPart(type=ContentPartType.TEXT, text=text)]
-            if text
-            else None
-        )
+        content = [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
         response = ChatResponse(
             response_id=response_id,
             model_id=model_id,
@@ -1001,6 +999,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 "error_type": exc.__class__.__name__,
             },
         )
+
     def _tool_approvals_by_call_id(
         self,
         approvals: list[ToolApprovalDecision],

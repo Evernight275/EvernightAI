@@ -64,6 +64,7 @@ from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterPr
 from EvernightAI.core.protocol.tool import (
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
+    ToolSourceProtocol,
 )
 from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
@@ -449,6 +450,7 @@ def create_sqlite_runtime(
     context_summarizer: ContextSummarizerProtocol | None = None,
     context_summarize_after_messages: int = 100,
     context_keep_recent_messages: int = 20,
+    tool_sources: list[ToolSourceProtocol] | None = None,
 ) -> RuntimeKernel:
     SQLiteMigrationRunner(database_path).run()
     sandbox = sandbox or create_sandbox_executor()
@@ -511,6 +513,7 @@ def create_sqlite_runtime(
 
     return _create_runtime(
         tool_register=tool_register,
+        tool_sources=tool_sources,
         context_register=create_sqlite_context_register(database_path),
         memory_register=create_sqlite_memory_register(database_path),
         session_register=create_sqlite_session_register(database_path),
@@ -535,6 +538,7 @@ def _create_runtime(
     *,
     tool_register: ToolRegisterProtocol | None = None,
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
+    tool_sources: list[ToolSourceProtocol] | None = None,
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
     session_register: SessionRegisterProtocol,
@@ -603,6 +607,7 @@ def _create_runtime(
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,
+        tool_sources=tool_sources,
         sandbox=sandbox,
         skill_register=skill_register,
         skills=skills,

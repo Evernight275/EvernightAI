@@ -314,6 +314,9 @@ type = "openai"
     calls: list[str] = []
 
     class FakeInterface:
+        async def initialize(self) -> None:
+            pass
+
         async def close(self) -> None:
             pass
 

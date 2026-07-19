@@ -188,6 +188,9 @@ class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
     def sessions(self) -> SessionInterfaceProtocol:
         return self._sessions
 
+    async def initialize(self) -> None:
+        await self._interface.initialize()
+
     async def close(self) -> None:
         await self._interface.close()
 

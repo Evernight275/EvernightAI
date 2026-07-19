@@ -18,6 +18,7 @@ from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
+from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import (
@@ -65,6 +66,22 @@ def test_interface_bootstrap_wraps_authorized_interface() -> None:
     assert isinstance(authorized, AuthorizedEvernightInterface)
     assert isinstance(authorized, EvernightInterfaceProtocol)
     assert authorized.runtime is interface.runtime
+
+
+@pytest.mark.asyncio
+async def test_authorized_interface_lifecycle_delegates_to_runtime() -> None:
+    runtime = create_runtime()
+    authorized = create_authorized_interface(
+        create_interface(runtime),
+        Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="user-1", permissions=["*"]),
+    )
+
+    await authorized.initialize()
+
+    assert runtime.is_ready is True
+
+    await authorized.close()
 
 
 def test_configured_context_strategy_composes_runtime_window(tmp_path) -> None:
@@ -124,6 +141,62 @@ def test_configured_shell_can_disable_tool_approval(tmp_path) -> None:
 
     assert definition.requires_approval is False
     assert definition.metadata["blocked_commands"] == ["uv publish"]
+
+
+def test_configured_mcp_server_creates_runtime_tool_source(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "secret")
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "mcp": {
+                    "server": {
+                        "github": {
+                            "url": "https://mcp.example.test/mcp",
+                            "namespace": "gh",
+                            "token_env": "MCP_TOKEN",
+                        },
+                        "disabled": {
+                            "enabled": False,
+                            "url": "https://disabled.example.test/mcp",
+                        },
+                    }
+                }
+            },
+        }
+    )
+
+    runtime = create_runtime_from_config(config)
+
+    assert len(runtime.tool_sources) == 1
+
+
+def test_configured_mcp_server_requires_declared_token_environment(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MISSING_MCP_TOKEN", raising=False)
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "mcp": {
+                    "server": {
+                        "github": {
+                            "url": "https://mcp.example.test/mcp",
+                            "token_env": "MISSING_MCP_TOKEN",
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+    with pytest.raises(ToolConfigurationError, match="MISSING_MCP_TOKEN"):
+        create_runtime_from_config(config)
 
 
 def test_configured_project_directories_register_with_runtime(tmp_path) -> None:

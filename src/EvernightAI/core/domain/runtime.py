@@ -42,6 +42,7 @@ from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
+    ToolSourceProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
@@ -57,6 +58,7 @@ class RuntimeKernel(RuntimeProtocol):
         tool_register: ToolRegisterProtocol,
         tools: ToolManageProtocol,
         tool_safety_policy: ToolSafetyPolicyProtocol,
+        tool_sources: list[ToolSourceProtocol] | None = None,
         context_register: ContextRegisterProtocol,
         contexts: ContextManageProtocol,
         context_organizer: ContextOrganizerProtocol,
@@ -84,6 +86,7 @@ class RuntimeKernel(RuntimeProtocol):
         self._tool_register = tool_register
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
+        self._tool_sources = list(tool_sources or [])
         self._sandbox = sandbox
         self._skill_register = skill_register or SkillRegister()
         self._skills = skills or SkillManager(self._skill_register)
@@ -128,6 +131,10 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol:
         return self._tool_safety_policy
+
+    @property
+    def tool_sources(self) -> list[ToolSourceProtocol]:
+        return list(self._tool_sources)
 
     @property
     def sandbox(self) -> SandboxExecuteProtocol | None:
@@ -205,6 +212,8 @@ class RuntimeKernel(RuntimeProtocol):
     def is_ready(self) -> bool:
         if not self._initialized or self._initialization_error is not None:
             return False
+        if any(not source.is_ready() for source in self._tool_sources):
+            return False
         for resource in self._persistent_resources():
             checker = getattr(resource, "is_ready", None)
             if callable(checker) and not checker():
@@ -214,15 +223,24 @@ class RuntimeKernel(RuntimeProtocol):
     async def initialize(self) -> None:
         if self._initialized:
             return
+        loaded_sources: list[ToolSourceProtocol] = []
         try:
             await self._providers.restore()
-        except Exception as exc:
-            self._initialization_error = exc
+            for source in self._tool_sources:
+                await source.load(self._tool_register)
+                loaded_sources.append(source)
+        except BaseException as exc:
+            for source in reversed(loaded_sources):
+                await source.close()
+            if isinstance(exc, Exception):
+                self._initialization_error = exc
             raise
         self._initialization_error = None
         self._initialized = True
 
     async def close(self) -> None:
+        for source in reversed(self._tool_sources):
+            await source.close()
         await self._providers.close()
         for resource in [*self._persistent_resources(), self._sandbox]:
             await _close_if_supported(resource)

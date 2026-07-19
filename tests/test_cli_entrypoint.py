@@ -556,8 +556,12 @@ def create_skill_interface():
 
 class FailingChatInterface:
     def __init__(self) -> None:
+        self.runtime = create_runtime()
         self.chat = FailingChatCommand()
         self.providers = FailingProviderCommand()
+
+    async def initialize(self) -> None:
+        await self.runtime.initialize()
 
     async def close(self) -> None:
         pass
@@ -587,9 +591,13 @@ class FailingProvider(ProviderInstanceProtocol):
 
 class FakeOperationsInterface:
     def __init__(self) -> None:
+        self.runtime = create_runtime()
         self.chat = FakeChatOperations()
         self.agent_runs = FakeAgentRunOperations()
         self.sessions = FakeSessionOperations(self.agent_runs)
+
+    async def initialize(self) -> None:
+        await self.runtime.initialize()
 
     async def close(self) -> None:
         pass

@@ -118,6 +118,26 @@ commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/b
 # Enables tools that can write contexts and memories through the runtime.
 enabled = false
 
+# Remote MCP tools use Streamable HTTP. Tools are discovered during runtime
+# initialization and registered as `<namespace>__<remote_tool_name>`. Security
+# remains local: remote tools always receive network/external_api permissions.
+[tools.mcp.server.example]
+enabled = false
+url = "https://mcp.example.com/mcp"
+namespace = "example"
+# The token value is read from the environment and is never copied into tool
+# definitions, HTTP responses, or config output.
+token_env = "EXAMPLE_MCP_TOKEN"
+# Leave allowed_tools unset to allow every discovered tool. Blocked tools win
+# over discovery and are never registered.
+# allowed_tools = ["search", "get_document"]
+blocked_tools = ["delete_repository"]
+max_tools = 100
+max_definition_chars = 12000
+timeout_seconds = 30.0
+max_output_chars = 20000
+is_need_approval = true
+
 # SQLite data analysis sources expose read-only aggregate statistics over a
 # table or view in the runtime database.
 #

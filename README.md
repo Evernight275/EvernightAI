@@ -63,7 +63,7 @@ flowchart TD
     BootRuntime --> ToolRegs["infra tool registrations"]
     BootRuntime --> SQLiteRegs["infra SQLite registers"]
     ProviderRegs --> ProviderAdapters["provider adapters"]
-    ToolRegs --> ToolAdapters["restricted filesystem / shell tools"]
+    ToolRegs --> ToolAdapters["restricted local tools / remote MCP sources"]
     SQLiteRegs --> SQLiteAdapters["SQLite context / memory / agent storage"]
 
     Providers --> ProviderAdapters
@@ -152,6 +152,36 @@ Skills render prompt messages; tools execute external actions.
 Chat and agent requests may declare skills. Application orchestration renders
 those declarations into prompt messages before the provider call and keeps the
 rendered messages out of stored context history.
+
+## Remote MCP Tools
+
+EvernightAI can consume remote MCP servers over Streamable HTTP. Remote tools
+are discovered during `RuntimeKernel.initialize()`, mapped into ordinary
+`ToolDefinition` values, and registered under a mandatory namespace. Agent and
+chat orchestration therefore use the same `ToolManager` path for local and
+remote tools.
+
+```toml
+[tools.mcp.server.github]
+url = "https://mcp.example.com/mcp"
+namespace = "github"
+token_env = "GITHUB_MCP_TOKEN"
+allowed_tools = ["search_code", "get_file"]
+blocked_tools = ["delete_repository"]
+max_tools = 100
+max_definition_chars = 12000
+timeout_seconds = 30.0
+max_output_chars = 20000
+is_need_approval = true
+```
+
+The model sees names such as `github__search_code`; it cannot choose the MCP
+endpoint or credentials. Tokens are read only from the named environment
+variable. Every remote definition receives local `network` and `external_api`
+permissions, blocked tools are never registered, output is bounded, and
+tool counts and definitions are bounded. Approval is required unless the
+operator explicitly disables it. A configured server that cannot initialize
+fails runtime startup instead of silently removing capabilities.
 
 ## Memory And Context Strategy
 
