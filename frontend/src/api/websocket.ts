@@ -100,7 +100,10 @@ export class AgentRunSocketClient {
       this.pendingStartRunIds.clear()
     })
     socket.addEventListener('message', (event) => this.handleMessage(event))
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
+      if (event.code === 1008) {
+        this.manuallyClosed = true
+      }
       this.emitStatus('disconnected')
       if (!this.manuallyClosed) {
         this.scheduleReconnect()

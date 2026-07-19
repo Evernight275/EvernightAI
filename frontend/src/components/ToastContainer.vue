@@ -10,6 +10,13 @@ function generateId(): string {
 }
 
 function addToast(type: ToastType, message: string, duration?: number) {
+  const duplicate = toasts.value.some((toast) => (
+    toast.type === type && toast.message === message
+  ))
+  if (duplicate) {
+    return
+  }
+
   const id = generateId()
   toasts.value.push({
     id,
