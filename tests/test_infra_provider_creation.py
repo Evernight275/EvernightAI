@@ -9,6 +9,8 @@ from typing import Any, cast
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.schema.content import (
     ChatRequest,
+    ChatResponse,
+    ChatUsage,
     Content,
     ContentPart,
     ContentPartType,
@@ -18,6 +20,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
     AgentRunStatus,
+    AgentStep,
+    AgentStepType,
     AgentTraceEvent,
     AgentTraceEventType,
 )
@@ -512,6 +516,36 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
             ),
             status=AgentRunStatus.FINISHED,
             tool_rounds_used=2,
+            steps=[
+                AgentStep(
+                    step_type=AgentStepType.CHAT,
+                    response=ChatResponse(
+                        model_id="model-a",
+                        message=Content(role=MessageRole.ASSISTANT),
+                        usage=ChatUsage(
+                            prompt_tokens=10,
+                            completion_tokens=4,
+                            total_tokens=14,
+                            cached_prompt_tokens=6,
+                            cache_write_prompt_tokens=2,
+                        ),
+                    ),
+                ),
+                AgentStep(
+                    step_type=AgentStepType.CHAT,
+                    response=ChatResponse(
+                        model_id="model-a",
+                        message=Content(role=MessageRole.ASSISTANT),
+                        usage=ChatUsage(
+                            prompt_tokens=20,
+                            completion_tokens=6,
+                            total_tokens=26,
+                            cached_prompt_tokens=10,
+                            cache_write_prompt_tokens=3,
+                        ),
+                    ),
+                ),
+            ],
         )
     )
     runtime.agent_state_register.save_state(
@@ -526,6 +560,18 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
             ),
             status=AgentRunStatus.FAILED,
             tool_rounds_used=0,
+            response=ChatResponse(
+                model_id="model-b",
+                message=Content(role=MessageRole.ASSISTANT),
+                usage=ChatUsage(
+                    prompt_tokens=5,
+                    completion_tokens=2,
+                    total_tokens=7,
+                    metadata={
+                        "prompt_tokens_details": {"cached_tokens": 2}
+                    },
+                ),
+            ),
         )
     )
     runtime.agent_state_register.save_state(
@@ -539,6 +585,15 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
                 pause_on_approval=True,
             ),
             status=AgentRunStatus.PAUSED,
+            response=ChatResponse(
+                model_id="model-a",
+                message=Content(role=MessageRole.ASSISTANT),
+                usage=ChatUsage(
+                    prompt_tokens=3,
+                    completion_tokens=1,
+                    cached_prompt_tokens=0,
+                ),
+            ),
             pending_approval_requests=[
                 ToolApprovalRequest(
                     approval_id="approval-1",
@@ -609,6 +664,27 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
             DataStatisticsRequest(
                 source_id="agent_runs",
                 metrics=["pending_approvals_total"],
+            )
+        )
+        token_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_runs",
+                metrics=[
+                    "prompt_tokens_total",
+                    "completion_tokens_total",
+                    "total_tokens_total",
+                ],
+            )
+        )
+        cache_result = await runtime.data_analysis.statistics(
+            DataStatisticsRequest(
+                source_id="agent_runs",
+                metrics=[
+                    "cached_prompt_tokens_total",
+                    "cache_write_prompt_tokens_total",
+                    "cache_observed_prompt_tokens_total",
+                    "uncached_prompt_tokens_total",
+                ],
             )
         )
         session_result = await runtime.data_analysis.statistics(
@@ -686,6 +762,17 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
         ("provider-b", 1, 0.0),
     ]
     assert approval_result.rows[0].metrics == {"pending_approvals_total": 1}
+    assert token_result.rows[0].metrics == {
+        "prompt_tokens_total": 38,
+        "completion_tokens_total": 13,
+        "total_tokens_total": 51,
+    }
+    assert cache_result.rows[0].metrics == {
+        "cached_prompt_tokens_total": 18,
+        "cache_write_prompt_tokens_total": 5,
+        "cache_observed_prompt_tokens_total": 38,
+        "uncached_prompt_tokens_total": 20,
+    }
     assert [
         (
             row.dimensions["provider_id"],

@@ -23,6 +23,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import image_url
 
 
@@ -474,15 +475,19 @@ def _usage_from_openai(response: ChatCompletion) -> ChatUsage | None:
         return None
 
     metadata: dict[str, Any] = {}
+    cached_prompt_tokens = None
     if usage.prompt_tokens_details is not None:
-        metadata["prompt_tokens_details"] = usage.prompt_tokens_details.model_dump()
+        prompt_details = usage.prompt_tokens_details.model_dump()
+        metadata["prompt_tokens_details"] = prompt_details
+        cached_prompt_tokens = token_count(prompt_details.get("cached_tokens"))
     if usage.completion_tokens_details is not None:
         metadata["completion_tokens_details"] = usage.completion_tokens_details.model_dump()
 
     return ChatUsage(
-        prompt_tokens=usage.prompt_tokens,
-        completion_tokens=usage.completion_tokens,
-        total_tokens=usage.total_tokens,
+        prompt_tokens=token_count(usage.prompt_tokens),
+        completion_tokens=token_count(usage.completion_tokens),
+        total_tokens=token_count(usage.total_tokens),
+        cached_prompt_tokens=cached_prompt_tokens,
         metadata=metadata,
     )
 
@@ -493,17 +498,23 @@ def _usage_from_openai_chunk(chunk: ChatCompletionChunk) -> ChatUsage | None:
         return None
 
     metadata: dict[str, Any] = {}
+    cached_prompt_tokens = None
     prompt_details = getattr(usage, "prompt_tokens_details", None)
     completion_details = getattr(usage, "completion_tokens_details", None)
     if prompt_details is not None:
-        metadata["prompt_tokens_details"] = prompt_details.model_dump()
+        prompt_details_payload = prompt_details.model_dump()
+        metadata["prompt_tokens_details"] = prompt_details_payload
+        cached_prompt_tokens = token_count(
+            prompt_details_payload.get("cached_tokens")
+        )
     if completion_details is not None:
         metadata["completion_tokens_details"] = completion_details.model_dump()
 
     return ChatUsage(
-        prompt_tokens=getattr(usage, "prompt_tokens", None),
-        completion_tokens=getattr(usage, "completion_tokens", None),
-        total_tokens=getattr(usage, "total_tokens", None),
+        prompt_tokens=token_count(getattr(usage, "prompt_tokens", None)),
+        completion_tokens=token_count(getattr(usage, "completion_tokens", None)),
+        total_tokens=token_count(getattr(usage, "total_tokens", None)),
+        cached_prompt_tokens=cached_prompt_tokens,
         metadata=metadata,
     )
 

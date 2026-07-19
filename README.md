@@ -243,6 +243,26 @@ Use `POST /contexts/{context_id}/compose-preview` to inspect the final
 `ChatRequest` without calling a provider. The preview includes selected memory
 ids and context strategy diagnostics.
 
+## Prompt Cache
+
+EvernightAI treats prompt caching as a provider input optimization, never as a
+model-response cache. A cache hit may reduce provider cost or latency, but it
+does not skip request composition, ownership checks, tool safety, approval,
+memory governance, or persistence.
+
+Providers report cache usage differently. EvernightAI preserves the original
+usage payload in `ChatUsage.metadata` and normalizes cache reads into
+`cached_prompt_tokens` and cache writes into `cache_write_prompt_tokens`.
+Missing values mean that the provider did not report the measurement; they are
+not estimated or converted to zero. `prompt_tokens` represents the complete
+logical model input, including separately reported Anthropic cache-read and
+cache-write input tokens.
+
+OpenAI-compatible providers may cache repeated prefixes automatically. The
+runtime currently observes this provider-managed behavior without storing model
+responses locally. Stable system, tool, memory, and transcript prefixes improve
+hits naturally, while any content change invalidates the matching prefix.
+
 ## Project Rules
 
 These rules are intentionally backed by tests.

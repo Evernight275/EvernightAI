@@ -48,6 +48,7 @@ from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
     ChatSkill,
+    ChatUsage,
     Content,
     ContentPart,
     ContentPartType,
@@ -306,6 +307,16 @@ async def test_agent_streams_chat_delta_when_requested() -> None:
     ]
     assert events[3].response is not None
     assert message_text(events[3].response.message) == "hello"
+    assert events[3].response.usage == ChatUsage(
+        prompt_tokens=8,
+        completion_tokens=2,
+        total_tokens=10,
+        cached_prompt_tokens=6,
+        metadata={
+            "cache_phase": "read",
+            "usage_phase": "complete",
+        },
+    )
     assert [message_text(message) for message in context.messages] == [
         "Hello",
         "hello",
@@ -2582,6 +2593,21 @@ class StreamingAnswerProvider(FinalAnswerProvider):
                     event_type=ChatStreamEventType.MESSAGE_DELTA,
                     text_delta="lo",
                     finish_reason="stop",
+                ),
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.USAGE,
+                    usage=ChatUsage(
+                        prompt_tokens=8,
+                        cached_prompt_tokens=6,
+                        metadata={"cache_phase": "read"},
+                    ),
+                ),
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.USAGE,
+                    usage=ChatUsage(
+                        completion_tokens=2,
+                        metadata={"usage_phase": "complete"},
+                    ),
                 ),
                 ChatStreamEvent(event_type=ChatStreamEventType.DONE),
             ]

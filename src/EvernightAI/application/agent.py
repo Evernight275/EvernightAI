@@ -12,6 +12,7 @@ from EvernightAI.core.error.agent import (
     AgentShutdownError,
     AgentStateError,
 )
+from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
@@ -41,6 +42,7 @@ from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
     ChatSkill,
+    ChatUsage,
     Content,
     ContentPart,
     ContentPartType,
@@ -607,11 +609,11 @@ class AgentApplication(AgentInterfaceProtocol):
                     include_approval_request=include_approval_request,
                 ):
                     yield event
-                if request.pause_on_approval and self._should_pause_for_approval(
-                    call,
-                    decision,
+                if (
+                    request.pause_on_approval
+                    and decision is not None
+                    and self._should_pause_for_approval(call, decision)
                 ):
-                    assert decision is not None
                     yield self._add_trace(
                         state,
                         self._run_paused_event(
@@ -858,6 +860,7 @@ class AgentApplication(AgentInterfaceProtocol):
         response_id: str | None = None
         model_id = fallback_model_id
         finish_reason: str | None = None
+        usage: ChatUsage | None = None
 
         async for event in stream:
             if event.response_id is not None:
@@ -866,6 +869,8 @@ class AgentApplication(AgentInterfaceProtocol):
                 model_id = event.model_id
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
+            if event.usage is not None:
+                usage = merge_chat_usage(usage, event.usage)
 
             text_delta = self._chat_stream_text_delta(event)
             if text_delta:
@@ -896,6 +901,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 tool_calls=tool_calls or None,
             ),
             finish_reason=finish_reason,
+            usage=usage,
         )
         yield self._add_trace(
             state,
@@ -1091,11 +1097,10 @@ class AgentApplication(AgentInterfaceProtocol):
     def _should_pause_for_approval(
         self,
         call: ToolCall,
-        decision: ToolSafetyDecision | None,
+        decision: ToolSafetyDecision,
     ) -> bool:
         return (
-            decision is not None
-            and decision.requires_approval
+            decision.requires_approval
             and not decision.allowed
             and decision.approval_request is not None
             and call.approval is None

@@ -37,6 +37,49 @@ from EvernightAI.core.error.provider import (
 LOGGER = logging.getLogger("EvernightAI.provider")
 
 
+def merge_chat_usage(
+    previous: ChatUsage | None,
+    current: ChatUsage,
+) -> ChatUsage:
+    if previous is None:
+        return current
+
+    prompt_tokens = current.prompt_tokens
+    if prompt_tokens is None:
+        prompt_tokens = previous.prompt_tokens
+    completion_tokens = current.completion_tokens
+    if completion_tokens is None:
+        completion_tokens = previous.completion_tokens
+
+    total_tokens = current.total_tokens
+    if total_tokens is None:
+        usage_changed = (
+            current.prompt_tokens is not None
+            or current.completion_tokens is not None
+        )
+        if usage_changed and prompt_tokens is not None and completion_tokens is not None:
+            total_tokens = prompt_tokens + completion_tokens
+        else:
+            total_tokens = previous.total_tokens
+
+    return ChatUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cached_prompt_tokens=(
+            current.cached_prompt_tokens
+            if current.cached_prompt_tokens is not None
+            else previous.cached_prompt_tokens
+        ),
+        cache_write_prompt_tokens=(
+            current.cache_write_prompt_tokens
+            if current.cache_write_prompt_tokens is not None
+            else previous.cache_write_prompt_tokens
+        ),
+        metadata={**previous.metadata, **current.metadata},
+    )
+
+
 class ProviderRegister(ProviderRegisterProtocol):
     def __init__(self) -> None:
         self._providers: dict[str, ProviderInfo] = {}
@@ -311,6 +354,12 @@ class ProviderManager(ProviderManageProtocol):
             "prompt_tokens": usage.prompt_tokens if usage is not None else None,
             "completion_tokens": usage.completion_tokens if usage is not None else None,
             "total_tokens": usage.total_tokens if usage is not None else None,
+            "cached_prompt_tokens": (
+                usage.cached_prompt_tokens if usage is not None else None
+            ),
+            "cache_write_prompt_tokens": (
+                usage.cache_write_prompt_tokens if usage is not None else None
+            ),
             "provider_calls_total": total,
             "provider_errors_total": errors,
             "provider_error_rate": errors / total,
@@ -345,7 +394,7 @@ class _ObservedChatStream(ChatStreamProtocol):
         try:
             async for event in self._stream:
                 if event.usage is not None:
-                    usage = event.usage
+                    usage = merge_chat_usage(usage, event.usage)
                 yield event
         except BaseException as exc:
             self._manager._record_call(

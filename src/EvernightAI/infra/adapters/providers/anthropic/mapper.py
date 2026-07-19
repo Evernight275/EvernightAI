@@ -14,6 +14,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import (
     inline_image,
     validate_image_source,
@@ -451,10 +452,27 @@ def _usage_from_anthropic(response: dict[str, Any]) -> ChatUsage | None:
     if not isinstance(usage, dict):
         return None
 
-    input_tokens = usage.get("input_tokens")
-    output_tokens = usage.get("output_tokens")
-    prompt_tokens = input_tokens if isinstance(input_tokens, int) else None
-    completion_tokens = output_tokens if isinstance(output_tokens, int) else None
+    input_tokens = token_count(usage.get("input_tokens"))
+    completion_tokens = token_count(usage.get("output_tokens"))
+    cached_prompt_tokens = token_count(usage.get("cache_read_input_tokens"))
+    cache_write_prompt_tokens = token_count(
+        usage.get("cache_creation_input_tokens")
+    )
+
+    cache_values_are_valid = all(
+        key not in usage or value is not None
+        for key, value in (
+            ("cache_read_input_tokens", cached_prompt_tokens),
+            ("cache_creation_input_tokens", cache_write_prompt_tokens),
+        )
+    )
+    prompt_tokens = None
+    if input_tokens is not None and cache_values_are_valid:
+        prompt_tokens = (
+            input_tokens
+            + (cached_prompt_tokens or 0)
+            + (cache_write_prompt_tokens or 0)
+        )
 
     total_tokens = None
     if prompt_tokens is not None and completion_tokens is not None:
@@ -464,6 +482,8 @@ def _usage_from_anthropic(response: dict[str, Any]) -> ChatUsage | None:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
+        cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_prompt_tokens=cache_write_prompt_tokens,
         metadata={
             key: value
             for key, value in usage.items()

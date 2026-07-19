@@ -336,6 +336,7 @@ def test_maps_openai_response_usage_and_metadata_details() -> None:
     assert mapped.usage.prompt_tokens == 10
     assert mapped.usage.completion_tokens == 5
     assert mapped.usage.total_tokens == 15
+    assert mapped.usage.cached_prompt_tokens == 2
     assert mapped.usage.metadata == {
         "input_tokens_details": {"cached_tokens": 2},
         "output_tokens_details": {"reasoning_tokens": 3},
@@ -641,6 +642,7 @@ def test_response_stream_normalizer_completed_usage_mapping() -> None:
     assert event.usage.prompt_tokens is None
     assert event.usage.completion_tokens == 5
     assert event.usage.total_tokens == 12
+    assert event.usage.cached_prompt_tokens == 1
     assert event.usage.metadata == {
         "input_tokens_details": {"cached_tokens": 1}
     }

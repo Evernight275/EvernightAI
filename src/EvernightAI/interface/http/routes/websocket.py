@@ -13,6 +13,7 @@ from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, WebSocketProtocol
 from EvernightAI.core.schema.agent import AgentRunRequest
 from EvernightAI.core.schema.stream import (
+    WebSocketAgentControl,
     WebSocketAgentControlAction,
     WebSocketClientEvent,
     WebSocketError,
@@ -132,7 +133,8 @@ async def _handle_client_event(
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
 ) -> None:
-    if message.client_event is None:
+    client_event = message.client_event
+    if client_event is None:
         await _send_error(
             connection,
             ValueError("Client event payload is required"),
@@ -140,26 +142,31 @@ async def _handle_client_event(
         )
         return
 
-    if message.client_event.event_name == "agent_run.subscribe":
-        await _handle_agent_run_subscribe(interface, connection, message)
+    if client_event.event_name == "agent_run.subscribe":
+        await _handle_agent_run_subscribe(
+            interface,
+            connection,
+            message,
+            client_event,
+        )
         return
 
-    if message.client_event.event_name == "agent_run.unsubscribe":
-        await _handle_agent_run_unsubscribe(connection, message)
+    if client_event.event_name == "agent_run.unsubscribe":
+        await _handle_agent_run_unsubscribe(connection, message, client_event)
         return
 
-    if message.client_event.event_name != "agent_run.start":
+    if client_event.event_name != "agent_run.start":
         await _send_error(
             connection,
             ValueError(
-                f"Unsupported client event: {message.client_event.event_name}"
+                f"Unsupported client event: {client_event.event_name}"
             ),
             correlation_id=message.message_id,
         )
         return
 
     try:
-        request = AgentRunRequest.model_validate(message.client_event.payload)
+        request = AgentRunRequest.model_validate(client_event.payload)
         run_id = _run_id_for_message(message, request)
         task = connection.spawn(
             _start_agent_run_stream(
@@ -179,9 +186,9 @@ async def _handle_agent_run_subscribe(
     interface: EvernightInterfaceProtocol,
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
+    client_event: WebSocketClientEvent,
 ) -> None:
-    assert message.client_event is not None
-    payload = message.client_event.payload
+    payload = client_event.payload
     run_id = payload.get("run_id")
     after_sequence = payload.get("after_sequence", 0)
     if not isinstance(run_id, str) or run_id == "":
@@ -270,9 +277,9 @@ async def _subscribe_agent_run(
 async def _handle_agent_run_unsubscribe(
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
+    client_event: WebSocketClientEvent,
 ) -> None:
-    assert message.client_event is not None
-    run_id = message.client_event.payload.get("run_id")
+    run_id = client_event.payload.get("run_id")
     if not isinstance(run_id, str) or run_id == "":
         await _send_error(
             connection,
@@ -328,7 +335,8 @@ async def _handle_agent_control(
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
 ) -> None:
-    if message.agent_control is None:
+    agent_control = message.agent_control
+    if agent_control is None:
         await _send_error(
             connection,
             ValueError("Agent control payload is required"),
@@ -336,26 +344,26 @@ async def _handle_agent_control(
         )
         return
 
-    if message.agent_control.action is WebSocketAgentControlAction.PAUSE:
-        await _pause_agent_run(interface, connection, message)
+    if agent_control.action is WebSocketAgentControlAction.PAUSE:
+        await _pause_agent_run(interface, connection, message, agent_control)
         return
 
-    if message.agent_control.action is WebSocketAgentControlAction.CANCEL:
-        await _cancel_agent_run(interface, connection, message)
+    if agent_control.action is WebSocketAgentControlAction.CANCEL:
+        await _cancel_agent_run(interface, connection, message, agent_control)
         return
 
-    if message.agent_control.action is WebSocketAgentControlAction.RESUME:
+    if agent_control.action is WebSocketAgentControlAction.RESUME:
         try:
             task = connection.spawn(
                 _resume_agent_run_stream(
                     interface,
                     connection,
                     message,
-                    message.agent_control.run_id,
+                    agent_control.run_id,
                     [],
                 )
             )
-            connection.manager.track_run_task(message.agent_control.run_id, task)
+            connection.manager.track_run_task(agent_control.run_id, task)
         except Exception as exc:
             await _send_error(connection, exc, correlation_id=message.message_id)
         return
@@ -363,7 +371,7 @@ async def _handle_agent_control(
     await _send_error(
         connection,
         ValueError(
-            f"Unsupported agent control action: {message.agent_control.action}"
+            f"Unsupported agent control action: {agent_control.action}"
         ),
         correlation_id=message.message_id,
     )
@@ -373,14 +381,14 @@ async def _pause_agent_run(
     interface: EvernightInterfaceProtocol,
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
+    agent_control: WebSocketAgentControl,
 ) -> None:
-    assert message.agent_control is not None
-    run_id = message.agent_control.run_id
+    run_id = agent_control.run_id
     await connection.manager.cancel_run_tasks(run_id)
     try:
         state = await interface.agent_runs.pause(
             run_id,
-            reason=message.agent_control.reason,
+            reason=agent_control.reason,
         )
         await _broadcast_control_trace(interface, connection, message, state.run_id)
     except Exception as exc:
@@ -391,14 +399,14 @@ async def _cancel_agent_run(
     interface: EvernightInterfaceProtocol,
     connection: ManagedWebSocketConnection,
     message: WebSocketMessage,
+    agent_control: WebSocketAgentControl,
 ) -> None:
-    assert message.agent_control is not None
-    run_id = message.agent_control.run_id
+    run_id = agent_control.run_id
     await connection.manager.cancel_run_tasks(run_id)
     try:
         state = await interface.agent_runs.cancel(
             run_id,
-            reason=message.agent_control.reason,
+            reason=agent_control.reason,
         )
         await _broadcast_control_trace(interface, connection, message, state.run_id)
     except Exception as exc:

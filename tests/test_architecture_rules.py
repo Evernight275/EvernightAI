@@ -307,6 +307,18 @@ def test_init_files_are_comment_only() -> None:
     assert violations == []
 
 
+def test_runtime_source_does_not_use_assert_statements() -> None:
+    violations: list[str] = []
+
+    for path in _python_files(PACKAGE_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                violations.append(f"{_rel(path)}:{node.lineno} uses assert")
+
+    assert violations == []
+
+
 def test_provider_chat_stream_uses_domain_stream_protocol() -> None:
     violations: list[str] = []
 

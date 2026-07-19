@@ -171,6 +171,32 @@ def test_maps_anthropic_response_to_chat_response() -> None:
     assert mapped.usage.total_tokens == 5
 
 
+def test_normalizes_anthropic_cache_usage_into_complete_prompt_total() -> None:
+    mapped = from_anthropic_response(
+        {
+            "model": "claude-test",
+            "content": [{"type": "text", "text": "Hi"}],
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "cache_read_input_tokens": 4,
+                "cache_creation_input_tokens": 5,
+            },
+        }
+    )
+
+    assert mapped.usage is not None
+    assert mapped.usage.prompt_tokens == 12
+    assert mapped.usage.completion_tokens == 2
+    assert mapped.usage.total_tokens == 14
+    assert mapped.usage.cached_prompt_tokens == 4
+    assert mapped.usage.cache_write_prompt_tokens == 5
+    assert mapped.usage.metadata == {
+        "cache_read_input_tokens": 4,
+        "cache_creation_input_tokens": 5,
+    }
+
+
 def test_maps_anthropic_tool_use_response_to_chat_response() -> None:
     mapped = from_anthropic_response(
         {
@@ -464,6 +490,7 @@ def test_maps_anthropic_response_fallbacks_and_usage_metadata() -> None:
     assert mapped.usage is not None
     assert mapped.usage.prompt_tokens is None
     assert mapped.usage.total_tokens is None
+    assert mapped.usage.cached_prompt_tokens == 4
     assert mapped.usage.metadata == {"cache_read_input_tokens": 4}
 
 

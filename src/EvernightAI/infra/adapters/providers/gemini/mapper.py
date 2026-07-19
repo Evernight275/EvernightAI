@@ -13,6 +13,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import (
     inline_image,
     validate_image_source,
@@ -368,13 +369,13 @@ def _usage_from_gemini(response: dict[str, Any]) -> ChatUsage | None:
     prompt_tokens = usage.get("promptTokenCount")
     completion_tokens = usage.get("candidatesTokenCount")
     total_tokens = usage.get("totalTokenCount")
+    cached_prompt_tokens = usage.get("cachedContentTokenCount")
 
     return ChatUsage(
-        prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
-        completion_tokens=(
-            completion_tokens if isinstance(completion_tokens, int) else None
-        ),
-        total_tokens=total_tokens if isinstance(total_tokens, int) else None,
+        prompt_tokens=token_count(prompt_tokens),
+        completion_tokens=token_count(completion_tokens),
+        total_tokens=token_count(total_tokens),
+        cached_prompt_tokens=token_count(cached_prompt_tokens),
         metadata={
             key: value
             for key, value in usage.items()

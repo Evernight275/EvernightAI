@@ -257,6 +257,8 @@ async def test_manager_logs_stream_usage_after_consumption(
     assert getattr(record, "prompt_tokens") == 3
     assert getattr(record, "completion_tokens") == 2
     assert getattr(record, "total_tokens") == 5
+    assert getattr(record, "cached_prompt_tokens") == 2
+    assert getattr(record, "cache_write_prompt_tokens") == 1
 
 
 class FakeChatStream:
@@ -284,6 +286,14 @@ class UsageChatStream:
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
         yield ChatStreamEvent(
             event_type=ChatStreamEventType.USAGE,
-            usage=ChatUsage(prompt_tokens=3, completion_tokens=2, total_tokens=5),
+            usage=ChatUsage(
+                prompt_tokens=3,
+                cached_prompt_tokens=2,
+                cache_write_prompt_tokens=1,
+            ),
+        )
+        yield ChatStreamEvent(
+            event_type=ChatStreamEventType.USAGE,
+            usage=ChatUsage(completion_tokens=2),
         )
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

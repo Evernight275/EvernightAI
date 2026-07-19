@@ -108,6 +108,8 @@ def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
+        "cached_prompt_tokens",
+        "cache_write_prompt_tokens",
         "provider_calls_total",
         "provider_errors_total",
         "provider_error_rate",

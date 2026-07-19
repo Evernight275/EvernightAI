@@ -246,7 +246,10 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
                 "SELECT lease_generation FROM agent_run_states WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
-            assert row is not None
+            if row is None:
+                raise AgentStateError(
+                    f"The agent run {run_id} lease generation is unavailable"
+                )
             return int(row[0])
 
     def heartbeat_lease(
@@ -330,7 +333,10 @@ class SQLiteAgentTraceRegister(AgentTraceRegisterProtocol):
                 """,
                 (run_id,),
             ).fetchone()
-            assert row is not None
+            if row is None:
+                raise AgentStateError(
+                    f"The agent run {run_id} trace sequence is unavailable"
+                )
             sequence = int(row[0])
             event.sequence = sequence
             self._connection.execute(

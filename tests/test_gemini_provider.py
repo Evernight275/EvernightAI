@@ -385,6 +385,7 @@ def test_maps_gemini_response_fallbacks_and_usage_metadata() -> None:
     ]
     assert mapped.usage is not None
     assert mapped.usage.prompt_tokens is None
+    assert mapped.usage.cached_prompt_tokens == 1
     assert mapped.usage.metadata == {"cachedContentTokenCount": 1}
 
 

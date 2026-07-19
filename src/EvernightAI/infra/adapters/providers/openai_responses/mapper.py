@@ -16,6 +16,7 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import image_url
 
 
@@ -568,15 +569,19 @@ def _usage_from_openai_response(response: Response) -> ChatUsage | None:
         return None
 
     metadata: dict[str, Any] = {}
+    cached_prompt_tokens = None
     if usage.input_tokens_details is not None:
-        metadata["input_tokens_details"] = usage.input_tokens_details.model_dump()
+        input_details = usage.input_tokens_details.model_dump()
+        metadata["input_tokens_details"] = input_details
+        cached_prompt_tokens = token_count(input_details.get("cached_tokens"))
     if usage.output_tokens_details is not None:
         metadata["output_tokens_details"] = usage.output_tokens_details.model_dump()
 
     return ChatUsage(
-        prompt_tokens=usage.input_tokens,
-        completion_tokens=usage.output_tokens,
-        total_tokens=usage.total_tokens,
+        prompt_tokens=token_count(usage.input_tokens),
+        completion_tokens=token_count(usage.output_tokens),
+        total_tokens=token_count(usage.total_tokens),
+        cached_prompt_tokens=cached_prompt_tokens,
         metadata=metadata,
     )
 
@@ -589,11 +594,18 @@ def _usage_from_openai_response_mapping(response: dict[str, Any]) -> ChatUsage |
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
     total_tokens = usage.get("total_tokens")
+    input_details = usage.get("input_tokens_details")
+    cached_prompt_tokens = (
+        token_count(input_details.get("cached_tokens"))
+        if isinstance(input_details, dict)
+        else None
+    )
 
     return ChatUsage(
-        prompt_tokens=input_tokens if isinstance(input_tokens, int) else None,
-        completion_tokens=output_tokens if isinstance(output_tokens, int) else None,
-        total_tokens=total_tokens if isinstance(total_tokens, int) else None,
+        prompt_tokens=token_count(input_tokens),
+        completion_tokens=token_count(output_tokens),
+        total_tokens=token_count(total_tokens),
+        cached_prompt_tokens=cached_prompt_tokens,
         metadata={
             key: value
             for key, value in usage.items()

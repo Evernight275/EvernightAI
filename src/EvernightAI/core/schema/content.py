@@ -73,9 +73,11 @@ class ChatSkill(EvernightAISchema):
 class ChatUsage(EvernightAISchema):
     """聊天调用用量"""
 
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
-    total_tokens: int | None = None
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    completion_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    cached_prompt_tokens: int | None = Field(default=None, ge=0)
+    cache_write_prompt_tokens: int | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -81,6 +81,179 @@ def sqlite_runtime_data_analysis_sources(
 
 AGENT_RUNS_VIEW_SQL = """
 CREATE VIEW IF NOT EXISTS evernight_agent_runs AS
+WITH chat_usage AS (
+    SELECT
+        run.run_id,
+        COUNT(*) AS chat_call_count,
+        SUM(json_extract(step.value, '$.response.usage.prompt_tokens'))
+            AS prompt_tokens,
+        SUM(json_extract(step.value, '$.response.usage.completion_tokens'))
+            AS completion_tokens,
+        SUM(
+            COALESCE(
+                json_extract(step.value, '$.response.usage.total_tokens'),
+                COALESCE(
+                    json_extract(step.value, '$.response.usage.prompt_tokens'),
+                    0
+                ) + COALESCE(
+                    json_extract(step.value, '$.response.usage.completion_tokens'),
+                    0
+                )
+            )
+        ) AS total_tokens,
+        SUM(
+            COALESCE(
+                json_extract(
+                    step.value,
+                    '$.response.usage.cached_prompt_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.prompt_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.input_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cache_read_input_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cachedContentTokenCount'
+                )
+            )
+        ) AS cached_prompt_tokens,
+        SUM(
+            COALESCE(
+                json_extract(
+                    step.value,
+                    '$.response.usage.cached_prompt_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.prompt_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.input_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cache_read_input_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cachedContentTokenCount'
+                )
+            ) IS NOT NULL
+        ) AS cache_read_report_count,
+        SUM(
+            COALESCE(
+                json_extract(
+                    step.value,
+                    '$.response.usage.cache_write_prompt_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cache_creation_input_tokens'
+                )
+            )
+        ) AS cache_write_prompt_tokens,
+        SUM(
+            COALESCE(
+                json_extract(
+                    step.value,
+                    '$.response.usage.cache_write_prompt_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.cache_creation_input_tokens'
+                )
+            ) IS NOT NULL
+        ) AS cache_write_report_count
+    FROM agent_run_states AS run
+    JOIN json_each(json_extract(run.payload, '$.steps')) AS step
+    WHERE json_extract(step.value, '$.step_type') = 'chat'
+    GROUP BY run.run_id
+),
+run_usage AS (
+    SELECT
+        run.*,
+        COALESCE(
+            chat.prompt_tokens,
+            json_extract(run.payload, '$.response.usage.prompt_tokens'),
+            0
+        ) AS normalized_prompt_tokens,
+        COALESCE(
+            chat.completion_tokens,
+            json_extract(run.payload, '$.response.usage.completion_tokens'),
+            0
+        ) AS normalized_completion_tokens,
+        COALESCE(
+            chat.total_tokens,
+            json_extract(run.payload, '$.response.usage.total_tokens'),
+            COALESCE(
+                json_extract(run.payload, '$.response.usage.prompt_tokens'),
+                0
+            ) + COALESCE(
+                json_extract(run.payload, '$.response.usage.completion_tokens'),
+                0
+            ),
+            0
+        ) AS normalized_total_tokens,
+        CASE
+            WHEN chat.chat_call_count IS NOT NULL THEN
+                CASE
+                    WHEN chat.cache_read_report_count = chat.chat_call_count
+                    THEN chat.cached_prompt_tokens
+                    ELSE NULL
+                END
+            ELSE COALESCE(
+                json_extract(
+                    run.payload,
+                    '$.response.usage.cached_prompt_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.prompt_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.input_tokens_details.cached_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.cache_read_input_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.cachedContentTokenCount'
+                )
+            )
+        END AS normalized_cached_prompt_tokens,
+        CASE
+            WHEN chat.chat_call_count IS NOT NULL THEN
+                CASE
+                    WHEN chat.cache_write_report_count = chat.chat_call_count
+                    THEN chat.cache_write_prompt_tokens
+                    ELSE NULL
+                END
+            ELSE COALESCE(
+                json_extract(
+                    run.payload,
+                    '$.response.usage.cache_write_prompt_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.cache_creation_input_tokens'
+                )
+            )
+        END AS normalized_cache_write_prompt_tokens
+    FROM agent_run_states AS run
+    LEFT JOIN chat_usage AS chat ON chat.run_id = run.run_id
+)
 SELECT
     run_id,
     json_extract(payload, '$.request.provider_id') AS provider_id,
@@ -96,6 +269,24 @@ SELECT
     ) AS pending_approval_count,
     COALESCE(json_extract(payload, '$.request.max_tool_rounds'), 0) AS max_tool_rounds,
     COALESCE(json_extract(payload, '$.request.write_memory'), 0) AS write_memory,
+    normalized_prompt_tokens AS prompt_tokens,
+    normalized_completion_tokens AS completion_tokens,
+    normalized_total_tokens AS total_tokens,
+    normalized_cached_prompt_tokens AS cached_prompt_tokens,
+    normalized_cache_write_prompt_tokens AS cache_write_prompt_tokens,
+    CASE
+        WHEN normalized_cached_prompt_tokens IS NOT NULL
+        THEN normalized_prompt_tokens
+        ELSE NULL
+    END AS cache_observed_prompt_tokens,
+    CASE
+        WHEN normalized_cached_prompt_tokens IS NOT NULL
+        THEN MAX(
+            normalized_prompt_tokens - normalized_cached_prompt_tokens,
+            0
+        )
+        ELSE NULL
+    END AS uncached_prompt_tokens,
     CASE
         WHEN json_extract(payload, '$.status') = 'finished' THEN 1
         ELSE 0
@@ -112,7 +303,7 @@ SELECT
     updated_at,
     substr(created_at, 1, 10) AS created_day,
     substr(updated_at, 1, 10) AS updated_day
-FROM agent_run_states
+FROM run_usage
 """
 
 
@@ -228,6 +419,13 @@ def _agent_runs_source() -> DataSourceDefinition:
             _field("pending_approval_count", "Pending approval count", DataFieldType.INTEGER),
             _field("max_tool_rounds", "Max tool rounds", DataFieldType.INTEGER),
             _field("write_memory", "Write memory", DataFieldType.BOOLEAN),
+            _field("prompt_tokens", "Prompt tokens", DataFieldType.INTEGER),
+            _field("completion_tokens", "Completion tokens", DataFieldType.INTEGER),
+            _field("total_tokens", "Total tokens", DataFieldType.INTEGER),
+            _field("cached_prompt_tokens", "Cached prompt tokens", DataFieldType.INTEGER),
+            _field("cache_write_prompt_tokens", "Cache write prompt tokens", DataFieldType.INTEGER),
+            _field("cache_observed_prompt_tokens", "Cache-observed prompt tokens", DataFieldType.INTEGER),
+            _field("uncached_prompt_tokens", "Uncached prompt tokens", DataFieldType.INTEGER),
             _field("is_successful", "Is successful", DataFieldType.BOOLEAN),
             _field("is_failed", "Is failed", DataFieldType.BOOLEAN),
             _field("is_paused", "Is paused", DataFieldType.BOOLEAN),
@@ -245,6 +443,13 @@ def _agent_runs_source() -> DataSourceDefinition:
             _metric("paused_run_rate", "Paused run rate", DataAggregation.AVERAGE, "is_paused"),
             _metric("pending_approvals_total", "Pending approvals total", DataAggregation.SUM, "pending_approval_count"),
             _metric("distinct_session_count", "Distinct session count", DataAggregation.DISTINCT_COUNT, "session_id"),
+            _metric("prompt_tokens_total", "Prompt tokens total", DataAggregation.SUM, "prompt_tokens"),
+            _metric("completion_tokens_total", "Completion tokens total", DataAggregation.SUM, "completion_tokens"),
+            _metric("total_tokens_total", "Total tokens", DataAggregation.SUM, "total_tokens"),
+            _metric("cached_prompt_tokens_total", "Cached prompt tokens", DataAggregation.SUM, "cached_prompt_tokens"),
+            _metric("cache_write_prompt_tokens_total", "Cache write prompt tokens", DataAggregation.SUM, "cache_write_prompt_tokens"),
+            _metric("cache_observed_prompt_tokens_total", "Cache-observed prompt tokens", DataAggregation.SUM, "cache_observed_prompt_tokens"),
+            _metric("uncached_prompt_tokens_total", "Uncached prompt tokens", DataAggregation.SUM, "uncached_prompt_tokens"),
         ],
         metadata={"sqlite_view": "evernight_agent_runs"},
     )

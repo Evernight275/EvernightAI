@@ -188,6 +188,31 @@ variables are already intentionally set for that purpose.
   responsible for explicitly composing selected memories into a context window
   or chat request.
 
+## Prompt Cache Rules
+
+- Prompt caching may reduce provider input cost or latency, but it must not
+  change request or response semantics.
+- Do not cache or reuse model responses, tool results, approval decisions,
+  authorization decisions, memory selections, or context composition results.
+- Cache hits must not bypass ownership checks, tool safety, approval, context,
+  memory, or persistence behavior.
+- Core defines provider-neutral cache intent and usage. Application code keeps
+  model-visible requests stable but must not emit provider-specific cache
+  fields. Infra adapters translate cache controls and normalize provider usage.
+- Missing cache usage means unknown, not zero. Never estimate cached tokens.
+- Preserve raw provider usage metadata while exposing normalized cache-read and
+  cache-write token counts.
+- Streaming and non-streaming calls must use the same cache semantics. Agent
+  usage must aggregate every model call in a multi-round run.
+- Cache statistics must not make a successful provider response fail. Malformed
+  usage values remain unavailable in normalized fields.
+- Do not reorder messages or semantically ordered declarations to improve cache
+  hits.
+- Do not log prompt content, cache identities, or content fingerprints.
+- Provider-side automatic caching may still occur when EvernightAI sends no
+  explicit cache control. Configuration must not claim that such remote caching
+  is disabled.
+
 ## Editing Style
 
 - Match the existing small, explicit style.

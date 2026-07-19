@@ -25,6 +25,18 @@ type StatisticCard = StatisticPreset & {
   result: DataStatisticsResult | null
 }
 
+type LineChartPoint = {
+  x: number
+  y: number
+  label: string
+  value: number
+}
+
+const lineChartWidth = 1000
+const lineChartHeight = 220
+const lineChartPaddingX = 28
+const lineChartPaddingY = 20
+
 const statisticPresets: StatisticPreset[] = [
   {
     id: 'agent_runs_total',
@@ -60,6 +72,25 @@ const statisticPresets: StatisticPreset[] = [
     },
   },
   {
+    id: 'token_usage',
+    title: 'Token 用量',
+    description: '累计输入、输出和总 token',
+    icon: 'database',
+    sourceId: 'agent_runs',
+    request: {
+      source_id: 'agent_runs',
+      metrics: [
+        'prompt_tokens_total',
+        'completion_tokens_total',
+        'total_tokens_total',
+        'cached_prompt_tokens_total',
+        'cache_write_prompt_tokens_total',
+        'cache_observed_prompt_tokens_total',
+        'uncached_prompt_tokens_total',
+      ],
+    },
+  },
+  {
     id: 'daily_agent_runs',
     title: '每日 Agent run',
     description: '按创建日期统计 run 数量',
@@ -69,7 +100,7 @@ const statisticPresets: StatisticPreset[] = [
       source_id: 'agent_runs',
       metrics: ['run_count'],
       dimensions: ['created_day'],
-      sorts: [{ field_id: 'created_day', direction: 'asc' }],
+      sorts: [{ field_id: 'created_day', direction: 'desc' }],
       limit: 14,
     },
   },
@@ -109,6 +140,27 @@ const statisticPresets: StatisticPreset[] = [
       metrics: ['run_count'],
       dimensions: ['provider_id', 'model_id'],
       sorts: [{ field_id: 'run_count', direction: 'desc' }],
+      limit: 8,
+    },
+  },
+  {
+    id: 'provider_model_tokens',
+    title: 'Provider / Model Token',
+    description: '按 provider 和 model 聚合 token 用量',
+    icon: 'table-2',
+    sourceId: 'agent_runs',
+    request: {
+      source_id: 'agent_runs',
+      metrics: [
+        'prompt_tokens_total',
+        'completion_tokens_total',
+        'total_tokens_total',
+        'cached_prompt_tokens_total',
+        'cache_observed_prompt_tokens_total',
+        'uncached_prompt_tokens_total',
+      ],
+      dimensions: ['provider_id', 'model_id'],
+      sorts: [{ field_id: 'total_tokens_total', direction: 'desc' }],
       limit: 8,
     },
   },
@@ -195,7 +247,45 @@ const overviewTiles = computed(() => [
     caption: '按工具聚合',
     icon: 'wrench',
   },
+  {
+    label: 'Tokens',
+    value: formatMetric(firstMetricValue('token_usage', 'total_tokens_total'), 'total_tokens_total'),
+    caption: cacheHitRateLabel('token_usage'),
+    icon: 'database',
+  },
 ])
+
+const dailyAgentRunLine = computed(() => {
+  const data = [...rows('daily_agent_runs')].reverse().map((row) => ({
+    label: dimensionLabel(row, ['created_day']),
+    value: asNumber(row.metrics?.run_count) || 0,
+  }))
+  const maxValue = Math.max(...data.map((item) => item.value), 1)
+  const plotWidth = lineChartWidth - lineChartPaddingX * 2
+  const plotHeight = lineChartHeight - lineChartPaddingY * 2
+  const points: LineChartPoint[] = data.map((item, index) => ({
+    ...item,
+    x: data.length === 1
+      ? lineChartWidth / 2
+      : lineChartPaddingX + (index / (data.length - 1)) * plotWidth,
+    y: lineChartPaddingY + (1 - item.value / maxValue) * plotHeight,
+  }))
+  const polyline = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const baseline = lineChartHeight - lineChartPaddingY
+  const areaPath = points.length === 0
+    ? ''
+    : `M ${points[0].x} ${baseline} L ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} L ${points.at(-1)?.x || 0} ${baseline} Z`
+
+  return {
+    points,
+    polyline,
+    areaPath,
+    maxValue,
+    gridLines: [0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+      lineChartPaddingY + ratio * plotHeight
+    )),
+  }
+})
 
 onMounted(refreshAnalytics)
 
@@ -281,6 +371,28 @@ function asNumber(value: unknown): number | null {
   return null
 }
 
+function cacheHitRate(cardId: string, row?: DataStatisticsRow): number | null {
+  const metrics = row?.metrics
+  const cached = asNumber(
+    metrics?.cached_prompt_tokens_total
+      ?? firstMetricValue(cardId, 'cached_prompt_tokens_total'),
+  )
+  const observed = asNumber(
+    metrics?.cache_observed_prompt_tokens_total
+      ?? firstMetricValue(cardId, 'cache_observed_prompt_tokens_total'),
+  )
+  if (cached === null || observed === null || observed <= 0) {
+    return null
+  }
+
+  return cached / observed
+}
+
+function cacheHitRateLabel(cardId: string, row?: DataStatisticsRow): string {
+  const rate = cacheHitRate(cardId, row)
+  return rate === null ? 'Provider 未报告缓存用量' : `缓存命中 ${(rate * 100).toFixed(1)}%`
+}
+
 function formatMetric(value: unknown, metricId: string): string {
   const numberValue = asNumber(value)
   if (numberValue === null) {
@@ -310,17 +422,6 @@ function dimensionLabel(row: DataStatisticsRow, dimensionIds: string[]): string 
     .map(String)
 
   return values.length > 0 ? values.join(' · ') : '未分组'
-}
-
-function barHeight(cardId: string, metricId: string, row: DataStatisticsRow): string {
-  const values = rows(cardId).map((item) => asNumber(item.metrics?.[metricId]) || 0)
-  const maxValue = Math.max(...values, 0)
-  const value = asNumber(row.metrics?.[metricId]) || 0
-  if (maxValue <= 0) {
-    return '6%'
-  }
-
-  return `${Math.max(6, Math.round((value / maxValue) * 100))}%`
 }
 
 function hasRows(cardId: string): boolean {
@@ -370,20 +471,93 @@ function hasRows(cardId: string): boolean {
         <p v-if="cardError('daily_agent_runs')" class="analytics-error">
           {{ cardError('daily_agent_runs') }}
         </p>
-        <div v-else-if="hasRows('daily_agent_runs')" class="analytics-bars">
-          <div
-            v-for="row in rows('daily_agent_runs')"
-            :key="dimensionLabel(row, ['created_day'])"
-            class="analytics-bar-item"
-          >
-            <div class="analytics-bar-track">
-              <span :style="{ height: barHeight('daily_agent_runs', 'run_count', row) }"></span>
+        <div v-else-if="hasRows('daily_agent_runs')" class="analytics-line-scroll">
+          <div class="analytics-line-chart">
+            <div class="analytics-line-scale" aria-hidden="true">
+              <span>{{ formatMetric(dailyAgentRunLine.maxValue, 'run_count') }}</span>
+              <span>0</span>
             </div>
-            <strong>{{ formatMetric(row.metrics?.run_count, 'run_count') }}</strong>
-            <small>{{ dimensionLabel(row, ['created_day']) }}</small>
+            <svg
+              class="analytics-line-plot"
+              :viewBox="`0 0 ${lineChartWidth} ${lineChartHeight}`"
+              role="img"
+              aria-label="每日 Agent run 折线图"
+            >
+              <line
+                v-for="lineY in dailyAgentRunLine.gridLines"
+                :key="lineY"
+                :x1="lineChartPaddingX"
+                :x2="lineChartWidth - lineChartPaddingX"
+                :y1="lineY"
+                :y2="lineY"
+                class="analytics-line-grid"
+              />
+              <path :d="dailyAgentRunLine.areaPath" class="analytics-line-area" />
+              <polyline :points="dailyAgentRunLine.polyline" class="analytics-line-series" />
+              <circle
+                v-for="point in dailyAgentRunLine.points"
+                :key="point.label"
+                :cx="point.x"
+                :cy="point.y"
+                r="5"
+                class="analytics-line-point"
+              >
+                <title>{{ point.label }}：{{ point.value }}</title>
+              </circle>
+            </svg>
+            <div
+              class="analytics-line-labels"
+              :style="{
+                gridTemplateColumns: `repeat(${dailyAgentRunLine.points.length}, minmax(52px, 1fr))`,
+              }"
+            >
+              <div v-for="point in dailyAgentRunLine.points" :key="point.label">
+                <strong>{{ formatMetric(point.value, 'run_count') }}</strong>
+                <small>{{ point.label }}</small>
+              </div>
+            </div>
           </div>
         </div>
         <div v-else class="analytics-empty">暂无 Agent run 统计数据</div>
+      </article>
+
+      <article class="panel analytics-panel">
+        <div class="panel-head">
+          <h2><Icon name="database" /><span>Token 用量</span></h2>
+        </div>
+        <p v-if="cardError('token_usage')" class="analytics-error">
+          {{ cardError('token_usage') }}
+        </p>
+        <div v-else class="analytics-ratio-list">
+          <div>
+            <span>输入 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'prompt_tokens_total'), 'prompt_tokens_total') }}</strong>
+          </div>
+          <div>
+            <span>缓存 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'cached_prompt_tokens_total'), 'cached_prompt_tokens_total') }}</strong>
+          </div>
+          <div>
+            <span>未缓存 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'uncached_prompt_tokens_total'), 'uncached_prompt_tokens_total') }}</strong>
+          </div>
+          <div>
+            <span>缓存命中率</span>
+            <strong>{{ cacheHitRateLabel('token_usage') }}</strong>
+          </div>
+          <div>
+            <span>缓存写入 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'cache_write_prompt_tokens_total'), 'cache_write_prompt_tokens_total') }}</strong>
+          </div>
+          <div>
+            <span>输出 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'completion_tokens_total'), 'completion_tokens_total') }}</strong>
+          </div>
+          <div>
+            <span>总 Token</span>
+            <strong>{{ formatMetric(firstMetricValue('token_usage', 'total_tokens_total'), 'total_tokens_total') }}</strong>
+          </div>
+        </div>
       </article>
 
       <article class="panel analytics-panel">
@@ -453,6 +627,43 @@ function hasRows(cardId: string): boolean {
           </tbody>
         </table>
         <div v-else class="analytics-empty">暂无 provider/model 请求数据</div>
+      </article>
+
+      <article class="panel analytics-panel analytics-wide">
+        <div class="panel-head">
+          <h2><Icon name="table-2" /><span>Provider / Model Token 用量</span></h2>
+          <span>Top 8</span>
+        </div>
+        <p v-if="cardError('provider_model_tokens')" class="analytics-error">
+          {{ cardError('provider_model_tokens') }}
+        </p>
+        <div v-else-if="hasRows('provider_model_tokens')" class="analytics-table-scroll">
+          <table class="analytics-table analytics-token-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>输入 Token</th>
+                <th>缓存 Token</th>
+                <th>命中率</th>
+                <th>输出 Token</th>
+                <th>总 Token</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in rows('provider_model_tokens')" :key="dimensionLabel(row, ['provider_id', 'model_id'])">
+                <td>{{ row.dimensions?.provider_id || '未知' }}</td>
+                <td>{{ row.dimensions?.model_id || '未知' }}</td>
+                <td>{{ formatMetric(row.metrics?.prompt_tokens_total, 'prompt_tokens_total') }}</td>
+                <td>{{ formatMetric(row.metrics?.cached_prompt_tokens_total, 'cached_prompt_tokens_total') }}</td>
+                <td>{{ cacheHitRateLabel('provider_model_tokens', row) }}</td>
+                <td>{{ formatMetric(row.metrics?.completion_tokens_total, 'completion_tokens_total') }}</td>
+                <td>{{ formatMetric(row.metrics?.total_tokens_total, 'total_tokens_total') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="analytics-empty">暂无 provider/model Token 数据</div>
       </article>
 
       <article class="panel analytics-panel analytics-wide">

@@ -50,6 +50,19 @@ RUNTIME_STATISTIC_COVERAGE_RULES = [
         dimensions=("provider_id", "model_id"),
     ),
     RuntimeStatisticCoverageRule(
+        statistic_id="provider_model_token_usage",
+        source_id="agent_runs",
+        metrics=(
+            "prompt_tokens_total",
+            "completion_tokens_total",
+            "total_tokens_total",
+            "cached_prompt_tokens_total",
+            "cache_observed_prompt_tokens_total",
+            "uncached_prompt_tokens_total",
+        ),
+        dimensions=("provider_id", "model_id"),
+    ),
+    RuntimeStatisticCoverageRule(
         statistic_id="average_context_message_count",
         source_id="contexts",
         metrics=("average_message_count",),
@@ -94,4 +107,3 @@ def test_runtime_sqlite_data_analysis_sources_cover_target_statistics() -> None:
         assert sorted(set(rule.metrics) - metrics) == [], rule.statistic_id
         assert sorted(set(rule.dimensions) - fields) == [], rule.statistic_id
         assert sorted(set(rule.filter_fields) - fields) == [], rule.statistic_id
-
