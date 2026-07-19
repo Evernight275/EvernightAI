@@ -76,51 +76,53 @@ watch([runIds, runPageSize], () => {
           </label>
         </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Run</th>
-            <th>Provider / 模型</th>
-            <th>状态</th>
-            <th>工具轮次</th>
-            <th>Trace</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="runs.length === 0">
-            <td class="run-empty-cell" colspan="5">
-              <div class="run-empty-state">
-                <Icon name="activity" class="run-empty-icon" />
-                <strong>暂无运行记录</strong>
-                <span>Agent 运行后将在此显示</span>
-              </div>
-            </td>
-          </tr>
-          <tr
-            v-for="run in pagedRuns"
-            v-else
-            :key="run.run_id"
-            class="run-row"
-            :class="{ 'is-selected': selectedRun?.run_id === run.run_id }"
-            tabindex="0"
-            @click="selectRun(run)"
-            @keydown.enter.prevent="selectRun(run)"
-          >
-            <td>
-              <span class="run-id">{{ run.run_id }}</span>
-            </td>
-            <td>
-              <div class="run-provider-cell">
-                <strong>{{ run.request.provider_id }}</strong>
-                <span>{{ run.request.model_id }}</span>
-              </div>
-            </td>
-            <td><span class="tag" :class="statusTone(run.status)">{{ formatStatus(run.status) }}</span></td>
-            <td>{{ run.tool_rounds_used ?? 0 }} / {{ run.request.max_tool_rounds ?? 0 }}</td>
-            <td>{{ run.trace?.length ?? 0 }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="run-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Provider / 模型</th>
+              <th>状态</th>
+              <th>工具轮次</th>
+              <th>Trace</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="runs.length === 0">
+              <td class="run-empty-cell" colspan="5">
+                <div class="run-empty-state">
+                  <Icon name="activity" class="run-empty-icon" />
+                  <strong>暂无运行记录</strong>
+                  <span>Agent 运行后将在此显示</span>
+                </div>
+              </td>
+            </tr>
+            <tr
+              v-for="run in pagedRuns"
+              v-else
+              :key="run.run_id"
+              class="run-row"
+              :class="{ 'is-selected': selectedRun?.run_id === run.run_id }"
+              tabindex="0"
+              @click="selectRun(run)"
+              @keydown.enter.prevent="selectRun(run)"
+            >
+              <td>
+                <span class="run-id">{{ run.run_id }}</span>
+              </td>
+              <td>
+                <div class="run-provider-cell">
+                  <strong>{{ run.request.provider_id }}</strong>
+                  <span>{{ run.request.model_id }}</span>
+                </div>
+              </td>
+              <td><span class="tag" :class="statusTone(run.status)">{{ formatStatus(run.status) }}</span></td>
+              <td>{{ run.tool_rounds_used ?? 0 }} / {{ run.request.max_tool_rounds ?? 0 }}</td>
+              <td>{{ run.trace?.length ?? 0 }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div class="run-pagination" aria-label="运行队列分页">
         <button
           class="button compact-button icon-button"

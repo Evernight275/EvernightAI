@@ -319,11 +319,11 @@ function shortId(id: string | undefined): string {
             <span class="tag">{{ requestTools.length }} 个</span>
           </div>
           <div v-if="requestTools.length === 0" class="run-muted">本次请求未携带工具定义</div>
-          <div v-else class="run-tool-chips">
-            <span v-for="tool in requestTools" :key="tool.name" class="model-chip">
-              {{ tool.name }}
-            </span>
-          </div>
+          <ul v-else class="run-tool-list">
+            <li v-for="tool in requestTools" :key="tool.name">
+              <code :title="tool.name">{{ tool.name }}</code>
+            </li>
+          </ul>
         </section>
       </div>
 
