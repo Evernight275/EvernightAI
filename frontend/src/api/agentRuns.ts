@@ -105,7 +105,10 @@ export function startAgentRunStream(
     method: 'POST',
     body: request,
   }, (rawEvent) => {
-    onEvent(JSON.parse(rawEvent.data) as AgentTraceEvent, rawEvent)
+    const event = agentTraceEventFromSse(rawEvent)
+    if (event) {
+      onEvent(event, rawEvent)
+    }
   })
 }
 
@@ -148,4 +151,59 @@ export function listAgentTrace(
   return requestJson<AgentTraceEvent[]>(
     `/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`,
   )
+}
+
+function agentTraceEventFromSse(rawEvent: SseEvent): AgentTraceEvent | null {
+  if (rawEvent.data === '[DONE]' || rawEvent.data.trim() === '') {
+    return null
+  }
+
+  const payload = parseSseJson(rawEvent)
+  if (rawEvent.event === 'error') {
+    const error = isRecord(payload.error) ? payload.error : payload
+    throw new Error(
+      typeof error.message === 'string'
+        ? error.message
+        : 'Agent 流式响应失败',
+    )
+  }
+
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const event = payload as AgentTraceEvent
+  if (!event.event_type && isAgentTraceEventType(rawEvent.event)) {
+    event.event_type = rawEvent.event
+  }
+
+  return event.event_type ? event : null
+}
+
+function parseSseJson(rawEvent: SseEvent): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawEvent.data) as unknown
+    return isRecord(parsed) ? parsed : {}
+  } catch {
+    throw new Error(`无法解析 Agent 流式事件：${rawEvent.event}`)
+  }
+}
+
+function isAgentTraceEventType(value: string): value is AgentTraceEventType {
+  return [
+    'run_started',
+    'chat_delta',
+    'chat_completed',
+    'tool_approval_requested',
+    'tool_approval_decided',
+    'tool_completed',
+    'tool_failed',
+    'memory_written',
+    'run_paused',
+    'run_stopped',
+  ].includes(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

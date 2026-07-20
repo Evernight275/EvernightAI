@@ -72,6 +72,50 @@ export function chatWithContextStream(
       return
     }
 
-    onEvent(JSON.parse(rawEvent.data) as ChatStreamEvent, rawEvent)
+    if (rawEvent.data.trim() === '') {
+      return
+    }
+
+    if (rawEvent.event === 'error') {
+      onEvent(serverErrorToChatEvent(rawEvent), rawEvent)
+      return
+    }
+
+    if (rawEvent.event !== 'message' && !rawEvent.event.startsWith('chat.')) {
+      return
+    }
+
+    const event = parseSseJson(rawEvent) as ChatStreamEvent
+    if (!event.event_type && rawEvent.event.startsWith('chat.')) {
+      event.event_type = rawEvent.event.slice('chat.'.length)
+    }
+    if (!event.event_type) {
+      return
+    }
+
+    onEvent(event, rawEvent)
   })
+}
+
+function parseSseJson(rawEvent: SseEvent): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawEvent.data) as unknown
+    return isRecord(parsed) ? parsed : {}
+  } catch {
+    throw new Error(`无法解析流式事件：${rawEvent.event}`)
+  }
+}
+
+function serverErrorToChatEvent(rawEvent: SseEvent): ChatStreamEvent {
+  const payload = parseSseJson(rawEvent)
+  const error = isRecord(payload.error) ? payload.error : payload
+  return {
+    event_type: 'error',
+    error_type: typeof error.type === 'string' ? error.type : null,
+    error_message: typeof error.message === 'string' ? error.message : '流式响应失败',
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -14,14 +14,7 @@ class ProviderApplication(ProviderInterfaceProtocol):
 
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo:
         await self._runtime.providers.create(config)
-        return ProviderInfo(
-            provider_id=config.provider_id,
-            name=config.name,
-            type=config.type,
-            is_enabled=config.is_enabled,
-            model=config.model,
-            metadata=dict(config.metadata),
-        )
+        return await self._runtime.providers.get_info(config.provider_id)
 
     async def list_providers(self) -> list[ProviderInfo]:
         return await self._runtime.providers.list_infos()

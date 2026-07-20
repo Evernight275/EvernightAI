@@ -214,17 +214,21 @@ const languageAliases: Record<string, string> = {
 const markdownRenderer = new MarkdownIt({
   breaks: true,
   highlight(code, language) {
-    const normalizedLanguage = normalizeHighlightLanguage(language)
-    if (normalizedLanguage) {
-      const highlighted = hljs.highlight(code, {
-        language: normalizedLanguage,
-        ignoreIllegals: true,
-      }).value
-      return codeBlockHtml(highlighted, normalizedLanguage)
-    }
+    try {
+      const normalizedLanguage = normalizeHighlightLanguage(language)
+      if (normalizedLanguage) {
+        const highlighted = hljs.highlight(code, {
+          language: normalizedLanguage,
+          ignoreIllegals: true,
+        }).value
+        return codeBlockHtml(highlighted, normalizedLanguage)
+      }
 
-    const highlighted = hljs.highlightAuto(code).value
-    return codeBlockHtml(highlighted, 'text')
+      const highlighted = hljs.highlightAuto(code).value
+      return codeBlockHtml(highlighted, 'text')
+    } catch {
+      return codeBlockHtml(escapeHtml(code), 'text')
+    }
   },
   html: false,
   linkify: true,
@@ -233,6 +237,9 @@ const markdownRenderer = new MarkdownIt({
 const defaultRenderLinkOpen = markdownRenderer.renderer.rules.link_open
 markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, self) => {
   const token = tokens[index]
+  if (!token) {
+    return ''
+  }
   token.attrSet('target', '_blank')
   token.attrSet('rel', 'noreferrer')
   return defaultRenderLinkOpen
@@ -395,8 +402,12 @@ function renderMarkdown(text: string): string {
     return '<p>无文本内容</p>'
   }
 
-  const math = extractMathPlaceholders(normalized)
-  return restoreMathPlaceholders(markdownRenderer.render(math.markdown), math.placeholders)
+  try {
+    const math = extractMathPlaceholders(normalized)
+    return restoreMathPlaceholders(markdownRenderer.render(math.markdown), math.placeholders)
+  } catch {
+    return `<p>${escapeHtml(normalized)}</p>`
+  }
 }
 
 function isToolResultMessage(message: Content): boolean {
@@ -836,11 +847,7 @@ function mathPlaceholder(
   placeholders: MathPlaceholder[],
 ): string {
   const placeholder = `@@EVERNIGHT_MATH_${placeholders.length}@@`
-  const mathHtml = katex.renderToString(formula.trim(), {
-    displayMode,
-    errorColor: '#b3261e',
-    throwOnError: false,
-  })
+  const mathHtml = renderMath(formula, displayMode)
 
   placeholders.push({
     placeholder,
@@ -851,6 +858,19 @@ function mathPlaceholder(
   })
 
   return displayMode ? `\n\n${placeholder}\n\n` : placeholder
+}
+
+function renderMath(formula: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(formula.trim(), {
+      displayMode,
+      errorColor: '#b3261e',
+      strict: 'ignore',
+      throwOnError: false,
+    })
+  } catch {
+    return escapeHtml(formula)
+  }
 }
 
 function restoreMathPlaceholders(html: string, placeholders: MathPlaceholder[]): string {
@@ -873,6 +893,15 @@ function normalizeHighlightLanguage(language: string): string | null {
 
   const normalizedLanguage = languageAliases[cleanLanguage] || cleanLanguage
   return hljs.getLanguage(normalizedLanguage) ? normalizedLanguage : null
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 watch(model, async () => {

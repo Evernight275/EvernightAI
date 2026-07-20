@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+import asyncio
 import logging
 from typing import cast
 
@@ -9,7 +10,10 @@ from EvernightAI.core.error.provider import (
     ProviderCapabilityUnsupportedError,
     ProviderNotFoundError,
 )
-from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
+from EvernightAI.core.protocol.provider import (
+    ProviderConfigStoreProtocol,
+    ProviderInstanceProtocol,
+)
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -64,6 +68,32 @@ class FakeProvider(ProviderInstanceProtocol):
         self.closed = True
 
 
+class FakeProviderConfigStore(ProviderConfigStoreProtocol):
+    def __init__(self) -> None:
+        self.configs: dict[str, ProviderConfig] = {}
+        self.fail_saves = False
+        self.fail_deletes = False
+
+    def save(self, provider: ProviderConfig) -> None:
+        if self.fail_saves:
+            raise RuntimeError("config save failed")
+        self.configs[provider.provider_id] = provider
+
+    def get(self, provider_id: str) -> ProviderConfig:
+        return self.configs[provider_id]
+
+    def list_configs(self, *, enabled_only: bool = False) -> list[ProviderConfig]:
+        configs = list(self.configs.values())
+        if enabled_only:
+            return [config for config in configs if config.is_enabled]
+        return configs
+
+    def delete(self, provider_id: str) -> None:
+        if self.fail_deletes:
+            raise RuntimeError("config delete failed")
+        del self.configs[provider_id]
+
+
 def make_config(provider_id: str = "provider-1") -> ProviderConfig:
     return ProviderConfig(
         provider_id=provider_id,
@@ -90,6 +120,138 @@ async def test_manager_creates_and_deletes_provider_instance() -> None:
     manager = ProviderManager(factory)
 
     instance = await manager.create(make_config())
+    await manager.delete("provider-1")
+
+    assert cast(FakeProvider, instance).closed is True
+    assert await manager.list_instances() == []
+
+
+@pytest.mark.asyncio
+async def test_manager_keeps_previous_instance_when_config_save_fails() -> None:
+    instances = [FakeProvider(), FakeProvider()]
+
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instances.pop(0)
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory, config_store=store)
+    previous = await manager.create(make_config())
+    replacement = instances[0]
+    store.fail_saves = True
+
+    with pytest.raises(RuntimeError, match="config save failed"):
+        await manager.create(make_config().model_copy(update={"name": "Replacement"}))
+
+    assert await manager.get("provider-1") is previous
+    assert (await manager.list_infos())[0].name == "OpenAI"
+    assert cast(FakeProvider, previous).closed is False
+    assert replacement.closed is True
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_manager_keeps_replacement_when_previous_close_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class CloseFailingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.close_calls = 0
+
+        async def close(self) -> None:
+            self.close_calls += 1
+            raise RuntimeError("close failed")
+
+    previous = CloseFailingProvider()
+    replacement = FakeProvider()
+    instances: list[ProviderInstanceProtocol] = [previous, replacement]
+
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instances.pop(0)
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    await manager.create(make_config())
+
+    with caplog.at_level(logging.WARNING, logger="EvernightAI.provider"):
+        created = await manager.create(make_config())
+
+    assert created is replacement
+    assert await manager.get("provider-1") is replacement
+    assert previous.close_calls == 1
+    assert "Failed to close replaced provider instance" in caplog.text
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_manager_keeps_in_flight_call_on_replaced_generation() -> None:
+    class BlockingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            self.started.set()
+            await self.release.wait()
+            return await super().chat(request)
+
+    previous = BlockingProvider()
+    replacement = FakeProvider()
+    instances: list[ProviderInstanceProtocol] = [previous, replacement]
+
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instances.pop(0)
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    await manager.create(make_config())
+
+    request = ChatRequest(model_id="model-1", messages=[])
+    chat_task = asyncio.create_task(manager.chat("provider-1", request))
+    await previous.started.wait()
+
+    created = await manager.create(make_config().model_copy(update={"name": "New"}))
+
+    assert created is replacement
+    assert await manager.get("provider-1") is replacement
+    assert previous.closed is False
+
+    previous.release.set()
+    response = await chat_task
+
+    assert response.model_id == "model-1"
+    assert previous.closed is True
+    assert replacement.closed is False
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_manager_keeps_provider_published_when_config_delete_fails() -> None:
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return FakeProvider()
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory, config_store=store)
+    instance = await manager.create(make_config())
+    store.fail_deletes = True
+
+    with pytest.raises(RuntimeError, match="config delete failed"):
+        await manager.delete("provider-1")
+
+    assert await manager.get("provider-1") is instance
+    assert cast(FakeProvider, instance).closed is False
+
+    store.fail_deletes = False
     await manager.delete("provider-1")
 
     assert cast(FakeProvider, instance).closed is True

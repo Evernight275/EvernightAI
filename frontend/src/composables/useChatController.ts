@@ -56,6 +56,15 @@ type ChatMessageInput = {
   text: string
   images: ContentPart[]
 }
+
+type PendingChatState = {
+  messages: ChatDisplayMessage[]
+  assistantHasDelta: boolean
+  activeAgentRunId: string | null
+  runPaused: boolean
+  sending: boolean
+}
+
 type ToolApprovalMessage = ChatDisplayMessage & {
   metadata: {
     kind: 'tool_approval'
@@ -93,20 +102,15 @@ export function useChatController({
   const selectedContext = ref<Context | null>(null)
   const contextLoading = ref(false)
   const chatDraft = ref('')
-  const pendingChatMessages = ref<ChatDisplayMessage[]>([])
-  const pendingChatSessionId = ref<string | null>(null)
-  const pendingAssistantHasDelta = ref(false)
+  const pendingChatStates = ref<Record<string, PendingChatState>>({})
   const hiddenApprovalIds = ref<Set<string>>(new Set())
   const chatTimeoutSeconds = ref(storedChatSettings.timeoutSeconds)
   const chatStreamEnabled = ref(storedChatSettings.streamEnabled)
   const chatAgentEnabled = ref(storedChatSettings.agentEnabled)
   let syncingStoredChatSettings = false
-  const sendingMessage = ref(false)
   const approvingToolApproval = ref(false)
   const creatingSession = ref(false)
   const chatError = ref<string | null>(null)
-  const activeAgentRunId = ref<string | null>(null)
-  const currentAgentRunPaused = ref(false)
 
   watch(
     [chatTimeoutSeconds, chatStreamEnabled, chatAgentEnabled],
@@ -152,11 +156,16 @@ export function useChatController({
     sessions.value.find((session) => session.session_id === selectedSessionId.value) || null
   ))
 
+  const sendingMessage = computed(() => (
+    selectedSessionId.value !== null
+    && pendingChatStates.value[selectedSessionId.value]?.sending === true
+  ))
+
   const chatDisplayError = computed(() => chatError.value || dashboardError.value)
 
   const chatMessages = computed<ChatDisplayMessage[]>(() => {
-    const pendingMessages = pendingChatSessionId.value === selectedSessionId.value
-      ? pendingChatMessages.value
+    const pendingMessages = selectedSessionId.value
+      ? pendingChatStates.value[selectedSessionId.value]?.messages || []
       : []
     const approvalMessages = selectedSession.value
       ? approvalMessagesForSession(selectedSession.value, pendingMessages)
@@ -221,7 +230,8 @@ export function useChatController({
   }
 
   async function loadSelectedContext() {
-    if (!selectedSession.value) {
+    const session = selectedSession.value
+    if (!session) {
       selectedContext.value = null
       return
     }
@@ -230,12 +240,19 @@ export function useChatController({
     chatError.value = null
 
     try {
-      selectedContext.value = await getContext(selectedSession.value.context_id)
+      const context = await getContext(session.context_id)
+      if (selectedSessionId.value === session.session_id) {
+        selectedContext.value = context
+      }
     } catch (error) {
-      selectedContext.value = null
-      chatError.value = error instanceof Error ? error.message : '上下文加载失败'
+      if (selectedSessionId.value === session.session_id) {
+        selectedContext.value = null
+        chatError.value = error instanceof Error ? error.message : '上下文加载失败'
+      }
     } finally {
-      contextLoading.value = false
+      if (selectedSessionId.value === session.session_id) {
+        contextLoading.value = false
+      }
     }
   }
 
@@ -277,31 +294,42 @@ export function useChatController({
       return
     }
 
-    sendingMessage.value = true
+    if (isSessionSending(session.session_id)) {
+      return
+    }
+
+    const sessionId = session.session_id
+    const streamEnabled = chatStreamEnabled.value
+    const agentEnabled = chatAgentEnabled.value
+    const timeoutSeconds = chatTimeoutSeconds.value
     chatError.value = null
-    const routeLabel = chatAgentEnabled.value ? 'Agent' : '模型'
-    const assistantRunningText = chatStreamEnabled.value
+    const routeLabel = agentEnabled ? 'Agent' : '模型'
+    const assistantRunningText = streamEnabled
       ? `${routeLabel} 正在流式响应...`
       : `${routeLabel} 正在运行...`
-    pendingChatSessionId.value = session.session_id
-    pendingAssistantHasDelta.value = false
-    pendingChatMessages.value = [
-      ...(
-        isRetry
-          ? []
-          : [{
-              role: 'user',
-              content: messageParts,
-              text: messageText || `发送了 ${options.images.length} 张图片`,
-            } satisfies ChatDisplayMessage]
-      ),
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: assistantRunningText }],
-        text: assistantRunningText,
-        pending: true,
-      },
-    ]
+    setPendingState(sessionId, {
+      messages: [
+        ...(
+          isRetry
+            ? []
+            : [{
+                role: 'user',
+                content: messageParts,
+                text: messageText || `发送了 ${options.images.length} 张图片`,
+              } satisfies ChatDisplayMessage]
+        ),
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: assistantRunningText }],
+          text: assistantRunningText,
+          pending: true,
+        },
+      ],
+      assistantHasDelta: false,
+      activeAgentRunId: null,
+      runPaused: false,
+      sending: true,
+    })
     chatDraft.value = ''
 
     try {
@@ -320,15 +348,18 @@ export function useChatController({
         tools: tools.value,
         metadata: {
           source: 'frontend-chat',
-          timeout_seconds: chatTimeoutSeconds.value,
-          stream: chatStreamEnabled.value,
+          timeout_seconds: timeoutSeconds,
+          stream: streamEnabled,
         },
       }
 
-      if (chatStreamEnabled.value && chatAgentEnabled.value) {
+      if (streamEnabled && agentEnabled) {
         const runId = newId('run')
-        activeAgentRunId.value = runId
-        currentAgentRunPaused.value = false
+        updatePendingState(sessionId, (state) => ({
+          ...state,
+          activeAgentRunId: runId,
+          runPaused: false,
+        }))
         await startAgentRunStream({
           ...request,
           context_id: session.context_id,
@@ -341,9 +372,9 @@ export function useChatController({
           recover_tool_errors: true,
           write_memory: false,
           pause_on_approval: true,
-        }, handleAgentStreamEvent)
-      } else if (chatStreamEnabled.value) {
-        setPendingAssistantText('', true)
+        }, (event) => handleAgentStreamEvent(sessionId, event))
+      } else if (streamEnabled) {
+        setPendingAssistantText(sessionId, '', true)
         await chatWithContextStream({
           ...request,
           context_id: session.context_id,
@@ -351,8 +382,8 @@ export function useChatController({
             ...request.metadata,
             session_id: session.session_id,
           },
-        }, handleChatStreamEvent)
-      } else if (chatAgentEnabled.value) {
+        }, (event) => handleChatStreamEvent(sessionId, event))
+      } else if (agentEnabled) {
         const state = await startSessionAgentRun(session.session_id, {
           ...request,
           max_tool_rounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
@@ -361,36 +392,44 @@ export function useChatController({
           pause_on_approval: true,
         })
         if (state.status === 'paused' && state.pending_approval_requests?.length) {
-          currentAgentRunPaused.value = true
+          updatePendingState(sessionId, (pending) => ({
+            ...pending,
+            runPaused: true,
+          }))
           for (const approval of state.pending_approval_requests) {
-            appendPendingApproval(state.run_id, approval, state.pending_tool_calls?.[0] || null)
+            appendPendingApproval(sessionId, state.run_id, approval, state.pending_tool_calls?.[0] || null)
           }
-          setPendingAssistantText('等待工具审批...', true)
+          setPendingAssistantText(sessionId, '等待工具审批...', true)
         }
       } else {
         await chatWithSession(session.session_id, request)
       }
       await refreshDashboard()
-      if (!currentAgentRunPaused.value) {
-        clearPendingMessages()
+      if (!pendingState(sessionId)?.runPaused) {
+        clearPendingMessages(sessionId)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Agent 运行失败'
       chatError.value = message
-      pendingChatMessages.value = [
-        ...pendingChatMessages.value.filter((pending) => pending.role === 'user'),
-        {
-          role: 'system',
-          content: [{ type: 'text', text: `Agent 运行失败：${message}` }],
-          text: `Agent 运行失败：${message}`,
-        },
-      ]
-      pendingAssistantHasDelta.value = false
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        messages: [
+          ...state.messages.filter((pending) => pending.role === 'user'),
+          {
+            role: 'system',
+            content: [{ type: 'text', text: `Agent 运行失败：${message}` }],
+            text: `Agent 运行失败：${message}`,
+          },
+        ],
+        assistantHasDelta: false,
+        runPaused: false,
+      }))
     } finally {
-      sendingMessage.value = false
-      if (!currentAgentRunPaused.value) {
-        activeAgentRunId.value = null
-      }
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        activeAgentRunId: state.runPaused ? state.activeAgentRunId : null,
+        sending: false,
+      }))
     }
   }
 
@@ -400,13 +439,18 @@ export function useChatController({
       return
     }
 
+    const sessionId = selectedSessionId.value
+    if (sessionId === null) {
+      return
+    }
+
     approvingToolApproval.value = true
     chatError.value = null
     const approval = approvalMessage.metadata.approval_request
-    const pendingSnapshot = [...pendingChatMessages.value]
-    const assistantDeltaSnapshot = pendingAssistantHasDelta.value
+    const pendingSnapshot = [...(pendingState(sessionId)?.messages || [])]
+    const assistantDeltaSnapshot = pendingState(sessionId)?.assistantHasDelta || false
     hideApproval(approval.approval_id)
-    clearPendingApprovalArtifacts(approval.tool_call_id)
+    clearPendingApprovalArtifacts(sessionId, approval.tool_call_id)
     try {
       if (status === 'approved') {
         await approvePendingAgentRun(approvalMessage.metadata.run_id)
@@ -421,15 +465,21 @@ export function useChatController({
           ],
         })
       }
-      currentAgentRunPaused.value = false
-      activeAgentRunId.value = null
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        activeAgentRunId: null,
+        runPaused: false,
+      }))
       removePendingApproval(approval.approval_id)
       await refreshDashboard()
       await loadSelectedContext()
-      clearPendingMessages()
+      clearPendingMessages(sessionId)
     } catch (error) {
-      pendingChatMessages.value = pendingSnapshot
-      pendingAssistantHasDelta.value = assistantDeltaSnapshot
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        messages: pendingSnapshot,
+        assistantHasDelta: assistantDeltaSnapshot,
+      }))
       showApproval(approval.approval_id)
       chatError.value = error instanceof Error ? error.message : '工具审批失败'
     } finally {
@@ -518,9 +568,9 @@ export function useChatController({
     try {
       await deleteSession(session.session_id)
       if (selectedSessionId.value === session.session_id) {
+        clearPendingMessages(session.session_id)
         selectedSessionId.value = null
         selectedContext.value = null
-        clearPendingMessages()
       }
       await refreshDashboard()
       toast.success('会话删除成功')
@@ -544,10 +594,10 @@ export function useChatController({
     }
   }
 
-  function handleChatStreamEvent(event: ChatStreamEvent) {
+  function handleChatStreamEvent(sessionId: string, event: ChatStreamEvent) {
     if (event.event_type === 'message_delta') {
       const text = event.text_delta || event.content_part?.text || ''
-      appendPendingAssistantText(text)
+      appendPendingAssistantText(sessionId, text)
       return
     }
 
@@ -556,84 +606,98 @@ export function useChatController({
     }
   }
 
-  function handleAgentStreamEvent(event: AgentTraceEvent) {
+  function handleAgentStreamEvent(sessionId: string, event: AgentTraceEvent) {
     if (event.event_type === 'run_started') {
-      setPendingAssistantText(event.summary || 'Agent 已开始运行...', true)
-      pendingAssistantHasDelta.value = false
+      setPendingAssistantText(sessionId, event.summary || 'Agent 已开始运行...', true)
+      setPendingAssistantHasDelta(sessionId, false)
       return
     }
 
     if (event.event_type === 'chat_delta') {
-      appendPendingAssistantText(event.text_delta || '')
+      appendPendingAssistantText(sessionId, event.text_delta || '')
       return
     }
 
     if (event.event_type === 'chat_completed') {
       const text = event.message ? textPart(event.message) : ''
       if (text) {
-        setPendingAssistantText(text, true)
-        pendingAssistantHasDelta.value = true
+        setPendingAssistantText(sessionId, text, true)
+        setPendingAssistantHasDelta(sessionId, true)
       }
-      const toolCalls = event.message?.tool_calls || event.response?.message.tool_calls || []
+      const toolCalls = event.message?.tool_calls || event.response?.message?.tool_calls || []
       if (toolCalls.length > 0) {
-        appendPendingToolCalls(toolCalls)
-        setPendingAssistantText('正在调用工具...', true)
-        pendingAssistantHasDelta.value = false
+        appendPendingToolCalls(sessionId, toolCalls)
+        setPendingAssistantText(sessionId, '正在调用工具...', true)
+        setPendingAssistantHasDelta(sessionId, false)
       }
       return
     }
 
     if (event.event_type === 'tool_approval_requested' && event.tool_call) {
-      appendPendingToolCalls([event.tool_call])
-      if (event.approval_request && activeAgentRunId.value) {
-        appendPendingApproval(activeAgentRunId.value, event.approval_request, event.tool_call)
+      appendPendingToolCalls(sessionId, [event.tool_call])
+      const runId = pendingState(sessionId)?.activeAgentRunId
+      if (event.approval_request && runId) {
+        appendPendingApproval(sessionId, runId, event.approval_request, event.tool_call)
       }
-      setPendingAssistantText(event.summary || '等待工具审批...', true)
-      pendingAssistantHasDelta.value = false
+      setPendingAssistantText(sessionId, event.summary || '等待工具审批...', true)
+      setPendingAssistantHasDelta(sessionId, false)
       return
     }
 
     if (event.event_type === 'tool_completed') {
-      appendPendingToolResult(event)
+      appendPendingToolResult(sessionId, event)
       if (event.tool_call) {
-        markPendingToolCallDone(event.tool_call.tool_call_id)
+        markPendingToolCallDone(sessionId, event.tool_call.tool_call_id)
       }
-      setPendingAssistantText('工具已返回，继续生成...', true)
-      pendingAssistantHasDelta.value = false
+      setPendingAssistantText(sessionId, '工具已返回，继续生成...', true)
+      setPendingAssistantHasDelta(sessionId, false)
       return
     }
 
     if (event.event_type === 'tool_failed') {
-      appendPendingToolResult(event)
+      appendPendingToolResult(sessionId, event)
       if (event.tool_call) {
-        markPendingToolCallDone(event.tool_call.tool_call_id)
+        markPendingToolCallDone(sessionId, event.tool_call.tool_call_id)
       }
-      setPendingAssistantText(event.summary || event.error_message || '工具调用失败', false)
-      pendingAssistantHasDelta.value = false
+      setPendingAssistantText(sessionId, event.summary || event.error_message || '工具调用失败', false)
+      setPendingAssistantHasDelta(sessionId, false)
       return
     }
 
     if (event.event_type === 'run_stopped') {
-      markPendingAssistantDone()
-      currentAgentRunPaused.value = false
+      markPendingAssistantDone(sessionId)
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        runPaused: false,
+      }))
       return
     }
 
     if (event.event_type === 'run_paused') {
-      currentAgentRunPaused.value = true
-      if (event.approval_request && activeAgentRunId.value) {
-        appendPendingApproval(activeAgentRunId.value, event.approval_request, event.tool_call || null)
+      updatePendingState(sessionId, (state) => ({
+        ...state,
+        runPaused: true,
+      }))
+      const runId = pendingState(sessionId)?.activeAgentRunId
+      if (event.approval_request && runId) {
+        appendPendingApproval(sessionId, runId, event.approval_request, event.tool_call || null)
       }
-      setPendingAssistantText(event.summary || '等待工具审批...', true)
+      setPendingAssistantText(sessionId, event.summary || '等待工具审批...', true)
     }
   }
 
   function appendPendingApproval(
+    sessionId: string,
     runId: string,
     approval: ToolApprovalRequest,
     toolCall: ToolCall | null,
   ) {
-    const alreadyExists = pendingChatMessages.value.some((message) => (
+    const state = pendingState(sessionId)
+    if (!state) {
+      return
+    }
+
+    const alreadyExists = state.messages.some((message) => (
       message.metadata?.kind === 'tool_approval'
       && message.metadata?.approval_request
       && isApprovalRequest(message.metadata.approval_request)
@@ -644,15 +708,23 @@ export function useChatController({
     }
 
     const permissionLabel = approval.permissions?.join(', ') || '无特殊权限'
-    pendingChatMessages.value = [
-      ...pendingChatMessages.value,
-      makeApprovalMessage(runId, approval, toolCall, permissionLabel),
-    ]
+    updatePendingState(sessionId, (pending) => ({
+      ...pending,
+      messages: [
+        ...pending.messages,
+        makeApprovalMessage(runId, approval, toolCall, permissionLabel),
+      ],
+    }))
   }
 
-  function appendPendingToolCalls(toolCalls: ToolCall[]) {
+  function appendPendingToolCalls(sessionId: string, toolCalls: ToolCall[]) {
+    const state = pendingState(sessionId)
+    if (!state) {
+      return
+    }
+
     const existingIds = new Set(
-      pendingChatMessages.value
+      state.messages
         .flatMap((message) => message.tool_calls || [])
         .map((call) => call.tool_call_id),
     )
@@ -670,13 +742,21 @@ export function useChatController({
       return
     }
 
-    pendingChatMessages.value = [
-      ...pendingChatMessages.value,
-      ...nextMessages,
-    ]
+    updatePendingState(sessionId, (pending) => ({
+      ...pending,
+      messages: [
+        ...pending.messages,
+        ...nextMessages,
+      ],
+    }))
   }
 
-  function appendPendingToolResult(event: AgentTraceEvent) {
+  function appendPendingToolResult(sessionId: string, event: AgentTraceEvent) {
+    const state = pendingState(sessionId)
+    if (!state) {
+      return
+    }
+
     const toolMessage = event.message
       ? {
           ...event.message,
@@ -689,87 +769,111 @@ export function useChatController({
     }
 
     const resultId = toolMessage.tool_call_id
-    const alreadyHasResult = pendingChatMessages.value.some((message) => (
+    const alreadyHasResult = state.messages.some((message) => (
       message.role === 'tool' && message.tool_call_id === resultId
     ))
     if (alreadyHasResult) {
       return
     }
 
-    pendingChatMessages.value = [
-      ...pendingChatMessages.value,
-      toolMessage,
-    ]
+    updatePendingState(sessionId, (pending) => ({
+      ...pending,
+      messages: [
+        ...pending.messages,
+        toolMessage,
+      ],
+    }))
   }
 
-  function markPendingToolCallDone(toolCallId: string) {
-    pendingChatMessages.value = pendingChatMessages.value.map((message) => {
-      const hasToolCall = (message.tool_calls || []).some((call) => (
-        call.tool_call_id === toolCallId
-      ))
-      if (!hasToolCall) {
-        return message
-      }
+  function markPendingToolCallDone(sessionId: string, toolCallId: string) {
+    updatePendingState(sessionId, (state) => ({
+      ...state,
+      messages: state.messages.map((message) => {
+        const hasToolCall = (message.tool_calls || []).some((call) => (
+          call.tool_call_id === toolCallId
+        ))
+        if (!hasToolCall) {
+          return message
+        }
 
-      return {
-        ...message,
-        pending: false,
-      }
-    })
+        return {
+          ...message,
+          pending: false,
+        }
+      }),
+    }))
   }
 
-  function appendPendingAssistantText(text: string) {
+  function appendPendingAssistantText(sessionId: string, text: string) {
     if (!text) {
       return
     }
 
-    const assistant = pendingChatMessages.value.find((message) => message.role === 'assistant')
-    const current = assistant?.pending
-      && pendingAssistantHasDelta.value
-      ? assistant.text
-      : ''
-    pendingAssistantHasDelta.value = true
-    setPendingAssistantText(current + text, true)
-  }
-
-  function setPendingAssistantText(text: string, pending: boolean) {
-    const messages = pendingChatMessages.value.filter((message) => message.role !== 'assistant')
-    if (messages.length === pendingChatMessages.value.length && pendingChatMessages.value.length > 0) {
+    const state = pendingState(sessionId)
+    if (!state) {
       return
     }
 
-    pendingChatMessages.value = [
-      ...messages,
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text }],
-        text,
-        pending,
-      },
-    ]
+    const assistant = state.messages.find((message) => message.role === 'assistant')
+    const current = assistant?.pending
+      && state.assistantHasDelta
+      ? assistant.text
+      : ''
+    setPendingAssistantHasDelta(sessionId, true)
+    setPendingAssistantText(sessionId, current + text, true)
   }
 
-  function markPendingAssistantDone() {
-    const assistant = pendingChatMessages.value.find((message) => message.role === 'assistant')
+  function setPendingAssistantText(sessionId: string, text: string, pending: boolean) {
+    const state = pendingState(sessionId)
+    if (!state) {
+      return
+    }
+
+    const messages = state.messages.filter((message) => message.role !== 'assistant')
+    if (messages.length === state.messages.length && state.messages.length > 0) {
+      return
+    }
+
+    updatePendingState(sessionId, (pendingState) => ({
+      ...pendingState,
+      messages: [
+        ...messages,
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+          text,
+          pending,
+        },
+      ],
+    }))
+  }
+
+  function markPendingAssistantDone(sessionId: string) {
+    const assistant = pendingState(sessionId)?.messages.find((message) => message.role === 'assistant')
     if (!assistant) {
       return
     }
 
-    setPendingAssistantText(assistant.text, false)
+    setPendingAssistantText(sessionId, assistant.text, false)
   }
 
-  function clearPendingMessages() {
-    pendingChatMessages.value = []
-    pendingChatSessionId.value = null
-    pendingAssistantHasDelta.value = false
-    currentAgentRunPaused.value = false
+  function clearPendingMessages(sessionId: string | null = selectedSessionId.value) {
+    if (sessionId === null) {
+      return
+    }
+
+    const { [sessionId]: _removed, ...remaining } = pendingChatStates.value
+    pendingChatStates.value = remaining
   }
 
   function removePendingApproval(approvalId: string) {
-    pendingChatMessages.value = pendingChatMessages.value.filter((message) => {
-      const approval = message.metadata?.approval_request
-      return !(isApprovalRequest(approval) && approval.approval_id === approvalId)
-    })
+    updateAllPendingStates((state) => ({
+      ...state,
+      messages: state.messages.filter((message) => {
+        const approval = message.metadata?.approval_request
+        return !(isApprovalRequest(approval) && approval.approval_id === approvalId)
+      }),
+    }))
   }
 
   function hideApproval(approvalId: string) {
@@ -783,19 +887,65 @@ export function useChatController({
     hiddenApprovalIds.value = next
   }
 
-  function clearPendingApprovalArtifacts(toolCallId: string) {
-    pendingChatMessages.value = pendingChatMessages.value.filter((message) => {
-      if (message.role === 'assistant' && message.pending) {
-        return false
-      }
-      if (!message.pending) {
-        return true
-      }
-      return !(message.tool_calls || []).some((call) => (
-        call.tool_call_id === toolCallId
-      ))
-    })
-    pendingAssistantHasDelta.value = false
+  function clearPendingApprovalArtifacts(sessionId: string, toolCallId: string) {
+    updatePendingState(sessionId, (state) => ({
+      ...state,
+      messages: state.messages.filter((message) => {
+        if (message.role === 'assistant' && message.pending) {
+          return false
+        }
+        if (!message.pending) {
+          return true
+        }
+        return !(message.tool_calls || []).some((call) => (
+          call.tool_call_id === toolCallId
+        ))
+      }),
+      assistantHasDelta: false,
+    }))
+  }
+
+  function pendingState(sessionId: string): PendingChatState | null {
+    return pendingChatStates.value[sessionId] || null
+  }
+
+  function isSessionSending(sessionId: string): boolean {
+    return pendingState(sessionId)?.sending === true
+  }
+
+  function setPendingState(sessionId: string, state: PendingChatState) {
+    pendingChatStates.value = {
+      ...pendingChatStates.value,
+      [sessionId]: state,
+    }
+  }
+
+  function updatePendingState(
+    sessionId: string,
+    update: (state: PendingChatState) => PendingChatState,
+  ) {
+    const state = pendingState(sessionId)
+    if (!state) {
+      return
+    }
+
+    setPendingState(sessionId, update(state))
+  }
+
+  function updateAllPendingStates(update: (state: PendingChatState) => PendingChatState) {
+    pendingChatStates.value = Object.fromEntries(
+      Object.entries(pendingChatStates.value).map(([sessionId, state]) => [
+        sessionId,
+        update(state),
+      ]),
+    )
+  }
+
+  function setPendingAssistantHasDelta(sessionId: string, value: boolean) {
+    updatePendingState(sessionId, (state) => ({
+      ...state,
+      assistantHasDelta: value,
+    }))
   }
 
   function approvalMessagesForSession(
