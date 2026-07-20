@@ -22,6 +22,23 @@ class MessageStatus(StrEnum):
     ERROR = "error"
 
 
+class PromptCacheMode(StrEnum):
+    PROVIDER_DEFAULT = "provider_default"
+    PREFER_EXPLICIT = "prefer_explicit"
+
+
+class PromptCacheScope(StrEnum):
+    CONTEXT = "context"
+    OWNER = "owner"
+    GLOBAL = "global"
+
+
+class PromptCachePolicy(EvernightAISchema):
+    mode: PromptCacheMode = PromptCacheMode.PROVIDER_DEFAULT
+    scope: PromptCacheScope = PromptCacheScope.CONTEXT
+    scope_id: str | None = Field(default=None, min_length=1, max_length=256)
+
+
 class ContentPartType(StrEnum):
     """内容部分类型"""
 
@@ -88,6 +105,7 @@ class ChatRequest(EvernightAISchema):
     messages: list[Content]
     skills: list[ChatSkill] | None = None
     tools: list[ToolDefinition] | None = None
+    prompt_cache: PromptCachePolicy | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

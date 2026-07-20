@@ -157,6 +157,14 @@ WITH chat_usage AS (
                 ),
                 json_extract(
                     step.value,
+                    '$.response.usage.metadata.prompt_tokens_details.cache_write_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.input_tokens_details.cache_write_tokens'
+                ),
+                json_extract(
+                    step.value,
                     '$.response.usage.metadata.cache_creation_input_tokens'
                 )
             )
@@ -166,6 +174,14 @@ WITH chat_usage AS (
                 json_extract(
                     step.value,
                     '$.response.usage.cache_write_prompt_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.prompt_tokens_details.cache_write_tokens'
+                ),
+                json_extract(
+                    step.value,
+                    '$.response.usage.metadata.input_tokens_details.cache_write_tokens'
                 ),
                 json_extract(
                     step.value,
@@ -244,6 +260,14 @@ run_usage AS (
                 json_extract(
                     run.payload,
                     '$.response.usage.cache_write_prompt_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.prompt_tokens_details.cache_write_tokens'
+                ),
+                json_extract(
+                    run.payload,
+                    '$.response.usage.metadata.input_tokens_details.cache_write_tokens'
                 ),
                 json_extract(
                     run.payload,

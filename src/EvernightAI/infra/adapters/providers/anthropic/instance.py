@@ -17,6 +17,9 @@ from EvernightAI.infra.adapters.providers.anthropic.mapper import (
     from_anthropic_response,
     to_anthropic_request,
 )
+from EvernightAI.infra.adapters.providers.anthropic.cache import (
+    anthropic_prompt_cache_params,
+)
 from EvernightAI.infra.adapters.http_errors import raise_httpx_provider_error
 from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
@@ -49,6 +52,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
             model.model_id,
             request.tools,
         )
+        payload.update(anthropic_prompt_cache_params(request))
 
         try:
             response = await self._client.post(
@@ -71,6 +75,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
                 model.model_id,
                 request.tools,
             ),
+            **anthropic_prompt_cache_params(request),
             "stream": True,
         }
         return AnthropicChatStream(

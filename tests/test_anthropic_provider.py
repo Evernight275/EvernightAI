@@ -12,6 +12,8 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheMode,
+    PromptCachePolicy,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -620,6 +622,37 @@ async def test_anthropic_instance_chat_forwards_tools() -> None:
         "claude-test",
         [make_tool()],
     )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_instance_enables_automatic_prompt_caching() -> None:
+    instance = AnthropicProviderInstance(make_config())
+    fake_client = FakeAnthropicClient()
+    cast(Any, instance)._client = fake_client
+    request = ChatRequest(
+        model_id="claude-test",
+        messages=make_messages(),
+        prompt_cache=PromptCachePolicy(
+            mode=PromptCacheMode.PREFER_EXPLICIT,
+            scope_id="owner-scope",
+        ),
+    )
+
+    await instance.chat(request)
+    stream = await instance.chat_stream(request)
+    _ = [event async for event in stream]
+
+    assert fake_client.requests[0]["json"] == {
+        **to_anthropic_request(make_messages(), "claude-test"),
+        "cache_control": {"type": "ephemeral"},
+    }
+    assert fake_client.requests[1]["json"] == {
+        **to_anthropic_request(make_messages(), "claude-test"),
+        "cache_control": {"type": "ephemeral"},
+        "stream": True,
+    }
 
     await instance.close()
 

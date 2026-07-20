@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
-from EvernightAI.core.error.tool import ToolExecutionError, ToolInputError, ToolPolicyError
+from EvernightAI.core.error.tool import (
+    ToolExecutionError,
+    ToolInputError,
+    ToolPolicyError,
+)
 from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.registrations.tool.restricted_git import (
     register_restricted_git_tools,
@@ -77,11 +81,97 @@ async def test_git_status_diff_and_branch_list_reflect_repository_state(
     staged_diff = await manager.execute(_call("git_diff", {"staged": True}))
 
     assert "hello.txt" in status.tool_call_result["stdout"]
+    assert status.tool_call_result["project"] is None
+    assert status.tool_call_result["repository_directory"] == str(tmp_path)
     assert "-hello" in diff.tool_call_result["stdout"]
     assert "+changed" in diff.tool_call_result["stdout"]
     assert "*" in branches.tool_call_result["stdout"]
     assert "-hello" in staged_diff.tool_call_result["stdout"]
     assert staged_diff.tool_call_result["command"] == ["git", "diff", "--staged"]
+
+
+@pytest.mark.asyncio
+async def test_git_tools_select_declared_project_repository(tmp_path: Path) -> None:
+    default_repository = tmp_path / "default"
+    project_repository = tmp_path / "other"
+    default_repository.mkdir()
+    project_repository.mkdir()
+    _init_repo(default_repository)
+    _init_repo(project_repository)
+    (project_repository / "hello.txt").write_text("project change\n", encoding="utf-8")
+    manager = _manager(
+        default_repository,
+        project_directories={"OtherProject": project_repository},
+    )
+
+    status = await manager.execute(_call("git_status", {"project": "OtherProject"}))
+    diff = await manager.execute(
+        _call(
+            "git_diff",
+            {"project": "OtherProject", "path": "hello.txt"},
+        )
+    )
+
+    assert status.tool_call_result["project"] == "OtherProject"
+    assert status.tool_call_result["repository_directory"] == str(project_repository)
+    assert "hello.txt" in status.tool_call_result["stdout"]
+    assert "+project change" in diff.tool_call_result["stdout"]
+    assert _git(default_repository, "status", "--short").stdout == ""
+
+
+@pytest.mark.asyncio
+async def test_git_write_tool_changes_only_selected_project(tmp_path: Path) -> None:
+    default_repository = tmp_path / "default"
+    project_repository = tmp_path / "other"
+    default_repository.mkdir()
+    project_repository.mkdir()
+    _init_repo(default_repository)
+    _init_repo(project_repository)
+    manager = _manager(
+        default_repository,
+        project_directories={"OtherProject": project_repository},
+    )
+
+    result = await manager.execute(
+        _call(
+            "git_create_branch",
+            {"project": "OtherProject", "name": "project-branch"},
+            approved=True,
+        )
+    )
+
+    assert result.tool_call_result["project"] == "OtherProject"
+    assert result.tool_call_result["repository_directory"] == str(project_repository)
+    assert "project-branch" in _git(project_repository, "branch", "--list").stdout
+    assert "project-branch" not in _git(default_repository, "branch", "--list").stdout
+
+
+def test_git_tool_definitions_declare_available_projects(tmp_path: Path) -> None:
+    project_repository = tmp_path / "other"
+    project_repository.mkdir()
+    register = ToolRegister()
+    register_restricted_git_tools(
+        register,
+        repository_directory=tmp_path,
+        project_directories={"OtherProject": project_repository},
+    )
+
+    for definition in register.list_tools():
+        assert definition.metadata["projects"] == ["OtherProject"]
+        assert definition.parameters_schema is not None
+        assert definition.parameters_schema["properties"]["project"] == {
+            "type": "string",
+            "enum": ["OtherProject"],
+        }
+
+
+def test_git_unknown_project_is_rejected_during_preflight(tmp_path: Path) -> None:
+    manager = _manager(tmp_path, project_directories={})
+
+    decision = manager.authorize(_call("git_status", {"project": "Missing"}))
+
+    assert decision.allowed is False
+    assert decision.reason == "The project Missing is not configured"
 
 
 @pytest.mark.asyncio
@@ -102,7 +192,9 @@ async def test_git_commit_stages_only_selected_paths(tmp_path: Path) -> None:
     assert result.tool_call_result["paths"] == ["hello.txt"]
     assert result.tool_call_result["add"]["returncode"] == 0
     assert result.tool_call_result["commit"]["returncode"] == 0
-    assert _git(tmp_path, "log", "-1", "--pretty=%s").stdout.strip() == "update greeting"
+    assert (
+        _git(tmp_path, "log", "-1", "--pretty=%s").stdout.strip() == "update greeting"
+    )
     assert _git(tmp_path, "status", "--short").stdout.strip() == "?? untracked.txt"
 
 
@@ -153,9 +245,7 @@ async def test_git_output_is_bounded(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     (tmp_path / "a-very-long-untracked-file-name.txt").write_text("x", encoding="utf-8")
 
-    result = await _manager(tmp_path, max_output_chars=8).execute(
-        _call("git_status")
-    )
+    result = await _manager(tmp_path, max_output_chars=8).execute(_call("git_status"))
 
     assert result.tool_call_result["truncated"] is True
     assert len(result.tool_call_result["stdout"]) == 8
@@ -186,9 +276,7 @@ async def test_git_tools_reject_invalid_and_escaping_arguments(
     _init_repo(tmp_path)
 
     with pytest.raises(ToolExecutionError) as exc_info:
-        await _manager(tmp_path).execute(
-            _call(tool_name, arguments, approved=True)
-        )
+        await _manager(tmp_path).execute(_call(tool_name, arguments, approved=True))
 
     assert isinstance(exc_info.value.cause, ToolInputError)
     assert error in str(exc_info.value.cause)
@@ -211,11 +299,17 @@ async def test_git_tools_reject_invalid_repository_roots(
     assert "repository" in str(exc_info.value.cause)
 
 
-def _manager(path: Path, *, max_output_chars: int = 12000) -> ToolManager:
+def _manager(
+    path: Path,
+    *,
+    max_output_chars: int = 12000,
+    project_directories: dict[str, str | Path] | None = None,
+) -> ToolManager:
     register = ToolRegister()
     register_restricted_git_tools(
         register,
         repository_directory=path,
+        project_directories=project_directories,
         max_output_chars=max_output_chars,
     )
     return ToolManager(register)

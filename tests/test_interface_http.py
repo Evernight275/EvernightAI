@@ -2976,6 +2976,10 @@ def test_http_app_previews_composed_context_without_calling_provider() -> None:
     ]
     assert body["metadata"]["memory_ids"] == ["mem-1"]
     assert body["metadata"]["request_id"] == "req-1"
+    assert body["prompt_cache"]["mode"] == "prefer_explicit"
+    assert body["prompt_cache"]["scope"] == "context"
+    assert len(body["prompt_cache"]["scope_id"]) == 64
+    assert "ctx-1" not in body["prompt_cache"]["scope_id"]
 
 
 def test_http_app_searches_and_toggles_memories() -> None:

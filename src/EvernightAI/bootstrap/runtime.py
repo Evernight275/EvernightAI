@@ -41,6 +41,7 @@ from EvernightAI.core.schema.agent import (
     AgentTraceEvent,
     AgentTraceEventType,
 )
+from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
@@ -238,6 +239,7 @@ def register_builtin_tools(
         register_restricted_git_tools(
             register,
             repository_directory=git_repository_directory,
+            project_directories=project_directories,
             timeout_seconds=git_timeout_seconds,
             max_output_chars=git_max_output_chars,
         )
@@ -450,6 +452,8 @@ def create_sqlite_runtime(
     context_summarizer: ContextSummarizerProtocol | None = None,
     context_summarize_after_messages: int = 100,
     context_keep_recent_messages: int = 20,
+    prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
+    prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
     tool_sources: list[ToolSourceProtocol] | None = None,
 ) -> RuntimeKernel:
     SQLiteMigrationRunner(database_path).run()
@@ -531,6 +535,8 @@ def create_sqlite_runtime(
         context_summarizer=context_summarizer,
         context_summarize_after_messages=context_summarize_after_messages,
         context_keep_recent_messages=context_keep_recent_messages,
+        prompt_cache_mode=prompt_cache_mode,
+        prompt_cache_scope=prompt_cache_scope,
     )
 
 
@@ -560,6 +566,8 @@ def _create_runtime(
     context_summarizer: ContextSummarizerProtocol | None = None,
     context_summarize_after_messages: int = 100,
     context_keep_recent_messages: int = 20,
+    prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
+    prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(
@@ -615,6 +623,8 @@ def _create_runtime(
         contexts=contexts,
         context_organizer=context_organizer,
         context_strategy=context_strategy,
+        prompt_cache_mode=prompt_cache_mode,
+        prompt_cache_scope=prompt_cache_scope,
         data_analysis_register=data_analysis_register,
         data_analysis=data_analysis,
         memory_register=memory_register,

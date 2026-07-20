@@ -570,10 +570,14 @@ def _usage_from_openai_response(response: Response) -> ChatUsage | None:
 
     metadata: dict[str, Any] = {}
     cached_prompt_tokens = None
+    cache_write_prompt_tokens = None
     if usage.input_tokens_details is not None:
         input_details = usage.input_tokens_details.model_dump()
         metadata["input_tokens_details"] = input_details
         cached_prompt_tokens = token_count(input_details.get("cached_tokens"))
+        cache_write_prompt_tokens = token_count(
+            input_details.get("cache_write_tokens")
+        )
     if usage.output_tokens_details is not None:
         metadata["output_tokens_details"] = usage.output_tokens_details.model_dump()
 
@@ -582,6 +586,7 @@ def _usage_from_openai_response(response: Response) -> ChatUsage | None:
         completion_tokens=token_count(usage.output_tokens),
         total_tokens=token_count(usage.total_tokens),
         cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_prompt_tokens=cache_write_prompt_tokens,
         metadata=metadata,
     )
 
@@ -600,12 +605,18 @@ def _usage_from_openai_response_mapping(response: dict[str, Any]) -> ChatUsage |
         if isinstance(input_details, dict)
         else None
     )
+    cache_write_prompt_tokens = (
+        token_count(input_details.get("cache_write_tokens"))
+        if isinstance(input_details, dict)
+        else None
+    )
 
     return ChatUsage(
         prompt_tokens=token_count(input_tokens),
         completion_tokens=token_count(output_tokens),
         total_tokens=token_count(total_tokens),
         cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_prompt_tokens=cache_write_prompt_tokens,
         metadata={
             key: value
             for key, value in usage.items()

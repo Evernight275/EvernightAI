@@ -476,10 +476,14 @@ def _usage_from_openai(response: ChatCompletion) -> ChatUsage | None:
 
     metadata: dict[str, Any] = {}
     cached_prompt_tokens = None
+    cache_write_prompt_tokens = None
     if usage.prompt_tokens_details is not None:
         prompt_details = usage.prompt_tokens_details.model_dump()
         metadata["prompt_tokens_details"] = prompt_details
         cached_prompt_tokens = token_count(prompt_details.get("cached_tokens"))
+        cache_write_prompt_tokens = token_count(
+            prompt_details.get("cache_write_tokens")
+        )
     if usage.completion_tokens_details is not None:
         metadata["completion_tokens_details"] = usage.completion_tokens_details.model_dump()
 
@@ -488,6 +492,7 @@ def _usage_from_openai(response: ChatCompletion) -> ChatUsage | None:
         completion_tokens=token_count(usage.completion_tokens),
         total_tokens=token_count(usage.total_tokens),
         cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_prompt_tokens=cache_write_prompt_tokens,
         metadata=metadata,
     )
 
@@ -499,6 +504,7 @@ def _usage_from_openai_chunk(chunk: ChatCompletionChunk) -> ChatUsage | None:
 
     metadata: dict[str, Any] = {}
     cached_prompt_tokens = None
+    cache_write_prompt_tokens = None
     prompt_details = getattr(usage, "prompt_tokens_details", None)
     completion_details = getattr(usage, "completion_tokens_details", None)
     if prompt_details is not None:
@@ -506,6 +512,9 @@ def _usage_from_openai_chunk(chunk: ChatCompletionChunk) -> ChatUsage | None:
         metadata["prompt_tokens_details"] = prompt_details_payload
         cached_prompt_tokens = token_count(
             prompt_details_payload.get("cached_tokens")
+        )
+        cache_write_prompt_tokens = token_count(
+            prompt_details_payload.get("cache_write_tokens")
         )
     if completion_details is not None:
         metadata["completion_tokens_details"] = completion_details.model_dump()
@@ -515,6 +524,7 @@ def _usage_from_openai_chunk(chunk: ChatCompletionChunk) -> ChatUsage | None:
         completion_tokens=token_count(getattr(usage, "completion_tokens", None)),
         total_tokens=token_count(getattr(usage, "total_tokens", None)),
         cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_prompt_tokens=cache_write_prompt_tokens,
         metadata=metadata,
     )
 

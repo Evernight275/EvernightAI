@@ -15,6 +15,8 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheMode,
+    PromptCachePolicy,
 )
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
@@ -568,7 +570,10 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
                     completion_tokens=2,
                     total_tokens=7,
                     metadata={
-                        "prompt_tokens_details": {"cached_tokens": 2}
+                        "prompt_tokens_details": {
+                            "cached_tokens": 2,
+                            "cache_write_tokens": 7,
+                        }
                     },
                 ),
             ),
@@ -769,7 +774,7 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
     }
     assert cache_result.rows[0].metrics == {
         "cached_prompt_tokens_total": 18,
-        "cache_write_prompt_tokens_total": 5,
+        "cache_write_prompt_tokens_total": 12,
         "cache_observed_prompt_tokens_total": 38,
         "uncached_prompt_tokens_total": 20,
     }
@@ -877,6 +882,46 @@ async def test_openai_instance_chat_allows_undeclared_model() -> None:
         role=MessageRole.ASSISTANT,
         content=[ContentPart(type=ContentPartType.TEXT, text="Hi")],
     )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_openai_instance_maps_stable_prompt_cache_key() -> None:
+    config = make_openai_config()
+    instance = OpenAICompatibleProviderInstance(config)
+    completions = FakeCompletions()
+    fake_client = FakeClient(completions)
+    cast(Any, instance)._client = fake_client
+    request = ChatRequest(
+        model_id="gpt-test",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.TEXT, text="Hello")],
+            )
+        ],
+        prompt_cache=PromptCachePolicy(
+            mode=PromptCacheMode.PREFER_EXPLICIT,
+            scope_id="context-scope",
+        ),
+    )
+
+    await instance.chat(request)
+    assert completions.params is not None
+    chat_cache_key = completions.params["prompt_cache_key"]
+    assert isinstance(chat_cache_key, str)
+    assert len(chat_cache_key) == 64
+
+    stream = await instance.chat_stream(request)
+    _ = [event async for event in stream]
+    assert completions.params is not None
+    assert completions.params["prompt_cache_key"] == chat_cache_key
+
+    other_model = request.model_copy(update={"model_id": "other-model"})
+    await instance.chat(other_model)
+    assert completions.params is not None
+    assert completions.params["prompt_cache_key"] != chat_cache_key
 
     await instance.close()
 

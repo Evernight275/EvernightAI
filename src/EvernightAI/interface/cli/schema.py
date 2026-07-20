@@ -8,6 +8,7 @@ from EvernightAI.core.schema.data_analysis import (
     DataMetricDefinition,
 )
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from pydantic import Field, model_validator
 
 
@@ -29,6 +30,11 @@ class ContextStrategyConfig(EvernightAISchema):
     enable_summary: bool = False
     summarize_after_messages: int = Field(default=100, ge=1)
     keep_recent_messages: int = Field(default=20, ge=1)
+
+
+class PromptCacheConfig(EvernightAISchema):
+    mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT
+    scope: PromptCacheScope = PromptCacheScope.CONTEXT
 
 
 class HttpConfig(EvernightAISchema):
@@ -218,6 +224,7 @@ class EvernightConfig(EvernightAISchema):
     context_strategy: ContextStrategyConfig = Field(
         default_factory=ContextStrategyConfig
     )
+    prompt_cache: PromptCacheConfig = Field(default_factory=PromptCacheConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)

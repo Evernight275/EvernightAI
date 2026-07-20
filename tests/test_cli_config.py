@@ -6,6 +6,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelCapability,
     ProviderType,
 )
+from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.interface.cli.schema import McpTransport, SandboxBackend
 from EvernightAI.interface.cli.config import load_config, parse_config
@@ -20,6 +21,10 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
             "runtime": {
                 "database_path": ".evernight/test.sqlite3",
                 "sandbox_backend": "bubblewrap",
+            },
+            "prompt_cache": {
+                "mode": "prefer_explicit",
+                "scope": "owner",
             },
             "http": {
                 "host": "0.0.0.0",
@@ -165,6 +170,8 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
 
     assert config.runtime.database_path == ".evernight/test.sqlite3"
     assert config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP
+    assert config.prompt_cache.mode is PromptCacheMode.PREFER_EXPLICIT
+    assert config.prompt_cache.scope is PromptCacheScope.OWNER
     assert config.http.host == "0.0.0.0"
     assert config.http.port == 8080
     assert config.http.reload is True
@@ -274,6 +281,8 @@ capabilities = ["chat"]
     config = load_config(config_path)
 
     assert config.runtime.database_path == ".evernight/runtime.sqlite3"
+    assert config.prompt_cache.mode is PromptCacheMode.PREFER_EXPLICIT
+    assert config.prompt_cache.scope is PromptCacheScope.CONTEXT
     assert config.runtime.sandbox_backend is SandboxBackend.SUBPROCESS
     assert config.providers[0].provider_id == "main"
     assert config.providers[0].api_key == "inline-key"

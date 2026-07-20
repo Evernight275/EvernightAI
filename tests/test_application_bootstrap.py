@@ -26,6 +26,7 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheScope,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
@@ -118,6 +119,29 @@ def test_configured_context_strategy_composes_runtime_window(tmp_path) -> None:
         "WindowTrimmingContextStrategy",
         "TokenBudgetContextStrategy",
     ]
+
+
+@pytest.mark.asyncio
+async def test_configured_prompt_cache_scope_reaches_chat_composer(tmp_path) -> None:
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "prompt_cache": {"scope": "owner"},
+        }
+    )
+    runtime = create_runtime_from_config(config)
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+    await app.create_context(Context(context_id="ctx-2", owner_id="user-1"))
+
+    first = await app.organize_chat_request("ctx-1", model_id="model-1")
+    second = await app.organize_chat_request("ctx-2", model_id="model-1")
+
+    assert runtime.prompt_cache_scope is PromptCacheScope.OWNER
+    assert first.prompt_cache is not None
+    assert second.prompt_cache is not None
+    assert first.prompt_cache.scope is PromptCacheScope.OWNER
+    assert first.prompt_cache.scope_id == second.prompt_cache.scope_id
 
 
 def test_configured_shell_can_disable_tool_approval(tmp_path) -> None:
@@ -241,6 +265,36 @@ def test_configured_project_directories_register_with_runtime(tmp_path) -> None:
     }
     assert write_definition.parameters_schema is not None
     assert write_definition.parameters_schema["properties"]["project"] == {
+        "type": "string",
+        "enum": ["OtherProject"],
+    }
+
+
+def test_project_directories_are_shared_without_project_task_tool(tmp_path) -> None:
+    project_directory = tmp_path / "other-project"
+    project_directory.mkdir()
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {
+                "filesystem": {"enabled": True, "root": str(tmp_path)},
+                "git": {"enabled": True, "repository_directory": str(tmp_path)},
+                "project": {
+                    "enabled": False,
+                    "project_directories": {"OtherProject": str(project_directory)},
+                },
+            },
+        }
+    )
+
+    runtime = create_runtime_from_config(config)
+    read_definition = runtime.tool_register.get("read_text_file")
+    git_definition = runtime.tool_register.get("git_status")
+
+    assert read_definition.metadata["projects"] == ["OtherProject"]
+    assert git_definition.metadata["projects"] == ["OtherProject"]
+    assert git_definition.parameters_schema is not None
+    assert git_definition.parameters_schema["properties"]["project"] == {
         "type": "string",
         "enum": ["OtherProject"],
     }

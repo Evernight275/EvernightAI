@@ -20,6 +20,13 @@ enable_summary = false
 summarize_after_messages = 100
 keep_recent_messages = 20
 
+[prompt_cache]
+# "context" isolates cache routing per conversation. "owner" shares stable
+# prefixes across one owner's contexts. "global" must only be used when the
+# leading system, skill, memory, and tool declarations are tenant-independent.
+mode = "prefer_explicit"
+scope = "context"
+
 [http]
 # Used by both `evernight-http` and `evernight serve`.
 # 注意:

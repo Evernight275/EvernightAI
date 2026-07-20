@@ -45,6 +45,7 @@ from EvernightAI.core.protocol.tool import (
     ToolSourceProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
 
 
@@ -63,6 +64,8 @@ class RuntimeKernel(RuntimeProtocol):
         contexts: ContextManageProtocol,
         context_organizer: ContextOrganizerProtocol,
         context_strategy: ContextStrategyProtocol,
+        prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
+        prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
         memory_register: MemoryRegisterProtocol,
         memories: MemoryManageProtocol,
         memory_strategy: MemoryStrategyProtocol,
@@ -94,6 +97,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._contexts = contexts
         self._context_organizer = context_organizer
         self._context_strategy = context_strategy
+        self._prompt_cache_mode = prompt_cache_mode
+        self._prompt_cache_scope = prompt_cache_scope
         self._data_analysis_register = data_analysis_register or DataAnalysisRegister()
         self._data_analysis = data_analysis or DataAnalysisManager(
             self._data_analysis_register
@@ -163,6 +168,14 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def context_strategy(self) -> ContextStrategyProtocol:
         return self._context_strategy
+
+    @property
+    def prompt_cache_mode(self) -> PromptCacheMode:
+        return self._prompt_cache_mode
+
+    @property
+    def prompt_cache_scope(self) -> PromptCacheScope:
+        return self._prompt_cache_scope
 
     @property
     def data_analysis_register(self) -> DataAnalysisRegisterProtocol:

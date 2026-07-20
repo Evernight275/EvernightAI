@@ -31,6 +31,8 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheMode,
+    PromptCacheScope,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (
@@ -151,6 +153,10 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
     )
     assert provider.last_request.metadata["memory_selection"]["total_candidates"] == 2
     assert provider.last_request.metadata["memory_selection"]["selected_count"] == 1
+    assert provider.last_request.prompt_cache is not None
+    assert provider.last_request.prompt_cache.mode is PromptCacheMode.PREFER_EXPLICIT
+    assert len(provider.last_request.prompt_cache.scope_id or "") == 64
+    assert "ctx-1" not in (provider.last_request.prompt_cache.scope_id or "")
 
     context = await app.get_context("ctx-1")
 
@@ -160,6 +166,90 @@ async def test_chat_application_organizes_context_and_memory_flow() -> None:
         "Current request",
         "ok",
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_request_cache_scope_is_stable_and_context_isolated() -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+    await app.create_context(Context(context_id="ctx-2", owner_id="user-1"))
+
+    first = await app.organize_chat_request("ctx-1", model_id="model-1")
+    repeated = await app.organize_chat_request("ctx-1", model_id="model-1")
+    other_context = await app.organize_chat_request("ctx-2", model_id="model-1")
+
+    assert first.prompt_cache is not None
+    assert repeated.prompt_cache is not None
+    assert other_context.prompt_cache is not None
+    assert first.prompt_cache.scope_id == repeated.prompt_cache.scope_id
+    assert first.prompt_cache.scope_id != other_context.prompt_cache.scope_id
+    assert first.prompt_cache.scope is PromptCacheScope.CONTEXT
+
+
+@pytest.mark.asyncio
+async def test_chat_request_owner_cache_scope_crosses_owned_contexts() -> None:
+    runtime = make_runtime(prompt_cache_scope=PromptCacheScope.OWNER)
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+    await app.create_context(Context(context_id="ctx-2", owner_id="user-1"))
+    await app.create_context(Context(context_id="ctx-3", owner_id="user-2"))
+
+    first = await app.organize_chat_request("ctx-1", model_id="model-1")
+    same_owner = await app.organize_chat_request("ctx-2", model_id="model-1")
+    other_owner = await app.organize_chat_request("ctx-3", model_id="model-1")
+
+    assert first.prompt_cache is not None
+    assert same_owner.prompt_cache is not None
+    assert other_owner.prompt_cache is not None
+    assert first.prompt_cache.scope is PromptCacheScope.OWNER
+    assert first.prompt_cache.scope_id == same_owner.prompt_cache.scope_id
+    assert first.prompt_cache.scope_id != other_owner.prompt_cache.scope_id
+
+
+@pytest.mark.asyncio
+async def test_chat_request_global_cache_scope_crosses_owners() -> None:
+    runtime = make_runtime(prompt_cache_scope=PromptCacheScope.GLOBAL)
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+    await app.create_context(Context(context_id="ctx-2", owner_id="user-2"))
+
+    first = await app.organize_chat_request("ctx-1", model_id="model-1")
+    second = await app.organize_chat_request("ctx-2", model_id="model-1")
+
+    assert first.prompt_cache is not None
+    assert second.prompt_cache is not None
+    assert first.prompt_cache.scope is PromptCacheScope.GLOBAL
+    assert first.prompt_cache.scope_id == second.prompt_cache.scope_id
+
+
+@pytest.mark.asyncio
+async def test_chat_request_owner_cache_scope_falls_back_for_anonymous_context() -> None:
+    runtime = make_runtime(prompt_cache_scope=PromptCacheScope.OWNER)
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1"))
+    await app.create_context(Context(context_id="ctx-2"))
+
+    first = await app.organize_chat_request("ctx-1", model_id="model-1")
+    second = await app.organize_chat_request("ctx-2", model_id="model-1")
+
+    assert first.prompt_cache is not None
+    assert second.prompt_cache is not None
+    assert first.prompt_cache.scope is PromptCacheScope.CONTEXT
+    assert first.prompt_cache.scope_id != second.prompt_cache.scope_id
+
+
+@pytest.mark.asyncio
+async def test_chat_request_provider_default_cache_has_no_explicit_scope_id() -> None:
+    runtime = make_runtime(prompt_cache_mode=PromptCacheMode.PROVIDER_DEFAULT)
+    app = ChatApplication(runtime)
+    await app.create_context(Context(context_id="ctx-1", owner_id="user-1"))
+
+    request = await app.organize_chat_request("ctx-1", model_id="model-1")
+
+    assert request.prompt_cache is not None
+    assert request.prompt_cache.mode is PromptCacheMode.PROVIDER_DEFAULT
+    assert request.prompt_cache.scope_id is None
 
 
 @pytest.mark.asyncio
@@ -455,7 +545,11 @@ async def test_chat_application_rejects_unsupported_skill_capability() -> None:
         )
 
 
-def make_runtime() -> RuntimeKernel:
+def make_runtime(
+    *,
+    prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
+    prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
+) -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return FakeProvider()
 
@@ -477,6 +571,8 @@ def make_runtime() -> RuntimeKernel:
         contexts=ContextManager(context_register),
         context_organizer=context_organizer,
         context_strategy=BasicContextStrategy(context_organizer),
+        prompt_cache_mode=prompt_cache_mode,
+        prompt_cache_scope=prompt_cache_scope,
         memory_register=memory_register,
         memories=MemoryManager(memory_register),
         memory_strategy=BasicMemoryStrategy(),

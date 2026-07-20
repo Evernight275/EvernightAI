@@ -38,6 +38,8 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
         sandbox=create_sandbox_from_config(config),
         **_runtime_tool_options(config),
         **_runtime_context_options(config),
+        prompt_cache_mode=config.prompt_cache.mode,
+        prompt_cache_scope=config.prompt_cache.scope,
     )
     register_configured_data_sources(runtime, config)
     return runtime
@@ -127,9 +129,7 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         ),
         "project_commands": project.commands if project.enabled else None,
         "project_command_overrides": project.projects if project.enabled else None,
-        "project_directories": (
-            project.project_directories if project.enabled else None
-        ),
+        "project_directories": project.project_directories,
         "project_timeout_seconds": project.timeout_seconds,
         "project_max_output_chars": project.max_output_chars,
         "runtime_data_tools_enabled": runtime_data.enabled,

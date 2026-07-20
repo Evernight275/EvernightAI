@@ -22,6 +22,9 @@ from EvernightAI.infra.adapters.providers.openai_responses.mapper import (
     to_openai_response_input,
     to_openai_response_tools,
 )
+from EvernightAI.infra.adapters.providers.openai_cache import (
+    openai_prompt_cache_params,
+)
 from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
@@ -55,6 +58,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
+        params.update(openai_prompt_cache_params(self.config, request))
         params.update(provider_request_params_from_metadata(request.metadata))
 
         try:
@@ -75,6 +79,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
 
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
+        params.update(openai_prompt_cache_params(self.config, request))
         params.update(provider_request_params_from_metadata(request.metadata))
 
         try:

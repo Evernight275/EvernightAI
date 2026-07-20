@@ -12,6 +12,8 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheMode,
+    PromptCachePolicy,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -493,6 +495,30 @@ async def test_gemini_instance_chat_forwards_tools() -> None:
         make_messages(),
         [make_tool()],
     )
+
+    await instance.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_prompt_cache_policy_uses_provider_implicit_caching() -> None:
+    instance = GeminiProviderInstance(make_config())
+    fake_client = FakeGeminiClient()
+    cast(Any, instance)._client = fake_client
+    request = ChatRequest(
+        model_id="gemini-test",
+        messages=make_messages(),
+        prompt_cache=PromptCachePolicy(
+            mode=PromptCacheMode.PREFER_EXPLICIT,
+            scope_id="owner-scope",
+        ),
+    )
+
+    await instance.chat(request)
+    stream = await instance.chat_stream(request)
+    _ = [event async for event in stream]
+
+    assert fake_client.requests[0]["json"] == to_gemini_request(make_messages())
+    assert fake_client.requests[1]["json"] == to_gemini_request(make_messages())
 
     await instance.close()
 

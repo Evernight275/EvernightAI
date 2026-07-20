@@ -26,6 +26,8 @@ from EvernightAI.core.schema.content import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    PromptCacheMode,
+    PromptCachePolicy,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -318,7 +320,12 @@ def test_maps_openai_response_usage_and_metadata_details() -> None:
                 input_tokens=10,
                 output_tokens=5,
                 total_tokens=15,
-                input_tokens_details=SimpleNamespace(model_dump=lambda: {"cached_tokens": 2}),
+                input_tokens_details=SimpleNamespace(
+                    model_dump=lambda: {
+                        "cached_tokens": 2,
+                        "cache_write_tokens": 4,
+                    }
+                ),
                 output_tokens_details=SimpleNamespace(model_dump=lambda: {"reasoning_tokens": 3}),
             ),
         ),
@@ -337,8 +344,12 @@ def test_maps_openai_response_usage_and_metadata_details() -> None:
     assert mapped.usage.completion_tokens == 5
     assert mapped.usage.total_tokens == 15
     assert mapped.usage.cached_prompt_tokens == 2
+    assert mapped.usage.cache_write_prompt_tokens == 4
     assert mapped.usage.metadata == {
-        "input_tokens_details": {"cached_tokens": 2},
+        "input_tokens_details": {
+            "cached_tokens": 2,
+            "cache_write_tokens": 4,
+        },
         "output_tokens_details": {"reasoning_tokens": 3},
     }
 
@@ -631,7 +642,10 @@ def test_response_stream_normalizer_completed_usage_mapping() -> None:
                     "input_tokens": "bad",
                     "output_tokens": 5,
                     "total_tokens": 12,
-                    "input_tokens_details": {"cached_tokens": 1},
+                    "input_tokens_details": {
+                        "cached_tokens": 1,
+                        "cache_write_tokens": 3,
+                    },
                 },
             },
         }
@@ -643,8 +657,12 @@ def test_response_stream_normalizer_completed_usage_mapping() -> None:
     assert event.usage.completion_tokens == 5
     assert event.usage.total_tokens == 12
     assert event.usage.cached_prompt_tokens == 1
+    assert event.usage.cache_write_prompt_tokens == 3
     assert event.usage.metadata == {
-        "input_tokens_details": {"cached_tokens": 1}
+        "input_tokens_details": {
+            "cached_tokens": 1,
+            "cache_write_tokens": 3,
+        }
     }
 
 
@@ -671,6 +689,36 @@ async def test_openai_responses_instance_chat_maps_request_and_response() -> Non
     await instance.close()
 
     assert fake_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_instance_maps_stable_prompt_cache_key() -> None:
+    instance = OpenAIResponsesProviderInstance(make_config())
+    responses = FakeResponses()
+    fake_client = FakeClient(responses)
+    cast(Any, instance)._client = fake_client
+    request = ChatRequest(
+        model_id="gpt-test",
+        messages=make_messages(),
+        prompt_cache=PromptCachePolicy(
+            mode=PromptCacheMode.PREFER_EXPLICIT,
+            scope_id="context-scope",
+        ),
+    )
+
+    await instance.chat(request)
+    assert responses.params is not None
+    chat_cache_key = responses.params["prompt_cache_key"]
+    assert isinstance(chat_cache_key, str)
+    assert len(chat_cache_key) == 64
+    assert "context-scope" not in chat_cache_key
+
+    stream = await instance.chat_stream(request)
+    _ = [event async for event in stream]
+    assert responses.params is not None
+    assert responses.params["prompt_cache_key"] == chat_cache_key
+
+    await instance.close()
 
 
 @pytest.mark.asyncio

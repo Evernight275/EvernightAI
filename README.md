@@ -263,6 +263,41 @@ runtime currently observes this provider-managed behavior without storing model
 responses locally. Stable system, tool, memory, and transcript prefixes improve
 hits naturally, while any content change invalidates the matching prefix.
 
+Context-composed Chat, Session, and Agent requests use the configured cache
+policy. The default is `prefer_explicit` with an anonymous, context-stable
+scope. OpenAI Chat Completions and Responses adapters translate that scope into
+a `prompt_cache_key` bound to the provider and model. Direct `ChatRequest` calls
+retain provider-default behavior unless they include an explicit
+`PromptCachePolicy`. A routing key improves matching but cannot make an upstream
+OpenAI-compatible gateway implement prompt caching.
+
+Configure routing separately from context-window policy:
+
+```toml
+[prompt_cache]
+mode = "prefer_explicit" # or "provider_default"
+scope = "context"       # "context", "owner", or "global"
+```
+
+`context` isolates conversations and remains the default. `owner` lets contexts
+owned by the same principal reuse stable leading prefixes. An owner-scoped
+anonymous context safely falls back to `context`. `global` is explicit because
+it should only group requests whose leading system, skill, memory, and tool
+declarations are tenant-independent. Scope selection changes cache routing
+only; it never changes request content, authorization, persistence, or model
+response semantics.
+
+Provider mappings intentionally follow each native cache model:
+
+- OpenAI Chat Completions and Responses map the anonymous scope to a stable
+  `prompt_cache_key` bound to provider and model.
+- Anthropic maps `prefer_explicit` to top-level automatic prompt caching with
+  an ephemeral cache control. Anthropic identifies cacheable prefixes from the
+  request itself, so the EvernightAI routing scope is not sent upstream.
+- Gemini 3.x models use provider-managed implicit caching by default.
+  EvernightAI preserves `cachedContentTokenCount` when reported and does not
+  create or manage billable `cachedContents` resources.
+
 ## Project Rules
 
 These rules are intentionally backed by tests.

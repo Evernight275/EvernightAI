@@ -377,7 +377,10 @@ def test_maps_chat_completion_response_usage_details_and_refusal() -> None:
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
                 "total_tokens": 15,
-                "prompt_tokens_details": {"cached_tokens": 2},
+                "prompt_tokens_details": {
+                    "cached_tokens": 2,
+                    "cache_write_tokens": 4,
+                },
                 "completion_tokens_details": {"reasoning_tokens": 3},
             },
         ),
@@ -388,8 +391,13 @@ def test_maps_chat_completion_response_usage_details_and_refusal() -> None:
     assert mapped.metadata["refusal"] == "safety"
     assert mapped.usage is not None
     assert mapped.usage.cached_prompt_tokens == 2
+    assert mapped.usage.cache_write_prompt_tokens == 4
     assert mapped.usage.metadata == {
-        "prompt_tokens_details": {"audio_tokens": None, "cached_tokens": 2},
+        "prompt_tokens_details": {
+            "audio_tokens": None,
+            "cached_tokens": 2,
+            "cache_write_tokens": 4,
+        },
         "completion_tokens_details": {
             "accepted_prediction_tokens": None,
             "audio_tokens": None,
@@ -528,7 +536,10 @@ def test_normalizes_chunk_with_usage_and_no_choices() -> None:
                 "prompt_tokens": 7,
                 "completion_tokens": 0,
                 "total_tokens": 7,
-                "prompt_tokens_details": {"cached_tokens": 1},
+                "prompt_tokens_details": {
+                    "cached_tokens": 1,
+                    "cache_write_tokens": 3,
+                },
                 "completion_tokens_details": {"reasoning_tokens": 0},
             },
         ),
@@ -540,8 +551,13 @@ def test_normalizes_chunk_with_usage_and_no_choices() -> None:
     assert events[0].usage is not None
     assert events[0].usage.total_tokens == 7
     assert events[0].usage.cached_prompt_tokens == 1
+    assert events[0].usage.cache_write_prompt_tokens == 3
     assert events[0].usage.metadata == {
-        "prompt_tokens_details": {"audio_tokens": None, "cached_tokens": 1},
+        "prompt_tokens_details": {
+            "audio_tokens": None,
+            "cached_tokens": 1,
+            "cache_write_tokens": 3,
+        },
         "completion_tokens_details": {
             "accepted_prediction_tokens": None,
             "audio_tokens": None,

@@ -156,6 +156,7 @@ const statisticPresets: StatisticPreset[] = [
         'completion_tokens_total',
         'total_tokens_total',
         'cached_prompt_tokens_total',
+        'cache_write_prompt_tokens_total',
         'cache_observed_prompt_tokens_total',
         'uncached_prompt_tokens_total',
       ],
@@ -645,6 +646,7 @@ function hasRows(cardId: string): boolean {
                 <th>Model</th>
                 <th>输入 Token</th>
                 <th>缓存 Token</th>
+                <th>缓存写入</th>
                 <th>命中率</th>
                 <th>输出 Token</th>
                 <th>总 Token</th>
@@ -656,6 +658,7 @@ function hasRows(cardId: string): boolean {
                 <td>{{ row.dimensions?.model_id || '未知' }}</td>
                 <td>{{ formatMetric(row.metrics?.prompt_tokens_total, 'prompt_tokens_total') }}</td>
                 <td>{{ formatMetric(row.metrics?.cached_prompt_tokens_total, 'cached_prompt_tokens_total') }}</td>
+                <td>{{ formatMetric(row.metrics?.cache_write_prompt_tokens_total, 'cache_write_prompt_tokens_total') }}</td>
                 <td>{{ cacheHitRateLabel('provider_model_tokens', row) }}</td>
                 <td>{{ formatMetric(row.metrics?.completion_tokens_total, 'completion_tokens_total') }}</td>
                 <td>{{ formatMetric(row.metrics?.total_tokens_total, 'total_tokens_total') }}</td>

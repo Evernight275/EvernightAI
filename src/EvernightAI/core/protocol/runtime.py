@@ -37,6 +37,7 @@ from EvernightAI.core.protocol.tool import (
     ToolSafetyPolicyProtocol,
     ToolSourceProtocol,
 )
+from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 
 
 class RuntimeProtocol(EvernightAIProtocol):
@@ -85,6 +86,12 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def context_strategy(self) -> ContextStrategyProtocol: ...
+
+    @property
+    def prompt_cache_mode(self) -> PromptCacheMode: ...
+
+    @property
+    def prompt_cache_scope(self) -> PromptCacheScope: ...
 
     @property
     def data_analysis_register(self) -> DataAnalysisRegisterProtocol: ...
