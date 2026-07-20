@@ -48,13 +48,10 @@ class ToolRegister(ToolRegisterProtocol):
         executor: ToolExecutorProtocol,
         preflight_policy: ToolPreflightPolicy | None = None,
     ) -> None:
-        """注册工具"""
         snapshot = self._snapshot
         owner = snapshot.source_owners.get(tool.name)
         if owner is not None:
-            raise ToolStateError(
-                f"The tool {tool.name} is managed by source {owner}"
-            )
+            raise ToolStateError(f"The tool {tool.name} is managed by source {owner}")
         tools = dict(snapshot.tools)
         executors = dict(snapshot.executors)
         preflight_policies = dict(snapshot.preflight_policies)
@@ -72,15 +69,12 @@ class ToolRegister(ToolRegisterProtocol):
         )
 
     def unregister(self, tool_name: str) -> None:
-        """注销工具"""
         if not self.has(tool_name):
             raise ToolNotFoundError(f"The tool {tool_name} is not registered")
         snapshot = self._snapshot
         owner = snapshot.source_owners.get(tool_name)
         if owner is not None:
-            raise ToolStateError(
-                f"The tool {tool_name} is managed by source {owner}"
-            )
+            raise ToolStateError(f"The tool {tool_name} is managed by source {owner}")
         tools = dict(snapshot.tools)
         executors = dict(snapshot.executors)
         preflight_policies = dict(snapshot.preflight_policies)
@@ -111,8 +105,7 @@ class ToolRegister(ToolRegisterProtocol):
         conflicts = [
             name
             for name in names
-            if name in snapshot.tools
-            and snapshot.source_owners.get(name) != source_id
+            if name in snapshot.tools and snapshot.source_owners.get(name) != source_id
         ]
         if conflicts:
             raise ToolStateError(
@@ -151,13 +144,11 @@ class ToolRegister(ToolRegisterProtocol):
         )
 
     def get(self, tool_name: str) -> ToolDefinition:
-        """获取工具定义"""
         if self.has(tool_name):
             return self._snapshot.tools[tool_name]
         raise ToolNotFoundError(f"The tool {tool_name} is not found")
 
     def get_executor(self, tool_name: str) -> ToolExecutorProtocol:
-        """获取工具执行器"""
         if self.has(tool_name):
             return self._snapshot.executors[tool_name]
         raise ToolNotFoundError(f"The tool {tool_name} is not registered")
@@ -170,12 +161,10 @@ class ToolRegister(ToolRegisterProtocol):
         return self._snapshot.preflight_policies.get(tool_name)
 
     def has(self, tool_name: str) -> bool:
-        """检查工具是否存在"""
         snapshot = self._snapshot
         return tool_name in snapshot.tools and tool_name in snapshot.executors
 
     def list_tools(self) -> list[ToolDefinition]:
-        """列出所有工具定义"""
         return list(self._snapshot.tools.values())
 
 
@@ -189,7 +178,6 @@ class ToolManager(ToolManageProtocol):
         self._safety_policy = safety_policy or BasicToolSafetyPolicy()
 
     def list_tools(self) -> list[ToolDefinition]:
-        """列出所有工具定义"""
         return self._register.list_tools()
 
     def authorize(self, call: ToolCall) -> ToolSafetyDecision:
@@ -204,7 +192,6 @@ class ToolManager(ToolManageProtocol):
         return self._safety_policy.authorize(tool, call)
 
     async def execute(self, call: ToolCall) -> ToolCallResult:
-        """执行工具调用"""
         tool_name = self._get_tool_name(call.tool_call)
         arguments = self._get_arguments(call.tool_call)
         decision = self.authorize(call)
@@ -243,13 +230,9 @@ class ToolManager(ToolManageProtocol):
 
     def _validate_result(self, tool_name: str, result: object) -> None:
         if not isinstance(result, dict):
-            raise ToolResultError(
-                f"The tool {tool_name} result must be a dictionary"
-            )
+            raise ToolResultError(f"The tool {tool_name} result must be a dictionary")
         if not all(isinstance(key, str) for key in result):
-            raise ToolResultError(
-                f"The tool {tool_name} result keys must be strings"
-            )
+            raise ToolResultError(f"The tool {tool_name} result keys must be strings")
 
 
 class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
@@ -276,7 +259,6 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
         tool: ToolDefinition,
         call: ToolCall,
     ) -> ToolSafetyDecision:
-        """授权工具调用"""
         permissions = set(tool.permissions)
         blocked = permissions & self._blocked_permissions
         if blocked:

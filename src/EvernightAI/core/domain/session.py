@@ -34,7 +34,6 @@ class SessionRegister(SessionRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
-        """注册会话"""
         _require_session_scope(session, principal_scope)
         self._sessions[session.session_id] = session
 
@@ -44,7 +43,6 @@ class SessionRegister(SessionRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
-        """注销会话"""
         if not self.has(session_id, principal_scope=principal_scope):
             raise SessionNotFoundError(f"The session {session_id} is not registered")
 
@@ -56,7 +54,6 @@ class SessionRegister(SessionRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> Session:
-        """获取会话"""
         if self.has(session_id, principal_scope=principal_scope):
             return self._sessions[session_id]
 
@@ -68,7 +65,6 @@ class SessionRegister(SessionRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> bool:
-        """检查会话是否存在"""
         session = self._sessions.get(session_id)
         return session is not None and _scope_permits(principal_scope, session.owner_id)
 
@@ -83,7 +79,6 @@ class SessionRegister(SessionRegisterProtocol):
         model_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> list[Session]:
-        """列出所有会话"""
         sessions = sorted(self._sessions.values(), key=lambda item: item.session_id)
         if cursor is not None:
             sessions = [item for item in sessions if item.session_id > cursor]
@@ -112,7 +107,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> Session:
-        """创建会话"""
         self._register.register(session, principal_scope=principal_scope)
         return self._register.get(
             session.session_id,
@@ -125,7 +119,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> Session:
-        """获取会话"""
         return self._register.get(session_id, principal_scope=principal_scope)
 
     async def replace(
@@ -134,7 +127,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> Session:
-        """替换会话"""
         if not self._register.has(
             session.session_id,
             principal_scope=principal_scope,
@@ -154,7 +146,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> Session:
-        """归档会话"""
         session = self._register.get(session_id, principal_scope=principal_scope)
         updated = session.model_copy(
             update={
@@ -176,7 +167,6 @@ class SessionManager(SessionManageProtocol):
         model_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> list[Session]:
-        """列出所有会话"""
         return self._register.list_sessions(
             cursor=cursor,
             limit=limit,
@@ -193,7 +183,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
-        """删除会话"""
         self._register.unregister(session_id, principal_scope=principal_scope)
 
     async def clear(
@@ -201,7 +190,6 @@ class SessionManager(SessionManageProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
-        """清空会话"""
         for session in list(
             self._register.list_sessions(principal_scope=principal_scope)
         ):

@@ -26,35 +26,29 @@ class SkillRegister(SkillRegisterProtocol):
         skill: SkillDefinition,
         renderer: SkillRendererProtocol,
     ) -> None:
-        """注册技能"""
         self._skills[skill.name] = skill
         self._renderers[skill.name] = renderer
 
     def unregister(self, skill_name: str) -> None:
-        """注销技能"""
         if not self.has(skill_name):
             raise SkillNotFoundError(f"The skill {skill_name} is not registered")
         self._skills.pop(skill_name, None)
         self._renderers.pop(skill_name, None)
 
     def get(self, skill_name: str) -> SkillDefinition:
-        """获取技能定义"""
         if self.has(skill_name):
             return self._skills[skill_name]
         raise SkillNotFoundError(f"The skill {skill_name} is not found")
 
     def get_renderer(self, skill_name: str) -> SkillRendererProtocol:
-        """获取技能渲染器"""
         if self.has(skill_name):
             return self._renderers[skill_name]
         raise SkillNotFoundError(f"The skill {skill_name} is not registered")
 
     def has(self, skill_name: str) -> bool:
-        """检查技能是否存在"""
         return skill_name in self._skills and skill_name in self._renderers
 
     def list_skills(self) -> list[SkillDefinition]:
-        """列出所有技能定义"""
         return list(self._skills.values())
 
 
@@ -63,20 +57,16 @@ class SkillManager(SkillManageProtocol):
         self._register = register
 
     def list_skills(self) -> list[SkillDefinition]:
-        """列出所有技能定义"""
         return self._register.list_skills()
 
     def get_skill(self, skill_name: str) -> SkillDefinition:
-        """获取技能定义"""
         return self._register.get(skill_name)
 
     def supports(self, skill_name: str, capability: SkillCapability) -> bool:
-        """检查技能能力"""
         skill = self._register.get(skill_name)
         return capability in skill.capabilities
 
     async def render(self, request: SkillRenderRequest) -> RenderedSkill:
-        """渲染技能提示词"""
         if not request.skill_name:
             raise SkillInputError("The skill render request must include a skill name")
 
