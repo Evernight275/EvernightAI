@@ -1269,6 +1269,85 @@ async def test_agent_run_application_retry_marks_old_branch() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_run_application_retries_terminal_run_with_new_approval() -> None:
+    async def write_file(_arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write_file,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    source_request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("Write a file")],
+        tools=runtime.tools.list_tools(),
+        tool_approvals=[
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+        metadata={"run_id": "run-source"},
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-source",
+            request=source_request,
+            status=AgentRunStatus.CANCELED,
+        )
+    )
+
+    retried = await AgentRunApplication(runtime).retry("run-source")
+
+    assert retried.run_id != "run-source"
+    assert retried.status is AgentRunStatus.PAUSED
+    assert retried.request.tool_approvals == []
+    assert retried.request.metadata[AgentRunMetadata.RETRY_OF_KEY] == "run-source"
+    assert retried.request.metadata[AgentRunMetadata.RETRY_ATTEMPT_KEY] == 1
+    assert len(retried.pending_approval_requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_run_application_rejects_retry_of_nonterminal_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-active",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+        )
+    )
+
+    with pytest.raises(AgentStateError, match="Only canceled or failed"):
+        await AgentRunApplication(runtime).retry("run-active")
+
+
+@pytest.mark.asyncio
 async def test_agent_run_application_facade_manages_persisted_runs() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
         return {"written": True}
@@ -2294,6 +2373,107 @@ async def test_agent_run_application_stream_persists_state_when_consumer_stops_e
     assert first_event.event_type is AgentTraceEventType.RUN_STARTED
     assert state_register.get_state("run-early").trace == [first_event]
     assert trace_register.list_events("run-early") == [first_event]
+
+
+@pytest.mark.asyncio
+async def test_agent_run_manual_pause_resumes_from_persisted_chat_checkpoint() -> None:
+    provider = FinalAnswerProvider()
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    stream = app.start_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Hello")],
+            metadata={"run_id": "run-checkpoint"},
+        )
+    )
+    iterator = cast(AsyncGenerator[AgentTraceEvent, None], stream.__aiter__())
+
+    assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_STARTED
+    assert (await anext(iterator)).event_type is AgentTraceEventType.CHAT_COMPLETED
+    requested = await app.pause("run-checkpoint", reason="test pause")
+    assert requested.status is AgentRunStatus.RUNNING
+    checkpoint_events = [event async for event in iterator]
+    resumed_events = [
+        event
+        async for event in app.resume_stream("run-checkpoint", [])
+    ]
+
+    assert [event.event_type for event in checkpoint_events] == [
+        AgentTraceEventType.RUN_PAUSED,
+    ]
+    assert checkpoint_events[-1].metadata["checkpoint"] == "chat_completed"
+    assert [event.event_type for event in resumed_events] == [
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert len(provider.requests) == 1
+    assert state_register.get_state("run-checkpoint").status is AgentRunStatus.FINISHED
+
+
+@pytest.mark.asyncio
+async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
+    provider = ToolCallingProvider()
+    executed_calls: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        executed_calls.append(arguments)
+        return {"result": 3}
+
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    stream = app.start_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "run-tool-checkpoint"},
+        )
+    )
+    iterator = cast(AsyncGenerator[AgentTraceEvent, None], stream.__aiter__())
+
+    assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_STARTED
+    assert (await anext(iterator)).event_type is AgentTraceEventType.CHAT_COMPLETED
+    assert (await anext(iterator)).event_type is AgentTraceEventType.TOOL_COMPLETED
+    await app.pause("run-tool-checkpoint")
+    assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_PAUSED
+    resumed_events = [
+        event
+        async for event in app.resume_stream("run-tool-checkpoint", [])
+    ]
+
+    assert [event.event_type for event in resumed_events] == [
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert executed_calls == [{"left": 1, "right": 2}]
+    assert len(provider.requests) == 2
 
 
 def make_runtime(

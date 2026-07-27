@@ -362,6 +362,7 @@ async def test_authorized_agent_interface_requires_expected_permission(
     [
         ("start", (make_agent_request("ctx-1"),), "agent-runs", "create", "ctx-1"),
         ("resume", ("run-1", []), "agent-runs", "resume", "run-1"),
+        ("retry", ("run-1",), "agent-runs", "retry", "run-1"),
         ("start_stream", (make_agent_request("ctx-1"),), "agent-runs", "stream", "ctx-1"),
         ("resume_stream", ("run-1", []), "agent-runs", "resume_stream", "run-1"),
         ("get_state", ("run-1",), "agent-runs", "get", "run-1"),
@@ -818,6 +819,10 @@ class FakeAgentRunInterface:
         approvals: list[ToolApprovalDecision],
     ) -> str:
         self.calls.append("resume")
+        return "delegated"
+
+    async def retry(self, run_id: str) -> str:
+        self.calls.append("retry")
         return "delegated"
 
     def start_stream(self, request: AgentRunRequest) -> str:

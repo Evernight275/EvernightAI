@@ -8,6 +8,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from EvernightAI.core.error.agent import (
+    AgentRunCanceledError,
     AgentRunTimeoutError,
     AgentShutdownError,
     AgentStateError,
@@ -209,6 +210,10 @@ class AgentRunMetadata:
     PENDING_APPROVAL_COUNT_KEY = "pending_approval_count"
     TOOL_ROUNDS_USED_KEY = "tool_rounds_used"
     MANUAL_PAUSE_KEY = "manual_pause"
+    PAUSE_REQUESTED_KEY = "pause_requested"
+    PAUSE_CHECKPOINT_KEY = "pause_checkpoint"
+    RETRY_OF_KEY = "retry_of"
+    RETRY_ATTEMPT_KEY = "retry_attempt"
 
     @classmethod
     def run_id(cls, metadata: dict[str, object]) -> str | None:
@@ -418,6 +423,15 @@ class AgentApplication(AgentInterfaceProtocol):
             ),
         )
 
+        async for event in self._run_initial_chat_events(request, state):
+            yield event
+
+    async def _run_initial_chat_events(
+        self,
+        request: AgentRunRequest,
+        state: AgentRunState,
+    ) -> AsyncIterator[AgentTraceEvent]:
+
         response = None
         async for event in self._chat_events(
             request.provider_id,
@@ -432,19 +446,11 @@ class AgentApplication(AgentInterfaceProtocol):
         ):
             if event.response is not None:
                 response = event.response
+                self._record_chat_response(state, response)
             yield event
 
         if response is None:
             raise AgentStateError("Agent run did not produce a response")
-
-        state.response = response
-        state.steps.append(
-            AgentStep(
-                step_type=AgentStepType.CHAT,
-                response=response,
-                message=response.message,
-            )
-        )
 
         async for event in self._continue_tool_loop(
             request,
@@ -529,8 +535,55 @@ class AgentApplication(AgentInterfaceProtocol):
         state.metadata = AgentRunMetadata.with_runtime(
             state.metadata,
             **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
+            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: False},
         )
-        async for event in self._run_agent_events(state.request, state):
+        if state.response is None:
+            async for event in self._run_initial_chat_events(state.request, state):
+                yield event
+            return
+
+        response_tool_calls = list(state.response.message.tool_calls or [])
+        completed_tool_call_ids = self._completed_tool_call_ids(state)
+        remaining_tool_calls = [
+            call
+            for call in response_tool_calls
+            if call.tool_call_id not in completed_tool_call_ids
+        ]
+        if remaining_tool_calls:
+            async for event in self._continue_tool_loop(
+                state.request,
+                state,
+                state.response,
+                state.remaining_tool_rounds,
+                approvals=self._tool_approvals_by_call_id(
+                    state.request.tool_approvals
+                ),
+                pending_tool_calls=remaining_tool_calls,
+                already_requested_approval_call_ids=set(),
+            ):
+                yield event
+            return
+
+        if response_tool_calls:
+            async for event in self._continue_after_completed_tool_round(
+                state.request,
+                state,
+                approvals=self._tool_approvals_by_call_id(
+                    state.request.tool_approvals
+                ),
+            ):
+                yield event
+            return
+
+        async for event in self._continue_tool_loop(
+            state.request,
+            state,
+            state.response,
+            state.remaining_tool_rounds,
+            approvals={},
+            pending_tool_calls=[],
+            already_requested_approval_call_ids=set(),
+        ):
             yield event
 
     def _is_manual_pause(self, state: AgentRunState) -> bool:
@@ -579,6 +632,7 @@ class AgentApplication(AgentInterfaceProtocol):
         *,
         already_requested_approval_call_ids: set[str],
         pending_tool_calls: list[ToolCall] | None = None,
+        has_completed_tool_round: bool = False,
     ) -> AsyncIterator[AgentTraceEvent]:
         current_response = response
         current_tool_calls = (
@@ -586,7 +640,7 @@ class AgentApplication(AgentInterfaceProtocol):
             if pending_tool_calls is not None
             else list(current_response.message.tool_calls or [])
         )
-        has_tool_runtime = bool(current_tool_calls)
+        has_tool_runtime = has_completed_tool_round or bool(current_tool_calls)
         state.remaining_tool_rounds = remaining_rounds
         state.stop_reason = AgentStopReason.FINISHED
 
@@ -712,36 +766,14 @@ class AgentApplication(AgentInterfaceProtocol):
             remaining_rounds -= 1
             state.remaining_tool_rounds = remaining_rounds
 
-            next_response = None
-            async for event in self._chat_events(
-                request.provider_id,
-                request.context_id,
+            async for event in self._continue_after_completed_tool_round(
+                request,
                 state,
-                model_id=request.model_id,
-                messages=self._run_transcript(state),
-                skills=request.skills,
-                tools=request.tools,
-                metadata=request.metadata,
+                remaining_tool_rounds=remaining_rounds,
+                approvals=approvals,
             ):
-                if event.response is not None:
-                    next_response = event.response
                 yield event
-
-            if next_response is None:
-                raise AgentStateError("Agent run did not produce a response")
-
-            current_response = next_response
-            state.response = current_response
-            state.steps.append(
-                AgentStep(
-                    step_type=AgentStepType.CHAT,
-                    response=current_response,
-                    message=current_response.message,
-                )
-            )
-            current_tool_calls = list(current_response.message.tool_calls or [])
-            already_requested_approval_call_ids = set()
-            has_tool_runtime = has_tool_runtime or bool(current_tool_calls)
+            return
 
         if current_tool_calls:
             state.stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
@@ -766,6 +798,72 @@ class AgentApplication(AgentInterfaceProtocol):
         async for event in self._write_memory_events(request, state):
             yield event
         yield self._add_trace(state, self._run_stopped_event(state.stop_reason))
+
+    async def _continue_after_completed_tool_round(
+        self,
+        request: AgentRunRequest,
+        state: AgentRunState,
+        *,
+        approvals: dict[str, ToolApprovalDecision],
+        remaining_tool_rounds: int | None = None,
+    ) -> AsyncIterator[AgentTraceEvent]:
+        remaining_rounds = (
+            max(state.remaining_tool_rounds - 1, 0)
+            if remaining_tool_rounds is None
+            else remaining_tool_rounds
+        )
+        state.remaining_tool_rounds = remaining_rounds
+        response = None
+        async for event in self._chat_events(
+            request.provider_id,
+            request.context_id,
+            state,
+            model_id=request.model_id,
+            messages=self._run_transcript(state),
+            skills=request.skills,
+            tools=request.tools,
+            metadata=request.metadata,
+        ):
+            if event.response is not None:
+                response = event.response
+                self._record_chat_response(state, response)
+            yield event
+
+        if response is None:
+            raise AgentStateError("Agent run did not produce a response")
+
+        async for event in self._continue_tool_loop(
+            request,
+            state,
+            response,
+            remaining_rounds,
+            approvals=approvals,
+            already_requested_approval_call_ids=set(),
+            has_completed_tool_round=True,
+        ):
+            yield event
+
+    def _record_chat_response(
+        self,
+        state: AgentRunState,
+        response: ChatResponse,
+    ) -> None:
+        state.response = response
+        state.steps.append(
+            AgentStep(
+                step_type=AgentStepType.CHAT,
+                response=response,
+                message=response.message,
+            )
+        )
+
+    def _completed_tool_call_ids(self, state: AgentRunState) -> set[str]:
+        return {
+            step.tool_call.tool_call_id
+            for step in state.steps
+            if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
+            and step.tool_call is not None
+        }
 
     async def _chat(
         self,
@@ -1406,11 +1504,19 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         )
         executor = self._runtime.agent_run_executor
         if executor is None:
-            return await self._agent._execute_prepared_agent_run(
-                stored_request,
-                state,
-                principal_scope=principal_scope,
-            )
+            try:
+                return await self._agent._execute_prepared_agent_run(
+                    stored_request,
+                    state,
+                    principal_scope=principal_scope,
+                )
+            except Exception as exc:
+                self._mark_failed(
+                    state.run_id,
+                    exc,
+                    principal_scope=principal_scope,
+                )
+                raise
         try:
             return await executor.execute(
                 state.run_id,
@@ -1428,6 +1534,15 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 principal_scope=principal_scope,
             )
             raise
+        except AgentRunCanceledError:
+            raise
+        except Exception as exc:
+            self._mark_failed(
+                state.run_id,
+                exc,
+                principal_scope=principal_scope,
+            )
+            raise
 
     async def resume(
         self,
@@ -1438,11 +1553,19 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AgentRunState:
         executor = self._runtime.agent_run_executor
         if executor is None:
-            return await self._agent.resume_agent_run(
-                run_id,
-                approvals,
-                principal_scope=principal_scope,
-            )
+            try:
+                return await self._agent.resume_agent_run(
+                    run_id,
+                    approvals,
+                    principal_scope=principal_scope,
+                )
+            except Exception as exc:
+                self._mark_failed(
+                    run_id,
+                    exc,
+                    principal_scope=principal_scope,
+                )
+                raise
         state = self.get_state(run_id, principal_scope=principal_scope)
         try:
             return await executor.execute(
@@ -1461,6 +1584,15 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 principal_scope=principal_scope,
             )
             raise
+        except AgentRunCanceledError:
+            raise
+        except Exception as exc:
+            self._mark_failed(
+                run_id,
+                exc,
+                principal_scope=principal_scope,
+            )
+            raise
 
     async def pause(
         self,
@@ -1475,24 +1607,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         if state.status is not AgentRunStatus.RUNNING:
             raise AgentStateError("Agent run is not running")
 
-        metadata = {"reason": "pause"}
-        if reason:
-            metadata["control_reason"] = reason
-        event = self._agent._add_trace(
-            state,
-            AgentTraceEvent(
-                event_type=AgentTraceEventType.RUN_PAUSED,
-                metadata=metadata,
-            ),
-        )
-        state.status = AgentRunStatus.PAUSED
-        state.stop_reason = None
         state.metadata = AgentRunMetadata.with_runtime(
             state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
+            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: True},
             pause_reason=reason or "pause",
         )
-        event.sequence = self._trace_register().append_event(run_id, event)
         self._state_register().save_state(
             state,
             principal_scope=principal_scope,
@@ -1541,6 +1660,31 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             principal_scope=principal_scope,
         )
         return state
+
+    async def retry(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        source = self.get_state(run_id, principal_scope=principal_scope)
+        if source.status not in {AgentRunStatus.CANCELED, AgentRunStatus.FAILED}:
+            raise AgentStateError("Only canceled or failed agent runs can be retried")
+
+        metadata = dict(source.request.metadata)
+        metadata.pop(AgentRunMetadata.RUN_ID_KEY, None)
+        previous_attempt = metadata.get(AgentRunMetadata.RETRY_ATTEMPT_KEY)
+        retry_attempt = previous_attempt + 1 if isinstance(previous_attempt, int) else 1
+        metadata[AgentRunMetadata.RETRY_OF_KEY] = source.run_id
+        metadata[AgentRunMetadata.RETRY_ATTEMPT_KEY] = retry_attempt
+        request = source.request.model_copy(
+            update={
+                "tool_approvals": [],
+                "pause_on_approval": True,
+                "metadata": metadata,
+            }
+        )
+        return await self.start(request, principal_scope=principal_scope)
 
     def start_stream(
         self,
@@ -1686,6 +1830,23 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     principal_scope=principal_scope,
                 )
                 yield event
+                pause_event = self._pause_at_checkpoint_if_requested(
+                    state,
+                    event,
+                    principal_scope=principal_scope,
+                )
+                if pause_event is not None:
+                    yield pause_event
+                    return
+        except AgentRunCanceledError:
+            raise
+        except Exception as exc:
+            self._mark_failed(
+                state.run_id,
+                exc,
+                principal_scope=principal_scope,
+            )
+            raise
         finally:
             stored = self._state_register().get_state(
                 state.run_id,
@@ -1718,6 +1879,70 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
 
         return register
 
+    def _pause_at_checkpoint_if_requested(
+        self,
+        state: AgentRunState,
+        event: AgentTraceEvent,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentTraceEvent | None:
+        if event.event_type not in {
+            AgentTraceEventType.RUN_STARTED,
+            AgentTraceEventType.CHAT_COMPLETED,
+            AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+            AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+            AgentTraceEventType.TOOL_COMPLETED,
+            AgentTraceEventType.TOOL_FAILED,
+            AgentTraceEventType.MEMORY_WRITTEN,
+        }:
+            return None
+
+        stored = self._state_register().get_state(
+            state.run_id,
+            principal_scope=principal_scope,
+        )
+        runtime_metadata = stored.metadata.get(AgentRunMetadata.RUNTIME_KEY)
+        if (
+            stored.status is not AgentRunStatus.RUNNING
+            or not isinstance(runtime_metadata, dict)
+            or runtime_metadata.get(AgentRunMetadata.PAUSE_REQUESTED_KEY) is not True
+        ):
+            return None
+
+        checkpoint = event.event_type.value
+        pause_reason = runtime_metadata.get("pause_reason")
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
+            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: False},
+            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint},
+            pause_reason=pause_reason if isinstance(pause_reason, str) else "pause",
+        )
+        pause_event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_PAUSED,
+                metadata={
+                    "reason": "pause",
+                    "control_reason": (
+                        pause_reason if isinstance(pause_reason, str) else "pause"
+                    ),
+                    "checkpoint": checkpoint,
+                },
+            ),
+        )
+        pause_event.sequence = self._trace_register().append_event(
+            state.run_id,
+            pause_event,
+        )
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
+        return pause_event
+
     def _trace_register(self) -> AgentTraceRegisterProtocol:
         register = self._runtime.agent_trace_register
         if register is None:
@@ -1748,6 +1973,41 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.metadata = AgentRunMetadata.with_runtime(
             state.metadata,
             interruption_reason=reason,
+        )
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
+
+    def _mark_failed(
+        self,
+        run_id: str,
+        error: Exception,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        state = self.get_state(run_id, principal_scope=principal_scope)
+        if state.status is not AgentRunStatus.RUNNING:
+            return
+
+        event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.RUN_STOPPED,
+                error_type=error.__class__.__name__,
+                error_message=str(error),
+                metadata={"reason": "failed"},
+            ),
+        )
+        event.sequence = self._trace_register().append_event(run_id, event)
+        state.status = AgentRunStatus.FAILED
+        state.stop_reason = None
+        state.pending_tool_calls = []
+        state.pending_approval_requests = []
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            failure_type=error.__class__.__name__,
+            failure_message=str(error),
         )
         self._state_register().save_state(
             state,

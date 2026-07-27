@@ -5,6 +5,7 @@ import type {
   AgentTraceEvent,
   AgentRunSocketStatus,
   ToolApprovalRequest,
+  ToolApprovalStatus,
   ToolCall,
   ToolCallResult,
 } from '../api'
@@ -20,6 +21,8 @@ const emit = defineEmits<{
   pause: [run: AgentRunState]
   cancel: [run: AgentRunState]
   resume: [run: AgentRunState]
+  retry: [run: AgentRunState]
+  decideApproval: [run: AgentRunState, approval: ToolApprovalRequest, status: ToolApprovalStatus]
 }>()
 
 type TraceTone = 'primary' | 'success' | 'warning' | 'danger'
@@ -35,9 +38,20 @@ const realtimeReady = computed(() => realtimeStatus.value === 'connected')
 const isRunning = computed(() => props.run?.status === 'running')
 const isPaused = computed(() => props.run?.status === 'paused')
 const hasRunControls = computed(() => isRunning.value || isPaused.value)
+const hasPendingApprovals = computed(() => pendingApprovals.value.length > 0)
 const canPause = computed(() => isRunning.value && realtimeReady.value)
 const canCancel = computed(() => hasRunControls.value && realtimeReady.value)
-const canResume = computed(() => isPaused.value && realtimeReady.value)
+const canResume = computed(() => isPaused.value && !hasPendingApprovals.value && realtimeReady.value)
+const canRetry = computed(() => props.run?.status === 'failed' || props.run?.status === 'canceled')
+const pauseCheckpoint = computed(() => {
+  const runtime = props.run?.metadata?.agent_runtime
+  if (typeof runtime !== 'object' || runtime === null || Array.isArray(runtime)) {
+    return null
+  }
+
+  const checkpoint = (runtime as Record<string, unknown>).pause_checkpoint
+  return typeof checkpoint === 'string' ? checkpoint : null
+})
 
 const traceCounts = computed(() => {
   const counts = {
@@ -112,6 +126,10 @@ function formatEventType(eventType: string): string {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function formatCheckpoint(checkpoint: string): string {
+  return formatEventType(checkpoint)
 }
 
 function toolName(event: AgentTraceEvent): string {
@@ -265,6 +283,16 @@ function shortId(id: string | undefined): string {
               <Icon name="x" />
             </button>
           </div>
+          <button
+            v-if="canRetry"
+            class="button compact-button icon-button"
+            type="button"
+            title="重试"
+            aria-label="重试"
+            @click="emit('retry', run)"
+          >
+            <Icon name="rotate-cw" />
+          </button>
         </div>
       </div>
 
@@ -310,6 +338,10 @@ function shortId(id: string | undefined): string {
               <dt>Remaining</dt>
               <dd>{{ run.remaining_tool_rounds ?? 0 }}</dd>
             </div>
+            <div v-if="pauseCheckpoint">
+              <dt>Checkpoint</dt>
+              <dd>{{ formatCheckpoint(pauseCheckpoint) }}</dd>
+            </div>
           </dl>
         </section>
 
@@ -334,7 +366,31 @@ function shortId(id: string | undefined): string {
         </div>
         <div class="run-approval-list">
           <article v-for="approval in pendingApprovals" :key="approval.approval_id" class="run-approval">
-            <strong>{{ approval.tool_name }}</strong>
+            <div class="run-approval-head">
+              <strong>{{ approval.tool_name }}</strong>
+              <div class="run-control-group" aria-label="工具审批">
+                <button
+                  class="button compact-button icon-button"
+                  type="button"
+                  :disabled="!realtimeReady"
+                  title="批准工具调用"
+                  aria-label="批准工具调用"
+                  @click="emit('decideApproval', run, approval, 'approved')"
+                >
+                  <Icon name="check" />
+                </button>
+                <button
+                  class="button compact-button icon-button danger"
+                  type="button"
+                  :disabled="!realtimeReady"
+                  title="拒绝工具调用"
+                  aria-label="拒绝工具调用"
+                  @click="emit('decideApproval', run, approval, 'denied')"
+                >
+                  <Icon name="x" />
+                </button>
+              </div>
+            </div>
             <span>{{ approvalLabel(approval) }}</span>
             <p v-if="approval.reason">{{ approval.reason }}</p>
           </article>

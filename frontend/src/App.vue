@@ -6,6 +6,7 @@ import {
   fetchProviderModels,
   getApiKey,
   getAgentRun,
+  retryAgentRun,
   setApiKey,
   type AgentRunSocketStatus,
   type AgentRunState,
@@ -13,6 +14,8 @@ import {
   type ProviderInfo,
   type ProviderModelGroup,
   type Session,
+  type ToolApprovalRequest,
+  type ToolApprovalStatus,
   type ToolDefinition,
   type WebSocketTracePayload,
 } from './api'
@@ -247,7 +250,11 @@ function applyAgentTrace(
   }
   runs.value.splice(runIndex, 1, nextRun)
 
-  if (event.event_type === 'run_paused' || event.event_type === 'run_stopped') {
+  if (
+    event.event_type === 'tool_approval_decided'
+    || event.event_type === 'run_paused'
+    || event.event_type === 'run_stopped'
+  ) {
     void refreshRun(runId)
   }
 }
@@ -292,6 +299,7 @@ function upsertRun(nextRun: AgentRunState) {
 
 function pauseRun(run: AgentRunState) {
   agentRunSocket?.controlRun(run.run_id, 'pause', 'frontend pause')
+  toast.info('将在下一个执行检查点暂停')
 }
 
 function cancelRun(run: AgentRunState) {
@@ -300,6 +308,34 @@ function cancelRun(run: AgentRunState) {
 
 function resumeRun(run: AgentRunState) {
   agentRunSocket?.controlRun(run.run_id, 'resume')
+}
+
+function decideRunToolApproval(
+  run: AgentRunState,
+  approval: ToolApprovalRequest,
+  status: ToolApprovalStatus,
+) {
+  if (agentRunSocketStatus.value !== 'connected') {
+    toast.warning('实时连接不可用，暂时无法提交工具审批')
+    return
+  }
+
+  agentRunSocket?.approveTool(run.run_id, {
+    approval_id: approval.approval_id,
+    tool_call_id: approval.tool_call_id,
+    status,
+  })
+}
+
+async function retryRun(run: AgentRunState) {
+  try {
+    const retried = await retryAgentRun(run.run_id)
+    upsertRun(retried)
+    selectedRunId.value = retried.run_id
+    toast.success('Agent Run 已重试')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Agent Run 重试失败')
+  }
 }
 
 onMounted(async () => {
@@ -397,6 +433,8 @@ watch(selectedRunId, () => {
           @pause="pauseRun"
           @cancel="cancelRun"
           @resume="resumeRun"
+          @retry="retryRun"
+          @decide-approval="decideRunToolApproval"
         />
 
         <DataAnalysisDashboard v-else-if="currentView === 'analytics'" />

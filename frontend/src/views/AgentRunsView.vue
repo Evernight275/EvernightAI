@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AgentRunSocketStatus, AgentRunState } from '../api'
+import type { AgentRunSocketStatus, AgentRunState, ToolApprovalRequest, ToolApprovalStatus } from '../api'
 import AgentRunTraceDetail from '../components/AgentRunTraceDetail.vue'
 import Icon from '../components/Icon.vue'
 import { formatStatus, statusTone } from '../format'
@@ -16,6 +16,8 @@ const emit = defineEmits<{
   pause: [run: AgentRunState]
   cancel: [run: AgentRunState]
   resume: [run: AgentRunState]
+  retry: [run: AgentRunState]
+  decideApproval: [run: AgentRunState, approval: ToolApprovalRequest, status: ToolApprovalStatus]
 }>()
 
 const runPageSizeOptions = [10, 25, 50]
@@ -154,6 +156,8 @@ watch([runIds, runPageSize], () => {
       @pause="emit('pause', $event)"
       @cancel="emit('cancel', $event)"
       @resume="emit('resume', $event)"
+      @retry="emit('retry', $event)"
+      @decide-approval="(run, approval, status) => emit('decideApproval', run, approval, status)"
     />
   </section>
 </template>

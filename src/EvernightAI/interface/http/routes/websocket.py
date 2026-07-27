@@ -384,13 +384,11 @@ async def _pause_agent_run(
     agent_control: WebSocketAgentControl,
 ) -> None:
     run_id = agent_control.run_id
-    await connection.manager.cancel_run_tasks(run_id)
     try:
-        state = await interface.agent_runs.pause(
+        await interface.agent_runs.pause(
             run_id,
             reason=agent_control.reason,
         )
-        await _broadcast_control_trace(interface, connection, message, state.run_id)
     except Exception as exc:
         await _send_error(connection, exc, correlation_id=message.message_id)
 

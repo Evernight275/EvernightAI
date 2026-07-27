@@ -804,6 +804,19 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
             principal_scope=self._principal_scope,
         )
 
+    async def retry(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        self._require("agent-runs", "retry", run_id)
+        return await _call_with_scope(
+            self._inner.retry,
+            run_id,
+            principal_scope=self._principal_scope,
+        )
+
     def start_stream(
         self,
         request: AgentRunRequest,

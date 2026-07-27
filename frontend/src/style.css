@@ -1115,6 +1115,21 @@
       min-width: 0;
     }
 
+    .run-approval-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .run-approval-head strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .run-json-detail {
       min-width: 0;
       border: 1px solid var(--line-soft);

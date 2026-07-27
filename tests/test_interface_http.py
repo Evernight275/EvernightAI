@@ -38,6 +38,7 @@ from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
+    AgentRunStatus,
     AgentTraceEvent,
     AgentTraceEventType,
 )
@@ -2220,14 +2221,17 @@ def test_http_websocket_pauses_active_agent_run() -> None:
                     },
                 }
             )
+            checkpoint = websocket.receive_json()
             paused = websocket.receive_json()
 
+    assert checkpoint["message_type"] == "agent_trace"
+    assert checkpoint["trace_event"]["event_type"] == "chat_completed"
     assert paused["message_type"] == "agent_trace"
-    assert paused["correlation_id"] == "pause-1"
     assert paused["trace_event"]["event_type"] == "run_paused"
     assert paused["trace_event"]["metadata"] == {
         "reason": "pause",
         "control_reason": "user paused",
+        "checkpoint": "chat_completed",
     }
     assert state_register.get_state("run-ws").status.value == "paused"
 
@@ -2284,6 +2288,7 @@ def test_http_websocket_resumes_manually_paused_agent_run() -> None:
                 }
             )
             websocket.receive_json()
+            websocket.receive_json()
             websocket.send_json(
                 {
                     "message_type": "agent_control",
@@ -2294,11 +2299,9 @@ def test_http_websocket_resumes_manually_paused_agent_run() -> None:
                     },
                 }
             )
-            resumed_messages = [websocket.receive_json() for _ in range(3)]
+            resumed_messages = [websocket.receive_json()]
 
     assert [message["trace_event"]["event_type"] for message in resumed_messages] == [
-        "run_started",
-        "chat_completed",
         "run_stopped",
     ]
     assert {message["correlation_id"] for message in resumed_messages} == {
@@ -2919,6 +2922,47 @@ def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
         MessageRole.ASSISTANT,
         MessageRole.TOOL,
     ]
+
+
+def test_http_app_retries_a_canceled_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-canceled",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Try again")],
+                metadata={"run_id": "run-canceled"},
+            ),
+            status=AgentRunStatus.CANCELED,
+        )
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        response = client.post("/agent-runs/run-canceled/retry")
+
+    assert response.status_code == 201
+    state = response.json()
+    assert state["run_id"] != "run-canceled"
+    assert state["status"] == "finished"
+    assert state["request"]["metadata"]["retry_of"] == "run-canceled"
+    assert state["request"]["metadata"]["retry_attempt"] == 1
 
 
 def test_http_app_maps_domain_errors() -> None:

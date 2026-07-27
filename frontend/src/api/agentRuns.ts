@@ -136,6 +136,12 @@ export function approvePendingAgentRun(runId: string): Promise<AgentRunState> {
   })
 }
 
+export function retryAgentRun(runId: string): Promise<AgentRunState> {
+  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/retry`, {
+    method: 'POST',
+  })
+}
+
 export function listAgentTrace(
   runId: string,
   options: { afterSequence?: number; limit?: number } = {},
