@@ -1102,7 +1102,8 @@
     }
 
     .run-approval-list,
-    .run-call-list {
+    .run-call-list,
+    .run-execution-list {
       display: grid;
       gap: 10px;
     }
@@ -1128,6 +1129,67 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .run-execution {
+      display: grid;
+      gap: 9px;
+      min-width: 0;
+      padding: 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .run-execution.is-unknown {
+      border-color: var(--danger);
+      background: var(--danger-light);
+    }
+
+    .run-execution-head,
+    .run-execution-title,
+    .run-execution-tags,
+    .run-execution-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .run-execution-head {
+      justify-content: space-between;
+    }
+
+    .run-execution-title strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .run-execution-title code {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .run-execution-tags,
+    .run-execution-actions {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .run-execution-actions .button {
+      min-height: 32px;
+      gap: 6px;
+    }
+
+    .run-execution-actions .icon {
+      width: 15px;
+      height: 15px;
+    }
+
+    .run-execution-risk {
+      color: var(--danger-dark) !important;
     }
 
     .run-json-detail {
@@ -3456,6 +3518,16 @@
 
       .run-detail-grid {
         grid-template-columns: minmax(0, 1fr);
+      }
+
+      .run-execution-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .run-execution-tags,
+      .run-execution-actions {
+        justify-content: flex-start;
       }
 
       .run-tool-list {

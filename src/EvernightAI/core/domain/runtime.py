@@ -5,6 +5,7 @@ from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
@@ -79,6 +80,7 @@ class RuntimeKernel(RuntimeProtocol):
         agent_state_register: AgentRunStateRegisterProtocol | None = None,
         agent_run_executor: AgentRunExecutorProtocol | None = None,
         agent_trace_register: AgentTraceRegisterProtocol | None = None,
+        tool_execution_register: ToolExecutionRegisterProtocol | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._provider_factory = provider_factory
@@ -112,6 +114,7 @@ class RuntimeKernel(RuntimeProtocol):
         self._agent_state_register = agent_state_register
         self._agent_run_executor = agent_run_executor
         self._agent_trace_register = agent_trace_register
+        self._tool_execution_register = tool_execution_register
 
     @property
     def provider_factory(self) -> ProviderFactoryProtocol:
@@ -222,6 +225,10 @@ class RuntimeKernel(RuntimeProtocol):
         return self._agent_trace_register
 
     @property
+    def tool_execution_register(self) -> ToolExecutionRegisterProtocol | None:
+        return self._tool_execution_register
+
+    @property
     def is_ready(self) -> bool:
         if not self._initialized or self._initialization_error is not None:
             return False
@@ -267,6 +274,7 @@ class RuntimeKernel(RuntimeProtocol):
             self._session_register,
             self._agent_state_register,
             self._agent_trace_register,
+            self._tool_execution_register,
         ]
 
 

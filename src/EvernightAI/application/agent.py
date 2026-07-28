@@ -15,6 +15,7 @@ from EvernightAI.core.error.agent import (
     AgentShutdownError,
     AgentStateError,
 )
+from EvernightAI.core.error.tool import ToolExecutionError
 from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
@@ -23,6 +24,7 @@ from EvernightAI.core.protocol.interface import (
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
@@ -39,6 +41,9 @@ from EvernightAI.core.schema.agent import (
     AgentStopReason,
     AgentTraceEvent,
     AgentTraceEventType,
+    ToolExecutionAttempt,
+    ToolExecutionResolution,
+    ToolExecutionStatus,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import (
@@ -60,6 +65,7 @@ from EvernightAI.core.schema.tool import (
     ToolCallResult,
     ToolDefinition,
     ToolSafetyDecision,
+    ToolReplayPolicy,
 )
 from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.retry import mark_retry_messages
@@ -141,6 +147,7 @@ class _AgentRunLifecycle:
         *,
         state_register: AgentRunStateRegisterProtocol | None,
         trace_register: AgentTraceRegisterProtocol | None,
+        tool_execution_register: ToolExecutionRegisterProtocol | None,
     ) -> None:
         async with self._condition:
             if not self._closing:
@@ -160,6 +167,7 @@ class _AgentRunLifecycle:
         self._pause_running_states(
             state_register=state_register,
             trace_register=trace_register,
+            tool_execution_register=tool_execution_register,
         )
         LOGGER.info("EvernightAI agent shutdown: persisted running states reconciled")
 
@@ -181,6 +189,7 @@ class _AgentRunLifecycle:
         *,
         state_register: AgentRunStateRegisterProtocol | None,
         trace_register: AgentTraceRegisterProtocol | None,
+        tool_execution_register: ToolExecutionRegisterProtocol | None,
     ) -> None:
         if state_register is None:
             return
@@ -194,7 +203,21 @@ class _AgentRunLifecycle:
                 if trace_register is not None
                 else state.trace
             )
-            checkpoint = inspect_agent_run_checkpoint(state, trace_events)
+            tool_executions = (
+                tool_execution_register.list_attempts(state.run_id)
+                if tool_execution_register is not None
+                else None
+            )
+            if tool_execution_register is not None and tool_executions is not None:
+                tool_executions = _mark_started_executions_unknown(
+                    tool_execution_register,
+                    tool_executions,
+                )
+            checkpoint = inspect_agent_run_checkpoint(
+                state,
+                trace_events,
+                tool_executions,
+            )
 
             event = AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_PAUSED,
@@ -292,6 +315,7 @@ class AgentRunRecoveryCheckpoint:
 def inspect_agent_run_checkpoint(
     state: AgentRunState,
     trace_events: list[AgentTraceEvent] | None = None,
+    tool_executions: list[ToolExecutionAttempt] | None = None,
 ) -> AgentRunRecoveryCheckpoint:
     """Restore checkpoint data from persisted trace and classify resumption safety."""
     events = trace_events if trace_events is not None else state.trace
@@ -330,6 +354,16 @@ def inspect_agent_run_checkpoint(
                 eligible=True,
                 name="approval_pending",
             )
+        if tool_executions is not None:
+            latest_attempts = _latest_tool_execution_attempts(tool_executions)
+            if all(
+                _tool_call_can_resume(call.tool_call_id, latest_attempts)
+                for call in incomplete_tool_calls
+            ):
+                return AgentRunRecoveryCheckpoint(
+                    eligible=True,
+                    name="tool_replay_ready",
+                )
         return AgentRunRecoveryCheckpoint(
             eligible=False,
             name="tool_execution_incomplete",
@@ -340,6 +374,34 @@ def inspect_agent_run_checkpoint(
         eligible=True,
         name=("tool_round_completed" if response_tool_calls else "chat_completed"),
     )
+
+
+def _latest_tool_execution_attempts(
+    attempts: list[ToolExecutionAttempt],
+) -> dict[str, ToolExecutionAttempt]:
+    latest: dict[str, ToolExecutionAttempt] = {}
+    for attempt in attempts:
+        current = latest.get(attempt.tool_call_id)
+        if current is None or attempt.attempt > current.attempt:
+            latest[attempt.tool_call_id] = attempt
+    return latest
+
+
+def _tool_call_can_resume(
+    tool_call_id: str,
+    latest_attempts: dict[str, ToolExecutionAttempt],
+) -> bool:
+    attempt = latest_attempts.get(tool_call_id)
+    if attempt is None or attempt.status is ToolExecutionStatus.SCHEDULED:
+        return True
+    if attempt.status in {ToolExecutionStatus.COMPLETED, ToolExecutionStatus.FAILED}:
+        return True
+    if attempt.resolution is ToolExecutionResolution.RETRY:
+        return True
+    return attempt.replay_policy in {
+        ToolReplayPolicy.SAFE,
+        ToolReplayPolicy.IDEMPOTENT,
+    }
 
 
 def _restore_checkpoint_data(
@@ -397,6 +459,7 @@ def _restore_checkpoint_data(
 def recover_interrupted_agent_runs(
     state_register: AgentRunStateRegisterProtocol,
     trace_register: AgentTraceRegisterProtocol,
+    tool_execution_register: ToolExecutionRegisterProtocol | None = None,
 ) -> int:
     recovered = 0
     now = datetime.now(timezone.utc)
@@ -410,9 +473,20 @@ def recover_interrupted_agent_runs(
             continue
 
         recovery_reason = "lease_expired" if lease is not None else "shutdown"
+        tool_executions = (
+            tool_execution_register.list_attempts(state.run_id)
+            if tool_execution_register is not None
+            else None
+        )
+        if tool_execution_register is not None and tool_executions is not None:
+            tool_executions = _mark_started_executions_unknown(
+                tool_execution_register,
+                tool_executions,
+            )
         checkpoint = inspect_agent_run_checkpoint(
             state,
             trace_register.list_events(state.run_id),
+            tool_executions,
         )
         event = AgentTraceEvent(
             event_type=AgentTraceEventType.RUN_PAUSED,
@@ -443,6 +517,21 @@ def recover_interrupted_agent_runs(
             state_register.clear_execution_lease(state.run_id)
         recovered += 1
     return recovered
+
+
+def _mark_started_executions_unknown(
+    register: ToolExecutionRegisterProtocol,
+    attempts: list[ToolExecutionAttempt],
+) -> list[ToolExecutionAttempt]:
+    reconciled: list[ToolExecutionAttempt] = []
+    for attempt in attempts:
+        if attempt.status is ToolExecutionStatus.STARTED:
+            attempt = attempt.model_copy(
+                update={"status": ToolExecutionStatus.UNKNOWN}
+            )
+            register.save_attempt(attempt)
+        reconciled.append(attempt)
+    return reconciled
 
 
 class AgentApplication(AgentInterfaceProtocol):
@@ -560,6 +649,7 @@ class AgentApplication(AgentInterfaceProtocol):
         await self._lifecycle.close(
             state_register=self._runtime.agent_state_register,
             trace_register=self._runtime.agent_trace_register,
+            tool_execution_register=self._runtime.tool_execution_register,
         )
 
     def run_agent_stream(
@@ -878,7 +968,7 @@ class AgentApplication(AgentInterfaceProtocol):
 
                 tool_started = perf_counter()
                 try:
-                    tool_result = await self._runtime.tools.execute(call)
+                    tool_result = await self._execute_tool_call(state, call)
                     self._log_tool_execution(
                         state,
                         call,
@@ -1060,6 +1150,121 @@ class AgentApplication(AgentInterfaceProtocol):
             if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
             and step.tool_call is not None
         }
+
+    async def _execute_tool_call(
+        self,
+        state: AgentRunState,
+        call: ToolCall,
+    ) -> ToolCallResult:
+        register = self._runtime.tool_execution_register
+        if register is None:
+            return await self._runtime.tools.execute(call)
+
+        attempts = register.list_attempts(
+            state.run_id,
+            principal_scope=_owner_scope(state.owner_id),
+        )
+        latest = _latest_tool_execution_attempts(attempts).get(call.tool_call_id)
+        if latest is not None and latest.status is ToolExecutionStatus.COMPLETED:
+            if latest.result is None:
+                raise AgentStateError(
+                    "Completed tool execution has no persisted result"
+                )
+            return latest.result
+        if latest is not None and latest.status is ToolExecutionStatus.FAILED:
+            raise ToolExecutionError(
+                latest.error_message or "Persisted tool execution failed"
+            )
+        if (
+            latest is not None
+            and latest.status in {ToolExecutionStatus.STARTED, ToolExecutionStatus.UNKNOWN}
+            and not _tool_call_can_resume(
+                call.tool_call_id,
+                {call.tool_call_id: latest},
+            )
+        ):
+            raise AgentStateError(
+                "Tool execution outcome is unknown and requires operator resolution"
+            )
+
+        tool_name = self._tool_name(call)
+        if tool_name is None:
+            raise AgentStateError("Tool execution has no tool name")
+        tool = self._runtime.tool_register.get(tool_name)
+        idempotency_key = (
+            latest.idempotency_key
+            if latest is not None
+            else f"{state.run_id}:{call.tool_call_id}"
+        )
+        persisted_call = call.model_copy(
+            update={
+                "metadata": {
+                    **call.metadata,
+                    "idempotency_key": idempotency_key,
+                }
+            }
+        )
+        now = datetime.now(timezone.utc)
+        if latest is not None and latest.status is ToolExecutionStatus.SCHEDULED:
+            attempt = latest
+        else:
+            attempt = ToolExecutionAttempt(
+                run_id=state.run_id,
+                owner_id=state.owner_id,
+                tool_call_id=call.tool_call_id,
+                attempt=(latest.attempt + 1 if latest is not None else 1),
+                tool_name=tool_name,
+                status=ToolExecutionStatus.SCHEDULED,
+                replay_policy=tool.replay_policy,
+                idempotency_key=idempotency_key,
+                tool_call=persisted_call,
+                created_at=now,
+            )
+            register.create_attempt(
+                attempt,
+                principal_scope=_owner_scope(state.owner_id),
+            )
+
+        attempt = attempt.model_copy(
+            update={
+                "status": ToolExecutionStatus.STARTED,
+                "started_at": now,
+                "tool_call": persisted_call,
+            }
+        )
+        register.save_attempt(
+            attempt,
+            principal_scope=_owner_scope(state.owner_id),
+        )
+        try:
+            result = await self._runtime.tools.execute(persisted_call)
+        except Exception as exc:
+            failed = attempt.model_copy(
+                update={
+                    "status": ToolExecutionStatus.FAILED,
+                    "error_type": exc.__class__.__name__,
+                    "error_message": str(exc),
+                    "finished_at": datetime.now(timezone.utc),
+                }
+            )
+            register.save_attempt(
+                failed,
+                principal_scope=_owner_scope(state.owner_id),
+            )
+            raise
+
+        completed = attempt.model_copy(
+            update={
+                "status": ToolExecutionStatus.COMPLETED,
+                "result": result,
+                "finished_at": datetime.now(timezone.utc),
+            }
+        )
+        register.save_attempt(
+            completed,
+            principal_scope=_owner_scope(state.owner_id),
+        )
+        return result
 
     async def _chat(
         self,
@@ -1519,6 +1724,13 @@ class AgentApplication(AgentInterfaceProtocol):
             tool_name = self._event_tool_name(event)
             error_type = event.error_type or "error"
             return f"Tool {tool_name} failed with {error_type}"
+        if event.event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED:
+            action = event.metadata.get("resolution")
+            return (
+                f"Tool execution resolved: {action}"
+                if isinstance(action, str)
+                else "Tool execution resolved"
+            )
         if event.event_type is AgentTraceEventType.MEMORY_WRITTEN:
             memory_id = event.metadata.get("memory_id")
             if isinstance(memory_id, str) and memory_id:
@@ -1891,7 +2103,62 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 "metadata": metadata,
             }
         )
-        return await self.start(request, principal_scope=principal_scope)
+        retried = await self.start(request, principal_scope=principal_scope)
+        if unrecoverable_pause:
+            resolved_attempts: list[dict[str, object]] = []
+            execution_register = self._runtime.tool_execution_register
+            if execution_register is not None:
+                attempts = execution_register.list_attempts(
+                    source.run_id,
+                    principal_scope=principal_scope,
+                )
+                resolved_at = datetime.now(timezone.utc)
+                for execution in _latest_tool_execution_attempts(attempts).values():
+                    if not (
+                        execution.status is ToolExecutionStatus.UNKNOWN
+                        and execution.replay_policy
+                        is ToolReplayPolicy.NON_REPLAYABLE
+                        and execution.resolution is None
+                    ):
+                        continue
+                    execution = execution.model_copy(
+                        update={
+                            "resolution": (
+                                ToolExecutionResolution.ABANDON_AND_RETRY_RUN
+                            ),
+                            "resolution_reason": "run_retried",
+                            "resolved_at": resolved_at,
+                        }
+                    )
+                    execution_register.save_attempt(
+                        execution,
+                        principal_scope=principal_scope,
+                    )
+                    resolved_attempts.append(
+                        {
+                            "tool_call_id": execution.tool_call_id,
+                            "attempt": execution.attempt,
+                        }
+                    )
+            event = self._agent._add_trace(
+                source,
+                AgentTraceEvent(
+                    event_type=AgentTraceEventType.TOOL_EXECUTION_RESOLVED,
+                    metadata={
+                        "resolution": (
+                            ToolExecutionResolution.ABANDON_AND_RETRY_RUN.value
+                        ),
+                        "retried_run_id": retried.run_id,
+                        "tool_executions": resolved_attempts,
+                    },
+                ),
+            )
+            event.sequence = self._trace_register().append_event(source.run_id, event)
+            self._state_register().save_state(
+                source,
+                principal_scope=principal_scope,
+            )
+        return retried
 
     def start_stream(
         self,
@@ -2010,10 +2277,112 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             limit=limit,
         )
 
+    def list_tool_executions(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]:
+        self.get_state(run_id, principal_scope=principal_scope)
+        return self._tool_execution_register().list_attempts(
+            run_id,
+            principal_scope=principal_scope,
+        )
+
+    async def resolve_tool_execution(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        resolution: ToolExecutionResolution,
+        *,
+        result: dict[str, object] | None = None,
+        reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        state = self.get_state(run_id, principal_scope=principal_scope)
+        if state.status is not AgentRunStatus.PAUSED:
+            raise AgentStateError("Tool execution resolution requires a paused run")
+        if resolution is ToolExecutionResolution.ABANDON_AND_RETRY_RUN:
+            raise AgentStateError("Use agent run retry to abandon the current run")
+
+        register = self._tool_execution_register()
+        execution = register.get_attempt(
+            run_id,
+            tool_call_id,
+            attempt,
+            principal_scope=principal_scope,
+        )
+        if execution.status is not ToolExecutionStatus.UNKNOWN:
+            raise AgentStateError("Only unknown tool executions can be resolved")
+        if execution.resolution is not None:
+            raise AgentStateError("The tool execution is already resolved")
+
+        now = datetime.now(timezone.utc)
+        updates: dict[str, object] = {
+            "resolution": resolution,
+            "resolution_reason": reason,
+            "resolved_at": now,
+        }
+        tool_result = None
+        if resolution is ToolExecutionResolution.CONFIRM_COMPLETED:
+            tool_result = ToolCallResult(
+                tool_call_id=tool_call_id,
+                tool_call_result=result or {"status": "confirmed_completed"},
+                metadata={"operator_confirmed": True},
+            )
+            updates.update(
+                {
+                    "status": ToolExecutionStatus.COMPLETED,
+                    "result": tool_result,
+                    "finished_at": now,
+                }
+            )
+        execution = execution.model_copy(update=updates)
+        register.save_attempt(execution, principal_scope=principal_scope)
+
+        attempts = register.list_attempts(
+            run_id,
+            principal_scope=principal_scope,
+        )
+        eligible = not any(
+            item.status is ToolExecutionStatus.UNKNOWN
+            and item.replay_policy is ToolReplayPolicy.NON_REPLAYABLE
+            and item.resolution is None
+            for item in _latest_tool_execution_attempts(attempts).values()
+        )
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: eligible},
+            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: "operator_resolution"},
+            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: eligible},
+        )
+        event = self._agent._add_trace(
+            state,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.TOOL_EXECUTION_RESOLVED,
+                tool_call=execution.tool_call,
+                tool_result=tool_result,
+                metadata={
+                    "resolution": resolution.value,
+                    "attempt": attempt,
+                    "reason": reason,
+                    "recovery_eligible": eligible,
+                },
+            ),
+        )
+        event.sequence = self._trace_register().append_event(run_id, event)
+        self._state_register().save_state(
+            state,
+            principal_scope=principal_scope,
+        )
+        return state
+
     async def close(self) -> None:
         await self._lifecycle.close(
             state_register=self._runtime.agent_state_register,
             trace_register=self._runtime.agent_trace_register,
+            tool_execution_register=self._runtime.tool_execution_register,
         )
         executor = self._runtime.agent_run_executor
         if executor is not None:
@@ -2160,6 +2529,12 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
 
         return register
 
+    def _tool_execution_register(self) -> ToolExecutionRegisterProtocol:
+        register = self._runtime.tool_execution_register
+        if register is None:
+            raise AgentStateError("Tool execution register is not configured")
+        return register
+
     def _mark_interrupted(
         self,
         run_id: str,
@@ -2173,6 +2548,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         checkpoint = inspect_agent_run_checkpoint(
             state,
             self._trace_register().list_events(run_id),
+            self._reconcile_tool_executions(run_id, principal_scope),
         )
         event = self._agent._add_trace(
             state,
@@ -2202,6 +2578,31 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             state,
             principal_scope=principal_scope,
         )
+
+    def _reconcile_tool_executions(
+        self,
+        run_id: str,
+        principal_scope: PrincipalScope | None,
+    ) -> list[ToolExecutionAttempt] | None:
+        register = self._runtime.tool_execution_register
+        if register is None:
+            return None
+        attempts = register.list_attempts(
+            run_id,
+            principal_scope=principal_scope,
+        )
+        reconciled: list[ToolExecutionAttempt] = []
+        for attempt in attempts:
+            if attempt.status is ToolExecutionStatus.STARTED:
+                attempt = attempt.model_copy(
+                    update={"status": ToolExecutionStatus.UNKNOWN}
+                )
+                register.save_attempt(
+                    attempt,
+                    principal_scope=principal_scope,
+                )
+            reconciled.append(attempt)
+        return reconciled
 
     def _mark_failed(
         self,

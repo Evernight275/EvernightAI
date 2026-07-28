@@ -8,6 +8,8 @@ import type {
   ToolApprovalStatus,
   ToolCall,
   ToolCallResult,
+  ToolExecutionAttempt,
+  ToolExecutionResolution,
 } from '../api'
 import { formatStatus } from '../format'
 import Icon from './Icon.vue'
@@ -15,6 +17,8 @@ import Icon from './Icon.vue'
 const props = defineProps<{
   run: AgentRunState | null
   socketStatus?: AgentRunSocketStatus
+  toolExecutions: ToolExecutionAttempt[]
+  resolvingToolExecutionKey: string | null
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +27,7 @@ const emit = defineEmits<{
   resume: [run: AgentRunState]
   retry: [run: AgentRunState]
   decideApproval: [run: AgentRunState, approval: ToolApprovalRequest, status: ToolApprovalStatus]
+  resolveToolExecution: [run: AgentRunState, execution: ToolExecutionAttempt, resolution: ToolExecutionResolution]
 }>()
 
 type TraceTone = 'primary' | 'success' | 'warning' | 'danger'
@@ -33,6 +38,7 @@ const toolEvents = computed(() => traceEvents.value.filter((event) => event.tool
 const requestTools = computed(() => props.run?.request.tools || [])
 const pendingApprovals = computed(() => props.run?.pending_approval_requests || [])
 const pendingToolCalls = computed(() => props.run?.pending_tool_calls || [])
+const toolExecutions = computed(() => props.toolExecutions)
 const realtimeStatus = computed(() => props.socketStatus || 'disconnected')
 const realtimeReady = computed(() => realtimeStatus.value === 'connected')
 const isRunning = computed(() => props.run?.status === 'running')
@@ -136,6 +142,43 @@ function statusTone(status: string | undefined): TraceTone {
   }
 
   return 'primary'
+}
+
+function executionTone(status: string): TraceTone {
+  if (status === 'completed') return 'success'
+  if (status === 'failed' || status === 'unknown') return 'danger'
+  if (status === 'started' || status === 'scheduled') return 'warning'
+  return 'primary'
+}
+
+function executionStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    scheduled: '已调度',
+    started: '执行中',
+    completed: '已完成',
+    failed: '失败',
+    unknown: '结果未知',
+  }
+  return labels[status] || status
+}
+
+function replayPolicyLabel(policy: string): string {
+  const labels: Record<string, string> = {
+    safe: '安全重放',
+    idempotent: '幂等重试',
+    non_replayable: '不可自动重放',
+  }
+  return labels[policy] || policy
+}
+
+function executionKey(execution: ToolExecutionAttempt): string {
+  return `${execution.tool_call_id}:${execution.attempt}`
+}
+
+function requiresOperatorResolution(execution: ToolExecutionAttempt): boolean {
+  return execution.status === 'unknown'
+    && execution.replay_policy === 'non_replayable'
+    && !execution.resolution
 }
 
 function realtimeLabel(status: AgentRunSocketStatus): string {
@@ -460,6 +503,70 @@ function shortId(id: string | undefined): string {
               </summary>
               <pre><code>{{ callArguments(call) }}</code></pre>
             </details>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="toolExecutions.length > 0" class="run-detail-card">
+        <div class="run-detail-card-head">
+          <h3><Icon name="database" /><span>工具执行账本</span></h3>
+          <span class="tag">{{ toolExecutions.length }} 次尝试</span>
+        </div>
+        <div class="run-execution-list">
+          <article
+            v-for="execution in toolExecutions"
+            :key="executionKey(execution)"
+            class="run-execution"
+            :class="{ 'is-unknown': requiresOperatorResolution(execution) }"
+          >
+            <div class="run-execution-head">
+              <div class="run-execution-title">
+                <strong :title="execution.tool_name">{{ execution.tool_name }}</strong>
+                <code>#{{ execution.attempt }}</code>
+              </div>
+              <div class="run-execution-tags">
+                <span class="tag" :class="executionTone(execution.status)">
+                  {{ executionStatusLabel(execution.status) }}
+                </span>
+                <span class="tag" :class="execution.replay_policy === 'non_replayable' ? 'warning' : 'primary'">
+                  {{ replayPolicyLabel(execution.replay_policy) }}
+                </span>
+              </div>
+            </div>
+            <p v-if="execution.error_message">{{ execution.error_message }}</p>
+            <p v-else-if="requiresOperatorResolution(execution)" class="run-execution-risk">
+              外部副作用可能已经发生，需要人工确认后才能恢复。
+            </p>
+            <details v-if="execution.result" class="run-json-detail">
+              <summary><span>持久化结果</span><code>{{ resultSummary(execution.result) }}</code></summary>
+              <pre><code>{{ resultPreview(execution.result) }}</code></pre>
+            </details>
+            <div v-if="requiresOperatorResolution(execution)" class="run-execution-actions">
+              <button
+                class="button compact-button"
+                type="button"
+                :disabled="resolvingToolExecutionKey !== null"
+                @click="emit('resolveToolExecution', run, execution, 'confirm_completed')"
+              >
+                <Icon name="check" /><span>确认已完成</span>
+              </button>
+              <button
+                class="button compact-button"
+                type="button"
+                :disabled="resolvingToolExecutionKey !== null"
+                @click="emit('resolveToolExecution', run, execution, 'retry')"
+              >
+                <Icon name="rotate-cw" /><span>重新执行</span>
+              </button>
+              <button
+                class="button compact-button danger"
+                type="button"
+                :disabled="resolvingToolExecutionKey !== null"
+                @click="emit('retry', run)"
+              >
+                <Icon name="x-circle" /><span>放弃并重试 Run</span>
+              </button>
+            </div>
           </article>
         </div>
       </section>

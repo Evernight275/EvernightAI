@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AgentRunSocketStatus, AgentRunState, ToolApprovalRequest, ToolApprovalStatus } from '../api'
+import type {
+  AgentRunSocketStatus,
+  AgentRunState,
+  ToolApprovalRequest,
+  ToolApprovalStatus,
+  ToolExecutionAttempt,
+  ToolExecutionResolution,
+} from '../api'
 import AgentRunTraceDetail from '../components/AgentRunTraceDetail.vue'
 import Icon from '../components/Icon.vue'
 import { formatStatus, statusTone } from '../format'
@@ -8,6 +15,8 @@ import { formatStatus, statusTone } from '../format'
 const props = defineProps<{
   runs: AgentRunState[]
   socketStatus: AgentRunSocketStatus
+  toolExecutions: ToolExecutionAttempt[]
+  resolvingToolExecutionKey: string | null
 }>()
 
 const selectedRunId = defineModel<string | null>('selectedRunId', { required: true })
@@ -18,6 +27,7 @@ const emit = defineEmits<{
   resume: [run: AgentRunState]
   retry: [run: AgentRunState]
   decideApproval: [run: AgentRunState, approval: ToolApprovalRequest, status: ToolApprovalStatus]
+  resolveToolExecution: [run: AgentRunState, execution: ToolExecutionAttempt, resolution: ToolExecutionResolution]
 }>()
 
 const runPageSizeOptions = [10, 25, 50]
@@ -153,11 +163,14 @@ watch([runIds, runPageSize], () => {
     <AgentRunTraceDetail
       :run="selectedRun"
       :socket-status="socketStatus"
+      :tool-executions="toolExecutions"
+      :resolving-tool-execution-key="resolvingToolExecutionKey"
       @pause="emit('pause', $event)"
       @cancel="emit('cancel', $event)"
       @resume="emit('resume', $event)"
       @retry="emit('retry', $event)"
       @decide-approval="(run, approval, status) => emit('decideApproval', run, approval, status)"
+      @resolve-tool-execution="(run, execution, resolution) => emit('resolveToolExecution', run, execution, resolution)"
     />
   </section>
 </template>

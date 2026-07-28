@@ -35,6 +35,7 @@ from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
@@ -66,6 +67,7 @@ from EvernightAI.core.protocol.tool import (
 from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
     SQLiteAgentTraceRegister,
+    SQLiteToolExecutionRegister,
 )
 from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
@@ -378,6 +380,12 @@ def create_sqlite_agent_trace_register(
     return SQLiteAgentTraceRegister(database_path)
 
 
+def create_sqlite_tool_execution_register(
+    database_path: str | Path,
+) -> SQLiteToolExecutionRegister:
+    return SQLiteToolExecutionRegister(database_path)
+
+
 def create_sqlite_provider_config_store(
     database_path: str | Path,
 ) -> SQLiteProviderConfigStore:
@@ -396,6 +404,7 @@ def create_runtime_with_agent_storage(
     *,
     agent_state_register: AgentRunStateRegisterProtocol,
     agent_trace_register: AgentTraceRegisterProtocol,
+    tool_execution_register: ToolExecutionRegisterProtocol | None = None,
 ) -> RuntimeKernel:
     return _create_runtime(
         context_register=create_context_register(),
@@ -403,6 +412,7 @@ def create_runtime_with_agent_storage(
         session_register=create_session_register(),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        tool_execution_register=tool_execution_register,
     )
 
 
@@ -490,10 +500,16 @@ def create_sqlite_runtime(
     agent_state_register: AgentRunStateRegisterProtocol | None = None
     agent_trace_register: AgentTraceRegisterProtocol | None = None
     agent_run_executor: AgentRunExecutorProtocol | None = None
+    tool_execution_register: ToolExecutionRegisterProtocol | None = None
     if include_agent_storage:
         agent_state_register = create_sqlite_agent_state_register(database_path)
         agent_trace_register = create_sqlite_agent_trace_register(database_path)
-        recover_interrupted_agent_runs(agent_state_register, agent_trace_register)
+        tool_execution_register = create_sqlite_tool_execution_register(database_path)
+        recover_interrupted_agent_runs(
+            agent_state_register,
+            agent_trace_register,
+            tool_execution_register,
+        )
         older_than = (
             (datetime.now(timezone.utc) - timedelta(days=trace_retention_days)).isoformat()
             if trace_retention_days is not None
@@ -522,6 +538,7 @@ def create_sqlite_runtime(
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
         agent_run_executor=agent_run_executor,
+        tool_execution_register=tool_execution_register,
         runtime_data_tools_enabled=runtime_data_tools_enabled,
         sandbox=sandbox,
         context_max_messages=context_max_messages,
@@ -553,6 +570,7 @@ def _create_runtime(
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
     agent_run_executor: AgentRunExecutorProtocol | None = None,
+    tool_execution_register: ToolExecutionRegisterProtocol | None = None,
     runtime_data_tools_enabled: bool = False,
     sandbox: SandboxExecuteProtocol | None = None,
     context_max_messages: int | None = None,
@@ -632,4 +650,5 @@ def _create_runtime(
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
         agent_run_executor=agent_run_executor,
+        tool_execution_register=tool_execution_register,
     )

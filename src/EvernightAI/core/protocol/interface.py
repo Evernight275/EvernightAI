@@ -11,6 +11,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunState,
     AgentTraceEvent,
     AgentRunStatus,
+    ToolExecutionAttempt,
+    ToolExecutionResolution,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
@@ -373,6 +375,25 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         limit: int | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> list[AgentTraceEvent]: ...
+
+    def list_tool_executions(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]: ...
+
+    async def resolve_tool_execution(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        resolution: ToolExecutionResolution,
+        *,
+        result: dict[str, object] | None = None,
+        reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState: ...
 
     async def close(self) -> None: ...
 

@@ -9,11 +9,15 @@ from EvernightAI.core.schema.agent import (
     AgentRunState,
     AgentRunStatus,
     AgentTraceEvent,
+    ToolExecutionAttempt,
 )
 from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.http.dependencies import InterfaceDependency
-from EvernightAI.interface.http.schema import ResumeAgentRunRequest
+from EvernightAI.interface.http.schema import (
+    ResolveToolExecutionRequest,
+    ResumeAgentRunRequest,
+)
 from EvernightAI.interface.http.template import (
     AGENT_RUN_STATE_RESPONSE_EXAMPLE,
     AGENT_TRACE_SSE_EXAMPLE,
@@ -172,6 +176,44 @@ async def retry_agent_run(
     interface: InterfaceDependency,
 ) -> AgentRunState:
     return await interface.agent_runs.retry(run_id)
+
+
+@router.get(
+    "/{run_id}/tool-executions",
+    response_model=list[ToolExecutionAttempt],
+    response_model_exclude_none=True,
+    summary="List persisted tool execution attempts",
+    operation_id="list_agent_run_tool_executions",
+)
+async def list_agent_run_tool_executions(
+    run_id: str,
+    interface: InterfaceDependency,
+) -> list[ToolExecutionAttempt]:
+    return interface.agent_runs.list_tool_executions(run_id)
+
+
+@router.post(
+    "/{run_id}/tool-executions/{tool_call_id}/{attempt}/resolve",
+    response_model=AgentRunState,
+    response_model_exclude_none=True,
+    summary="Resolve an unknown tool execution",
+    operation_id="resolve_agent_run_tool_execution",
+)
+async def resolve_agent_run_tool_execution(
+    run_id: str,
+    tool_call_id: str,
+    attempt: int,
+    request: ResolveToolExecutionRequest,
+    interface: InterfaceDependency,
+) -> AgentRunState:
+    return await interface.agent_runs.resolve_tool_execution(
+        run_id,
+        tool_call_id,
+        attempt,
+        request.resolution,
+        result=request.result,
+        reason=request.reason,
+    )
 
 
 @router.post(

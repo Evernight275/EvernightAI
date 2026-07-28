@@ -12,6 +12,7 @@ export type ToolPermission =
   | 'destructive'
 
 export type ToolSafetyLevel = 'safe' | 'sensitive' | 'restricted'
+export type ToolReplayPolicy = 'safe' | 'idempotent' | 'non_replayable'
 export type ToolApprovalStatus = 'requested' | 'approved' | 'denied' | 'expired'
 
 export type ToolDefinition = {
@@ -21,6 +22,8 @@ export type ToolDefinition = {
   permissions?: ToolPermission[]
   safety_level?: ToolSafetyLevel
   requires_approval?: boolean
+  replay_policy?: ToolReplayPolicy
+  idempotency_key_parameter?: string | null
   metadata?: Record<string, unknown>
 }
 

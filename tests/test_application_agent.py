@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
+from datetime import datetime, timezone
 from typing import cast
 
 import pytest
@@ -22,6 +23,9 @@ from EvernightAI.core.schema.agent import (
     AgentStopReason,
     AgentTraceEvent,
     AgentTraceEventType,
+    ToolExecutionAttempt,
+    ToolExecutionResolution,
+    ToolExecutionStatus,
 )
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
@@ -70,7 +74,7 @@ from EvernightAI.core.schema.skill import (
     SkillRenderRequest,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition, ToolReplayPolicy
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolApprovalStatus,
@@ -83,6 +87,7 @@ from EvernightAI.infra.registrations.tool.restricted_shell import (
 from tests.fakes.agent import (
     InMemoryAgentRunStateRegister,
     InMemoryAgentTraceRegister,
+    InMemoryToolExecutionRegister,
 )
 from tests.fakes.streams import EmptyStream, EventStream
 
@@ -2520,10 +2525,212 @@ async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
     assert len(provider.requests) == 2
 
 
+@pytest.mark.asyncio
+async def test_agent_tool_execution_ledger_persists_result_and_idempotency_key() -> None:
+    execution_register = InMemoryToolExecutionRegister()
+    received_arguments: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        received_arguments.append(arguments)
+        return {"result": 3}
+
+    runtime = make_runtime(
+        provider=ToolCallingProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+            replay_policy=ToolReplayPolicy.IDEMPOTENT,
+            idempotency_key_parameter="request_id",
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    state = await AgentRunApplication(runtime).start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "run-ledger"},
+        )
+    )
+
+    attempts = execution_register.list_attempts("run-ledger")
+    assert state.status is AgentRunStatus.FINISHED
+    assert len(attempts) == 1
+    assert attempts[0].status is ToolExecutionStatus.COMPLETED
+    assert attempts[0].result is not None
+    assert attempts[0].idempotency_key == "run-ledger:tool-call-1"
+    assert received_arguments == [
+        {"left": 1, "right": 2, "request_id": "run-ledger:tool-call-1"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_replays_safe_unknown_tool_as_new_attempt() -> None:
+    execution_register = InMemoryToolExecutionRegister()
+    state_register = InMemoryAgentRunStateRegister()
+    executed_calls: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        executed_calls.append(arguments)
+        return {"result": 3}
+
+    runtime = make_runtime(
+        provider=ToolCallingProvider(),
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    tool = ToolDefinition(
+        name="add",
+        description="Add numbers",
+        parameters_schema={"type": "object"},
+        replay_policy=ToolReplayPolicy.SAFE,
+    )
+    runtime.tool_register.register(tool, add)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    call = ToolCall(
+        tool_call_id="tool-call-1",
+        tool_call={
+            "name": "add",
+            "arguments": {"left": 1, "right": 2},
+        },
+    )
+    response = ChatResponse(
+        model_id="model-1",
+        message=Content(role=MessageRole.ASSISTANT, tool_calls=[call]),
+        finish_reason="tool_calls",
+    )
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("What is 1 + 2?")],
+        tools=[tool],
+        metadata={"run_id": "run-replay"},
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-replay",
+            request=request,
+            status=AgentRunStatus.PAUSED,
+            response=response,
+            steps=[AgentStep(step_type=AgentStepType.CHAT, response=response)],
+            remaining_tool_rounds=1,
+            metadata={
+                "agent_runtime": {
+                    "manual_pause": True,
+                    "recovery_eligible": True,
+                }
+            },
+        )
+    )
+    execution_register.create_attempt(
+        ToolExecutionAttempt(
+            run_id="run-replay",
+            tool_call_id="tool-call-1",
+            attempt=1,
+            tool_name="add",
+            status=ToolExecutionStatus.UNKNOWN,
+            replay_policy=ToolReplayPolicy.SAFE,
+            idempotency_key="run-replay:tool-call-1",
+            tool_call=call,
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+
+    resumed = await AgentRunApplication(runtime).resume("run-replay", [])
+
+    attempts = execution_register.list_attempts("run-replay")
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert [attempt.status for attempt in attempts] == [
+        ToolExecutionStatus.UNKNOWN,
+        ToolExecutionStatus.COMPLETED,
+    ]
+    assert executed_calls == [{"left": 1, "right": 2}]
+
+
+@pytest.mark.asyncio
+async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
+    execution_register = InMemoryToolExecutionRegister()
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+        tool_execution_register=execution_register,
+    )
+    call = ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "write_file", "arguments": {"path": "a.txt"}},
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-unknown",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+            status=AgentRunStatus.PAUSED,
+            metadata={
+                "agent_runtime": {
+                    "recovery_eligible": False,
+                    "manual_pause": False,
+                }
+            },
+        )
+    )
+    execution_register.create_attempt(
+        ToolExecutionAttempt(
+            run_id="run-unknown",
+            tool_call_id="call-1",
+            attempt=1,
+            tool_name="write_file",
+            status=ToolExecutionStatus.UNKNOWN,
+            replay_policy=ToolReplayPolicy.NON_REPLAYABLE,
+            idempotency_key="run-unknown:call-1",
+            tool_call=call,
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    app = AgentRunApplication(runtime)
+
+    resolved = await app.resolve_tool_execution(
+        "run-unknown",
+        "call-1",
+        1,
+        ToolExecutionResolution.CONFIRM_COMPLETED,
+        result={"written": True},
+        reason="Verified externally",
+    )
+
+    execution = execution_register.get_attempt("run-unknown", "call-1", 1)
+    assert execution.status is ToolExecutionStatus.COMPLETED
+    assert execution.result is not None
+    assert execution.result.tool_call_result == {"written": True}
+    assert resolved.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
+    assert trace_register.list_events("run-unknown")[-1].event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
+
+
 def make_runtime(
     provider: ProviderInstanceProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
+    tool_execution_register: InMemoryToolExecutionRegister | None = None,
 ) -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return provider or ToolCallingProvider()
@@ -2552,6 +2759,7 @@ def make_runtime(
         memory_write_strategy=BasicMemoryWriteStrategy(),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        tool_execution_register=tool_execution_register,
     )
 
 

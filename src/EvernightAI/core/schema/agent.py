@@ -13,6 +13,7 @@ from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolCallResult,
     ToolDefinition,
+    ToolReplayPolicy,
 )
 
 
@@ -37,6 +38,7 @@ class AgentTraceEventType(StrEnum):
     TOOL_APPROVAL_DECIDED = "tool_approval_decided"
     TOOL_COMPLETED = "tool_completed"
     TOOL_FAILED = "tool_failed"
+    TOOL_EXECUTION_RESOLVED = "tool_execution_resolved"
     MEMORY_WRITTEN = "memory_written"
     RUN_PAUSED = "run_paused"
     RUN_STOPPED = "run_stopped"
@@ -59,6 +61,42 @@ class AgentRunLease(EvernightAISchema):
     expires_at: datetime | None = None
     heartbeat_at: datetime | None = None
     generation: int = 0
+
+
+class ToolExecutionStatus(StrEnum):
+    SCHEDULED = "scheduled"
+    STARTED = "started"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+class ToolExecutionResolution(StrEnum):
+    CONFIRM_COMPLETED = "confirm_completed"
+    RETRY = "retry"
+    ABANDON_AND_RETRY_RUN = "abandon_and_retry_run"
+
+
+class ToolExecutionAttempt(EvernightAISchema):
+    run_id: str
+    owner_id: str | None = None
+    tool_call_id: str
+    attempt: int = Field(ge=1)
+    tool_name: str
+    status: ToolExecutionStatus
+    replay_policy: ToolReplayPolicy
+    idempotency_key: str
+    tool_call: ToolCall
+    result: ToolCallResult | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    resolution: ToolExecutionResolution | None = None
+    resolution_reason: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    resolved_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentStopReason(StrEnum):

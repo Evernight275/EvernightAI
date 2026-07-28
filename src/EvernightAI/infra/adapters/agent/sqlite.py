@@ -5,12 +5,14 @@ from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.schema.agent import (
     AgentRunLease,
     AgentRunState,
     AgentRunStatus,
     AgentTraceEvent,
+    ToolExecutionAttempt,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.infra.sqlite import (
@@ -476,5 +478,173 @@ class SQLiteAgentTraceRegister(AgentTraceRegisterProtocol):
             return False
 
 
+class SQLiteToolExecutionRegister(ToolExecutionRegisterProtocol):
+    def __init__(self, database_path: str | Path) -> None:
+        self._database_path = str(database_path)
+        self._connection = connect_sqlite(self._database_path)
+        SQLiteMigrationRunner(self._database_path).run(self._connection)
+
+    def create_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        _require_attempt_scope(attempt, principal_scope)
+        now = _utc_now_text()
+        try:
+            with sqlite_transaction(self._connection, immediate=True):
+                self._require_run(attempt.run_id, attempt.owner_id, principal_scope)
+                self._connection.execute(
+                    """
+                    INSERT INTO agent_tool_executions (
+                        run_id, tool_call_id, attempt, owner_id, status,
+                        replay_policy, payload, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        attempt.run_id,
+                        attempt.tool_call_id,
+                        attempt.attempt,
+                        attempt.owner_id,
+                        attempt.status.value,
+                        attempt.replay_policy.value,
+                        attempt.model_dump_json(),
+                        attempt.created_at.isoformat(),
+                        now,
+                    ),
+                )
+        except Exception as exc:
+            if "UNIQUE constraint failed" in str(exc):
+                raise AgentStateError(
+                    "The tool execution attempt already exists"
+                ) from exc
+            raise
+
+    def save_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        _require_attempt_scope(attempt, principal_scope)
+        where, values = self._attempt_identity(
+            attempt.run_id,
+            attempt.tool_call_id,
+            attempt.attempt,
+            principal_scope,
+        )
+        with sqlite_transaction(self._connection, immediate=True):
+            cursor = self._connection.execute(
+                f"""
+                UPDATE agent_tool_executions
+                SET owner_id = ?, status = ?, replay_policy = ?, payload = ?,
+                    updated_at = ?
+                WHERE {where}
+                """,
+                (
+                    attempt.owner_id,
+                    attempt.status.value,
+                    attempt.replay_policy.value,
+                    attempt.model_dump_json(),
+                    _utc_now_text(),
+                    *values,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise AgentStateError("The tool execution attempt is not found")
+
+    def get_attempt(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolExecutionAttempt:
+        where, values = self._attempt_identity(
+            run_id,
+            tool_call_id,
+            attempt,
+            principal_scope,
+        )
+        row = self._connection.execute(
+            f"SELECT payload FROM agent_tool_executions WHERE {where}",
+            values,
+        ).fetchone()
+        if row is None:
+            raise AgentStateError("The tool execution attempt is not found")
+        return ToolExecutionAttempt.model_validate_json(row[0])
+
+    def list_attempts(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]:
+        where = "run_id = ?"
+        values: list[object] = [run_id]
+        if principal_scope is not None and principal_scope.owner_id is not None:
+            where += " AND owner_id = ?"
+            values.append(principal_scope.owner_id)
+        rows = self._connection.execute(
+            f"""
+            SELECT payload FROM agent_tool_executions
+            WHERE {where}
+            ORDER BY tool_call_id, attempt
+            """,
+            values,
+        ).fetchall()
+        return [ToolExecutionAttempt.model_validate_json(row[0]) for row in rows]
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def is_ready(self) -> bool:
+        try:
+            return self._connection.execute("SELECT 1").fetchone() == (1,)
+        except Exception:
+            return False
+
+    def _require_run(
+        self,
+        run_id: str,
+        owner_id: str | None,
+        principal_scope: PrincipalScope | None,
+    ) -> None:
+        where, values = _scoped_identity("run_id", run_id, principal_scope)
+        row = self._connection.execute(
+            f"SELECT owner_id FROM agent_run_states WHERE {where}",
+            values,
+        ).fetchone()
+        if row is None or row[0] != owner_id:
+            raise AgentStateError(f"The agent run state {run_id} is not found")
+
+    def _attempt_identity(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        principal_scope: PrincipalScope | None,
+    ) -> tuple[str, tuple[object, ...]]:
+        where = "run_id = ? AND tool_call_id = ? AND attempt = ?"
+        values: tuple[object, ...] = (run_id, tool_call_id, attempt)
+        if principal_scope is not None and principal_scope.owner_id is not None:
+            where += " AND owner_id = ?"
+            values = (*values, principal_scope.owner_id)
+        return where, values
+
+
 def _utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _require_attempt_scope(
+    attempt: ToolExecutionAttempt,
+    principal_scope: PrincipalScope | None,
+) -> None:
+    if principal_scope is not None and not principal_scope.permits(attempt.owner_id):
+        raise AgentStateError(
+            f"The tool execution for run {attempt.run_id} is not available in this scope"
+        )

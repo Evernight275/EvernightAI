@@ -10,6 +10,7 @@ from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPo
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
+    ToolReplayPolicy,
     ToolSafetyDecision,
     ToolSafetyLevel,
 )
@@ -91,6 +92,7 @@ class RestrictedReadTextFileTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata={
                 **self._root_metadata(),
                 "max_chars": self._max_chars,
@@ -275,6 +277,7 @@ class RestrictedListDirectoryTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata={
                 **self._root_metadata(),
                 "max_entries": self._max_entries,
@@ -342,6 +345,7 @@ class RestrictedFindPathsTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata={
                 **self._root_metadata(),
                 "max_results": self._max_results,
@@ -425,6 +429,7 @@ class RestrictedSearchTextFilesTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata={
                 **self._root_metadata(),
                 "max_results": self._max_results,
@@ -533,6 +538,7 @@ class RestrictedReadTextFileLinesTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata={
                 **self._root_metadata(),
                 "max_lines": self._max_lines,
@@ -818,6 +824,7 @@ class RestrictedFileHashTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata=self._root_metadata(),
         )
 
@@ -876,6 +883,7 @@ class RestrictedPathInfoTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata=self._root_metadata(),
         )
 
@@ -1071,6 +1079,7 @@ class RestrictedReadJsonFileTool(_ProjectAwareFilesystemTool):
             },
             permissions=[ToolPermission.READ, ToolPermission.FILESYSTEM],
             safety_level=ToolSafetyLevel.SAFE,
+            replay_policy=ToolReplayPolicy.SAFE,
             metadata=self._root_metadata(),
         )
 

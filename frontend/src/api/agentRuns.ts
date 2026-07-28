@@ -7,6 +7,7 @@ import type {
   ToolCall,
   ToolCallResult,
   ToolDefinition,
+  ToolReplayPolicy,
 } from './tools'
 
 export type AgentStepType = 'start' | 'chat' | 'tool' | 'tool_error' | 'memory_write' | 'stop'
@@ -19,12 +20,37 @@ export type AgentTraceEventType =
   | 'tool_approval_decided'
   | 'tool_completed'
   | 'tool_failed'
+  | 'tool_execution_resolved'
   | 'memory_written'
   | 'run_paused'
   | 'run_stopped'
 
 export type AgentRunStatus = 'running' | 'paused' | 'canceled' | 'finished' | 'failed'
 export type AgentStopReason = 'finished' | 'tool_rounds_exhausted' | 'tool_error'
+export type ToolExecutionStatus = 'scheduled' | 'started' | 'completed' | 'failed' | 'unknown'
+export type ToolExecutionResolution = 'confirm_completed' | 'retry' | 'abandon_and_retry_run'
+
+export type ToolExecutionAttempt = {
+  run_id: string
+  owner_id?: string | null
+  tool_call_id: string
+  attempt: number
+  tool_name: string
+  status: ToolExecutionStatus
+  replay_policy: ToolReplayPolicy
+  idempotency_key: string
+  tool_call: ToolCall
+  result?: ToolCallResult | null
+  error_type?: string | null
+  error_message?: string | null
+  resolution?: ToolExecutionResolution | null
+  resolution_reason?: string | null
+  created_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  resolved_at?: string | null
+  metadata?: Record<string, unknown>
+}
 
 export type AgentRunRequest = {
   provider_id: string
@@ -140,6 +166,31 @@ export function retryAgentRun(runId: string): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/retry`, {
     method: 'POST',
   })
+}
+
+export function listAgentRunToolExecutions(runId: string): Promise<ToolExecutionAttempt[]> {
+  return requestJson<ToolExecutionAttempt[]>(
+    `/agent-runs/${encodeURIComponent(runId)}/tool-executions`,
+  )
+}
+
+export function resolveAgentRunToolExecution(
+  runId: string,
+  toolCallId: string,
+  attempt: number,
+  request: {
+    resolution: ToolExecutionResolution
+    result?: Record<string, unknown> | null
+    reason?: string | null
+  },
+): Promise<AgentRunState> {
+  return requestJson<AgentRunState>(
+    `/agent-runs/${encodeURIComponent(runId)}/tool-executions/${encodeURIComponent(toolCallId)}/${attempt}/resolve`,
+    {
+      method: 'POST',
+      body: request,
+    },
+  )
 }
 
 export function listAgentTrace(

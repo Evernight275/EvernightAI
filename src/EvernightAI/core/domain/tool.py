@@ -193,13 +193,22 @@ class ToolManager(ToolManageProtocol):
 
     async def execute(self, call: ToolCall) -> ToolCallResult:
         tool_name = self._get_tool_name(call.tool_call)
-        arguments = self._get_arguments(call.tool_call)
+        arguments = dict(self._get_arguments(call.tool_call))
         decision = self.authorize(call)
         if not decision.allowed:
             raise ToolPolicyError(
                 f"The tool {tool_name} call was rejected by policy",
                 detail=decision.reason,
             )
+
+        tool = self._register.get(tool_name)
+        idempotency_key = call.metadata.get("idempotency_key")
+        if (
+            tool.idempotency_key_parameter is not None
+            and isinstance(idempotency_key, str)
+            and idempotency_key
+        ):
+            arguments[tool.idempotency_key_parameter] = idempotency_key
 
         executor = self._register.get_executor(tool_name)
 

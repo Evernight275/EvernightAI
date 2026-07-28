@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -11,6 +12,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunStatus,
     AgentTraceEvent,
     AgentTraceEventType,
+    ToolExecutionAttempt,
+    ToolExecutionStatus,
 )
 from EvernightAI.core.schema.content import (
     Content,
@@ -21,10 +24,17 @@ from EvernightAI.core.schema.content import (
 from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
     SQLiteAgentTraceRegister,
+    SQLiteToolExecutionRegister,
 )
 from EvernightAI.bootstrap.runtime import (
     create_sqlite_agent_state_register,
     create_sqlite_agent_trace_register,
+    create_sqlite_tool_execution_register,
+)
+from EvernightAI.core.schema.tool import (
+    ToolCall,
+    ToolCallResult,
+    ToolReplayPolicy,
 )
 
 
@@ -193,6 +203,53 @@ def test_sqlite_agent_trace_register_allocates_concurrent_sequences(
     assert persisted_sequences == list(range(1, 13))
 
 
+def test_sqlite_tool_execution_register_persists_attempts_and_cascades(
+    tmp_path: Path,
+) -> None:
+    database_path = make_database_path(tmp_path)
+    state_register = SQLiteAgentRunStateRegister(database_path)
+    state_register.save_state(make_state())
+    register = SQLiteToolExecutionRegister(database_path)
+    attempt = ToolExecutionAttempt(
+        run_id="run-1",
+        tool_call_id="call-1",
+        attempt=1,
+        tool_name="read_file",
+        status=ToolExecutionStatus.STARTED,
+        replay_policy=ToolReplayPolicy.SAFE,
+        idempotency_key="run-1:call-1",
+        tool_call=ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "read_file", "arguments": {"path": "a.txt"}},
+        ),
+        created_at=datetime.now(timezone.utc),
+        started_at=datetime.now(timezone.utc),
+    )
+
+    register.create_attempt(attempt)
+    with pytest.raises(AgentStateError, match="already exists"):
+        register.create_attempt(attempt)
+
+    completed = attempt.model_copy(
+        update={
+            "status": ToolExecutionStatus.COMPLETED,
+            "result": ToolCallResult(
+                tool_call_id="call-1",
+                tool_call_result={"content": "hello"},
+            ),
+            "finished_at": datetime.now(timezone.utc),
+        }
+    )
+    register.save_attempt(completed)
+    assert register.get_attempt("run-1", "call-1", 1) == completed
+    assert register.list_attempts("run-1") == [completed]
+
+    state_register.delete_state("run-1")
+    assert register.list_attempts("run-1") == []
+    register.close()
+    state_register.close()
+
+
 def test_sqlite_agent_bootstrap_helpers(tmp_path: Path) -> None:
     database_path = make_database_path(tmp_path)
     state_register = create_sqlite_agent_state_register(database_path)
@@ -208,3 +265,9 @@ def test_sqlite_agent_bootstrap_helpers(tmp_path: Path) -> None:
         assert isinstance(trace_register, SQLiteAgentTraceRegister)
     finally:
         trace_register.close()
+
+    execution_register = create_sqlite_tool_execution_register(database_path)
+    try:
+        assert isinstance(execution_register, SQLiteToolExecutionRegister)
+    finally:
+        execution_register.close()

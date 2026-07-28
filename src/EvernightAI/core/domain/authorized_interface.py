@@ -21,6 +21,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunState,
     AgentRunStatus,
     AgentTraceEvent,
+    ToolExecutionAttempt,
+    ToolExecutionResolution,
 )
 from EvernightAI.core.schema.auth import (
     AuthPermission,
@@ -897,6 +899,42 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
             run_id,
             after_sequence=after_sequence,
             limit=limit,
+            principal_scope=self._principal_scope,
+        )
+
+    def list_tool_executions(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]:
+        self._require("agent-runs", "list_tool_executions", run_id)
+        return _call_with_scope_sync(
+            self._inner.list_tool_executions,
+            run_id,
+            principal_scope=self._principal_scope,
+        )
+
+    async def resolve_tool_execution(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        resolution: ToolExecutionResolution,
+        *,
+        result: dict[str, object] | None = None,
+        reason: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        self._require("agent-runs", "resolve_tool_execution", run_id)
+        return await _call_with_scope(
+            self._inner.resolve_tool_execution,
+            run_id,
+            tool_call_id,
+            attempt,
+            resolution,
+            result=result,
+            reason=reason,
             principal_scope=self._principal_scope,
         )
 

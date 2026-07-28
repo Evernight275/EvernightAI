@@ -7,6 +7,7 @@ from EvernightAI.core.schema.agent import (
     AgentRunState,
     AgentRunStatus,
     AgentTraceEvent,
+    ToolExecutionAttempt,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 
@@ -182,3 +183,35 @@ class AgentTraceRegisterProtocol(AgentProtocol, RegisterProtocol):
         older_than: str | None = None,
         keep_latest: int | None = None,
     ) -> int: ...
+
+
+class ToolExecutionRegisterProtocol(AgentProtocol, RegisterProtocol):
+    def create_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
+
+    def save_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
+
+    def get_attempt(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolExecutionAttempt: ...
+
+    def list_attempts(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]: ...

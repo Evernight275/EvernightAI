@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -22,6 +23,8 @@ from EvernightAI.core.schema.agent import (
     AgentStepType,
     AgentTraceEvent,
     AgentTraceEventType,
+    ToolExecutionAttempt,
+    ToolExecutionStatus,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse, Content, MessageRole
@@ -34,11 +37,12 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.session import Session, SessionStatus
-from EvernightAI.core.schema.tool import ToolCall
+from EvernightAI.core.schema.tool import ToolCall, ToolReplayPolicy
 from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
 from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
     SQLiteAgentTraceRegister,
+    SQLiteToolExecutionRegister,
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
@@ -53,8 +57,8 @@ def test_migration_runner_versions_schema_and_configures_connections(
 ) -> None:
     database_path = tmp_path / "runtime.sqlite3"
 
-    assert SQLiteMigrationRunner(database_path).run() == 3
-    assert SQLiteMigrationRunner(database_path).run() == 3
+    assert SQLiteMigrationRunner(database_path).run() == 4
+    assert SQLiteMigrationRunner(database_path).run() == 4
 
     connection = connect_sqlite(database_path)
     try:
@@ -67,7 +71,7 @@ def test_migration_runner_versions_schema_and_configures_connections(
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )
         }
-        assert versions == [(1,), (2,), (3,)]
+        assert versions == [(1,), (2,), (3,), (4,)]
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
@@ -447,7 +451,25 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
         finish_reason="tool_calls",
     )
     state.steps.append(AgentStep(step_type=AgentStepType.CHAT, response=state.response))
+    tool_calls = state.response.message.tool_calls
+    assert tool_calls is not None
     register.save_state(state)
+    execution_register = SQLiteToolExecutionRegister(database_path)
+    execution_register.create_attempt(
+        ToolExecutionAttempt(
+            run_id="run-1",
+            tool_call_id="call-1",
+            attempt=1,
+            tool_name="write_file",
+            status=ToolExecutionStatus.STARTED,
+            replay_policy=ToolReplayPolicy.NON_REPLAYABLE,
+            idempotency_key="run-1:call-1",
+            tool_call=tool_calls[0],
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    execution_register.close()
     register.acquire_lease("run-1", "stopped-executor", ttl_seconds=60)
     connection = sqlite3.connect(database_path)
     try:
@@ -473,6 +495,9 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
         assert runtime_metadata["pause_checkpoint"] == "tool_execution_incomplete"
         assert runtime_metadata["recovery_eligible"] is False
         assert trace_register.list_events("run-1")[-1].metadata["reason"] == "lease_expired"
+        execution_register = runtime.tool_execution_register
+        assert execution_register is not None
+        assert execution_register.list_attempts("run-1")[0].status is ToolExecutionStatus.UNKNOWN
 
         with pytest.raises(AgentStateError, match="cannot resume safely"):
             await AgentRunApplication(runtime).resume("run-1", [])

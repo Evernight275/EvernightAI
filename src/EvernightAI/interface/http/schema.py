@@ -1,6 +1,7 @@
 from pydantic import Field
 
 from EvernightAI.core.schema.auth import Principal, PrincipalType
+from EvernightAI.core.schema.agent import ToolExecutionResolution
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatRequest, ChatSkill, Content
 from EvernightAI.core.schema.memory import MemoryQuery
@@ -61,6 +62,12 @@ class DirectChatRequest(EvernightAISchema):
 
 class ResumeAgentRunRequest(EvernightAISchema):
     approvals: list[ToolApprovalDecision]
+
+
+class ResolveToolExecutionRequest(EvernightAISchema):
+    resolution: ToolExecutionResolution
+    result: dict[str, object] | None = None
+    reason: str | None = None
 
 
 class RenderSkillRequest(EvernightAISchema):

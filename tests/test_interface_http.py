@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
 import jwt
@@ -32,6 +33,7 @@ from EvernightAI.core.error.provider import ProviderRequestError, ProviderUnavai
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
@@ -41,6 +43,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunStatus,
     AgentTraceEvent,
     AgentTraceEventType,
+    ToolExecutionAttempt,
+    ToolExecutionStatus,
 )
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import (
@@ -90,6 +94,7 @@ from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolDefinition,
     ToolPermission,
+    ToolReplayPolicy,
     ToolSafetyLevel,
 )
 from EvernightAI.bootstrap.interface import create_interface
@@ -110,6 +115,7 @@ from EvernightAI.interface.log_store import RECENT_LOG_STORE
 from tests.fakes.agent import (
     InMemoryAgentRunStateRegister,
     InMemoryAgentTraceRegister,
+    InMemoryToolExecutionRegister,
 )
 from tests.fakes.streams import EventStream
 
@@ -2967,9 +2973,30 @@ def test_http_app_retries_a_canceled_agent_run() -> None:
 
 def test_http_app_retries_an_unrecoverable_paused_agent_run() -> None:
     state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    execution_register = InMemoryToolExecutionRegister()
+    call = ToolCall(
+        tool_call_id="call-unsafe",
+        tool_call={"name": "write_file", "arguments": {"path": "a.txt"}},
+    )
     runtime = make_runtime(
         agent_state_register=state_register,
-        agent_trace_register=InMemoryAgentTraceRegister(),
+        agent_trace_register=trace_register,
+        tool_execution_register=execution_register,
+    )
+    execution_register.create_attempt(
+        ToolExecutionAttempt(
+            run_id="run-unsafe",
+            tool_call_id="call-unsafe",
+            attempt=1,
+            tool_name="write_file",
+            status=ToolExecutionStatus.UNKNOWN,
+            replay_policy=ToolReplayPolicy.NON_REPLAYABLE,
+            idempotency_key="run-unsafe:call-unsafe",
+            tool_call=call,
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+        )
     )
     state_register.save_state(
         AgentRunState(
@@ -3009,6 +3036,86 @@ def test_http_app_retries_an_unrecoverable_paused_agent_run() -> None:
     state = response.json()
     assert state["run_id"] != "run-unsafe"
     assert state["request"]["metadata"]["retry_of"] == "run-unsafe"
+    abandoned = execution_register.get_attempt("run-unsafe", "call-unsafe", 1)
+    assert abandoned.resolution is not None
+    assert abandoned.resolution.value == "abandon_and_retry_run"
+    resolution_event = trace_register.list_events("run-unsafe")[-1]
+    assert resolution_event.event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
+    assert resolution_event.metadata["retried_run_id"] == state["run_id"]
+
+
+def test_http_app_lists_and_resolves_unknown_tool_execution() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    execution_register = InMemoryToolExecutionRegister()
+    call = ToolCall(
+        tool_call_id="call-1",
+        tool_call={"name": "write_file", "arguments": {"path": "a.txt"}},
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-unknown",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+            status=AgentRunStatus.PAUSED,
+            metadata={
+                "agent_runtime": {
+                    "pause_checkpoint": "tool_execution_incomplete",
+                    "recovery_eligible": False,
+                }
+            },
+        )
+    )
+    execution_register.create_attempt(
+        ToolExecutionAttempt(
+            run_id="run-unknown",
+            tool_call_id="call-1",
+            attempt=1,
+            tool_name="write_file",
+            status=ToolExecutionStatus.UNKNOWN,
+            replay_policy=ToolReplayPolicy.NON_REPLAYABLE,
+            idempotency_key="run-unknown:call-1",
+            tool_call=call,
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+        tool_execution_register=execution_register,
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        list_response = client.get(
+            "/agent-runs/run-unknown/tool-executions"
+        )
+        resolve_response = client.post(
+            "/agent-runs/run-unknown/tool-executions/call-1/1/resolve",
+            json={
+                "resolution": "confirm_completed",
+                "result": {"written": True},
+                "reason": "verified externally",
+            },
+        )
+        trace_response = client.get("/agent-runs/run-unknown/trace")
+
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["status"] == "unknown"
+    assert list_response.json()[0]["replay_policy"] == "non_replayable"
+    assert resolve_response.status_code == 200
+    assert resolve_response.json()["metadata"]["agent_runtime"][
+        "recovery_eligible"
+    ] is True
+    execution = execution_register.get_attempt("run-unknown", "call-1", 1)
+    assert execution.status is ToolExecutionStatus.COMPLETED
+    assert execution.result is not None
+    assert execution.result.tool_call_result == {"written": True}
+    assert trace_response.json()[-1]["event_type"] == "tool_execution_resolved"
 
 
 def test_http_app_maps_domain_errors() -> None:
@@ -3127,6 +3234,7 @@ def make_runtime(
     provider: ProviderInstanceProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
+    tool_execution_register: ToolExecutionRegisterProtocol | None = None,
 ) -> RuntimeKernel:
     async def build_provider(_config: ProviderConfig) -> ProviderInstanceProtocol:
         return provider or FakeProvider()
@@ -3155,6 +3263,7 @@ def make_runtime(
         memory_write_strategy=BasicMemoryWriteStrategy(),
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
+        tool_execution_register=tool_execution_register,
     )
 
 

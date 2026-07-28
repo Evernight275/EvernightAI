@@ -29,7 +29,11 @@ from EvernightAI.core.protocol.interface import (
     SkillInterfaceProtocol,
     ToolInterfaceProtocol,
 )
-from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState
+from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
+    AgentRunState,
+    ToolExecutionResolution,
+)
 from EvernightAI.core.schema.auth import AuthRequest, Principal
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -368,6 +372,20 @@ async def test_authorized_agent_interface_requires_expected_permission(
         ("get_state", ("run-1",), "agent-runs", "get", "run-1"),
         ("list_states", (), "agent-runs", "list", None),
         ("list_trace", ("run-1",), "agent-runs", "list_trace", "run-1"),
+        (
+            "list_tool_executions",
+            ("run-1",),
+            "agent-runs",
+            "list_tool_executions",
+            "run-1",
+        ),
+        (
+            "resolve_tool_execution",
+            ("run-1", "call-1", 1, ToolExecutionResolution.RETRY),
+            "agent-runs",
+            "resolve_tool_execution",
+            "run-1",
+        ),
     ],
 )
 @pytest.mark.asyncio
@@ -849,6 +867,23 @@ class FakeAgentRunInterface:
         limit: int | None = None,
     ) -> str:
         self.calls.append("list_trace")
+        return "delegated"
+
+    def list_tool_executions(self, run_id: str) -> str:
+        self.calls.append("list_tool_executions")
+        return "delegated"
+
+    async def resolve_tool_execution(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        resolution: ToolExecutionResolution,
+        *,
+        result: dict[str, object] | None = None,
+        reason: str | None = None,
+    ) -> str:
+        self.calls.append("resolve_tool_execution")
         return "delegated"
 
     async def close(self) -> None:

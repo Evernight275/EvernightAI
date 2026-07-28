@@ -6,11 +6,15 @@ import {
   fetchProviderModels,
   getApiKey,
   getAgentRun,
+  listAgentRunToolExecutions,
+  resolveAgentRunToolExecution,
   retryAgentRun,
   setApiKey,
   type AgentRunSocketStatus,
   type AgentRunState,
   type AgentTraceEvent,
+  type ToolExecutionAttempt,
+  type ToolExecutionResolution,
   type ProviderInfo,
   type ProviderModelGroup,
   type Session,
@@ -54,6 +58,8 @@ const providerModelGroups = ref<ProviderModelGroup[]>([])
 const tools = ref<ToolDefinition[]>([])
 const runs = ref<AgentRunState[]>([])
 const selectedRunId = ref<string | null>(null)
+const selectedRunToolExecutions = ref<ToolExecutionAttempt[]>([])
+const resolvingToolExecutionKey = ref<string | null>(null)
 const agentRunSocketStatus = ref<AgentRunSocketStatus>('disconnected')
 const providerModelsLoading = ref(false)
 const dashboardError = ref<string | null>(null)
@@ -252,10 +258,14 @@ function applyAgentTrace(
 
   if (
     event.event_type === 'tool_approval_decided'
+    || event.event_type === 'tool_execution_resolved'
     || event.event_type === 'run_paused'
     || event.event_type === 'run_stopped'
   ) {
     void refreshRun(runId)
+  }
+  if (event.event_type === 'tool_execution_resolved') {
+    void refreshToolExecutions(runId)
   }
 }
 
@@ -285,6 +295,19 @@ async function refreshRun(runId: string) {
     upsertRun(nextRun)
   } catch {
     // The run may have been pruned or hidden by auth; keep the local trace.
+  }
+}
+
+async function refreshToolExecutions(runId: string) {
+  try {
+    const attempts = await listAgentRunToolExecutions(runId)
+    if (selectedRunId.value === runId) {
+      selectedRunToolExecutions.value = attempts
+    }
+  } catch {
+    if (selectedRunId.value === runId) {
+      selectedRunToolExecutions.value = []
+    }
   }
 }
 
@@ -338,6 +361,44 @@ async function retryRun(run: AgentRunState) {
   }
 }
 
+async function resolveRunToolExecution(
+  run: AgentRunState,
+  execution: ToolExecutionAttempt,
+  resolution: ToolExecutionResolution,
+) {
+  const key = `${execution.tool_call_id}:${execution.attempt}`
+  resolvingToolExecutionKey.value = key
+  try {
+    const nextRun = await resolveAgentRunToolExecution(
+      run.run_id,
+      execution.tool_call_id,
+      execution.attempt,
+      {
+        resolution,
+        ...(resolution === 'confirm_completed'
+          ? { result: { status: 'operator_confirmed_completed' } }
+          : {}),
+      },
+    )
+    upsertRun(nextRun)
+    await refreshToolExecutions(run.run_id)
+
+    const runtime = nextRun.metadata?.agent_runtime
+    const recoveryEligible = typeof runtime === 'object'
+      && runtime !== null
+      && !Array.isArray(runtime)
+      && (runtime as Record<string, unknown>).recovery_eligible === true
+    if (recoveryEligible && agentRunSocketStatus.value === 'connected') {
+      agentRunSocket?.controlRun(run.run_id, 'resume')
+    }
+    toast.success(resolution === 'retry' ? '已允许重新执行工具' : '已确认工具执行完成')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '工具执行处置失败')
+  } finally {
+    resolvingToolExecutionKey.value = null
+  }
+}
+
 onMounted(async () => {
   // 初始化 Toast 服务
   if (toastContainer.value) {
@@ -373,7 +434,11 @@ watch(runs, () => {
   syncRunSubscriptions()
 })
 
-watch(selectedRunId, () => {
+watch(selectedRunId, (runId) => {
+  selectedRunToolExecutions.value = []
+  if (runId) {
+    void refreshToolExecutions(runId)
+  }
   syncRunSubscriptions()
 })
 </script>
@@ -429,12 +494,15 @@ watch(selectedRunId, () => {
           v-else-if="currentView === 'runs'"
           v-model:selected-run-id="selectedRunId"
           :runs="runs"
+          :tool-executions="selectedRunToolExecutions"
+          :resolving-tool-execution-key="resolvingToolExecutionKey"
           :socket-status="agentRunSocketStatus"
           @pause="pauseRun"
           @cancel="cancelRun"
           @resume="resumeRun"
           @retry="retryRun"
           @decide-approval="decideRunToolApproval"
+          @resolve-tool-execution="resolveRunToolExecution"
         />
 
         <DataAnalysisDashboard v-else-if="currentView === 'analytics'" />

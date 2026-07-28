@@ -2,8 +2,13 @@ from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
-from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
+from EvernightAI.core.schema.agent import (
+    AgentRunState,
+    AgentTraceEvent,
+    ToolExecutionAttempt,
+)
 from EvernightAI.core.schema.auth import PrincipalScope
 
 
@@ -75,3 +80,60 @@ class InMemoryAgentTraceRegister(AgentTraceRegisterProtocol):
 
     def clear_events(self, run_id: str) -> None:
         self.events.pop(run_id, None)
+
+
+class InMemoryToolExecutionRegister(ToolExecutionRegisterProtocol):
+    def __init__(self) -> None:
+        self.attempts: dict[tuple[str, str, int], ToolExecutionAttempt] = {}
+
+    def create_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        key = (attempt.run_id, attempt.tool_call_id, attempt.attempt)
+        if key in self.attempts:
+            raise AgentStateError("The tool execution attempt already exists")
+        self.attempts[key] = attempt
+
+    def save_attempt(
+        self,
+        attempt: ToolExecutionAttempt,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        key = (attempt.run_id, attempt.tool_call_id, attempt.attempt)
+        if key not in self.attempts:
+            raise AgentStateError("The tool execution attempt is not found")
+        self.attempts[key] = attempt
+
+    def get_attempt(
+        self,
+        run_id: str,
+        tool_call_id: str,
+        attempt: int,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolExecutionAttempt:
+        try:
+            return self.attempts[(run_id, tool_call_id, attempt)]
+        except KeyError as error:
+            raise AgentStateError(
+                "The tool execution attempt is not found"
+            ) from error
+
+    def list_attempts(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[ToolExecutionAttempt]:
+        return sorted(
+            (
+                attempt
+                for attempt in self.attempts.values()
+                if attempt.run_id == run_id
+            ),
+            key=lambda attempt: (attempt.tool_call_id, attempt.attempt),
+        )

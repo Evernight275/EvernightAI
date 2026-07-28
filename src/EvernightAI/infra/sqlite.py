@@ -403,8 +403,41 @@ def _add_memory_policy_columns(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_agent_tool_execution_table(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_tool_executions (
+            run_id TEXT NOT NULL,
+            tool_call_id TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            owner_id TEXT,
+            status TEXT NOT NULL,
+            replay_policy TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, tool_call_id, attempt),
+            FOREIGN KEY (run_id) REFERENCES agent_run_states(run_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_agent_tool_executions_run_status
+        ON agent_tool_executions(run_id, status, tool_call_id, attempt)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_agent_tool_executions_owner
+        ON agent_tool_executions(owner_id, run_id, tool_call_id, attempt)
+        """
+    )
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
     SQLiteMigration(3, "add memory policy columns", _add_memory_policy_columns),
+    SQLiteMigration(4, "add agent tool execution table", _add_agent_tool_execution_table),
 )

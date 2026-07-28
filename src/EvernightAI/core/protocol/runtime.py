@@ -3,6 +3,7 @@ from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
+    ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.context import (
     ContextManageProtocol,
@@ -125,6 +126,9 @@ class RuntimeProtocol(EvernightAIProtocol):
 
     @property
     def agent_trace_register(self) -> AgentTraceRegisterProtocol | None: ...
+
+    @property
+    def tool_execution_register(self) -> ToolExecutionRegisterProtocol | None: ...
 
     @property
     def is_ready(self) -> bool: ...
