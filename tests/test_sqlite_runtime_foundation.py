@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
+from EvernightAI.application.agent import AgentRunApplication, AgentRunMetadata
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.error.agent import AgentRunCanceledError, AgentRunTimeoutError
 from EvernightAI.core.error.agent import AgentStateError
@@ -17,6 +18,8 @@ from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
     AgentRunStatus,
+    AgentStep,
+    AgentStepType,
     AgentTraceEvent,
     AgentTraceEventType,
 )
@@ -31,6 +34,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.session import Session, SessionStatus
+from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
 from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentRunStateRegister,
@@ -394,7 +398,84 @@ async def test_sqlite_bootstrap_recovers_legacy_running_agents(tmp_path: Path) -
         events = runtime.agent_trace_register.list_events("run-1")  # type: ignore[union-attr]
         assert state.status is AgentRunStatus.PAUSED
         assert state.metadata["interruption_reason"] == "runtime_restart"
-        assert events[-1].metadata["reason"] == "interrupted"
+        runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
+        assert runtime_metadata["pause_source"] == "shutdown"
+        assert runtime_metadata["recovery_eligible"] is True
+        assert events[-1].metadata["reason"] == "shutdown"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_bootstrap_leaves_run_with_active_lease_running(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    register = SQLiteAgentRunStateRegister(database_path)
+    register.save_state(_running_state("run-1"))
+    register.acquire_lease("run-1", "another-executor", ttl_seconds=60)
+    register.close()
+
+    runtime = create_sqlite_runtime(database_path)
+    try:
+        state = runtime.agent_state_register.get_state("run-1")  # type: ignore[union-attr]
+        events = runtime.agent_trace_register.list_events("run-1")  # type: ignore[union-attr]
+        assert state.status is AgentRunStatus.RUNNING
+        assert events == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    register = SQLiteAgentRunStateRegister(database_path)
+    state = _running_state("run-1")
+    state.response = ChatResponse(
+        model_id="model-1",
+        message=Content(
+            role=MessageRole.ASSISTANT,
+            tool_calls=[
+                ToolCall(
+                    tool_call_id="call-1",
+                    tool_call={"name": "write_file", "arguments": {}},
+                )
+            ],
+        ),
+        finish_reason="tool_calls",
+    )
+    state.steps.append(AgentStep(step_type=AgentStepType.CHAT, response=state.response))
+    register.save_state(state)
+    register.acquire_lease("run-1", "stopped-executor", ttl_seconds=60)
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE agent_run_states SET lease_expires_at = ? WHERE run_id = ?",
+            ("2000-01-01T00:00:00+00:00", "run-1"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+        register.close()
+
+    runtime = create_sqlite_runtime(database_path)
+    try:
+        state_register = runtime.agent_state_register
+        trace_register = runtime.agent_trace_register
+        assert state_register is not None
+        assert trace_register is not None
+        state = state_register.get_state("run-1")
+        runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
+        assert state.status is AgentRunStatus.PAUSED
+        assert runtime_metadata["pause_source"] == "lease_expired"
+        assert runtime_metadata["pause_checkpoint"] == "tool_execution_incomplete"
+        assert runtime_metadata["recovery_eligible"] is False
+        assert trace_register.list_events("run-1")[-1].metadata["reason"] == "lease_expired"
+
+        with pytest.raises(AgentStateError, match="cannot resume safely"):
+            await AgentRunApplication(runtime).resume("run-1", [])
     finally:
         await runtime.close()
 

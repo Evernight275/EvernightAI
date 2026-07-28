@@ -158,10 +158,11 @@ async def approve_pending_agent_run(
     response_model=AgentRunState,
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
-    summary="Retry a failed or canceled agent run",
+    summary="Retry a failed, canceled, or unrecoverable paused agent run",
     description=(
-        "Create a new run from the original request. Prior tool approvals are "
-        "discarded so safety checks and approvals run again."
+        "Create a new run from the original request. Unrecoverable paused runs "
+        "must retry instead of resuming. Prior tool approvals are discarded so "
+        "safety checks and approvals run again."
     ),
     operation_id="retry_agent_run",
     responses={201: AGENT_RUN_STATE_RESPONSE_EXAMPLE},

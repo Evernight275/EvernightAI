@@ -11,6 +11,7 @@ from EvernightAI.core.domain.context import (
     TokenBudgetContextStrategy,
     WindowTrimmingContextStrategy,
 )
+from EvernightAI.application.agent import recover_interrupted_agent_runs
 from EvernightAI.core.domain.data_analysis import (
     DataAnalysisManager,
     DataAnalysisRegister,
@@ -36,11 +37,6 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
-from EvernightAI.core.schema.agent import (
-    AgentRunStatus,
-    AgentTraceEvent,
-    AgentTraceEventType,
-)
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
@@ -637,28 +633,3 @@ def _create_runtime(
         agent_trace_register=agent_trace_register,
         agent_run_executor=agent_run_executor,
     )
-
-
-def recover_interrupted_agent_runs(
-    state_register: AgentRunStateRegisterProtocol,
-    trace_register: AgentTraceRegisterProtocol,
-) -> int:
-    recovered = 0
-    for state in state_register.query_states(status=AgentRunStatus.RUNNING):
-        event = AgentTraceEvent(
-            event_type=AgentTraceEventType.RUN_PAUSED,
-            summary="Agent run paused: runtime restart",
-            metadata={"reason": "interrupted", "source": "runtime_restart"},
-        )
-        event.sequence = trace_register.append_event(state.run_id, event)
-        state.status = AgentRunStatus.PAUSED
-        state.stop_reason = None
-        state.trace.append(event)
-        state.metadata = {
-            **state.metadata,
-            "interrupted": True,
-            "interruption_reason": "runtime_restart",
-        }
-        state_register.save_state(state)
-        recovered += 1
-    return recovered

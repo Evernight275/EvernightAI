@@ -3,6 +3,8 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from weakref import WeakKeyDictionary
 from time import perf_counter
 from uuid import uuid4
@@ -187,15 +189,32 @@ class _AgentRunLifecycle:
             if state.status is not AgentRunStatus.RUNNING:
                 continue
 
+            trace_events = (
+                trace_register.list_events(state.run_id)
+                if trace_register is not None
+                else state.trace
+            )
+            checkpoint = inspect_agent_run_checkpoint(state, trace_events)
+
             event = AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_PAUSED,
                 summary="Agent run paused: shutdown",
-                metadata={"reason": "shutdown"},
+                metadata={
+                    "reason": "shutdown",
+                    "source": "shutdown",
+                    "checkpoint": checkpoint.name,
+                    "recovery_eligible": checkpoint.eligible,
+                },
             )
             state.status = AgentRunStatus.PAUSED
             state.stop_reason = None
             state.metadata = AgentRunMetadata.with_runtime(
                 state.metadata,
+                **{AgentRunMetadata.MANUAL_PAUSE_KEY: checkpoint.eligible},
+                **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint.name},
+                **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: checkpoint.eligible},
+                **{AgentRunMetadata.RECOVERY_REASON_KEY: "shutdown"},
+                **{AgentRunMetadata.PAUSE_SOURCE_KEY: "shutdown"},
                 shutdown_reason="shutdown",
             )
             state.trace.append(event)
@@ -212,6 +231,9 @@ class AgentRunMetadata:
     MANUAL_PAUSE_KEY = "manual_pause"
     PAUSE_REQUESTED_KEY = "pause_requested"
     PAUSE_CHECKPOINT_KEY = "pause_checkpoint"
+    PAUSE_SOURCE_KEY = "pause_source"
+    RECOVERY_ELIGIBLE_KEY = "recovery_eligible"
+    RECOVERY_REASON_KEY = "recovery_reason"
     RETRY_OF_KEY = "retry_of"
     RETRY_ATTEMPT_KEY = "retry_attempt"
 
@@ -258,6 +280,169 @@ class AgentRunMetadata:
                 cls.PENDING_APPROVAL_COUNT_KEY: pending_approval_count,
             },
         )
+
+
+@dataclass(frozen=True)
+class AgentRunRecoveryCheckpoint:
+    eligible: bool
+    name: str
+    detail: str | None = None
+
+
+def inspect_agent_run_checkpoint(
+    state: AgentRunState,
+    trace_events: list[AgentTraceEvent] | None = None,
+) -> AgentRunRecoveryCheckpoint:
+    """Restore checkpoint data from persisted trace and classify resumption safety."""
+    events = trace_events if trace_events is not None else state.trace
+    _restore_checkpoint_data(state, events)
+
+    if state.response is None:
+        if any(step.step_type is not AgentStepType.START for step in state.steps):
+            return AgentRunRecoveryCheckpoint(
+                eligible=False,
+                name="incomplete_trace",
+                detail="A persisted run step has no model response checkpoint",
+            )
+        return AgentRunRecoveryCheckpoint(eligible=True, name="run_started")
+
+    response_tool_calls = list(state.response.message.tool_calls or [])
+    completed_tool_call_ids = {
+        step.tool_call.tool_call_id
+        for step in state.steps
+        if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
+        and step.tool_call is not None
+    }
+    incomplete_tool_calls = [
+        call
+        for call in response_tool_calls
+        if call.tool_call_id not in completed_tool_call_ids
+    ]
+    if incomplete_tool_calls:
+        pending_approval_call_ids = {
+            request.tool_call_id for request in state.pending_approval_requests
+        }
+        if pending_approval_call_ids and all(
+            call.tool_call_id in pending_approval_call_ids
+            for call in incomplete_tool_calls
+        ):
+            return AgentRunRecoveryCheckpoint(
+                eligible=True,
+                name="approval_pending",
+            )
+        return AgentRunRecoveryCheckpoint(
+            eligible=False,
+            name="tool_execution_incomplete",
+            detail="A tool call has no persisted completion result",
+        )
+
+    return AgentRunRecoveryCheckpoint(
+        eligible=True,
+        name=("tool_round_completed" if response_tool_calls else "chat_completed"),
+    )
+
+
+def _restore_checkpoint_data(
+    state: AgentRunState,
+    events: list[AgentTraceEvent],
+) -> None:
+    if state.response is None:
+        for event in reversed(events):
+            if (
+                event.event_type is AgentTraceEventType.CHAT_COMPLETED
+                and event.response is not None
+            ):
+                state.response = event.response
+                state.steps.append(
+                    AgentStep(
+                        step_type=AgentStepType.CHAT,
+                        response=event.response,
+                        message=event.message or event.response.message,
+                    )
+                )
+                break
+
+    completed_tool_call_ids = {
+        step.tool_call.tool_call_id
+        for step in state.steps
+        if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
+        and step.tool_call is not None
+    }
+    for event in events:
+        if (
+            event.event_type
+            not in {AgentTraceEventType.TOOL_COMPLETED, AgentTraceEventType.TOOL_FAILED}
+            or event.tool_call is None
+            or event.tool_call.tool_call_id in completed_tool_call_ids
+        ):
+            continue
+        step_type = (
+            AgentStepType.TOOL
+            if event.event_type is AgentTraceEventType.TOOL_COMPLETED
+            else AgentStepType.TOOL_ERROR
+        )
+        state.steps.append(
+            AgentStep(
+                step_type=step_type,
+                message=event.message,
+                tool_call=event.tool_call,
+                tool_result=event.tool_result,
+                error_type=event.error_type,
+                error_message=event.error_message,
+            )
+        )
+        completed_tool_call_ids.add(event.tool_call.tool_call_id)
+
+
+def recover_interrupted_agent_runs(
+    state_register: AgentRunStateRegisterProtocol,
+    trace_register: AgentTraceRegisterProtocol,
+) -> int:
+    recovered = 0
+    now = datetime.now(timezone.utc)
+    for state in state_register.query_states(status=AgentRunStatus.RUNNING):
+        lease = state_register.get_execution_lease(state.run_id)
+        if (
+            lease is not None
+            and lease.expires_at is not None
+            and lease.expires_at > now
+        ):
+            continue
+
+        recovery_reason = "lease_expired" if lease is not None else "shutdown"
+        checkpoint = inspect_agent_run_checkpoint(
+            state,
+            trace_register.list_events(state.run_id),
+        )
+        event = AgentTraceEvent(
+            event_type=AgentTraceEventType.RUN_PAUSED,
+            summary=f"Agent run paused: {recovery_reason}",
+            metadata={
+                "reason": recovery_reason,
+                "source": "startup_recovery",
+                "checkpoint": checkpoint.name,
+                "recovery_eligible": checkpoint.eligible,
+            },
+        )
+        event.sequence = trace_register.append_event(state.run_id, event)
+        state.status = AgentRunStatus.PAUSED
+        state.stop_reason = None
+        state.trace.append(event)
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: checkpoint.eligible},
+            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint.name},
+            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: checkpoint.eligible},
+            **{AgentRunMetadata.RECOVERY_REASON_KEY: recovery_reason},
+            **{AgentRunMetadata.PAUSE_SOURCE_KEY: recovery_reason},
+        )
+        state.metadata["interrupted"] = True
+        state.metadata["interruption_reason"] = "runtime_restart"
+        state_register.save_state(state)
+        if lease is not None:
+            state_register.clear_execution_lease(state.run_id)
+        recovered += 1
+    return recovered
 
 
 class AgentApplication(AgentInterfaceProtocol):
@@ -469,6 +654,10 @@ class AgentApplication(AgentInterfaceProtocol):
     ) -> AsyncIterator[AgentTraceEvent]:
         if state.status is not AgentRunStatus.PAUSED:
             raise AgentStateError("Agent run is not paused")
+        if not self._is_recovery_eligible(state):
+            raise AgentStateError(
+                "Agent run cannot resume safely; retry it instead"
+            )
         if self._is_manual_pause(state):
             async for event in self._resume_manual_pause_events(state):
                 yield event
@@ -591,6 +780,13 @@ class AgentApplication(AgentInterfaceProtocol):
         return (
             isinstance(runtime_metadata, dict)
             and runtime_metadata.get(AgentRunMetadata.MANUAL_PAUSE_KEY) is True
+        )
+
+    def _is_recovery_eligible(self, state: AgentRunState) -> bool:
+        runtime_metadata = state.metadata.get(AgentRunMetadata.RUNTIME_KEY)
+        return not (
+            isinstance(runtime_metadata, dict)
+            and runtime_metadata.get(AgentRunMetadata.RECOVERY_ELIGIBLE_KEY) is False
         )
 
     async def run(
@@ -1668,8 +1864,19 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         source = self.get_state(run_id, principal_scope=principal_scope)
-        if source.status not in {AgentRunStatus.CANCELED, AgentRunStatus.FAILED}:
-            raise AgentStateError("Only canceled or failed agent runs can be retried")
+        runtime_metadata = source.metadata.get(AgentRunMetadata.RUNTIME_KEY)
+        unrecoverable_pause = (
+            source.status is AgentRunStatus.PAUSED
+            and isinstance(runtime_metadata, dict)
+            and runtime_metadata.get(AgentRunMetadata.RECOVERY_ELIGIBLE_KEY) is False
+        )
+        if (
+            source.status not in {AgentRunStatus.CANCELED, AgentRunStatus.FAILED}
+            and not unrecoverable_pause
+        ):
+            raise AgentStateError(
+                "Only canceled, failed, or unrecoverable paused agent runs can be retried"
+            )
 
         metadata = dict(source.request.metadata)
         metadata.pop(AgentRunMetadata.RUN_ID_KEY, None)
@@ -1918,6 +2125,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
             **{AgentRunMetadata.PAUSE_REQUESTED_KEY: False},
             **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint},
+            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: True},
+            **{AgentRunMetadata.RECOVERY_REASON_KEY: "manual_pause"},
+            **{AgentRunMetadata.PAUSE_SOURCE_KEY: "manual_pause"},
             pause_reason=pause_reason if isinstance(pause_reason, str) else "pause",
         )
         pause_event = self._agent._add_trace(
@@ -1960,11 +2170,20 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state = self.get_state(run_id, principal_scope=principal_scope)
         if state.status is not AgentRunStatus.RUNNING:
             return
+        checkpoint = inspect_agent_run_checkpoint(
+            state,
+            self._trace_register().list_events(run_id),
+        )
         event = self._agent._add_trace(
             state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_PAUSED,
-                metadata={"reason": reason, "interrupted": True},
+                metadata={
+                    "reason": reason,
+                    "interrupted": True,
+                    "checkpoint": checkpoint.name,
+                    "recovery_eligible": checkpoint.eligible,
+                },
             ),
         )
         event.sequence = self._trace_register().append_event(run_id, event)
@@ -1972,6 +2191,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.stop_reason = None
         state.metadata = AgentRunMetadata.with_runtime(
             state.metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: checkpoint.eligible},
+            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint.name},
+            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: checkpoint.eligible},
+            **{AgentRunMetadata.RECOVERY_REASON_KEY: reason},
+            **{AgentRunMetadata.PAUSE_SOURCE_KEY: reason},
             interruption_reason=reason,
         )
         self._state_register().save_state(

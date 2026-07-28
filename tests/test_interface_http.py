@@ -2965,6 +2965,52 @@ def test_http_app_retries_a_canceled_agent_run() -> None:
     assert state["request"]["metadata"]["retry_attempt"] == 1
 
 
+def test_http_app_retries_an_unrecoverable_paused_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-unsafe",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Try again safely")],
+                metadata={"run_id": "run-unsafe"},
+            ),
+            status=AgentRunStatus.PAUSED,
+            metadata={
+                "agent_runtime": {
+                    "pause_source": "lease_expired",
+                    "pause_checkpoint": "tool_execution_incomplete",
+                    "recovery_eligible": False,
+                }
+            },
+        )
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        response = client.post("/agent-runs/run-unsafe/retry")
+
+    assert response.status_code == 201
+    state = response.json()
+    assert state["run_id"] != "run-unsafe"
+    assert state["request"]["metadata"]["retry_of"] == "run-unsafe"
+
+
 def test_http_app_maps_domain_errors() -> None:
     interface = create_interface(make_runtime())
     app = create_http_app(interface, close_on_shutdown=False)

@@ -41,17 +41,45 @@ const hasRunControls = computed(() => isRunning.value || isPaused.value)
 const hasPendingApprovals = computed(() => pendingApprovals.value.length > 0)
 const canPause = computed(() => isRunning.value && realtimeReady.value)
 const canCancel = computed(() => hasRunControls.value && realtimeReady.value)
-const canResume = computed(() => isPaused.value && !hasPendingApprovals.value && realtimeReady.value)
-const canRetry = computed(() => props.run?.status === 'failed' || props.run?.status === 'canceled')
-const pauseCheckpoint = computed(() => {
+const runtimeMetadata = computed<Record<string, unknown> | null>(() => {
   const runtime = props.run?.metadata?.agent_runtime
   if (typeof runtime !== 'object' || runtime === null || Array.isArray(runtime)) {
     return null
   }
 
-  const checkpoint = (runtime as Record<string, unknown>).pause_checkpoint
+  return runtime as Record<string, unknown>
+})
+
+const pauseCheckpoint = computed(() => {
+  const checkpoint = runtimeMetadata.value?.pause_checkpoint
   return typeof checkpoint === 'string' ? checkpoint : null
 })
+
+const pauseSource = computed(() => {
+  const source = runtimeMetadata.value?.pause_source
+  return typeof source === 'string' ? source : null
+})
+
+const recoveryEligible = computed<boolean | null>(() => {
+  const eligible = runtimeMetadata.value?.recovery_eligible
+  return typeof eligible === 'boolean' ? eligible : null
+})
+
+const showResume = computed(() => (
+  isPaused.value
+  && !hasPendingApprovals.value
+  && recoveryEligible.value !== false
+))
+const canResume = computed(() => showResume.value && realtimeReady.value)
+const canRetry = computed(() => (
+  props.run?.status === 'failed'
+  || props.run?.status === 'canceled'
+  || (isPaused.value && recoveryEligible.value === false)
+))
+
+const recoveryLabel = computed(() => (
+  recoveryEligible.value === true ? '可继续' : recoveryEligible.value === false ? '需要重试' : null
+))
 
 const traceCounts = computed(() => {
   const counts = {
@@ -130,6 +158,16 @@ function formatEventType(eventType: string): string {
 
 function formatCheckpoint(checkpoint: string): string {
   return formatEventType(checkpoint)
+}
+
+function formatPauseSource(source: string): string {
+  const labels: Record<string, string> = {
+    manual_pause: '手动暂停',
+    shutdown: '关闭恢复',
+    timeout: '执行超时',
+    lease_expired: '执行租约过期',
+  }
+  return labels[source] || formatEventType(source)
 }
 
 function toolName(event: AgentTraceEvent): string {
@@ -262,7 +300,7 @@ function shortId(id: string | undefined): string {
               <Icon name="pause" />
             </button>
             <button
-              v-if="isPaused"
+              v-if="showResume"
               class="button compact-button icon-button"
               type="button"
               :disabled="!canResume"
@@ -338,9 +376,19 @@ function shortId(id: string | undefined): string {
               <dt>Remaining</dt>
               <dd>{{ run.remaining_tool_rounds ?? 0 }}</dd>
             </div>
+            <div v-if="pauseSource">
+              <dt>暂停来源</dt>
+              <dd>{{ formatPauseSource(pauseSource) }}</dd>
+            </div>
             <div v-if="pauseCheckpoint">
               <dt>Checkpoint</dt>
               <dd>{{ formatCheckpoint(pauseCheckpoint) }}</dd>
+            </div>
+            <div v-if="recoveryLabel">
+              <dt>恢复资格</dt>
+              <dd>
+                <span class="tag" :class="recoveryEligible ? 'success' : 'danger'">{{ recoveryLabel }}</span>
+              </dd>
             </div>
           </dl>
         </section>

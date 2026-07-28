@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -49,6 +50,15 @@ class AgentRunStatus(StrEnum):
     CANCELED = "canceled"
     FINISHED = "finished"
     FAILED = "failed"
+
+
+class AgentRunLease(EvernightAISchema):
+    """Persisted executor lease for a running agent."""
+
+    owner: str
+    expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    generation: int = 0
 
 
 class AgentStopReason(StrEnum):

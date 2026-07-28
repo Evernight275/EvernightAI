@@ -1343,7 +1343,7 @@ async def test_agent_run_application_rejects_retry_of_nonterminal_run() -> None:
         )
     )
 
-    with pytest.raises(AgentStateError, match="Only canceled or failed"):
+    with pytest.raises(AgentStateError, match="Only canceled, failed"):
         await AgentRunApplication(runtime).retry("run-active")
 
 
@@ -1536,10 +1536,20 @@ async def test_agent_run_application_shutdown_marks_stale_running_runs_paused(
     assert state.status is AgentRunStatus.PAUSED
     assert state.stop_reason is None
     assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
-        "shutdown_reason": "shutdown"
+        "manual_pause": True,
+        "pause_checkpoint": "run_started",
+        "pause_source": "shutdown",
+        "recovery_eligible": True,
+        "recovery_reason": "shutdown",
+        "shutdown_reason": "shutdown",
     }
     assert [event.event_type for event in trace] == [AgentTraceEventType.RUN_PAUSED]
-    assert trace[0].metadata == {"reason": "shutdown"}
+    assert trace[0].metadata == {
+        "reason": "shutdown",
+        "source": "shutdown",
+        "checkpoint": "run_started",
+        "recovery_eligible": True,
+    }
     assert [
         record.getMessage()
         for record in caplog.records
@@ -1549,6 +1559,40 @@ async def test_agent_run_application_shutdown_marks_stale_running_runs_paused(
         "EvernightAI agent shutdown: active agent runs drained",
         "EvernightAI agent shutdown: persisted running states reconciled",
     ]
+
+
+def test_agent_run_application_timeout_marks_checkpoint_recovery_metadata() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-timeout",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+            ),
+        )
+    )
+
+    AgentRunApplication(runtime)._mark_interrupted("run-timeout", "timeout")
+
+    state = state_register.get_state("run-timeout")
+    runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
+    assert state.status is AgentRunStatus.PAUSED
+    assert runtime_metadata["pause_source"] == "timeout"
+    assert runtime_metadata["pause_checkpoint"] == "run_started"
+    assert runtime_metadata["recovery_eligible"] is True
+    assert trace_register.list_events("run-timeout")[-1].metadata == {
+        "reason": "timeout",
+        "interrupted": True,
+        "checkpoint": "run_started",
+        "recovery_eligible": True,
+    }
 
 
 @pytest.mark.asyncio

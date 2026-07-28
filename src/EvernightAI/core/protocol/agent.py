@@ -2,7 +2,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 from EvernightAI.core.protocol.base import EvernightAIProtocol, RegisterProtocol
 from EvernightAI.core.error.agent import AgentStateError
-from EvernightAI.core.schema.agent import AgentRunState, AgentRunStatus, AgentTraceEvent
+from EvernightAI.core.schema.agent import (
+    AgentRunLease,
+    AgentRunState,
+    AgentRunStatus,
+    AgentTraceEvent,
+)
 from EvernightAI.core.schema.auth import PrincipalScope
 
 
@@ -129,6 +134,22 @@ class AgentRunStateRegisterProtocol(AgentProtocol, RegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None: ...
+
+    def get_execution_lease(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunLease | None:
+        return None
+
+    def clear_execution_lease(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        return None
 
     def delete_state(
         self,

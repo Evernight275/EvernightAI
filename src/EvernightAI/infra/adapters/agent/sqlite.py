@@ -6,7 +6,12 @@ from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
 )
-from EvernightAI.core.schema.agent import AgentRunState, AgentRunStatus, AgentTraceEvent
+from EvernightAI.core.schema.agent import (
+    AgentRunLease,
+    AgentRunState,
+    AgentRunStatus,
+    AgentTraceEvent,
+)
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.infra.sqlite import (
     SQLiteMigrationRunner,
@@ -50,6 +55,15 @@ def _scope_values(
     if principal_scope is None or principal_scope.owner_id is None:
         return ()
     return (principal_scope.owner_id,)
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
@@ -306,6 +320,51 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
                     *_scope_values(principal_scope),
                 ),
             )
+
+    def get_execution_lease(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunLease | None:
+        where, values = _scoped_identity("run_id", run_id, principal_scope)
+        row = self._connection.execute(
+            f"""
+            SELECT lease_owner, lease_expires_at, heartbeat_at, lease_generation
+            FROM agent_run_states
+            WHERE {where}
+            """,
+            values,
+        ).fetchone()
+        if row is None:
+            raise AgentStateError(f"The agent run state {run_id} is not found")
+        if row[0] is None:
+            return None
+        return AgentRunLease(
+            owner=str(row[0]),
+            expires_at=_parse_datetime(row[1]),
+            heartbeat_at=_parse_datetime(row[2]),
+            generation=int(row[3]),
+        )
+
+    def clear_execution_lease(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        where, values = _scoped_identity("run_id", run_id, principal_scope)
+        with sqlite_transaction(self._connection, immediate=True):
+            cursor = self._connection.execute(
+                f"""
+                UPDATE agent_run_states
+                SET lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL
+                WHERE {where}
+                """,
+                values,
+            )
+            if cursor.rowcount == 0:
+                raise AgentStateError(f"The agent run state {run_id} is not found")
 
     def close(self) -> None:
         self._connection.close()
