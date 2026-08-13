@@ -136,6 +136,18 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     agent_stream_examples = schema["paths"]["/agent-runs/stream"]["post"][
         "requestBody"
     ]["content"]["application/json"]["examples"]
+    agent_pause_examples = schema["paths"]["/agent-runs/{run_id}/pause"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["examples"]
+    agent_cancel_examples = schema["paths"]["/agent-runs/{run_id}/cancel"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["examples"]
+    agent_pause_response_example = schema["paths"]["/agent-runs/{run_id}/pause"][
+        "post"
+    ]["responses"]["200"]["content"]["application/json"]["example"]
+    agent_cancel_response_example = schema["paths"]["/agent-runs/{run_id}/cancel"][
+        "post"
+    ]["responses"]["200"]["content"]["application/json"]["example"]
     session_chat_examples = schema["paths"]["/sessions/{session_id}/chat"]["post"][
         "requestBody"
     ]["content"]["application/json"]["examples"]
@@ -167,6 +179,22 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
         "messages": [message_json("Stream trace events while answering.")],
         "max_tool_rounds": 0,
         "metadata": {"request_id": "agent-stream-1"},
+    }
+    assert agent_pause_examples["withReason"]["value"] == {
+        "reason": "operator paused"
+    }
+    assert agent_cancel_examples["withReason"]["value"] == {
+        "reason": "operator paused"
+    }
+    assert agent_pause_response_example["status"] == "running"
+    assert agent_pause_response_example["metadata"]["agent_runtime"] == {
+        "pause_requested": True,
+        "pause_reason": "operator paused",
+    }
+    assert agent_cancel_response_example["status"] == "canceled"
+    assert agent_cancel_response_example["metadata"]["agent_runtime"] == {
+        "manual_pause": False,
+        "cancel_reason": "operator canceled",
     }
     assert chat_examples["withReasoningEffort"]["value"]["request"]["metadata"] == {
         "reasoning_effort": "high"
@@ -1765,6 +1793,73 @@ def test_http_agent_stream_encodes_provider_errors_as_sse() -> None:
     assert "provider chat failed" in stream_response.text
 
 
+def test_http_agent_resume_stream_marks_run_failed_on_provider_error() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-resume-fails",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Resume and fail")],
+                metadata={"run_id": "run-resume-fails"},
+            ),
+            status=AgentRunStatus.PAUSED,
+            metadata={
+                "run_id": "run-resume-fails",
+                "agent_runtime": {
+                    "manual_pause": True,
+                    "recovery_eligible": True,
+                },
+            },
+        )
+    )
+    interface = create_interface(
+        make_runtime(
+            provider=FailingChatProvider(),
+            agent_state_register=state_register,
+            agent_trace_register=trace_register,
+        )
+    )
+    app = create_http_app(interface, close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        with client.stream(
+            "POST",
+            "/agent-runs/run-resume-fails/resume/stream",
+            json={"approvals": []},
+        ) as stream_response:
+            body = stream_response.read().decode("utf-8")
+
+    messages = parse_sse_messages(body)
+    assert stream_response.status_code == 200
+    assert [message["event"] for message in messages] == ["error"]
+    error = json.loads(messages[0]["data"])
+    assert error["error"] == {
+        "type": "ProviderUnavailableError",
+        "message": "provider chat failed",
+        "detail": None,
+    }
+    state = state_register.get_state("run-resume-fails")
+    assert state.status is AgentRunStatus.FAILED
+    assert state.metadata["agent_runtime"]["failure_type"] == "ProviderUnavailableError"
+    assert state.metadata["agent_runtime"]["failure_message"] == "provider chat failed"
+    events = trace_register.list_events("run-resume-fails")
+    assert [event.event_type for event in events] == [AgentTraceEventType.RUN_STOPPED]
+    assert events[0].metadata == {"reason": "failed"}
+
+
 def test_http_app_streams_agent_pause_for_tool_approval() -> None:
     tool_executed = False
 
@@ -2928,6 +3023,82 @@ def test_http_app_approves_pending_agent_run_without_manual_payload() -> None:
         MessageRole.ASSISTANT,
         MessageRole.TOOL,
     ]
+
+
+def test_http_app_pauses_running_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-pause",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Pause later")],
+                metadata={"run_id": "run-pause"},
+            ),
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/agent-runs/run-pause/pause",
+            json={"reason": "operator paused"},
+        )
+
+    assert response.status_code == 200
+    state = response.json()
+    assert state["status"] == "running"
+    assert state["metadata"]["agent_runtime"]["pause_requested"] is True
+    assert state["metadata"]["agent_runtime"]["pause_reason"] == "operator paused"
+
+
+def test_http_app_cancels_agent_run() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    trace_register = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-cancel",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Cancel me")],
+                metadata={"run_id": "run-cancel"},
+            ),
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/agent-runs/run-cancel/cancel",
+            json={"reason": "operator canceled"},
+        )
+
+    assert response.status_code == 200
+    state = response.json()
+    assert state["status"] == "canceled"
+    assert state["pending_tool_calls"] == []
+    assert state["pending_approval_requests"] == []
+    assert state["metadata"]["agent_runtime"]["cancel_reason"] == "operator canceled"
+    events = trace_register.list_events("run-cancel")
+    assert [event.event_type for event in events] == [AgentTraceEventType.RUN_STOPPED]
+    assert events[0].metadata == {
+        "reason": "canceled",
+        "control_reason": "operator canceled",
+    }
 
 
 def test_http_app_retries_a_canceled_agent_run() -> None:

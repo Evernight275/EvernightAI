@@ -64,6 +64,10 @@ class ResumeAgentRunRequest(EvernightAISchema):
     approvals: list[ToolApprovalDecision]
 
 
+class AgentRunControlRequest(EvernightAISchema):
+    reason: str | None = None
+
+
 class ResolveToolExecutionRequest(EvernightAISchema):
     resolution: ToolExecutionResolution
     result: dict[str, object] | None = None

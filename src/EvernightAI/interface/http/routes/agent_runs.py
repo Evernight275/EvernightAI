@@ -15,10 +15,14 @@ from EvernightAI.core.schema.stream import SSEEvent
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.schema import (
+    AgentRunControlRequest,
     ResolveToolExecutionRequest,
     ResumeAgentRunRequest,
 )
 from EvernightAI.interface.http.template import (
+    AGENT_RUN_CANCELED_RESPONSE_EXAMPLE,
+    AGENT_RUN_CONTROL_EXAMPLES,
+    AGENT_RUN_PAUSED_RESPONSE_EXAMPLE,
     AGENT_RUN_STATE_RESPONSE_EXAMPLE,
     AGENT_TRACE_SSE_EXAMPLE,
     AGENT_RUN_EXAMPLES,
@@ -135,6 +139,46 @@ async def resume_agent_run(
     interface: InterfaceDependency,
 ) -> AgentRunState:
     return await interface.agent_runs.resume(run_id, request.approvals)
+
+
+@router.post(
+    "/{run_id}/pause",
+    response_model=AgentRunState,
+    response_model_exclude_none=True,
+    summary="Pause an active agent run",
+    description="Request that an active agent run pause at its next safe checkpoint.",
+    operation_id="pause_agent_run",
+    responses={200: AGENT_RUN_PAUSED_RESPONSE_EXAMPLE},
+)
+async def pause_agent_run(
+    run_id: str,
+    request: Annotated[
+        AgentRunControlRequest,
+        Body(openapi_examples=AGENT_RUN_CONTROL_EXAMPLES),
+    ],
+    interface: InterfaceDependency,
+) -> AgentRunState:
+    return await interface.agent_runs.pause(run_id, reason=request.reason)
+
+
+@router.post(
+    "/{run_id}/cancel",
+    response_model=AgentRunState,
+    response_model_exclude_none=True,
+    summary="Cancel an agent run",
+    description="Cancel an active or paused agent run.",
+    operation_id="cancel_agent_run",
+    responses={200: AGENT_RUN_CANCELED_RESPONSE_EXAMPLE},
+)
+async def cancel_agent_run(
+    run_id: str,
+    request: Annotated[
+        AgentRunControlRequest,
+        Body(openapi_examples=AGENT_RUN_CONTROL_EXAMPLES),
+    ],
+    interface: InterfaceDependency,
+) -> AgentRunState:
+    return await interface.agent_runs.cancel(run_id, reason=request.reason)
 
 
 @router.post(

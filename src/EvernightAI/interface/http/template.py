@@ -45,6 +45,7 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
 )
 from EvernightAI.interface.http.schema import (
+    AgentRunControlRequest,
     ChatWithContextRequest,
     DirectChatRequest,
     RenderSkillRequest,
@@ -150,12 +151,17 @@ def _response_example(
     description: str,
     value: EvernightAISchema,
     exclude: set[str] | dict[str, Any] | None = None,
+    exclude_defaults: bool = True,
 ) -> dict[str, object]:
     return {
         "description": description,
         "content": {
             "application/json": {
-                "example": _schema_value(value, exclude=exclude),
+                "example": _schema_value(
+                    value,
+                    exclude=exclude,
+                    exclude_defaults=exclude_defaults,
+                ),
             }
         },
     }
@@ -306,6 +312,47 @@ AGENT_RUN_STATE_RESPONSE_EXAMPLE = _response_example(
         ),
         status=AgentRunStatus.FINISHED,
         metadata={"run_id": "run-1"},
+    ),
+)
+
+
+AGENT_RUN_PAUSED_RESPONSE_EXAMPLE = _response_example(
+    description="Paused agent run state.",
+    value=AgentRunState(
+        run_id="run-1",
+        request=_agent_run_request(
+            "Pause at the next safe checkpoint.",
+            metadata={"run_id": "run-1"},
+        ),
+        status=AgentRunStatus.RUNNING,
+        metadata={
+            "run_id": "run-1",
+            "agent_runtime": {
+                "pause_requested": True,
+                "pause_reason": "operator paused",
+            },
+        },
+    ),
+    exclude_defaults=False,
+)
+
+
+AGENT_RUN_CANCELED_RESPONSE_EXAMPLE = _response_example(
+    description="Canceled agent run state.",
+    value=AgentRunState(
+        run_id="run-1",
+        request=_agent_run_request(
+            "Cancel this run.",
+            metadata={"run_id": "run-1"},
+        ),
+        status=AgentRunStatus.CANCELED,
+        metadata={
+            "run_id": "run-1",
+            "agent_runtime": {
+                "manual_pause": False,
+                "cancel_reason": "operator canceled",
+            },
+        },
     ),
 )
 
@@ -636,6 +683,18 @@ RESUME_AGENT_RUN_EXAMPLES = _openapi_examples({
                 )
             ]
         ),
+    ),
+})
+
+
+AGENT_RUN_CONTROL_EXAMPLES = _openapi_examples({
+    "withReason": _example(
+        summary="Control with a reason",
+        value=AgentRunControlRequest(reason="operator paused"),
+    ),
+    "withoutReason": _example(
+        summary="Control without a reason",
+        value=AgentRunControlRequest(),
     ),
 })
 
