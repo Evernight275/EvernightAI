@@ -313,6 +313,26 @@ class AgentRunRecoveryCheckpoint:
     detail: str | None = None
 
 
+@dataclass(frozen=True)
+class AgentRunRetryPlan:
+    source: AgentRunState
+    request: AgentRunRequest
+    retried_run_id: str
+    abandon_unrecoverable_pause: bool = False
+
+
+@dataclass(frozen=True)
+class AbandonedToolExecution:
+    tool_call_id: str
+    attempt: int
+
+    def to_trace_metadata(self) -> dict[str, object]:
+        return {
+            "tool_call_id": self.tool_call_id,
+            "attempt": self.attempt,
+        }
+
+
 def inspect_agent_run_checkpoint(
     state: AgentRunState,
     trace_events: list[AgentTraceEvent] | None = None,
@@ -2100,90 +2120,163 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
+        plan = self._retry_plan(run_id, principal_scope=principal_scope)
+        if plan.abandon_unrecoverable_pause:
+            self._abandon_unrecoverable_pause(
+                plan.source,
+                retried_run_id=plan.retried_run_id,
+                principal_scope=principal_scope,
+            )
+        retried = await self.start(plan.request, principal_scope=principal_scope)
+        return retried
+
+    def _retry_plan(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunRetryPlan:
         source = self.get_state(run_id, principal_scope=principal_scope)
-        runtime_metadata = source.metadata.get(AgentRunMetadata.RUNTIME_KEY)
-        unrecoverable_pause = (
-            source.status is AgentRunStatus.PAUSED
-            and isinstance(runtime_metadata, dict)
-            and runtime_metadata.get(AgentRunMetadata.RECOVERY_ELIGIBLE_KEY) is False
-        )
-        if (
-            source.status not in {AgentRunStatus.CANCELED, AgentRunStatus.FAILED}
-            and not unrecoverable_pause
-        ):
+        abandon_unrecoverable_pause = self._is_unrecoverable_pause(source)
+        if not self._can_retry(source, abandon_unrecoverable_pause):
             raise AgentStateError(
                 "Only canceled, failed, or unrecoverable paused agent runs can be retried"
             )
+        request = self._retry_request(source)
+        retried_run_id = AgentRunMetadata.run_id(request.metadata)
+        if retried_run_id is None:
+            raise AgentStateError("Retry request did not allocate a run id")
+        return AgentRunRetryPlan(
+            source=source,
+            request=request,
+            retried_run_id=retried_run_id,
+            abandon_unrecoverable_pause=abandon_unrecoverable_pause,
+        )
 
+    def _is_unrecoverable_pause(self, state: AgentRunState) -> bool:
+        runtime_metadata = state.metadata.get(AgentRunMetadata.RUNTIME_KEY)
+        return (
+            state.status is AgentRunStatus.PAUSED
+            and isinstance(runtime_metadata, dict)
+            and runtime_metadata.get(AgentRunMetadata.RECOVERY_ELIGIBLE_KEY) is False
+        )
+
+    def _can_retry(
+        self,
+        state: AgentRunState,
+        abandon_unrecoverable_pause: bool,
+    ) -> bool:
+        return state.status in {
+            AgentRunStatus.CANCELED,
+            AgentRunStatus.FAILED,
+        } or abandon_unrecoverable_pause
+
+    def _retry_request(self, source: AgentRunState) -> AgentRunRequest:
         metadata = dict(source.request.metadata)
-        metadata.pop(AgentRunMetadata.RUN_ID_KEY, None)
+        retry_run_id = uuid4().hex
+        metadata[AgentRunMetadata.RUN_ID_KEY] = retry_run_id
         previous_attempt = metadata.get(AgentRunMetadata.RETRY_ATTEMPT_KEY)
         retry_attempt = previous_attempt + 1 if isinstance(previous_attempt, int) else 1
         metadata[AgentRunMetadata.RETRY_OF_KEY] = source.run_id
         metadata[AgentRunMetadata.RETRY_ATTEMPT_KEY] = retry_attempt
-        request = source.request.model_copy(
+        return source.request.model_copy(
             update={
                 "tool_approvals": [],
                 "pause_on_approval": True,
                 "metadata": metadata,
             }
         )
-        retried = await self.start(request, principal_scope=principal_scope)
-        if unrecoverable_pause:
-            resolved_attempts: list[dict[str, object]] = []
-            execution_register = self._runtime.tool_execution_register
-            if execution_register is not None:
-                attempts = execution_register.list_attempts(
-                    source.run_id,
-                    principal_scope=principal_scope,
-                )
-                resolved_at = datetime.now(timezone.utc)
-                for execution in _latest_tool_execution_attempts(attempts).values():
-                    if not (
-                        execution.status is ToolExecutionStatus.UNKNOWN
-                        and execution.replay_policy
-                        is ToolReplayPolicy.NON_REPLAYABLE
-                        and execution.resolution is None
-                    ):
-                        continue
-                    execution = execution.model_copy(
-                        update={
-                            "resolution": (
-                                ToolExecutionResolution.ABANDON_AND_RETRY_RUN
-                            ),
-                            "resolution_reason": "run_retried",
-                            "resolved_at": resolved_at,
-                        }
-                    )
-                    execution_register.save_attempt(
-                        execution,
-                        principal_scope=principal_scope,
-                    )
-                    resolved_attempts.append(
-                        {
-                            "tool_call_id": execution.tool_call_id,
-                            "attempt": execution.attempt,
-                        }
-                    )
-            event = self._agent._add_trace(
-                source,
-                AgentTraceEvent(
-                    event_type=AgentTraceEventType.TOOL_EXECUTION_RESOLVED,
-                    metadata={
-                        "resolution": (
-                            ToolExecutionResolution.ABANDON_AND_RETRY_RUN.value
-                        ),
-                        "retried_run_id": retried.run_id,
-                        "tool_executions": resolved_attempts,
-                    },
-                ),
+
+    def _abandon_unrecoverable_pause(
+        self,
+        source: AgentRunState,
+        *,
+        retried_run_id: str,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        abandoned_executions = self._abandon_unrecoverable_tool_executions(
+            source,
+            principal_scope=principal_scope,
+        )
+        self._append_retry_resolution_trace(
+            source,
+            retried_run_id=retried_run_id,
+            abandoned_executions=abandoned_executions,
+            principal_scope=principal_scope,
+        )
+
+    def _abandon_unrecoverable_tool_executions(
+        self,
+        source: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> list[AbandonedToolExecution]:
+        execution_register = self._runtime.tool_execution_register
+        if execution_register is None:
+            return []
+
+        attempts = execution_register.list_attempts(
+            source.run_id,
+            principal_scope=principal_scope,
+        )
+        abandoned: list[AbandonedToolExecution] = []
+        resolved_at = datetime.now(timezone.utc)
+        for execution in _latest_tool_execution_attempts(attempts).values():
+            if not self._should_abandon_for_retry(execution):
+                continue
+            execution = execution.model_copy(
+                update={
+                    "resolution": ToolExecutionResolution.ABANDON_AND_RETRY_RUN,
+                    "resolution_reason": "run_retried",
+                    "resolved_at": resolved_at,
+                }
             )
-            event.sequence = self._trace_register().append_event(source.run_id, event)
-            self._state_register().save_state(
-                source,
+            execution_register.save_attempt(
+                execution,
                 principal_scope=principal_scope,
             )
-        return retried
+            abandoned.append(
+                AbandonedToolExecution(
+                    tool_call_id=execution.tool_call_id,
+                    attempt=execution.attempt,
+                )
+            )
+        return abandoned
+
+    def _should_abandon_for_retry(self, execution: ToolExecutionAttempt) -> bool:
+        return (
+            execution.status is ToolExecutionStatus.UNKNOWN
+            and execution.replay_policy is ToolReplayPolicy.NON_REPLAYABLE
+            and execution.resolution is None
+        )
+
+    def _append_retry_resolution_trace(
+        self,
+        source: AgentRunState,
+        *,
+        retried_run_id: str,
+        abandoned_executions: list[AbandonedToolExecution],
+        principal_scope: PrincipalScope | None = None,
+    ) -> None:
+        event = self._agent._add_trace(
+            source,
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.TOOL_EXECUTION_RESOLVED,
+                metadata={
+                    "resolution": ToolExecutionResolution.ABANDON_AND_RETRY_RUN.value,
+                    "retried_run_id": retried_run_id,
+                    "tool_executions": [
+                        execution.to_trace_metadata()
+                        for execution in abandoned_executions
+                    ],
+                },
+            ),
+        )
+        event.sequence = self._trace_register().append_event(source.run_id, event)
+        self._state_register().save_state(
+            source,
+            principal_scope=principal_scope,
+        )
 
     def start_stream(
         self,

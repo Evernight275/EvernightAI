@@ -1353,6 +1353,39 @@ async def test_agent_run_application_rejects_retry_of_nonterminal_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_run_application_rejects_unrecoverable_retry_before_new_run_when_trace_missing() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        provider=FinalAnswerProvider(),
+        agent_state_register=state_register,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-unsafe",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Try again")],
+            ),
+            status=AgentRunStatus.PAUSED,
+            metadata={
+                AgentRunMetadata.RUNTIME_KEY: {
+                    AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: False,
+                }
+            },
+        )
+    )
+
+    with pytest.raises(AgentStateError, match="trace register"):
+        await AgentRunApplication(runtime).retry("run-unsafe")
+
+    assert [state.run_id for state in state_register.list_states()] == ["run-unsafe"]
+
+
+@pytest.mark.asyncio
 async def test_agent_run_application_facade_manages_persisted_runs() -> None:
     async def write(arguments: dict[str, object]) -> dict[str, object]:
         return {"written": True}
