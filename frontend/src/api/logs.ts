@@ -2,19 +2,20 @@ import { requestJson } from './client'
 
 export type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical' | string
 
-export type LogEntry = {
-  index: number
-  timestamp: string
+export type Log = {
+  sequence: number | null
+  occurred_at: string | null
   level: LogLevel
-  logger: string
+  source: string
   message: string
-  module?: string | null
-  function?: string | null
-  line?: number | null
+  trace_id?: string | null
+  span_id?: string | null
+  error_type?: string | null
+  error_message?: string | null
   metadata?: Record<string, unknown>
 }
 
-export function listLogs(params: { limit?: number; after?: number } = {}): Promise<LogEntry[]> {
+export function listLogs(params: { limit?: number; after?: number } = {}): Promise<Log[]> {
   const query = new URLSearchParams()
   if (params.limit !== undefined) {
     query.set('limit', String(params.limit))
@@ -24,7 +25,7 @@ export function listLogs(params: { limit?: number; after?: number } = {}): Promi
   }
 
   const suffix = query.toString()
-  return requestJson<LogEntry[]>(`/logs${suffix ? `?${suffix}` : ''}`)
+  return requestJson<Log[]>(`/logs${suffix ? `?${suffix}` : ''}`)
 }
 
 export function clearLogs(): Promise<void> {

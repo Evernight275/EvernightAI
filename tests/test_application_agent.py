@@ -2297,6 +2297,11 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
     )
     assert app._add_trace(state, trace_event) is trace_event
     assert state.trace[-1].summary == "Already summarized"
+    assert state.trace[-1].trace_id == state.run_id
+    assert state.trace[-1].source == "agent"
+    assert state.trace[-1].subject is not None
+    assert state.trace[-1].subject.kind == "agent_run"
+    assert state.trace[-1].subject.subject_id == state.run_id
 
     missing_register_app = AgentApplication(make_runtime(provider=FinalAnswerProvider()))
     with pytest.raises(AgentStateError, match="state register is not configured"):

@@ -7,6 +7,7 @@ from pydantic import Field
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatResponse, ChatSkill, Content
 from EvernightAI.core.schema.memory import MemoryQuery
+from EvernightAI.core.schema.trace import TraceEvent
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolApprovalRequest,
@@ -151,12 +152,14 @@ class AgentRunResult(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class AgentTraceEvent(EvernightAISchema):
-    """Agent运行追踪事件"""
+class AgentTraceEvent(TraceEvent[AgentTraceEventType]):
+    """Agent运行追踪事件。
 
-    sequence: int | None = Field(default=None, ge=1)
+    这是通用TraceEvent在agent领域里的强类型事件；它记录可观察时间线，
+    不承担AgentRunState的恢复快照职责。
+    """
+
     event_type: AgentTraceEventType
-    summary: str | None = None
     step_type: AgentStepType | None = None
     message: Content | None = None
     response: ChatResponse | None = None
@@ -165,9 +168,6 @@ class AgentTraceEvent(EvernightAISchema):
     tool_result: ToolCallResult | None = None
     approval_request: ToolApprovalRequest | None = None
     approval_decision: ToolApprovalDecision | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunState(EvernightAISchema):

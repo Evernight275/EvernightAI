@@ -854,14 +854,15 @@ def test_http_app_exposes_recent_log_routes() -> None:
     assert list_response.status_code == 200
     assert list_response.json() == [
         {
-            "index": 1,
-            "timestamp": "2026-05-28T20:26:40Z",
+            "sequence": 1,
+            "occurred_at": "2026-05-28T20:26:40Z",
             "level": "warning",
-            "logger": "EvernightAI.test",
+            "source": "EvernightAI.test",
             "message": "log route ready",
-            "module": "test_interface_http",
-            "line": 123,
-            "metadata": {},
+            "metadata": {
+                "module": "test_interface_http",
+                "line": 123,
+            },
         }
     ]
     assert filtered_response.status_code == 200

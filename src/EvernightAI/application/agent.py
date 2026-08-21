@@ -59,6 +59,7 @@ from EvernightAI.core.schema.content import (
 from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.schema.trace import TraceSubject
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolCall,
@@ -1696,6 +1697,11 @@ class AgentApplication(AgentInterfaceProtocol):
     ) -> AgentTraceEvent:
         if event.summary is None:
             event = event.model_copy(update={"summary": self._trace_summary(event)})
+        self._tag_agent_trace_event(
+            state.run_id,
+            event,
+            owner_id=state.owner_id,
+        )
         state.trace.append(event)
         return event
 
@@ -1872,7 +1878,26 @@ class AgentApplication(AgentInterfaceProtocol):
         if register is None:
             raise AgentStateError("Agent trace register is not configured")
 
+        self._tag_agent_trace_event(run_id, event)
         event.sequence = register.append_event(run_id, event)
+
+    def _tag_agent_trace_event(
+        self,
+        run_id: str,
+        event: AgentTraceEvent,
+        *,
+        owner_id: str | None = None,
+    ) -> None:
+        if event.trace_id is None:
+            event.trace_id = run_id
+        if event.source is None:
+            event.source = "agent"
+        if event.subject is None:
+            event.subject = TraceSubject(
+                kind="agent_run",
+                subject_id=run_id,
+                owner_id=owner_id,
+            )
 
 
 class _AgentTraceStream:

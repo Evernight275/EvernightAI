@@ -4,59 +4,42 @@ from datetime import datetime, timezone
 from threading import RLock
 from typing import Any
 
-from pydantic import Field
-
-from EvernightAI.core.schema.base import EvernightAISchema
-
-
-class LogEntry(EvernightAISchema):
-    index: int
-    timestamp: datetime
-    level: str
-    logger: str
-    message: str
-    module: str | None = None
-    function: str | None = None
-    line: int | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+from EvernightAI.core.schema.log import Log, LogLevel
 
 
 class RecentLogStore:
     def __init__(self, *, capacity: int = 1000) -> None:
-        self._entries: deque[LogEntry] = deque(maxlen=capacity)
+        self._entries: deque[Log] = deque(maxlen=capacity)
         self._lock = RLock()
-        self._next_index = 1
+        self._next_sequence = 1
 
     def append(self, record: logging.LogRecord) -> None:
         with self._lock:
-            entry = LogEntry(
-                index=self._next_index,
-                timestamp=datetime.fromtimestamp(record.created, tz=timezone.utc),
-                level=record.levelname.lower(),
-                logger=record.name,
+            entry = Log(
+                sequence=self._next_sequence,
+                occurred_at=datetime.fromtimestamp(record.created, tz=timezone.utc),
+                level=_record_level(record),
+                source=record.name,
                 message=record.getMessage(),
-                module=record.module,
-                function=record.funcName,
-                line=record.lineno,
                 metadata=_record_metadata(record),
             )
-            self._next_index += 1
+            self._next_sequence += 1
             self._entries.append(entry)
 
-    def list(self, *, limit: int = 200, after: int | None = None) -> list[LogEntry]:
+    def list(self, *, limit: int = 200, after: int | None = None) -> list[Log]:
         clean_limit = max(1, min(limit, self._entries.maxlen or limit))
         with self._lock:
             entries = list(self._entries)
 
         if after is not None:
-            entries = [entry for entry in entries if entry.index > after]
+            entries = [entry for entry in entries if (entry.sequence or 0) > after]
 
         return entries[-clean_limit:]
 
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
-            self._next_index = 1
+            self._next_sequence = 1
 
 
 class RecentLogHandler(logging.Handler):
@@ -92,6 +75,13 @@ def install_recent_log_handler(level: int = logging.INFO) -> None:
 
 def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
+    for key, value in (
+        ("module", record.module),
+        ("function", record.funcName),
+        ("line", record.lineno),
+    ):
+        if value is not None:
+            metadata[key] = value
     for key in (
         "request_id",
         "session_id",
@@ -123,6 +113,14 @@ def _record_metadata(record: logging.LogRecord) -> dict[str, Any]:
         metadata["stack"] = record.stack_info
 
     return metadata
+
+
+def _record_level(record: logging.LogRecord) -> LogLevel:
+    level_name = record.levelname.lower()
+    try:
+        return LogLevel(level_name)
+    except ValueError:
+        return LogLevel.INFO
 
 
 def _should_skip_recent_log(record: logging.LogRecord) -> bool:

@@ -2,7 +2,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from EvernightAI.interface.log_store import RECENT_LOG_STORE, LogEntry
+from EvernightAI.core.schema.log import Log
+from EvernightAI.interface.log_store import RECENT_LOG_STORE
 
 
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 
 @router.get(
     "",
-    response_model=list[LogEntry],
+    response_model=list[Log],
     response_model_exclude_none=True,
     summary="List recent process logs",
     description="Return recent in-memory process logs captured by the local logging handler.",
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 async def list_recent_logs(
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
     after: Annotated[int | None, Query(ge=0)] = None,
-) -> list[LogEntry]:
+) -> list[Log]:
     return RECENT_LOG_STORE.list(limit=limit, after=after)
 
 

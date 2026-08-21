@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { clearLogs, listLogs, type LogEntry } from '../api'
+import { clearLogs, listLogs, type Log } from '../api'
 import Icon from './Icon.vue'
 
-const logs = ref<LogEntry[]>([])
+const logs = ref<Log[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const autoRefresh = ref(true)
@@ -11,7 +11,7 @@ const updatedAt = ref('')
 const terminalRef = ref<HTMLElement | null>(null)
 let refreshTimer: number | undefined
 
-const lastLogIndex = computed(() => logs.value.at(-1)?.index)
+const lastLogSequence = computed(() => logs.value.at(-1)?.sequence ?? undefined)
 const hasLogs = computed(() => logs.value.length > 0)
 
 async function refreshLogs({ incremental = false } = {}) {
@@ -23,8 +23,8 @@ async function refreshLogs({ incremental = false } = {}) {
   error.value = null
   try {
     const nextLogs = await listLogs({
-      limit: incremental && lastLogIndex.value !== undefined ? 500 : 300,
-      after: incremental ? lastLogIndex.value : undefined,
+      limit: incremental && lastLogSequence.value !== undefined ? 500 : 300,
+      after: incremental ? lastLogSequence.value : undefined,
     })
     logs.value = incremental ? mergeLogs(logs.value, nextLogs) : nextLogs
     updatedAt.value = new Date().toLocaleTimeString([], {
@@ -58,11 +58,13 @@ async function clearVisibleLogs() {
   }
 }
 
-function mergeLogs(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
-  const entries = new Map<number, LogEntry>()
-  current.forEach((entry) => entries.set(entry.index, entry))
-  incoming.forEach((entry) => entries.set(entry.index, entry))
-  return [...entries.values()].sort((left, right) => left.index - right.index).slice(-500)
+function mergeLogs(current: Log[], incoming: Log[]): Log[] {
+  const entries = new Map<number, Log>()
+  current.forEach((entry, index) => entries.set(entry.sequence ?? index + 1, entry))
+  incoming.forEach((entry, index) => entries.set(entry.sequence ?? current.length + index + 1, entry))
+  return [...entries.values()]
+    .sort((left, right) => (left.sequence ?? 0) - (right.sequence ?? 0))
+    .slice(-500)
 }
 
 function formatTimestamp(value: string): string {
@@ -78,13 +80,14 @@ function formatTimestamp(value: string): string {
   })
 }
 
-function formatSource(entry: LogEntry): string {
+function formatSource(entry: Log): string {
+  const metadata = entry.metadata || {}
   const location = [
-    entry.module,
-    entry.function,
+    typeof metadata.module === 'string' ? metadata.module : '',
+    typeof metadata.function === 'string' ? metadata.function : '',
   ].filter(Boolean).join('.')
-  const line = entry.line ? `:${entry.line}` : ''
-  return location ? `${entry.logger} ${location}${line}` : `${entry.logger}${line}`
+  const line = typeof metadata.line === 'number' ? `:${metadata.line}` : ''
+  return location ? `${entry.source} ${location}${line}` : `${entry.source}${line}`
 }
 
 async function scrollToBottom() {
@@ -159,11 +162,11 @@ watch(autoRefresh, syncAutoRefresh)
       <div
         v-for="entry in logs"
         v-else
-        :key="entry.index"
+        :key="entry.sequence ?? `${entry.source}-${entry.message}`"
         class="log-terminal-line"
         :class="entry.level"
       >
-        <span class="log-time">{{ formatTimestamp(entry.timestamp) }}</span>
+        <span class="log-time">{{ formatTimestamp(entry.occurred_at || '') }}</span>
         <span class="log-level">[{{ entry.level }}]</span>
         <span class="log-source">{{ formatSource(entry) }}</span>
         <span class="log-message">{{ entry.message }}</span>
