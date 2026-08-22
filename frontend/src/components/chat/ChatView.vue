@@ -17,11 +17,13 @@ const {
   transcript,
   hasTranscript,
   run,
+  trace,
   runId,
   pendingApprovals,
   send,
   retry,
   clear,
+  cancel,
   approve,
   deny,
 } = useChatView()
@@ -53,11 +55,12 @@ const {
       :pending-approvals="pendingApprovals"
       @retry="retry"
       @clear="clear"
+      @cancel="cancel"
       @approve="approve"
       @deny="deny"
     />
 
-    <ChatToolActivity :run="run" />
+    <ChatToolActivity :run="run" :trace="trace" />
     <ChatTranscript :entries="transcript" />
   </main>
 </template>

@@ -39,9 +39,10 @@ export function replaceContext(contextId: string, context: Context): Promise<Con
   })
 }
 
-export function deleteContext(contextId: string): Promise<void> {
+export function deleteContext(contextId: string, signal?: AbortSignal): Promise<void> {
   return requestJson<void>(`/contexts/${encodeURIComponent(contextId)}/delete`, {
     method: 'POST',
+    signal,
   })
 }
 

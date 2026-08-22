@@ -7,6 +7,7 @@ import type {
 } from '../src/api'
 import type { ChatSubmission } from '../src/domain/chat'
 import type {
+  ChatClearInput,
   ChatRequestInput,
   ChatResumeInput,
 } from '../src/runtime/chatRuntime'
@@ -97,6 +98,33 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
+  it('retries an unrecoverable paused run instead of requesting approval', async () => {
+    const resumes: ChatResumeInput[] = []
+    const retries: AgentRunState[] = []
+    const actor = actorWithServices(
+      async ({ input }) => unrecoverablePausedRun(input),
+      async ({ input }) => {
+        resumes.push(input)
+        return input.run
+      },
+      async ({ input }) => {
+        retries.push(input)
+        return finishedResumedRun(input, 'recovered pause')
+      },
+    )
+
+    actor.start()
+    actor.send(sendEvent('recover me'))
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('idle') && state.context.transcript.length === 2
+    ))
+
+    expect(resumes).toHaveLength(0)
+    expect(retries.map((run) => run.run_id)).toEqual(['run-unrecoverable'])
+    expect(snapshot.context.transcript[1]?.text).toBe('recovered pause')
+    actor.stop()
+  })
+
   it('resumes a paused tool call after approval', async () => {
     const resumes: ChatResumeInput[] = []
     const actor = actorWithServices(
@@ -134,8 +162,50 @@ describe('chatMachine', () => {
     actor.send({ type: 'CLEAR' })
 
     expect(requestSignals[0]?.aborted).toBe(true)
-    expect(actor.getSnapshot().matches('idle')).toBe(true)
+    await waitFor(actor, (state) => state.matches('canceled'))
     expect(actor.getSnapshot().context.transcript).toEqual([])
+    actor.stop()
+  })
+
+  it('records streamed tool trace while the run is still active', async () => {
+    const actor = actorWithServices(({ input }) => {
+      input.onTrace?.({
+        event_type: 'tool_completed',
+        tool_call: {
+          tool_call_id: 'call-1',
+          tool_call: { name: 'read_file' },
+        },
+      })
+      return new Promise<AgentRunState>(() => undefined)
+    })
+
+    actor.start()
+    actor.send(sendEvent('stream tool'))
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('streaming') && state.context.trace.length === 1
+    ))
+
+    expect(snapshot.context.trace[0]?.event_type).toBe('tool_completed')
+    actor.send({ type: 'CANCEL' })
+    await waitFor(actor, (state) => state.matches('canceled'))
+    actor.stop()
+  })
+
+  it('enters canceled without clearing local history when explicitly canceled', async () => {
+    const requestSignals: AbortSignal[] = []
+    const actor = actorWithServices(({ signal }) => {
+      requestSignals.push(signal)
+      return new Promise<AgentRunState>(() => undefined)
+    })
+
+    actor.start()
+    actor.send(sendEvent('cancel me'))
+    await vi.waitFor(() => expect(requestSignals).toHaveLength(1))
+    actor.send({ type: 'CANCEL' })
+    await waitFor(actor, (state) => state.matches('canceled'))
+
+    expect(requestSignals[0]?.aborted).toBe(true)
+    expect(actor.getSnapshot().context.transcript[0]?.text).toBe('cancel me')
     actor.stop()
   })
 })
@@ -150,13 +220,17 @@ function actorWithServices(
   retryer: (
     options: { input: AgentRunState; signal: AbortSignal },
   ) => Promise<AgentRunState> = async ({ input }) => input,
+  clearer: (
+    _options: { input: ChatClearInput; signal: AbortSignal },
+  ) => Promise<void> = async () => undefined,
 ) {
   return createActor(chatMachine.provide({
     actors: {
       prepareContext: fromPromise<void, string>(async () => undefined),
-      sendChat: fromPromise<AgentRunState, ChatRequestInput>(sender),
+      streamChat: fromPromise<AgentRunState, ChatRequestInput>(sender),
       resumeChat: fromPromise<AgentRunState, ChatResumeInput>(resumer),
       retryChat: fromPromise<AgentRunState, AgentRunState>(retryer),
+      clearChat: fromPromise<void, ChatClearInput>(clearer),
     },
   }))
 }
@@ -208,6 +282,18 @@ function pausedRun(input: ChatRequestInput): AgentRunState {
       tool_name: 'read_file',
       safety_level: 'sensitive',
     }],
+  }
+}
+
+function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
+  return {
+    ...pausedRun(input),
+    run_id: 'run-unrecoverable',
+    metadata: {
+      agent_runtime: {
+        recovery_eligible: false,
+      },
+    },
   }
 }
 

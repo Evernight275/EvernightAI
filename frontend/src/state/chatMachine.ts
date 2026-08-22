@@ -1,6 +1,7 @@
 import { assign, createActor, fromPromise, setup } from 'xstate'
 import type {
   AgentRunState,
+  AgentTraceEvent,
   ToolApprovalStatus,
   ToolDefinition,
 } from '../api'
@@ -12,10 +13,15 @@ import {
 } from '../domain/chat'
 import {
   createChatContextId,
+  createChatRunId,
+  cancelChatRun,
+  clearChatContext,
   prepareChatContext,
-  resumeChatRun,
+  resumeChatRunStream,
   retryChatRun,
-  startChatRun,
+  streamChatRun,
+  type ChatCancelInput,
+  type ChatClearInput,
   type ChatRequestInput,
   type ChatResumeInput,
 } from '../runtime/chatRuntime'
@@ -27,7 +33,9 @@ type ChatPendingRequest = {
 
 export type ChatMachineContext = {
   transcript: ChatTranscriptEntry[]
+  trace: AgentTraceEvent[]
   contextId: string | null
+  runId: string | null
   contextReady: boolean
   pending: ChatPendingRequest | null
   run: AgentRunState | null
@@ -40,13 +48,17 @@ export type ChatMachineEvent =
   | { type: 'RETRY' }
   | { type: 'APPROVE' }
   | { type: 'DENY' }
+  | { type: 'CANCEL' }
+  | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
 
-export type { ChatRequestInput, ChatResumeInput }
+export type { ChatCancelInput, ChatClearInput, ChatRequestInput, ChatResumeInput }
 
 const emptyContext = (): ChatMachineContext => ({
   transcript: [],
+  trace: [],
   contextId: null,
+  runId: null,
   contextReady: false,
   pending: null,
   run: null,
@@ -63,14 +75,22 @@ export const chatMachine = setup({
     prepareContext: fromPromise<void, string>(({ input, signal }) => (
       prepareChatContext(input, signal)
     )),
-    sendChat: fromPromise<AgentRunState, ChatRequestInput>(({ input, signal }) => (
-      startChatRun(input, signal)
+    streamChat: fromPromise<AgentRunState, ChatRequestInput>(({ input, signal }) => (
+      streamChatRun(input, signal)
     )),
-    resumeChat: fromPromise<AgentRunState, ChatResumeInput>(({ input, signal }) => (
-      resumeChatRun(input, signal)
+    resumeChat: fromPromise<AgentRunState, ChatResumeInput & {
+      onTrace?: (event: AgentTraceEvent) => void
+    }>(({ input, signal }) => (
+      resumeChatRunStream(input, signal, input.onTrace)
     )),
     retryChat: fromPromise<AgentRunState, AgentRunState>(({ input, signal }) => (
       retryChatRun(input, signal)
+    )),
+    cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(({ input, signal }) => (
+      cancelChatRun(input, signal)
+    )),
+    clearChat: fromPromise<void, ChatClearInput>(({ input, signal }) => (
+      clearChatContext(input, signal)
     )),
   },
 }).createMachine({
@@ -84,6 +104,7 @@ export const chatMachine = setup({
           target: 'preparing',
           actions: assign({
             contextId: ({ context }) => context.contextId || createChatContextId(),
+            runId: () => createChatRunId(),
             pending: ({ event }) => ({
               submission: event.submission,
               tools: event.tools,
@@ -92,27 +113,28 @@ export const chatMachine = setup({
               ...context.transcript,
               userEntry(event.submission, context.transcript.length + 1),
             ],
+            trace: [],
             run: null,
             approvalStatus: null,
             error: null,
           }),
         },
         CLEAR: {
-          actions: assign(emptyContext),
+          target: 'clearing',
         },
       },
     },
     preparing: {
       always: {
         guard: ({ context }) => context.contextReady,
-        target: 'sending',
+        target: 'streaming',
       },
       invoke: {
         id: 'prepareContext',
         src: 'prepareContext',
         input: ({ context }) => context.contextId as string,
         onDone: {
-          target: 'sending',
+          target: 'streaming',
           actions: assign({
             contextReady: true,
             error: null,
@@ -126,25 +148,41 @@ export const chatMachine = setup({
         },
       },
       on: {
-        CLEAR: {
-          target: 'idle',
-          actions: assign(emptyContext),
-        },
+        CANCEL: [
+          {
+            guard: ({ context }) => context.contextReady,
+            target: 'canceling',
+          },
+          'canceled',
+        ],
+        CLEAR: [
+          {
+            guard: ({ context }) => context.contextReady,
+            target: 'clearing',
+          },
+          {
+            target: 'canceled',
+            actions: assign(emptyContext),
+          },
+        ],
       },
     },
-    sending: {
+    streaming: {
       invoke: {
-        id: 'sendChat',
-        src: 'sendChat',
-        input: ({ context }) => ({
+        id: 'streamChat',
+        src: 'streamChat',
+        input: ({ context, self }) => ({
           contextId: context.contextId as string,
+          runId: context.runId as string,
           submission: (context.pending as ChatPendingRequest).submission,
           tools: (context.pending as ChatPendingRequest).tools,
+          onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
         }),
         onDone: {
           target: 'evaluatingRun',
           actions: assign({
             run: ({ event }) => event.output,
+            runId: ({ event }) => event.output.run_id,
             approvalStatus: null,
             error: null,
           }),
@@ -157,10 +195,13 @@ export const chatMachine = setup({
         },
       },
       on: {
-        CLEAR: {
-          target: 'idle',
-          actions: assign(emptyContext),
+        TRACE: {
+          actions: assign({
+            trace: ({ context, event }) => [...context.trace, event.event],
+          }),
         },
+        CANCEL: 'canceling',
+        CLEAR: 'clearing',
       },
     },
     approvalRequired: {
@@ -173,9 +214,9 @@ export const chatMachine = setup({
           target: 'resuming',
           actions: assign({ approvalStatus: 'denied' }),
         },
+        CANCEL: 'canceling',
         CLEAR: {
-          target: 'idle',
-          actions: assign(emptyContext),
+          target: 'clearing',
         },
       },
     },
@@ -183,12 +224,13 @@ export const chatMachine = setup({
       invoke: {
         id: 'resumeChat',
         src: 'resumeChat',
-        input: ({ context }) => ({
+        input: ({ context, self }) => ({
           run: context.run as AgentRunState,
           status: context.approvalStatus as Extract<
             ToolApprovalStatus,
             'approved' | 'denied'
           >,
+          onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
         }),
         onDone: {
           target: 'evaluatingRun',
@@ -206,10 +248,13 @@ export const chatMachine = setup({
         },
       },
       on: {
-        CLEAR: {
-          target: 'idle',
-          actions: assign(emptyContext),
+        TRACE: {
+          actions: assign({
+            trace: ({ context, event }) => [...context.trace, event.event],
+          }),
         },
+        CANCEL: 'canceling',
+        CLEAR: 'clearing',
       },
     },
     retrying: {
@@ -233,17 +278,101 @@ export const chatMachine = setup({
         },
       },
       on: {
-        CLEAR: {
-          target: 'idle',
+        CANCEL: 'canceling',
+        CLEAR: 'clearing',
+      },
+    },
+    canceling: {
+      invoke: {
+        id: 'cancelChat',
+        src: 'cancelChat',
+        input: ({ context }) => ({
+          run: context.run,
+          runId: context.runId,
+        }),
+        onDone: {
+          target: 'canceled',
+          actions: assign({
+            run: ({ event }) => event.output,
+            approvalStatus: null,
+            error: null,
+          }),
+        },
+        onError: {
+          target: 'canceled',
+          actions: assign({
+            error: ({ event }) => event.error,
+          }),
+        },
+      },
+      on: {
+        CLEAR: 'clearing',
+      },
+    },
+    clearing: {
+      invoke: {
+        id: 'clearChat',
+        src: 'clearChat',
+        input: ({ context }) => ({
+          contextId: context.contextId,
+          run: context.run,
+          runId: context.runId,
+        }),
+        onDone: {
+          target: 'canceled',
           actions: assign(emptyContext),
+        },
+        onError: {
+          target: 'canceled',
+          actions: assign({
+            transcript: [],
+            trace: [],
+            contextId: null,
+            runId: null,
+            contextReady: false,
+            pending: null,
+            run: null,
+            approvalStatus: null,
+            error: ({ event }) => event.error,
+          }),
+        },
+      },
+    },
+    canceled: {
+      on: {
+        SEND: {
+          target: 'preparing',
+          actions: assign({
+            contextId: ({ context }) => context.contextId || createChatContextId(),
+            runId: () => createChatRunId(),
+            pending: ({ event }) => ({
+              submission: event.submission,
+              tools: event.tools,
+            }),
+            transcript: ({ context, event }) => [
+              ...context.transcript,
+              userEntry(event.submission, context.transcript.length + 1),
+            ],
+            trace: [],
+            run: null,
+            approvalStatus: null,
+            error: null,
+          }),
+        },
+        CLEAR: {
+          target: 'clearing',
         },
       },
     },
     evaluatingRun: {
       always: [
         {
-          guard: ({ context }) => context.run?.status === 'paused',
+          guard: ({ context }) => isRecoverablePause(context.run),
           target: 'approvalRequired',
+        },
+        {
+          guard: ({ context }) => context.run?.status === 'paused',
+          target: 'retrying',
         },
         {
           guard: ({ context }) => (
@@ -271,6 +400,7 @@ export const chatMachine = setup({
     },
     failed: {
       on: {
+        CANCEL: 'canceled',
         RETRY: [
           {
             guard: ({ context }) => context.run?.status === 'paused',
@@ -284,7 +414,7 @@ export const chatMachine = setup({
             guard: ({ context }) => !context.contextReady,
             target: 'preparing',
           },
-          { target: 'sending' },
+          { target: 'streaming' },
         ],
         SEND: {
           target: 'preparing',
@@ -297,14 +427,14 @@ export const chatMachine = setup({
               ...context.transcript,
               userEntry(event.submission, context.transcript.length + 1),
             ],
+            trace: [],
             run: null,
             approvalStatus: null,
             error: null,
           }),
         },
         CLEAR: {
-          target: 'idle',
-          actions: assign(emptyContext),
+          target: 'clearing',
         },
       },
     },
@@ -316,4 +446,14 @@ export const chatActor = createActor(chatMachine)
 function agentRunError(run: AgentRunState): Error {
   const detail = run.stop_reason || run.status || 'unknown state'
   return new Error(`Agent run did not finish: ${detail}`)
+}
+
+function isRecoverablePause(run: AgentRunState | null): boolean {
+  if (run?.status !== 'paused') {
+    return false
+  }
+  const runtime = run.metadata?.agent_runtime
+  return !(runtime && typeof runtime === 'object'
+    && 'recovery_eligible' in runtime
+    && runtime.recovery_eligible === false)
 }

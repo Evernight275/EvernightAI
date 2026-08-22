@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRunState } from '../src/api'
 import {
   approvalDecisions,
-  startChatRun,
+  clearChatContext,
+  streamChatRun,
   type ChatRequestInput,
 } from '../src/runtime/chatRuntime'
 
@@ -14,28 +15,6 @@ describe('chat runtime', () => {
     vi.stubGlobal('window', {
       EVERNIGHTAI_API_KEY: '',
       EVERNIGHTAI_ACCESS_TOKEN: '',
-    })
-  })
-
-  it('starts a multi-round agent run with the workspace tools', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(finishedRun()), {
-      status: 201,
-      headers: { 'content-type': 'application/json' },
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await startChatRun(requestInput(), new AbortController().signal)
-
-    const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit]
-    const body = JSON.parse(String(options.body)) as Record<string, unknown>
-    expect(path).toBe('/agent-runs')
-    expect(body).toMatchObject({
-      provider_id: 'main',
-      context_id: 'context-1',
-      model_id: 'model-1',
-      max_tool_rounds: 4,
-      pause_on_approval: true,
-      tools: [{ name: 'read_file' }],
     })
   })
 
@@ -65,6 +44,79 @@ describe('chat runtime', () => {
         tool_call_id: 'call-2',
         status: 'denied',
       },
+    ])
+  })
+
+  it('streams the agent trace, then reads the persisted run state', async () => {
+    const stream = [
+      'event: run_started\ndata: {"event_type":"run_started"}\n\n',
+      'data: [DONE]\n\n',
+    ].join('')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const run = await streamChatRun(requestInput(), new AbortController().signal)
+    const [streamPath, streamOptions] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const streamBody = JSON.parse(String(streamOptions.body)) as Record<string, unknown>
+
+    expect(run.run_id).toBe('run-1')
+    expect(streamPath).toBe('/agent-runs/stream')
+    expect(streamBody).toMatchObject({
+      context_id: 'context-1',
+      max_tool_rounds: 4,
+      pause_on_approval: true,
+    })
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      `/agent-runs/${String((streamBody.metadata as Record<string, unknown>).run_id)}`,
+    )
+  })
+
+  it('cancels a known run before deleting its context', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await clearChatContext({
+      contextId: 'context-1',
+      run: { ...finishedRun(), status: 'running' },
+    }, new AbortController().signal)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/run-1/cancel',
+      '/contexts/context-1/delete',
+    ])
+  })
+
+  it('can cancel a streamed run before its final state is returned', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await clearChatContext({
+      contextId: 'context-1',
+      run: null,
+      runId: 'run-streaming-1',
+    }, new AbortController().signal)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/run-streaming-1/cancel',
+      '/contexts/context-1/delete',
     ])
   })
 })

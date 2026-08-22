@@ -14,6 +14,7 @@ export type ChatRequestStatusEmits = {
   clear: []
   approve: []
   deny: []
+  cancel: []
 }
 
 export function useChatRequestStatus(
@@ -23,6 +24,7 @@ export function useChatRequestStatus(
   awaitingApproval: ComputedRef<boolean>
   canRetry: ComputedRef<boolean>
   canClear: ComputedRef<boolean>
+  canCancel: ComputedRef<boolean>
 } {
   return {
     errorMessage: computed(() => formatChatError(props.error)),
@@ -31,6 +33,13 @@ export function useChatRequestStatus(
     )),
     canRetry: computed(() => props.state === 'failed'),
     canClear: computed(() => props.hasTranscript),
+    canCancel: computed(() => [
+      'preparing',
+      'streaming',
+      'approvalRequired',
+      'resuming',
+      'retrying',
+    ].includes(props.state)),
   }
 }
 

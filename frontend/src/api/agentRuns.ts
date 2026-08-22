@@ -134,10 +134,12 @@ export function startAgentRun(
 export function startAgentRunStream(
   request: AgentRunRequest,
   onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   return requestSse('/agent-runs/stream', {
     method: 'POST',
     body: request,
+    signal,
   }, (rawEvent) => {
     const event = agentTraceEventFromSse(rawEvent)
     if (event) {
@@ -150,8 +152,8 @@ export function listAgentRuns(signal?: AbortSignal): Promise<AgentRunState[]> {
   return requestJson<AgentRunState[]>('/agent-runs', { signal })
 }
 
-export function getAgentRun(runId: string): Promise<AgentRunState> {
-  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}`)
+export function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunState> {
+  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}`, { signal })
 }
 
 export function resumeAgentRun(
@@ -170,10 +172,12 @@ export function resumeAgentRunStream(
   runId: string,
   request: ResumeAgentRunRequest,
   onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   return requestSse(`/agent-runs/${encodeURIComponent(runId)}/resume/stream`, {
     method: 'POST',
     body: request,
+    signal,
   }, (rawEvent) => {
     const event = agentTraceEventFromSse(rawEvent)
     if (event) {
@@ -195,10 +199,12 @@ export function pauseAgentRun(
 export function cancelAgentRun(
   runId: string,
   request: AgentRunControlRequest = {},
+  signal?: AbortSignal,
 ): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST',
     body: request,
+    signal,
   })
 }
 

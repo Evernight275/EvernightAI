@@ -12,6 +12,7 @@ const {
   awaitingApproval,
   canRetry,
   canClear,
+  canCancel,
 } = useChatRequestStatus(props)
 </script>
 
@@ -35,8 +36,11 @@ const {
     <button v-if="canRetry" type="button" @click="$emit('retry')">
       重试
     </button>
+    <button v-if="canCancel" type="button" @click="$emit('cancel')">
+      取消当前运行
+    </button>
     <button v-if="canClear" type="button" @click="$emit('clear')">
-      清空本地记录
+      清空对话记录
     </button>
   </section>
 </template>

@@ -29,13 +29,14 @@ export function useChatView() {
     toolCatalog: computed(
       () => workspaceSnapshot.value.context.workspace.capabilityCatalog.tools,
     ),
-    busy: computed(() => ['preparing', 'sending', 'resuming', 'retrying'].includes(
+    busy: computed(() => ['preparing', 'streaming', 'resuming', 'retrying', 'canceling', 'clearing'].includes(
       String(chatSnapshot.value.value),
     )),
     error: computed(() => chatSnapshot.value.context.error),
     transcript: computed(() => chatSnapshot.value.context.transcript),
     hasTranscript: computed(() => chatSnapshot.value.context.transcript.length > 0),
     run: computed(() => chatSnapshot.value.context.run),
+    trace: computed(() => chatSnapshot.value.context.trace),
     runId: computed(() => chatSnapshot.value.context.run?.run_id || null),
     pendingApprovals: computed(
       () => chatSnapshot.value.context.run?.pending_approval_requests || [],
@@ -52,6 +53,9 @@ export function useChatView() {
     },
     clear(): void {
       chatActor.send({ type: 'CLEAR' })
+    },
+    cancel(): void {
+      chatActor.send({ type: 'CANCEL' })
     },
     approve(): void {
       chatActor.send({ type: 'APPROVE' })
