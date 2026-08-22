@@ -45,11 +45,25 @@ export type ChatWithContextRequest = {
   metadata?: Record<string, unknown> | null
 }
 
-export function chat(request: DirectChatRequest): Promise<ChatResponse> {
+export function chat(
+  request: DirectChatRequest,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
   return requestJson<ChatResponse>('/chat', {
     method: 'POST',
     body: request,
+    signal,
   })
+}
+
+export function chatStream(
+  request: DirectChatRequest,
+  onEvent: (event: ChatStreamEvent, rawEvent: SseEvent) => void,
+): Promise<void> {
+  return requestSse('/chat/stream', {
+    method: 'POST',
+    body: request,
+  }, (rawEvent) => emitChatStreamEvent(rawEvent, onEvent))
 }
 
 export function chatWithContext(request: ChatWithContextRequest): Promise<ChatResponse> {
@@ -66,35 +80,38 @@ export function chatWithContextStream(
   return requestSse('/chat/context/stream', {
     method: 'POST',
     body: request,
-  }, (rawEvent) => {
-    if (rawEvent.data === '[DONE]') {
-      onEvent({ event_type: 'done' }, rawEvent)
-      return
-    }
+  }, (rawEvent) => emitChatStreamEvent(rawEvent, onEvent))
+}
 
-    if (rawEvent.data.trim() === '') {
-      return
-    }
+function emitChatStreamEvent(
+  rawEvent: SseEvent,
+  onEvent: (event: ChatStreamEvent, rawEvent: SseEvent) => void,
+): void {
+  if (rawEvent.data === '[DONE]') {
+    onEvent({ event_type: 'done' }, rawEvent)
+    return
+  }
 
-    if (rawEvent.event === 'error') {
-      onEvent(serverErrorToChatEvent(rawEvent), rawEvent)
-      return
-    }
+  if (rawEvent.data.trim() === '') {
+    return
+  }
 
-    if (rawEvent.event !== 'message' && !rawEvent.event.startsWith('chat.')) {
-      return
-    }
+  if (rawEvent.event === 'error') {
+    onEvent(serverErrorToChatEvent(rawEvent), rawEvent)
+    return
+  }
 
-    const event = parseSseJson(rawEvent) as ChatStreamEvent
-    if (!event.event_type && rawEvent.event.startsWith('chat.')) {
-      event.event_type = rawEvent.event.slice('chat.'.length)
-    }
-    if (!event.event_type) {
-      return
-    }
+  if (rawEvent.event !== 'message' && !rawEvent.event.startsWith('chat.')) {
+    return
+  }
 
+  const event = parseSseJson(rawEvent) as ChatStreamEvent
+  if (!event.event_type && rawEvent.event.startsWith('chat.')) {
+    event.event_type = rawEvent.event.slice('chat.'.length)
+  }
+  if (event.event_type) {
     onEvent(event, rawEvent)
-  })
+  }
 }
 
 function parseSseJson(rawEvent: SseEvent): Record<string, unknown> {

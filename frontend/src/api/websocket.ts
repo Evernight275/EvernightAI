@@ -1,4 +1,4 @@
-import { apiBase, getApiKey } from './client'
+import { apiBase, getAccessToken, getApiKey } from './client'
 import type { AgentRunRequest, AgentTraceEvent } from './agentRuns'
 import type { ToolApprovalDecision } from './tools'
 
@@ -40,6 +40,19 @@ export type WebSocketClientEvent = {
   metadata?: Record<string, unknown>
 }
 
+export type WebSocketAgentControl = {
+  run_id: string
+  action: WebSocketAgentControlAction
+  reason?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export type WebSocketToolApproval = {
+  run_id: string
+  decision: ToolApprovalDecision
+  metadata?: Record<string, unknown>
+}
+
 export type WebSocketTracePayload = {
   sequence?: number
   replayed?: boolean
@@ -52,6 +65,8 @@ export type WebSocketMessage = {
   run_id?: string | null
   hello?: WebSocketHello | null
   heartbeat?: WebSocketHeartbeat | null
+  agent_control?: WebSocketAgentControl | null
+  tool_approval?: WebSocketToolApproval | null
   client_event?: WebSocketClientEvent | null
   trace_event?: AgentTraceEvent | null
   error?: WebSocketError | null
@@ -304,6 +319,11 @@ function webSocketUrl(): string {
 }
 
 function webSocketProtocols(): string[] {
+  const accessToken = getAccessToken()
+  if (accessToken) {
+    return ['evernight.realtime', `evernight.access_token.${base64UrlEncode(accessToken)}`]
+  }
+
   const apiKey = getApiKey()
   if (!apiKey) {
     return ['evernight.realtime']

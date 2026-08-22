@@ -76,7 +76,10 @@ export type MemoryListParams = {
   sort?: MemorySort
 }
 
-export function listMemories(params: MemoryListParams = {}): Promise<MemoryItem[]> {
+export function listMemories(
+  params: MemoryListParams = {},
+  signal?: AbortSignal,
+): Promise<MemoryItem[]> {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') {
@@ -85,7 +88,7 @@ export function listMemories(params: MemoryListParams = {}): Promise<MemoryItem[
     searchParams.append(key, String(value))
   })
   const query = searchParams.toString()
-  return requestJson<MemoryItem[]>(query ? `/memories?${query}` : '/memories')
+  return requestJson<MemoryItem[]>(query ? `/memories?${query}` : '/memories', { signal })
 }
 
 export function getMemory(memoryId: string): Promise<MemoryItem> {

@@ -37,13 +37,17 @@ export function createProvider(config: ProviderConfig): Promise<ProviderInfo> {
   })
 }
 
-export function listProviders(): Promise<ProviderInfo[]> {
-  return requestJson<ProviderInfo[]>('/providers')
+export function listProviders(signal?: AbortSignal): Promise<ProviderInfo[]> {
+  return requestJson<ProviderInfo[]>('/providers', { signal })
 }
 
-export function listProviderModels(providerId: string): Promise<ProviderModelConfig[]> {
+export function listProviderModels(
+  providerId: string,
+  signal?: AbortSignal,
+): Promise<ProviderModelConfig[]> {
   return requestJson<ProviderModelConfig[]>(
     `/providers/${encodeURIComponent(providerId)}/models`,
+    { signal },
   )
 }
 

@@ -14,6 +14,12 @@ export type DataFilterOperator =
   | 'contains'
   | 'between'
 export type DataSortDirection = 'asc' | 'desc'
+export type DataInsightKind =
+  | 'summary'
+  | 'trend'
+  | 'anomaly'
+  | 'comparison'
+  | 'recommendation'
 
 export type DataFieldDefinition = {
   field_id: string
@@ -83,14 +89,62 @@ export type DataStatisticsResult = {
   metadata?: Record<string, unknown>
 }
 
-export function listDataSources(): Promise<DataSourceDefinition[]> {
-  return requestJson<DataSourceDefinition[]>('/data-analysis/sources')
+export type DataAnalysisRequest = {
+  source_id: string
+  question?: string | null
+  statistics_request?: DataStatisticsRequest | null
+  metadata?: Record<string, unknown>
+}
+
+export type DataInsight = {
+  kind: DataInsightKind
+  title: string
+  summary: string
+  evidence?: DataStatisticsRow[]
+  metadata?: Record<string, unknown>
+}
+
+export type DataAnalysisResult = {
+  source_id: string
+  statistics?: DataStatisticsResult | null
+  insights?: DataInsight[]
+  narrative?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export function listDataSources(signal?: AbortSignal): Promise<DataSourceDefinition[]> {
+  return requestJson<DataSourceDefinition[]>('/data-analysis/sources', { signal })
+}
+
+export function getDataSource(sourceId: string): Promise<DataSourceDefinition> {
+  return requestJson<DataSourceDefinition>(
+    `/data-analysis/sources/${encodeURIComponent(sourceId)}`,
+  )
+}
+
+export function listDataFields(sourceId: string): Promise<DataFieldDefinition[]> {
+  return requestJson<DataFieldDefinition[]>(
+    `/data-analysis/sources/${encodeURIComponent(sourceId)}/fields`,
+  )
+}
+
+export function listDataMetrics(sourceId: string): Promise<DataMetricDefinition[]> {
+  return requestJson<DataMetricDefinition[]>(
+    `/data-analysis/sources/${encodeURIComponent(sourceId)}/metrics`,
+  )
 }
 
 export function runDataStatistics(
   request: DataStatisticsRequest,
 ): Promise<DataStatisticsResult> {
   return requestJson<DataStatisticsResult>('/data-analysis/statistics', {
+    method: 'POST',
+    body: request,
+  })
+}
+
+export function analyzeData(request: DataAnalysisRequest): Promise<DataAnalysisResult> {
+  return requestJson<DataAnalysisResult>('/data-analysis/analyze', {
     method: 'POST',
     body: request,
   })

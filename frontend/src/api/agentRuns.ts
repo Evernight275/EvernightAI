@@ -116,10 +116,18 @@ export type ResumeAgentRunRequest = {
   approvals: ToolApprovalDecision[]
 }
 
-export function startAgentRun(request: AgentRunRequest): Promise<AgentRunState> {
+export type AgentRunControlRequest = {
+  reason?: string | null
+}
+
+export function startAgentRun(
+  request: AgentRunRequest,
+  signal?: AbortSignal,
+): Promise<AgentRunState> {
   return requestJson<AgentRunState>('/agent-runs', {
     method: 'POST',
     body: request,
+    signal,
   })
 }
 
@@ -138,8 +146,8 @@ export function startAgentRunStream(
   })
 }
 
-export function listAgentRuns(): Promise<AgentRunState[]> {
-  return requestJson<AgentRunState[]>('/agent-runs')
+export function listAgentRuns(signal?: AbortSignal): Promise<AgentRunState[]> {
+  return requestJson<AgentRunState[]>('/agent-runs', { signal })
 }
 
 export function getAgentRun(runId: string): Promise<AgentRunState> {
@@ -149,8 +157,46 @@ export function getAgentRun(runId: string): Promise<AgentRunState> {
 export function resumeAgentRun(
   runId: string,
   request: ResumeAgentRunRequest,
+  signal?: AbortSignal,
 ): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/resume`, {
+    method: 'POST',
+    body: request,
+    signal,
+  })
+}
+
+export function resumeAgentRunStream(
+  runId: string,
+  request: ResumeAgentRunRequest,
+  onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
+): Promise<void> {
+  return requestSse(`/agent-runs/${encodeURIComponent(runId)}/resume/stream`, {
+    method: 'POST',
+    body: request,
+  }, (rawEvent) => {
+    const event = agentTraceEventFromSse(rawEvent)
+    if (event) {
+      onEvent(event, rawEvent)
+    }
+  })
+}
+
+export function pauseAgentRun(
+  runId: string,
+  request: AgentRunControlRequest = {},
+): Promise<AgentRunState> {
+  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/pause`, {
+    method: 'POST',
+    body: request,
+  })
+}
+
+export function cancelAgentRun(
+  runId: string,
+  request: AgentRunControlRequest = {},
+): Promise<AgentRunState> {
+  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST',
     body: request,
   })
@@ -162,9 +208,13 @@ export function approvePendingAgentRun(runId: string): Promise<AgentRunState> {
   })
 }
 
-export function retryAgentRun(runId: string): Promise<AgentRunState> {
+export function retryAgentRun(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/retry`, {
     method: 'POST',
+    signal,
   })
 }
 
@@ -255,6 +305,7 @@ function isAgentTraceEventType(value: string): value is AgentTraceEventType {
     'tool_approval_decided',
     'tool_completed',
     'tool_failed',
+    'tool_execution_resolved',
     'memory_written',
     'run_paused',
     'run_stopped',

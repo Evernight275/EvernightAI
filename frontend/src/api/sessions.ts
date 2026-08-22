@@ -49,8 +49,8 @@ export function createSession(session: Session): Promise<Session> {
   })
 }
 
-export function listSessions(): Promise<Session[]> {
-  return requestJson<Session[]>('/sessions')
+export function listSessions(signal?: AbortSignal): Promise<Session[]> {
+  return requestJson<Session[]>('/sessions', { signal })
 }
 
 export function getSession(sessionId: string): Promise<Session> {

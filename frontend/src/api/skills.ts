@@ -26,8 +26,8 @@ export type RenderedSkill = {
   metadata?: Record<string, unknown>
 }
 
-export function listSkills(): Promise<SkillDefinition[]> {
-  return requestJson<SkillDefinition[]>('/skills')
+export function listSkills(signal?: AbortSignal): Promise<SkillDefinition[]> {
+  return requestJson<SkillDefinition[]>('/skills', { signal })
 }
 
 export function getSkill(skillName: string): Promise<SkillDefinition> {

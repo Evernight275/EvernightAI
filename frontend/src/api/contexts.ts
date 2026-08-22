@@ -9,10 +9,11 @@ export type Context = {
   metadata?: Record<string, unknown>
 }
 
-export function createContext(context: Context): Promise<Context> {
+export function createContext(context: Context, signal?: AbortSignal): Promise<Context> {
   return requestJson<Context>('/contexts', {
     method: 'POST',
     body: context,
+    signal,
   })
 }
 
