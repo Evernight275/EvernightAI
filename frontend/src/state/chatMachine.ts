@@ -48,6 +48,7 @@ export type ChatMachineEvent =
   | { type: 'RETRY' }
   | { type: 'APPROVE' }
   | { type: 'DENY' }
+  | { type: 'RESUME' }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
@@ -220,16 +221,23 @@ export const chatMachine = setup({
         },
       },
     },
+    resumeRequired: {
+      on: {
+        RESUME: {
+          target: 'resuming',
+          actions: assign({ approvalStatus: null }),
+        },
+        CANCEL: 'canceling',
+        CLEAR: 'clearing',
+      },
+    },
     resuming: {
       invoke: {
         id: 'resumeChat',
         src: 'resumeChat',
         input: ({ context, self }) => ({
           run: context.run as AgentRunState,
-          status: context.approvalStatus as Extract<
-            ToolApprovalStatus,
-            'approved' | 'denied'
-          >,
+          status: context.approvalStatus,
           onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
         }),
         onDone: {
@@ -367,8 +375,12 @@ export const chatMachine = setup({
     evaluatingRun: {
       always: [
         {
-          guard: ({ context }) => isRecoverablePause(context.run),
+          guard: ({ context }) => isApprovalPause(context.run),
           target: 'approvalRequired',
+        },
+        {
+          guard: ({ context }) => isManualPause(context.run),
+          target: 'resumeRequired',
         },
         {
           guard: ({ context }) => context.run?.status === 'paused',
@@ -400,10 +412,18 @@ export const chatMachine = setup({
     },
     failed: {
       on: {
-        CANCEL: 'canceled',
-        RETRY: [
+        CANCEL: [
           {
             guard: ({ context }) => context.run?.status === 'paused',
+            target: 'canceling',
+          },
+          { target: 'canceled' },
+        ],
+        RETRY: [
+          {
+            guard: ({ context }) => (
+              isApprovalPause(context.run) || isManualPause(context.run)
+            ),
             target: 'resuming',
           },
           {
@@ -417,6 +437,7 @@ export const chatMachine = setup({
           { target: 'streaming' },
         ],
         SEND: {
+          guard: ({ context }) => context.run?.status !== 'paused',
           target: 'preparing',
           actions: assign({
             pending: ({ event }) => ({
@@ -456,4 +477,18 @@ function isRecoverablePause(run: AgentRunState | null): boolean {
   return !(runtime && typeof runtime === 'object'
     && 'recovery_eligible' in runtime
     && runtime.recovery_eligible === false)
+}
+
+function isApprovalPause(run: AgentRunState | null): boolean {
+  return isRecoverablePause(run) && (run?.pending_approval_requests?.length || 0) > 0
+}
+
+function isManualPause(run: AgentRunState | null): boolean {
+  if (!isRecoverablePause(run)) {
+    return false
+  }
+  const runtime = run?.metadata?.agent_runtime
+  return Boolean(runtime && typeof runtime === 'object'
+    && 'manual_pause' in runtime
+    && runtime.manual_pause === true)
 }

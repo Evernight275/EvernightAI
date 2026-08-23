@@ -1,4 +1,5 @@
 import { computed, onUnmounted, shallowRef } from 'vue'
+import type { AgentRunState } from '../../api'
 import type { ChatSubmission } from '../../domain/chat'
 import { chatActor } from '../../state/chatMachine'
 import { workspaceActor } from '../../state/workspaceMachine'
@@ -29,8 +30,9 @@ export function useChatView() {
     toolCatalog: computed(
       () => workspaceSnapshot.value.context.workspace.capabilityCatalog.tools,
     ),
-    busy: computed(() => ['preparing', 'streaming', 'resuming', 'retrying', 'canceling', 'clearing'].includes(
+    busy: computed(() => isChatSubmissionBlocked(
       String(chatSnapshot.value.value),
+      chatSnapshot.value.context.run,
     )),
     error: computed(() => chatSnapshot.value.context.error),
     transcript: computed(() => chatSnapshot.value.context.transcript),
@@ -63,5 +65,18 @@ export function useChatView() {
     deny(): void {
       chatActor.send({ type: 'DENY' })
     },
+    resume(): void {
+      chatActor.send({ type: 'RESUME' })
+    },
   }
+}
+
+export function isChatSubmissionBlocked(
+  state: string,
+  run: AgentRunState | null,
+): boolean {
+  if (state === 'failed') {
+    return run?.status === 'paused'
+  }
+  return state !== 'idle' && state !== 'canceled'
 }

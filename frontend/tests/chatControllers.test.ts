@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { prerequisiteNotice } from '../src/components/chat/chatPrerequisites'
 import { canSubmitChat } from '../src/components/chat/chatRequestForm'
 import { formatChatError } from '../src/components/chat/chatRequestStatus'
+import { isChatSubmissionBlocked } from '../src/components/chat/chatView'
 
 describe('chat component controllers', () => {
   it('derives prerequisite notices outside the Vue component', () => {
@@ -37,5 +38,20 @@ describe('chat component controllers', () => {
     expect(formatChatError(new Error('provider unavailable'))).toBe('provider unavailable')
     expect(formatChatError('request failed')).toBe('request failed')
     expect(formatChatError(null)).toBeNull()
+  })
+
+  it('blocks new messages while an approval or paused run needs attention', () => {
+    expect(isChatSubmissionBlocked('approvalRequired', null)).toBe(true)
+    expect(isChatSubmissionBlocked('resumeRequired', null)).toBe(true)
+    expect(isChatSubmissionBlocked('idle', null)).toBe(false)
+    expect(isChatSubmissionBlocked('failed', {
+      run_id: 'run-paused',
+      request: {
+        provider_id: 'main',
+        context_id: 'context-1',
+        model_id: 'model-1',
+      },
+      status: 'paused',
+    })).toBe(true)
   })
 })

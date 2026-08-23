@@ -26,6 +26,7 @@ const {
   cancel,
   approve,
   deny,
+  resume,
 } = useChatView()
 </script>
 
@@ -58,6 +59,7 @@ const {
       @cancel="cancel"
       @approve="approve"
       @deny="deny"
+      @resume="resume"
     />
 
     <ChatToolActivity :run="run" :trace="trace" />

@@ -11,6 +11,7 @@ const {
   errorMessage,
   awaitingApproval,
   canRetry,
+  canResume,
   canClear,
   canCancel,
 } = useChatRequestStatus(props)
@@ -35,6 +36,9 @@ const {
     </div>
     <button v-if="canRetry" type="button" @click="$emit('retry')">
       重试
+    </button>
+    <button v-if="canResume" type="button" @click="$emit('resume')">
+      继续运行
     </button>
     <button v-if="canCancel" type="button" @click="$emit('cancel')">
       取消当前运行

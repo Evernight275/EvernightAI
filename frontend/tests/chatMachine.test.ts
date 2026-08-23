@@ -149,6 +149,77 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
+  it('resumes a paused tool call after denial', async () => {
+    const resumes: ChatResumeInput[] = []
+    const actor = actorWithServices(
+      async ({ input }) => pausedRun(input),
+      async ({ input }) => {
+        resumes.push(input)
+        return finishedResumedRun(input.run, 'denial handled')
+      },
+    )
+
+    actor.start()
+    actor.send(sendEvent('do not use the tool'))
+    await waitFor(actor, (state) => state.matches('approvalRequired'))
+    actor.send({ type: 'DENY' })
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('idle') && state.context.transcript.length === 2
+    ))
+
+    expect(resumes).toHaveLength(1)
+    expect(resumes[0]?.status).toBe('denied')
+    expect(snapshot.context.transcript[1]?.text).toBe('denial handled')
+    actor.stop()
+  })
+
+  it('keeps the approval decision when a resume request is retried', async () => {
+    const statuses: ChatResumeInput['status'][] = []
+    const resumer = vi.fn(async ({ input }: { input: ChatResumeInput }) => {
+      statuses.push(input.status)
+      if (statuses.length === 1) {
+        throw new Error('resume unavailable')
+      }
+      return finishedResumedRun(input.run, 'resumed after retry')
+    })
+    const actor = actorWithServices(
+      async ({ input }) => pausedRun(input),
+      resumer,
+    )
+
+    actor.start()
+    actor.send(sendEvent('approve and retry'))
+    await waitFor(actor, (state) => state.matches('approvalRequired'))
+    actor.send({ type: 'APPROVE' })
+    await waitFor(actor, (state) => state.matches('failed'))
+    actor.send({ type: 'RETRY' })
+    await waitFor(actor, (state) => state.matches('idle'))
+
+    expect(statuses).toEqual(['approved', 'approved'])
+    actor.stop()
+  })
+
+  it('separates a manual pause from tool approval', async () => {
+    const resumes: ChatResumeInput[] = []
+    const actor = actorWithServices(
+      async ({ input }) => manualPausedRun(input),
+      async ({ input }) => {
+        resumes.push(input)
+        return finishedResumedRun(input.run, 'continued')
+      },
+    )
+
+    actor.start()
+    actor.send(sendEvent('pause externally'))
+    await waitFor(actor, (state) => state.matches('resumeRequired'))
+    actor.send({ type: 'RESUME' })
+    await waitFor(actor, (state) => state.matches('idle'))
+
+    expect(resumes).toHaveLength(1)
+    expect(resumes[0]?.status).toBeNull()
+    actor.stop()
+  })
+
   it('aborts an active agent run when local history is cleared', async () => {
     const requestSignals: AbortSignal[] = []
     const actor = actorWithServices(({ signal }) => {
@@ -292,6 +363,20 @@ function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
     metadata: {
       agent_runtime: {
         recovery_eligible: false,
+      },
+    },
+  }
+}
+
+function manualPausedRun(input: ChatRequestInput): AgentRunState {
+  return {
+    ...pausedRun(input),
+    run_id: 'run-manually-paused',
+    pending_approval_requests: [],
+    metadata: {
+      agent_runtime: {
+        manual_pause: true,
+        recovery_eligible: true,
       },
     },
   }

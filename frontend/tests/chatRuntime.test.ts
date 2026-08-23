@@ -47,6 +47,20 @@ describe('chat runtime', () => {
     ])
   })
 
+  it('only permits an empty decision set when no approval is pending', () => {
+    expect(approvalDecisions(finishedRun(), null)).toEqual([])
+
+    const run = finishedRun()
+    run.pending_approval_requests = [{
+      approval_id: 'approval-1',
+      tool_call_id: 'call-1',
+      tool_name: 'write_file',
+    }]
+    expect(() => approvalDecisions(run, null)).toThrow(
+      'Pending tool approvals require an explicit decision',
+    )
+  })
+
   it('streams the agent trace, then reads the persisted run state', async () => {
     const stream = [
       'event: run_started\ndata: {"event_type":"run_started"}\n\n',

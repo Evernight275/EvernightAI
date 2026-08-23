@@ -26,7 +26,7 @@ export type ChatRequestInput = {
 
 export type ChatResumeInput = {
   run: AgentRunState
-  status: Extract<ToolApprovalStatus, 'approved' | 'denied'>
+  status: Extract<ToolApprovalStatus, 'approved' | 'denied'> | null
 }
 
 export type ChatCancelInput = {
@@ -120,9 +120,16 @@ export async function clearChatContext(
 
 export function approvalDecisions(
   run: AgentRunState,
-  status: Extract<ToolApprovalStatus, 'approved' | 'denied'>,
+  status: Extract<ToolApprovalStatus, 'approved' | 'denied'> | null,
 ): ToolApprovalDecision[] {
-  return (run.pending_approval_requests || []).map((request) => ({
+  const pending = run.pending_approval_requests || []
+  if (status === null) {
+    if (pending.length > 0) {
+      throw new Error('Pending tool approvals require an explicit decision')
+    }
+    return []
+  }
+  return pending.map((request) => ({
     approval_id: request.approval_id,
     tool_call_id: request.tool_call_id,
     status,
