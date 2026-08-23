@@ -3133,14 +3133,60 @@ def test_http_app_retries_a_canceled_agent_run() -> None:
             },
         )
         client.post("/contexts", json={"context_id": "ctx-1"})
-        response = client.post("/agent-runs/run-canceled/retry")
+        response = client.post(
+            "/agent-runs/run-canceled/retry",
+            json={"retried_run_id": "run-retried"},
+        )
 
     assert response.status_code == 201
     state = response.json()
-    assert state["run_id"] != "run-canceled"
+    assert state["run_id"] == "run-retried"
     assert state["status"] == "finished"
     assert state["request"]["metadata"]["retry_of"] == "run-canceled"
     assert state["request"]["metadata"]["retry_attempt"] == 1
+
+
+def test_http_app_streams_retry_with_a_caller_known_run_id() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-canceled",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Try again")],
+                metadata={"run_id": "run-canceled"},
+            ),
+            status=AgentRunStatus.CANCELED,
+        )
+    )
+    app = create_http_app(create_interface(runtime), close_on_shutdown=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Fake",
+                "type": "openai",
+            },
+        )
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        response = client.post(
+            "/agent-runs/run-canceled/retry/stream",
+            json={"retried_run_id": "run-retried"},
+        )
+        state_response = client.get("/agent-runs/run-retried")
+
+    assert response.status_code == 200
+    assert "event: run_started" in response.text
+    assert state_response.status_code == 200
+    assert state_response.json()["run_id"] == "run-retried"
 
 
 def test_http_app_retries_an_unrecoverable_paused_agent_run() -> None:

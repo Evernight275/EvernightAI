@@ -331,8 +331,17 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
         self,
         run_id: str,
         *,
+        retried_run_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
+
+    def retry_stream(
+        self,
+        run_id: str,
+        *,
+        retried_run_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentTraceStreamProtocol: ...
 
     def start_stream(
         self,

@@ -602,3 +602,16 @@ curl -X POST http://127.0.0.1:8000/agent-runs/run-1/resume \
     ]
   }'
 ```
+
+Retry a failed, canceled, or unrecoverable paused run as SSE with a
+caller-known new run id:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/agent-runs/run-1/retry/stream \
+  -H 'content-type: application/json' \
+  -d '{"retried_run_id": "run-retry-1"}'
+```
+
+The retry state is persisted before the SSE response starts. A client may
+therefore cancel it immediately with
+`POST /agent-runs/run-retry-1/cancel`, including after the stream disconnects.

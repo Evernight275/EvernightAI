@@ -7,9 +7,11 @@ import type {
 } from '../src/api'
 import type { ChatSubmission } from '../src/domain/chat'
 import type {
+  ChatCancelInput,
   ChatClearInput,
   ChatRequestInput,
   ChatResumeInput,
+  ChatRetryInput,
 } from '../src/runtime/chatRuntime'
 import { chatMachine } from '../src/state/chatMachine'
 
@@ -75,13 +77,13 @@ describe('chatMachine', () => {
   })
 
   it('uses the agent retry endpoint for a returned failed run', async () => {
-    const retries: AgentRunState[] = []
+    const retries: ChatRetryInput[] = []
     const actor = actorWithServices(
       async ({ input }) => failedRun(input),
       undefined,
       async ({ input }) => {
         retries.push(input)
-        return finishedResumedRun(input, 'recovered run')
+        return finishedRetriedRun(input, 'recovered run')
       },
     )
 
@@ -93,14 +95,15 @@ describe('chatMachine', () => {
       state.matches('idle') && state.context.transcript.length === 2
     ))
 
-    expect(retries.map((run) => run.run_id)).toEqual(['run-failed'])
+    expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-failed'])
+    expect(snapshot.context.runId).toBe(retries[0]?.runId)
     expect(snapshot.context.transcript[1]?.text).toBe('recovered run')
     actor.stop()
   })
 
   it('retries an unrecoverable paused run instead of requesting approval', async () => {
     const resumes: ChatResumeInput[] = []
-    const retries: AgentRunState[] = []
+    const retries: ChatRetryInput[] = []
     const actor = actorWithServices(
       async ({ input }) => unrecoverablePausedRun(input),
       async ({ input }) => {
@@ -109,7 +112,7 @@ describe('chatMachine', () => {
       },
       async ({ input }) => {
         retries.push(input)
-        return finishedResumedRun(input, 'recovered pause')
+        return finishedRetriedRun(input, 'recovered pause')
       },
     )
 
@@ -120,7 +123,7 @@ describe('chatMachine', () => {
     ))
 
     expect(resumes).toHaveLength(0)
-    expect(retries.map((run) => run.run_id)).toEqual(['run-unrecoverable'])
+    expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-unrecoverable'])
     expect(snapshot.context.transcript[1]?.text).toBe('recovered pause')
     actor.stop()
   })
@@ -138,13 +141,13 @@ describe('chatMachine', () => {
     actor.start()
     actor.send(sendEvent('use the tool'))
     await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE' })
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
     const snapshot = await waitFor(actor, (state) => (
       state.matches('idle') && state.context.transcript.length === 2
     ))
 
     expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.status).toBe('approved')
+    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'approved' })
     expect(snapshot.context.transcript[1]?.text).toBe('tool complete')
     actor.stop()
   })
@@ -162,21 +165,21 @@ describe('chatMachine', () => {
     actor.start()
     actor.send(sendEvent('do not use the tool'))
     await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'DENY' })
+    actor.send({ type: 'DENY', approvalId: 'approval-1' })
     const snapshot = await waitFor(actor, (state) => (
       state.matches('idle') && state.context.transcript.length === 2
     ))
 
     expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.status).toBe('denied')
+    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'denied' })
     expect(snapshot.context.transcript[1]?.text).toBe('denial handled')
     actor.stop()
   })
 
   it('keeps the approval decision when a resume request is retried', async () => {
-    const statuses: ChatResumeInput['status'][] = []
+    const statuses: ChatResumeInput['approvalStatuses'][] = []
     const resumer = vi.fn(async ({ input }: { input: ChatResumeInput }) => {
-      statuses.push(input.status)
+      statuses.push(input.approvalStatuses)
       if (statuses.length === 1) {
         throw new Error('resume unavailable')
       }
@@ -190,12 +193,15 @@ describe('chatMachine', () => {
     actor.start()
     actor.send(sendEvent('approve and retry'))
     await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE' })
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
     await waitFor(actor, (state) => state.matches('failed'))
     actor.send({ type: 'RETRY' })
     await waitFor(actor, (state) => state.matches('idle'))
 
-    expect(statuses).toEqual(['approved', 'approved'])
+    expect(statuses).toEqual([
+      { 'approval-1': 'approved' },
+      { 'approval-1': 'approved' },
+    ])
     actor.stop()
   })
 
@@ -216,7 +222,81 @@ describe('chatMachine', () => {
     await waitFor(actor, (state) => state.matches('idle'))
 
     expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.status).toBeNull()
+    expect(resumes[0]?.approvalStatuses).toEqual({})
+    actor.stop()
+  })
+
+  it('collects an independent decision for every pending approval', async () => {
+    const resumes: ChatResumeInput[] = []
+    const actor = actorWithServices(
+      async ({ input }) => pausedRunWithTwoApprovals(input),
+      async ({ input }) => {
+        resumes.push(input)
+        return finishedResumedRun(input.run, 'both handled')
+      },
+    )
+
+    actor.start()
+    actor.send(sendEvent('use selected tools'))
+    await waitFor(actor, (state) => state.matches('approvalRequired'))
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
+    expect(actor.getSnapshot().matches('approvalRequired')).toBe(true)
+    actor.send({ type: 'DENY', approvalId: 'approval-2' })
+    await waitFor(actor, (state) => state.matches('idle'))
+
+    expect(resumes[0]?.approvalStatuses).toEqual({
+      'approval-1': 'approved',
+      'approval-2': 'denied',
+    })
+    actor.stop()
+  })
+
+  it('allocates a fresh run id when sending after a terminal failure', async () => {
+    const requests: ChatRequestInput[] = []
+    const actor = actorWithServices(async ({ input }) => {
+      requests.push(input)
+      return requests.length === 1
+        ? failedRun(input)
+        : finishedRun(input, 'new request')
+    })
+
+    actor.start()
+    actor.send(sendEvent('first'))
+    await waitFor(actor, (state) => state.matches('failed'))
+    actor.send(sendEvent('second'))
+    await waitFor(actor, (state) => state.matches('idle'))
+
+    expect(requests[0]?.runId).not.toBe(requests[1]?.runId)
+    actor.stop()
+  })
+
+  it('cancels the newly allocated run while retrying', async () => {
+    const retries: ChatRetryInput[] = []
+    const cancellations: ChatCancelInput[] = []
+    const actor = actorWithServices(
+      async ({ input }) => failedRun(input),
+      undefined,
+      ({ input }) => {
+        retries.push(input)
+        return new Promise<AgentRunState>(() => undefined)
+      },
+      undefined,
+      async ({ input }) => {
+        cancellations.push(input)
+        return null
+      },
+    )
+
+    actor.start()
+    actor.send(sendEvent('retry then cancel'))
+    await waitFor(actor, (state) => state.matches('failed'))
+    actor.send({ type: 'RETRY' })
+    await waitFor(actor, (state) => state.matches('retrying'))
+    actor.send({ type: 'CANCEL' })
+    await waitFor(actor, (state) => state.matches('canceled'))
+
+    expect(retries[0]?.runId).not.toBe('run-failed')
+    expect(cancellations[0]?.runId).toBe(retries[0]?.runId)
     actor.stop()
   })
 
@@ -289,19 +369,23 @@ function actorWithServices(
     options: { input: ChatResumeInput; signal: AbortSignal },
   ) => Promise<AgentRunState> = async ({ input }) => input.run,
   retryer: (
-    options: { input: AgentRunState; signal: AbortSignal },
-  ) => Promise<AgentRunState> = async ({ input }) => input,
+    options: { input: ChatRetryInput; signal: AbortSignal },
+  ) => Promise<AgentRunState> = async ({ input }) => input.run,
   clearer: (
     _options: { input: ChatClearInput; signal: AbortSignal },
   ) => Promise<void> = async () => undefined,
+  canceler: (
+    _options: { input: ChatCancelInput; signal: AbortSignal },
+  ) => Promise<AgentRunState | null> = async () => null,
 ) {
   return createActor(chatMachine.provide({
     actors: {
       prepareContext: fromPromise<void, string>(async () => undefined),
       streamChat: fromPromise<AgentRunState, ChatRequestInput>(sender),
       resumeChat: fromPromise<AgentRunState, ChatResumeInput>(resumer),
-      retryChat: fromPromise<AgentRunState, AgentRunState>(retryer),
+      retryChat: fromPromise<AgentRunState, ChatRetryInput>(retryer),
       clearChat: fromPromise<void, ChatClearInput>(clearer),
+      cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(canceler),
     },
   }))
 }
@@ -356,6 +440,20 @@ function pausedRun(input: ChatRequestInput): AgentRunState {
   }
 }
 
+function pausedRunWithTwoApprovals(input: ChatRequestInput): AgentRunState {
+  const run = pausedRun(input)
+  run.pending_approval_requests = [
+    ...(run.pending_approval_requests || []),
+    {
+      approval_id: 'approval-2',
+      tool_call_id: 'call-2',
+      tool_name: 'write_file',
+      safety_level: 'restricted',
+    },
+  ]
+  return run
+}
+
 function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
   return {
     ...pausedRun(input),
@@ -397,6 +495,13 @@ function finishedResumedRun(run: AgentRunState, text: string): AgentRunState {
     status: 'finished',
     response: response(text),
     pending_approval_requests: [],
+  }
+}
+
+function finishedRetriedRun(input: ChatRetryInput, text: string): AgentRunState {
+  return {
+    ...finishedResumedRun(input.run, text),
+    run_id: input.runId,
   }
 }
 

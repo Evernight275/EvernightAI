@@ -2118,9 +2118,14 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         self,
         run_id: str,
         *,
+        retried_run_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
-        plan = self._retry_plan(run_id, principal_scope=principal_scope)
+        plan = self._retry_plan(
+            run_id,
+            retried_run_id=retried_run_id,
+            principal_scope=principal_scope,
+        )
         if plan.abandon_unrecoverable_pause:
             self._abandon_unrecoverable_pause(
                 plan.source,
@@ -2130,10 +2135,31 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         retried = await self.start(plan.request, principal_scope=principal_scope)
         return retried
 
+    def retry_stream(
+        self,
+        run_id: str,
+        *,
+        retried_run_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentTraceStreamProtocol:
+        plan = self._retry_plan(
+            run_id,
+            retried_run_id=retried_run_id,
+            principal_scope=principal_scope,
+        )
+        if plan.abandon_unrecoverable_pause:
+            self._abandon_unrecoverable_pause(
+                plan.source,
+                retried_run_id=plan.retried_run_id,
+                principal_scope=principal_scope,
+            )
+        return self.start_stream(plan.request, principal_scope=principal_scope)
+
     def _retry_plan(
         self,
         run_id: str,
         *,
+        retried_run_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunRetryPlan:
         source = self.get_state(run_id, principal_scope=principal_scope)
@@ -2142,14 +2168,14 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             raise AgentStateError(
                 "Only canceled, failed, or unrecoverable paused agent runs can be retried"
             )
-        request = self._retry_request(source)
-        retried_run_id = AgentRunMetadata.run_id(request.metadata)
-        if retried_run_id is None:
+        request = self._retry_request(source, retried_run_id=retried_run_id)
+        allocated_run_id = AgentRunMetadata.run_id(request.metadata)
+        if allocated_run_id is None:
             raise AgentStateError("Retry request did not allocate a run id")
         return AgentRunRetryPlan(
             source=source,
             request=request,
-            retried_run_id=retried_run_id,
+            retried_run_id=allocated_run_id,
             abandon_unrecoverable_pause=abandon_unrecoverable_pause,
         )
 
@@ -2171,9 +2197,14 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             AgentRunStatus.FAILED,
         } or abandon_unrecoverable_pause
 
-    def _retry_request(self, source: AgentRunState) -> AgentRunRequest:
+    def _retry_request(
+        self,
+        source: AgentRunState,
+        *,
+        retried_run_id: str | None = None,
+    ) -> AgentRunRequest:
         metadata = dict(source.request.metadata)
-        retry_run_id = uuid4().hex
+        retry_run_id = retried_run_id or uuid4().hex
         metadata[AgentRunMetadata.RUN_ID_KEY] = retry_run_id
         previous_attempt = metadata.get(AgentRunMetadata.RETRY_ATTEMPT_KEY)
         retry_attempt = previous_attempt + 1 if isinstance(previous_attempt, int) else 1

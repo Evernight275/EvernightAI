@@ -1320,14 +1320,49 @@ async def test_agent_run_application_retries_terminal_run_with_new_approval() ->
         )
     )
 
-    retried = await AgentRunApplication(runtime).retry("run-source")
+    retried = await AgentRunApplication(runtime).retry(
+        "run-source",
+        retried_run_id="run-retried",
+    )
 
-    assert retried.run_id != "run-source"
+    assert retried.run_id == "run-retried"
     assert retried.status is AgentRunStatus.PAUSED
     assert retried.request.tool_approvals == []
     assert retried.request.metadata[AgentRunMetadata.RETRY_OF_KEY] == "run-source"
     assert retried.request.metadata[AgentRunMetadata.RETRY_ATTEMPT_KEY] == 1
     assert len(retried.pending_approval_requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_run_retry_stream_reserves_requested_run_before_iteration() -> None:
+    state_register = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        agent_state_register=state_register,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    state_register.save_state(
+        AgentRunState(
+            run_id="run-source",
+            request=AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Try again")],
+                metadata={"run_id": "run-source"},
+            ),
+            status=AgentRunStatus.CANCELED,
+        )
+    )
+
+    app = AgentRunApplication(runtime)
+    app.retry_stream("run-source", retried_run_id="run-retried")
+    reserved = app.get_state("run-retried")
+
+    assert reserved.status is AgentRunStatus.RUNNING
+    assert reserved.request.metadata[AgentRunMetadata.RETRY_OF_KEY] == "run-source"
+    canceled = await app.cancel("run-retried", reason="test cancellation")
+    assert canceled.status is AgentRunStatus.CANCELED
 
 
 @pytest.mark.asyncio

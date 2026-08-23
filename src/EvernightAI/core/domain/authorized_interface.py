@@ -810,12 +810,29 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         self,
         run_id: str,
         *,
+        retried_run_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         self._require("agent-runs", "retry", run_id)
         return await _call_with_scope(
             self._inner.retry,
             run_id,
+            retried_run_id=retried_run_id,
+            principal_scope=self._principal_scope,
+        )
+
+    def retry_stream(
+        self,
+        run_id: str,
+        *,
+        retried_run_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentTraceStreamProtocol:
+        self._require("agent-runs", "retry", run_id)
+        return _call_with_scope_sync(
+            self._inner.retry_stream,
+            run_id,
+            retried_run_id=retried_run_id,
             principal_scope=self._principal_scope,
         )
 

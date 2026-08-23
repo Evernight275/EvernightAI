@@ -9,7 +9,7 @@ const props = defineProps<ChatRequestStatusProps>()
 defineEmits<ChatRequestStatusEmits>()
 const {
   errorMessage,
-  awaitingApproval,
+  approvalItems,
   canRetry,
   canResume,
   canClear,
@@ -23,16 +23,29 @@ const {
     <p>{{ state }}</p>
     <p v-if="runId">Agent run：{{ runId }}</p>
     <p v-if="errorMessage">{{ errorMessage }}</p>
-    <div v-if="awaitingApproval">
+    <div v-if="approvalItems.length > 0">
       <h3>等待工具审批</h3>
       <ul>
-        <li v-for="approval in pendingApprovals" :key="approval.approval_id">
+        <li v-for="approval in approvalItems" :key="approval.approval_id">
           {{ approval.tool_name }} / {{ approval.safety_level }}
           <span v-if="approval.reason"> / {{ approval.reason }}</span>
+          <p>权限：{{ approval.permissionsText }}</p>
+          <pre>{{ approval.toolCallText }}</pre>
+          <p v-if="approval.decisionText">{{ approval.decisionText }}</p>
+          <button
+            type="button"
+            @click="$emit('approve', approval.approval_id)"
+          >
+            批准此项
+          </button>
+          <button
+            type="button"
+            @click="$emit('deny', approval.approval_id)"
+          >
+            拒绝此项
+          </button>
         </li>
       </ul>
-      <button type="button" @click="$emit('approve')">批准</button>
-      <button type="button" @click="$emit('deny')">拒绝</button>
     </div>
     <button v-if="canRetry" type="button" @click="$emit('retry')">
       重试

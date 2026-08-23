@@ -44,11 +44,15 @@ components. Its `chatMachine` owns context preparation, agent runs, tool
 approval, retry, cancellation, errors, and local conversation history. The
 first turn creates a server context; every turn then uses `/agent-runs` with the
 Workspace tool catalog so the backend can execute multi-round tool calls. Chat
-transitions through `preparing`, `streaming`, `approvalRequired`, `resuming`,
-`retrying`, `canceling`, `clearing`, `canceled`, and `failed`. Streaming trace
-events update tool activity before the final run snapshot arrives. `CANCEL`
-stops a run while retaining local history; `CLEAR` cancels outstanding work,
-deletes the server context, and clears local history.
+transitions through `preparing`, `streaming`, `approvalRequired`,
+`resumeRequired`, `resuming`, `retrying`, `canceling`, `clearing`, `canceled`,
+and `failed`. Each pending tool approval is decided separately after its call
+arguments and permissions are shown. Streaming trace events update tool
+activity before the final run snapshot arrives. Retries use a preallocated run
+id and `/agent-runs/{run_id}/retry/stream`, so an in-flight retry can be
+canceled deterministically. `CANCEL` stops a run while retaining local history;
+`CLEAR` cancels outstanding work, deletes the server context, and clears local
+history.
 
 ## Commands
 

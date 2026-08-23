@@ -65,7 +65,8 @@ Common first flow:
 3. Use `POST /sessions` and `POST /sessions/{session_id}/chat` when you want a
    product-style conversation object that owns its context/provider/model.
 4. Use `POST /agent-runs` or `POST /agent-runs/stream` when a request may need
-   tools, approvals, trace events, or multiple model/tool rounds.
+   tools, approvals, trace events, or multiple model/tool rounds. Use
+   `POST /agent-runs/{run_id}/retry/stream` for a cancelable streamed retry.
 
 Most request bodies below show the smallest useful JSON first. Optional fields
 such as `skills`, `tools`, `memory_query`, and `metadata` are advanced controls.

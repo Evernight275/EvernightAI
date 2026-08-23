@@ -116,6 +116,10 @@ export type ResumeAgentRunRequest = {
   approvals: ToolApprovalDecision[]
 }
 
+export type RetryAgentRunRequest = {
+  retried_run_id?: string | null
+}
+
 export type AgentRunControlRequest = {
   reason?: string | null
 }
@@ -217,10 +221,30 @@ export function approvePendingAgentRun(runId: string): Promise<AgentRunState> {
 export function retryAgentRun(
   runId: string,
   signal?: AbortSignal,
+  request: RetryAgentRunRequest = {},
 ): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/retry`, {
     method: 'POST',
+    body: request,
     signal,
+  })
+}
+
+export function retryAgentRunStream(
+  runId: string,
+  request: RetryAgentRunRequest,
+  onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestSse(`/agent-runs/${encodeURIComponent(runId)}/retry/stream`, {
+    method: 'POST',
+    body: request,
+    signal,
+  }, (rawEvent) => {
+    const event = agentTraceEventFromSse(rawEvent)
+    if (event) {
+      onEvent(event, rawEvent)
+    }
   })
 }
 

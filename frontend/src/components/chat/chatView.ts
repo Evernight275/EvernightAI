@@ -33,16 +33,23 @@ export function useChatView() {
     busy: computed(() => isChatSubmissionBlocked(
       String(chatSnapshot.value.value),
       chatSnapshot.value.context.run,
+      chatSnapshot.value.context.runId,
     )),
     error: computed(() => chatSnapshot.value.context.error),
     transcript: computed(() => chatSnapshot.value.context.transcript),
     hasTranscript: computed(() => chatSnapshot.value.context.transcript.length > 0),
     run: computed(() => chatSnapshot.value.context.run),
     trace: computed(() => chatSnapshot.value.context.trace),
-    runId: computed(() => chatSnapshot.value.context.run?.run_id || null),
+    runId: computed(() => chatSnapshot.value.context.runId),
     pendingApprovals: computed(
       () => chatSnapshot.value.context.run?.pending_approval_requests || [],
     ),
+    approvalStatuses: computed(() => chatSnapshot.value.context.approvalStatuses),
+    cancelableRun: computed(() => isChatRunCancelable(
+      String(chatSnapshot.value.value),
+      chatSnapshot.value.context.run,
+      chatSnapshot.value.context.runId,
+    )),
     send(submission: ChatSubmission): void {
       chatActor.send({
         type: 'SEND',
@@ -59,11 +66,11 @@ export function useChatView() {
     cancel(): void {
       chatActor.send({ type: 'CANCEL' })
     },
-    approve(): void {
-      chatActor.send({ type: 'APPROVE' })
+    approve(approvalId: string): void {
+      chatActor.send({ type: 'APPROVE', approvalId })
     },
-    deny(): void {
-      chatActor.send({ type: 'DENY' })
+    deny(approvalId: string): void {
+      chatActor.send({ type: 'DENY', approvalId })
     },
     resume(): void {
       chatActor.send({ type: 'RESUME' })
@@ -74,9 +81,31 @@ export function useChatView() {
 export function isChatSubmissionBlocked(
   state: string,
   run: AgentRunState | null,
+  runId: string | null = run?.run_id || null,
 ): boolean {
   if (state === 'failed') {
-    return run?.status === 'paused'
+    return hasPotentiallyActiveRun(run, runId)
   }
   return state !== 'idle' && state !== 'canceled'
+}
+
+export function isChatRunCancelable(
+  state: string,
+  run: AgentRunState | null,
+  runId: string | null,
+): boolean {
+  return state === 'failed' && hasPotentiallyActiveRun(run, runId)
+}
+
+function hasPotentiallyActiveRun(
+  run: AgentRunState | null,
+  runId: string | null,
+): boolean {
+  if (!runId) {
+    return false
+  }
+  return !run
+    || run.run_id !== runId
+    || run.status === 'running'
+    || run.status === 'paused'
 }

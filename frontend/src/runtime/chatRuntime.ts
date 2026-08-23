@@ -4,7 +4,7 @@ import {
   deleteContext,
   getAgentRun,
   resumeAgentRunStream,
-  retryAgentRun,
+  retryAgentRunStream,
   startAgentRunStream,
   type AgentRunState,
   type AgentTraceEvent,
@@ -26,7 +26,19 @@ export type ChatRequestInput = {
 
 export type ChatResumeInput = {
   run: AgentRunState
-  status: Extract<ToolApprovalStatus, 'approved' | 'denied'> | null
+  approvalStatuses: ApprovalStatuses
+  onTrace?: (event: AgentTraceEvent) => void
+}
+
+export type ApprovalStatuses = Record<
+  string,
+  Extract<ToolApprovalStatus, 'approved' | 'denied'>
+>
+
+export type ChatRetryInput = {
+  run: AgentRunState
+  runId: string
+  onTrace?: (event: AgentTraceEvent) => void
 }
 
 export type ChatCancelInput = {
@@ -68,33 +80,51 @@ export async function streamChatRun(
     run_id: runId,
     stream: true,
   })
-  await startAgentRunStream(request, (event) => input.onTrace?.(event), signal)
-  return getAgentRun(runId, signal)
+  return streamAndReadRun(
+    runId,
+    () => startAgentRunStream(request, (event) => input.onTrace?.(event), signal),
+    signal,
+  )
 }
 
 export async function resumeChatRunStream(
   input: ChatResumeInput,
   signal: AbortSignal,
-  onTrace?: (event: AgentTraceEvent) => void,
 ): Promise<AgentRunState> {
-  await resumeAgentRunStream(input.run.run_id, {
-    approvals: approvalDecisions(input.run, input.status),
-  }, (event) => onTrace?.(event), signal)
-  return getAgentRun(input.run.run_id, signal)
+  return streamAndReadRun(
+    input.run.run_id,
+    () => resumeAgentRunStream(input.run.run_id, {
+      approvals: approvalDecisions(input.run, input.approvalStatuses),
+    }, (event) => input.onTrace?.(event), signal),
+    signal,
+  )
 }
 
 export function retryChatRun(
-  run: AgentRunState,
+  input: ChatRetryInput,
   signal: AbortSignal,
 ): Promise<AgentRunState> {
-  return retryAgentRun(run.run_id, signal)
+  return retryChatRunStream(input, signal)
+}
+
+async function retryChatRunStream(
+  input: ChatRetryInput,
+  signal: AbortSignal,
+): Promise<AgentRunState> {
+  return streamAndReadRun(
+    input.runId,
+    () => retryAgentRunStream(input.run.run_id, {
+      retried_run_id: input.runId,
+    }, (event) => input.onTrace?.(event), signal),
+    signal,
+  )
 }
 
 export async function cancelChatRun(
   input: ChatCancelInput,
   signal: AbortSignal,
 ): Promise<AgentRunState | null> {
-  const runId = input.run?.run_id || input.runId
+  const runId = input.runId || input.run?.run_id
   if (!runId) {
     return null
   }
@@ -105,8 +135,14 @@ export async function clearChatContext(
   input: ChatClearInput,
   signal: AbortSignal,
 ): Promise<void> {
-  const runId = input.run?.run_id || input.runId
-  if (runId && (!input.run || input.run.status === 'running' || input.run.status === 'paused')) {
+  const runId = input.runId || input.run?.run_id
+  const shouldCancel = runId && (
+    !input.run
+    || input.run.run_id !== runId
+    || input.run.status === 'running'
+    || input.run.status === 'paused'
+  )
+  if (shouldCancel) {
     try {
       await cancelAgentRun(runId, { reason: 'chat history cleared' }, signal)
     } catch {
@@ -120,20 +156,40 @@ export async function clearChatContext(
 
 export function approvalDecisions(
   run: AgentRunState,
-  status: Extract<ToolApprovalStatus, 'approved' | 'denied'> | null,
+  statuses: ApprovalStatuses,
 ): ToolApprovalDecision[] {
   const pending = run.pending_approval_requests || []
-  if (status === null) {
-    if (pending.length > 0) {
-      throw new Error('Pending tool approvals require an explicit decision')
+  return pending.map((request) => {
+    const status = statuses[request.approval_id]
+    if (!status) {
+      throw new Error(`Missing decision for tool approval: ${request.approval_id}`)
     }
-    return []
+    return {
+      approval_id: request.approval_id,
+      tool_call_id: request.tool_call_id,
+      status,
+    }
+  })
+}
+
+async function streamAndReadRun(
+  runId: string,
+  stream: () => Promise<void>,
+  signal: AbortSignal,
+): Promise<AgentRunState> {
+  try {
+    await stream()
+  } catch (streamError) {
+    if (!signal.aborted) {
+      try {
+        return await getAgentRun(runId, signal)
+      } catch {
+        // Preserve the transport error when no persisted run can be recovered.
+      }
+    }
+    throw streamError
   }
-  return pending.map((request) => ({
-    approval_id: request.approval_id,
-    tool_call_id: request.tool_call_id,
-    status,
-  }))
+  return getAgentRun(runId, signal)
 }
 
 function agentRunRequest(

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { prerequisiteNotice } from '../src/components/chat/chatPrerequisites'
 import { canSubmitChat } from '../src/components/chat/chatRequestForm'
-import { formatChatError } from '../src/components/chat/chatRequestStatus'
-import { isChatSubmissionBlocked } from '../src/components/chat/chatView'
+import { approvalItem, formatChatError } from '../src/components/chat/chatRequestStatus'
+import {
+  isChatRunCancelable,
+  isChatSubmissionBlocked,
+} from '../src/components/chat/chatView'
 
 describe('chat component controllers', () => {
   it('derives prerequisite notices outside the Vue component', () => {
@@ -53,5 +56,21 @@ describe('chat component controllers', () => {
       },
       status: 'paused',
     })).toBe(true)
+    expect(isChatSubmissionBlocked('failed', null, 'run-unknown')).toBe(true)
+    expect(isChatRunCancelable('failed', null, 'run-unknown')).toBe(true)
+  })
+
+  it('presents approval arguments, permissions, and the current decision', () => {
+    expect(approvalItem({
+      approval_id: 'approval-1',
+      tool_call_id: 'call-1',
+      tool_name: 'write_file',
+      tool_call: { name: 'write_file', arguments: { path: 'note.txt' } },
+      permissions: ['filesystem', 'write'],
+    }, 'approved')).toMatchObject({
+      permissionsText: 'filesystem, write',
+      decisionText: '已批准',
+      toolCallText: expect.stringContaining('note.txt'),
+    })
   })
 })

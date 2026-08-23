@@ -18,6 +18,7 @@ from EvernightAI.interface.http.schema import (
     AgentRunControlRequest,
     ResolveToolExecutionRequest,
     ResumeAgentRunRequest,
+    RetryAgentRunRequest,
 )
 from EvernightAI.interface.http.template import (
     AGENT_RUN_CANCELED_RESPONSE_EXAMPLE,
@@ -218,8 +219,37 @@ async def approve_pending_agent_run(
 async def retry_agent_run(
     run_id: str,
     interface: InterfaceDependency,
+    request: Annotated[RetryAgentRunRequest, Body()] | None = None,
 ) -> AgentRunState:
-    return await interface.agent_runs.retry(run_id)
+    return await interface.agent_runs.retry(
+        run_id,
+        retried_run_id=request.retried_run_id if request else None,
+    )
+
+
+@router.post(
+    "/{run_id}/retry/stream",
+    summary="Stream a retried agent run",
+    description=(
+        "Create a retry with a caller-known run id and stream its trace. The retry "
+        "state exists before the SSE response starts, so it can be canceled safely."
+    ),
+    operation_id="stream_retry_agent_run",
+    responses={200: AGENT_TRACE_SSE_EXAMPLE},
+)
+async def stream_retry_agent_run(
+    run_id: str,
+    request: Annotated[RetryAgentRunRequest, Body()],
+    interface: InterfaceDependency,
+) -> SSEStreamingResponse:
+    stream = interface.agent_runs.retry_stream(
+        run_id,
+        retried_run_id=request.retried_run_id,
+    )
+    return SSEStreamingResponse(
+        sse_response_body(_agent_trace_sse_events(stream)),
+        headers=SSE_RESPONSE_HEADERS,
+    )
 
 
 @router.get(

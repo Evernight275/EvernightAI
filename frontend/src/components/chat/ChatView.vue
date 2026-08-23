@@ -20,6 +20,8 @@ const {
   trace,
   runId,
   pendingApprovals,
+  approvalStatuses,
+  cancelableRun,
   send,
   retry,
   clear,
@@ -54,6 +56,8 @@ const {
       :has-transcript="hasTranscript"
       :run-id="runId"
       :pending-approvals="pendingApprovals"
+      :approval-statuses="approvalStatuses"
+      :cancelable-run="cancelableRun"
       @retry="retry"
       @clear="clear"
       @cancel="cancel"

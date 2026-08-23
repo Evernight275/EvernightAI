@@ -2,7 +2,6 @@ import { assign, createActor, fromPromise, setup } from 'xstate'
 import type {
   AgentRunState,
   AgentTraceEvent,
-  ToolApprovalStatus,
   ToolDefinition,
 } from '../api'
 import {
@@ -20,10 +19,12 @@ import {
   resumeChatRunStream,
   retryChatRun,
   streamChatRun,
+  type ApprovalStatuses,
   type ChatCancelInput,
   type ChatClearInput,
   type ChatRequestInput,
   type ChatResumeInput,
+  type ChatRetryInput,
 } from '../runtime/chatRuntime'
 
 type ChatPendingRequest = {
@@ -39,21 +40,27 @@ export type ChatMachineContext = {
   contextReady: boolean
   pending: ChatPendingRequest | null
   run: AgentRunState | null
-  approvalStatus: Extract<ToolApprovalStatus, 'approved' | 'denied'> | null
+  approvalStatuses: ApprovalStatuses
   error: unknown
 }
 
 export type ChatMachineEvent =
   | { type: 'SEND'; submission: ChatSubmission; tools: ToolDefinition[] }
   | { type: 'RETRY' }
-  | { type: 'APPROVE' }
-  | { type: 'DENY' }
+  | { type: 'APPROVE'; approvalId: string }
+  | { type: 'DENY'; approvalId: string }
   | { type: 'RESUME' }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
 
-export type { ChatCancelInput, ChatClearInput, ChatRequestInput, ChatResumeInput }
+export type {
+  ChatCancelInput,
+  ChatClearInput,
+  ChatRequestInput,
+  ChatResumeInput,
+  ChatRetryInput,
+}
 
 const emptyContext = (): ChatMachineContext => ({
   transcript: [],
@@ -63,7 +70,7 @@ const emptyContext = (): ChatMachineContext => ({
   contextReady: false,
   pending: null,
   run: null,
-  approvalStatus: null,
+  approvalStatuses: {},
   error: null,
 })
 
@@ -82,9 +89,9 @@ export const chatMachine = setup({
     resumeChat: fromPromise<AgentRunState, ChatResumeInput & {
       onTrace?: (event: AgentTraceEvent) => void
     }>(({ input, signal }) => (
-      resumeChatRunStream(input, signal, input.onTrace)
+      resumeChatRunStream(input, signal)
     )),
-    retryChat: fromPromise<AgentRunState, AgentRunState>(({ input, signal }) => (
+    retryChat: fromPromise<AgentRunState, ChatRetryInput>(({ input, signal }) => (
       retryChatRun(input, signal)
     )),
     cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(({ input, signal }) => (
@@ -116,7 +123,7 @@ export const chatMachine = setup({
             ],
             trace: [],
             run: null,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -184,7 +191,7 @@ export const chatMachine = setup({
           actions: assign({
             run: ({ event }) => event.output,
             runId: ({ event }) => event.output.run_id,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -207,14 +214,36 @@ export const chatMachine = setup({
     },
     approvalRequired: {
       on: {
-        APPROVE: {
-          target: 'resuming',
-          actions: assign({ approvalStatus: 'approved' }),
-        },
-        DENY: {
-          target: 'resuming',
-          actions: assign({ approvalStatus: 'denied' }),
-        },
+        APPROVE: [
+          {
+            guard: ({ context, event }) => completesApprovals(context, event),
+            target: 'resuming',
+            actions: assign({
+              approvalStatuses: ({ context, event }) => recordApproval(context, event),
+            }),
+          },
+          {
+            guard: ({ context, event }) => isPendingApproval(context, event.approvalId),
+            actions: assign({
+              approvalStatuses: ({ context, event }) => recordApproval(context, event),
+            }),
+          },
+        ],
+        DENY: [
+          {
+            guard: ({ context, event }) => completesApprovals(context, event),
+            target: 'resuming',
+            actions: assign({
+              approvalStatuses: ({ context, event }) => recordApproval(context, event),
+            }),
+          },
+          {
+            guard: ({ context, event }) => isPendingApproval(context, event.approvalId),
+            actions: assign({
+              approvalStatuses: ({ context, event }) => recordApproval(context, event),
+            }),
+          },
+        ],
         CANCEL: 'canceling',
         CLEAR: {
           target: 'clearing',
@@ -225,7 +254,7 @@ export const chatMachine = setup({
       on: {
         RESUME: {
           target: 'resuming',
-          actions: assign({ approvalStatus: null }),
+          actions: assign({ approvalStatuses: {} }),
         },
         CANCEL: 'canceling',
         CLEAR: 'clearing',
@@ -237,14 +266,14 @@ export const chatMachine = setup({
         src: 'resumeChat',
         input: ({ context, self }) => ({
           run: context.run as AgentRunState,
-          status: context.approvalStatus,
+          approvalStatuses: context.approvalStatuses,
           onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
         }),
         onDone: {
           target: 'evaluatingRun',
           actions: assign({
             run: ({ event }) => event.output,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -269,12 +298,17 @@ export const chatMachine = setup({
       invoke: {
         id: 'retryChat',
         src: 'retryChat',
-        input: ({ context }) => context.run as AgentRunState,
+        input: ({ context, self }) => ({
+          run: context.run as AgentRunState,
+          runId: context.runId as string,
+          onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
+        }),
         onDone: {
           target: 'evaluatingRun',
           actions: assign({
             run: ({ event }) => event.output,
-            approvalStatus: null,
+            runId: ({ event }) => event.output.run_id,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -286,6 +320,11 @@ export const chatMachine = setup({
         },
       },
       on: {
+        TRACE: {
+          actions: assign({
+            trace: ({ context, event }) => [...context.trace, event.event],
+          }),
+        },
         CANCEL: 'canceling',
         CLEAR: 'clearing',
       },
@@ -302,7 +341,7 @@ export const chatMachine = setup({
           target: 'canceled',
           actions: assign({
             run: ({ event }) => event.output,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -340,7 +379,7 @@ export const chatMachine = setup({
             contextReady: false,
             pending: null,
             run: null,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: ({ event }) => event.error,
           }),
         },
@@ -363,7 +402,7 @@ export const chatMachine = setup({
             ],
             trace: [],
             run: null,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -385,6 +424,10 @@ export const chatMachine = setup({
         {
           guard: ({ context }) => context.run?.status === 'paused',
           target: 'retrying',
+          actions: assign({
+            runId: () => createChatRunId(),
+            trace: [],
+          }),
         },
         {
           guard: ({ context }) => (
@@ -397,14 +440,14 @@ export const chatMachine = setup({
               assistantEntry(context.run!.response!, context.transcript.length + 1),
             ],
             pending: null,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
         {
           target: 'failed',
           actions: assign({
-            approvalStatus: null,
+            approvalStatuses: {},
             error: ({ context }) => agentRunError(context.run as AgentRunState),
           }),
         },
@@ -414,7 +457,7 @@ export const chatMachine = setup({
       on: {
         CANCEL: [
           {
-            guard: ({ context }) => context.run?.status === 'paused',
+            guard: ({ context }) => hasPotentiallyActiveRun(context),
             target: 'canceling',
           },
           { target: 'canceled' },
@@ -429,6 +472,10 @@ export const chatMachine = setup({
           {
             guard: ({ context }) => context.run !== null,
             target: 'retrying',
+            actions: assign({
+              runId: () => createChatRunId(),
+              trace: [],
+            }),
           },
           {
             guard: ({ context }) => !context.contextReady,
@@ -437,9 +484,10 @@ export const chatMachine = setup({
           { target: 'streaming' },
         ],
         SEND: {
-          guard: ({ context }) => context.run?.status !== 'paused',
+          guard: ({ context }) => !hasPotentiallyActiveRun(context),
           target: 'preparing',
           actions: assign({
+            runId: () => createChatRunId(),
             pending: ({ event }) => ({
               submission: event.submission,
               tools: event.tools,
@@ -450,7 +498,7 @@ export const chatMachine = setup({
             ],
             trace: [],
             run: null,
-            approvalStatus: null,
+            approvalStatuses: {},
             error: null,
           }),
         },
@@ -491,4 +539,48 @@ function isManualPause(run: AgentRunState | null): boolean {
   return Boolean(runtime && typeof runtime === 'object'
     && 'manual_pause' in runtime
     && runtime.manual_pause === true)
+}
+
+type ApprovalDecisionEvent = Extract<
+  ChatMachineEvent,
+  { type: 'APPROVE' | 'DENY' }
+>
+
+function isPendingApproval(context: ChatMachineContext, approvalId: string): boolean {
+  return Boolean(context.run?.pending_approval_requests?.some(
+    (request) => request.approval_id === approvalId,
+  ))
+}
+
+function recordApproval(
+  context: ChatMachineContext,
+  event: ApprovalDecisionEvent,
+): ApprovalStatuses {
+  return {
+    ...context.approvalStatuses,
+    [event.approvalId]: event.type === 'APPROVE' ? 'approved' : 'denied',
+  }
+}
+
+function completesApprovals(
+  context: ChatMachineContext,
+  event: ApprovalDecisionEvent,
+): boolean {
+  if (!isPendingApproval(context, event.approvalId)) {
+    return false
+  }
+  const statuses = recordApproval(context, event)
+  return Boolean(context.run?.pending_approval_requests?.every(
+    (request) => statuses[request.approval_id],
+  ))
+}
+
+function hasPotentiallyActiveRun(context: ChatMachineContext): boolean {
+  if (!context.runId) {
+    return false
+  }
+  return !context.run
+    || context.run.run_id !== context.runId
+    || context.run.status === 'running'
+    || context.run.status === 'paused'
 }

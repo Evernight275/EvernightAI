@@ -3,6 +3,7 @@ import type { AgentRunState } from '../src/api'
 import {
   approvalDecisions,
   clearChatContext,
+  retryChatRun,
   streamChatRun,
   type ChatRequestInput,
 } from '../src/runtime/chatRuntime'
@@ -33,11 +34,14 @@ describe('chat runtime', () => {
       },
     ]
 
-    expect(approvalDecisions(run, 'denied')).toEqual([
+    expect(approvalDecisions(run, {
+      'approval-1': 'approved',
+      'approval-2': 'denied',
+    })).toEqual([
       {
         approval_id: 'approval-1',
         tool_call_id: 'call-1',
-        status: 'denied',
+        status: 'approved',
       },
       {
         approval_id: 'approval-2',
@@ -48,7 +52,7 @@ describe('chat runtime', () => {
   })
 
   it('only permits an empty decision set when no approval is pending', () => {
-    expect(approvalDecisions(finishedRun(), null)).toEqual([])
+    expect(approvalDecisions(finishedRun(), {})).toEqual([])
 
     const run = finishedRun()
     run.pending_approval_requests = [{
@@ -56,8 +60,8 @@ describe('chat runtime', () => {
       tool_call_id: 'call-1',
       tool_name: 'write_file',
     }]
-    expect(() => approvalDecisions(run, null)).toThrow(
-      'Pending tool approvals require an explicit decision',
+    expect(() => approvalDecisions(run, {})).toThrow(
+      'Missing decision for tool approval: approval-1',
     )
   })
 
@@ -91,6 +95,54 @@ describe('chat runtime', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       `/agent-runs/${String((streamBody.metadata as Record<string, unknown>).run_id)}`,
     )
+  })
+
+  it('recovers persisted state when the stream transport fails', async () => {
+    const persisted = { ...finishedRun(), run_id: 'run-recovered' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('stream disconnected', { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(persisted), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    const input = { ...requestInput(), runId: 'run-recovered' }
+
+    const run = await streamChatRun(input, new AbortController().signal)
+
+    expect(run.run_id).toBe('run-recovered')
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/stream',
+      '/agent-runs/run-recovered',
+    ])
+  })
+
+  it('streams a retry under a caller-known run id', async () => {
+    const stream = 'data: [DONE]\n\n'
+    const retried = { ...finishedRun(), run_id: 'run-retried' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(retried), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await retryChatRun({
+      run: { ...finishedRun(), status: 'failed' },
+      runId: 'run-retried',
+    }, new AbortController().signal)
+    const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit]
+
+    expect(result.run_id).toBe('run-retried')
+    expect(path).toBe('/agent-runs/run-1/retry/stream')
+    expect(JSON.parse(String(options.body))).toEqual({
+      retried_run_id: 'run-retried',
+    })
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/agent-runs/run-retried')
   })
 
   it('cancels a known run before deleting its context', async () => {
@@ -130,6 +182,27 @@ describe('chat runtime', () => {
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-streaming-1/cancel',
+      '/contexts/context-1/delete',
+    ])
+  })
+
+  it('cancels a preallocated retry instead of its terminal source run', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await clearChatContext({
+      contextId: 'context-1',
+      run: { ...finishedRun(), status: 'failed' },
+      runId: 'run-retried',
+    }, new AbortController().signal)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/run-retried/cancel',
       '/contexts/context-1/delete',
     ])
   })
