@@ -5,6 +5,9 @@ import type { ProviderCatalog } from '../../domain/workspace'
 export type ChatRequestFormProps = {
   catalog: ProviderCatalog
   busy: boolean
+  sessionReady: boolean
+  defaultProviderId?: string | null
+  defaultModelId?: string | null
 }
 
 export type ChatRequestFormEmits = {
@@ -30,6 +33,7 @@ export function useChatRequestForm(
 
   const canSubmit = computed(() => canSubmitChat({
     busy: props.busy,
+    sessionReady: props.sessionReady,
     providerId: providerId.value,
     modelId: modelId.value,
     text: text.value,
@@ -49,6 +53,26 @@ export function useChatRequestForm(
     modelId.value = models.value[0]?.model_id || ''
   })
 
+  watch(
+    [
+      () => props.defaultProviderId,
+      () => props.defaultModelId,
+      () => props.catalog.providers,
+    ],
+    ([defaultProviderId, defaultModelId]) => {
+      if (!defaultProviderId || !props.catalog.providers.some(
+        (provider) => provider.provider_id === defaultProviderId,
+      )) {
+        return
+      }
+      providerId.value = defaultProviderId
+      modelId.value = defaultModelId?.trim()
+        || models.value[0]?.model_id
+        || ''
+    },
+    { immediate: true, flush: 'sync' },
+  )
+
   function submit(): void {
     if (!canSubmit.value) {
       return
@@ -67,20 +91,29 @@ export function useChatRequestForm(
     modelId,
     text,
     canSubmit,
-    providerDisabled: computed(() => props.busy || props.catalog.providers.length === 0),
-    modelDisabled: computed(() => props.busy || providerId.value === ''),
-    submitLabel: computed(() => props.busy ? '发送中' : '发送'),
+    providerDisabled: computed(() => (
+      props.busy || !props.sessionReady || props.catalog.providers.length === 0
+    )),
+    modelDisabled: computed(() => (
+      props.busy || !props.sessionReady || providerId.value === ''
+    )),
+    messageDisabled: computed(() => props.busy || !props.sessionReady),
+    submitLabel: computed(() => !props.sessionReady
+      ? '请先选择会话'
+      : props.busy ? '发送中' : '发送'),
     submit,
   }
 }
 
 export function canSubmitChat(values: {
   busy: boolean
+  sessionReady?: boolean
   providerId: string
   modelId: string
   text: string
 }): boolean {
   return !values.busy
+    && values.sessionReady !== false
     && values.providerId !== ''
     && values.modelId.trim() !== ''
     && values.text.trim() !== ''

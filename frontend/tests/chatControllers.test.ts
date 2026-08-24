@@ -6,6 +6,7 @@ import {
   isChatRunCancelable,
   isChatSubmissionBlocked,
 } from '../src/components/chat/chatView'
+import { sidebarItems } from '../src/components/chat/chatSidebar'
 
 describe('chat component controllers', () => {
   it('derives prerequisite notices outside the Vue component', () => {
@@ -25,6 +26,13 @@ describe('chat component controllers', () => {
     })).toBe(true)
     expect(canSubmitChat({
       busy: true,
+      providerId: 'main',
+      modelId: 'model-1',
+      text: 'hello',
+    })).toBe(false)
+    expect(canSubmitChat({
+      busy: false,
+      sessionReady: false,
       providerId: 'main',
       modelId: 'model-1',
       text: 'hello',
@@ -72,5 +80,38 @@ describe('chat component controllers', () => {
       decisionText: '已批准',
       toolCallText: expect.stringContaining('note.txt'),
     })
+  })
+
+  it('orders sidebar sessions and marks the current context', () => {
+    expect(sidebarItems([
+      {
+        session_id: 'older',
+        context_id: 'context-1',
+        created_at: '2026-08-20T00:00:00.000Z',
+      },
+      {
+        session_id: 'newer',
+        title: 'Recent work',
+        context_id: 'context-2',
+        updated_at: '2026-08-24T00:00:00.000Z',
+        status: 'archived',
+      },
+    ], {
+      session_id: 'older',
+      context_id: 'context-1',
+    })).toEqual([
+      {
+        id: 'older',
+        title: 'older',
+        status: 'active',
+        active: true,
+      },
+      {
+        id: 'newer',
+        title: 'Recent work',
+        status: 'archived',
+        active: false,
+      },
+    ])
   })
 })

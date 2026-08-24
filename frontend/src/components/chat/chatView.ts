@@ -39,6 +39,7 @@ export function useChatView() {
     transcript: computed(() => chatSnapshot.value.context.transcript),
     hasTranscript: computed(() => chatSnapshot.value.context.transcript.length > 0),
     run: computed(() => chatSnapshot.value.context.run),
+    session: computed(() => chatSnapshot.value.context.session),
     trace: computed(() => chatSnapshot.value.context.trace),
     runId: computed(() => chatSnapshot.value.context.runId),
     pendingApprovals: computed(

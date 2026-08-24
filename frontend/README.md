@@ -30,6 +30,8 @@ idle -> loading -> ready
 
 Components should subscribe to `workspaceActor` and send events. They should not
 create independent workspace loading flags or call the startup APIs themselves.
+The settings page stores API Key authentication through the shared API client;
+credential changes emit `AUTH_CHANGED` through the workspace runtime.
 
 ## Component Boundaries
 
@@ -40,19 +42,21 @@ and empty states. `App.vue` contains no domain rendering logic.
 
 The separate `chat.html` entry renders the chat skeleton. `ChatView` composes
 the prerequisite, request form, request status, tool activity, and transcript
-components. Its `chatMachine` owns context preparation, agent runs, tool
-approval, retry, cancellation, errors, and local conversation history. The
-first turn creates a server context; every turn then uses `/agent-runs` with the
-Workspace tool catalog so the backend can execute multi-round tool calls. Chat
-transitions through `preparing`, `streaming`, `approvalRequired`,
+components. `ChatSidebar` creates and selects persisted sessions and keeps the
+settings entry at the bottom of the layout. Its `chatMachine` owns session
+creation/loading, context history, agent runs, tool approval, retry,
+cancellation, and errors. Selecting a session loads its persisted Context;
+every later turn uses that Context and includes its `session_id` while calling
+`/agent-runs`. Chat transitions through `creatingSession`, `loadingSession`,
+`preparing`, `streaming`, `approvalRequired`,
 `resumeRequired`, `resuming`, `retrying`, `canceling`, `clearing`, `canceled`,
 and `failed`. Each pending tool approval is decided separately after its call
 arguments and permissions are shown. Streaming trace events update tool
 activity before the final run snapshot arrives. Retries use a preallocated run
 id and `/agent-runs/{run_id}/retry/stream`, so an in-flight retry can be
-canceled deterministically. `CANCEL` stops a run while retaining local history;
-`CLEAR` cancels outstanding work, deletes the server context, and clears local
-history.
+canceled deterministically. `CANCEL` stops a run while retaining local history.
+For a Session, `CLEAR` empties its Context without deleting it; standalone
+Contexts are deleted.
 
 ## Commands
 

@@ -17,6 +17,7 @@ const {
   transcript,
   hasTranscript,
   run,
+  session,
   trace,
   runId,
   pendingApprovals,
@@ -33,9 +34,10 @@ const {
 </script>
 
 <template>
-  <main>
+  <section class="chat-view">
     <h1>EvernightAI Chat</h1>
-    <p><a href="/">返回 Workspace</a></p>
+    <p v-if="session">当前会话：{{ session.title || session.session_id }}</p>
+    <p v-else>请选择或新建会话</p>
 
     <ChatPrerequisites
       :state="workspaceState"
@@ -47,6 +49,9 @@ const {
     <ChatRequestForm
       :catalog="providerCatalog"
       :busy="busy"
+      :session-ready="session !== null"
+      :default-provider-id="session?.provider_id"
+      :default-model-id="session?.model_id"
       @submit="send"
     />
 
@@ -68,5 +73,5 @@ const {
 
     <ChatToolActivity :run="run" :trace="trace" />
     <ChatTranscript :entries="transcript" />
-  </main>
+  </section>
 </template>

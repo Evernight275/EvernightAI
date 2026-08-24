@@ -1,10 +1,31 @@
 import { createSSRApp } from 'vue'
 import { renderToString } from '@vue/server-renderer'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import ApiKeySettings from '../src/components/settings/ApiKeySettings.vue'
 import WorkspaceContents from '../src/components/workspace/WorkspaceContents.vue'
 import { emptyWorkspaceSnapshot } from '../src/domain/workspace'
 
 describe('workspace component composition', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+    })
+    vi.stubGlobal('window', {
+      EVERNIGHTAI_API_KEY: '',
+    })
+  })
+
+  it('renders API Key authentication controls', async () => {
+    const app = createSSRApp(ApiKeySettings)
+
+    const html = await renderToString(app)
+
+    expect(html).toContain('<h2>认证</h2>')
+    expect(html).toContain('type="password"')
+    expect(html).toContain('>保存</button>')
+    expect(html).toContain('清除')
+  })
+
   it('delegates every workspace concept and its empty state', async () => {
     const app = createSSRApp(WorkspaceContents, {
       workspace: {

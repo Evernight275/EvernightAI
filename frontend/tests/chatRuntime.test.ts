@@ -3,6 +3,7 @@ import type { AgentRunState } from '../src/api'
 import {
   approvalDecisions,
   clearChatContext,
+  loadChatSession,
   retryChatRun,
   streamChatRun,
   type ChatRequestInput,
@@ -95,6 +96,31 @@ describe('chat runtime', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       `/agent-runs/${String((streamBody.metadata as Record<string, unknown>).run_id)}`,
     )
+  })
+
+  it('tags a selected session on its agent run', async () => {
+    const stream = 'data: [DONE]\n\n'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamChatRun({
+      ...requestInput(),
+      sessionId: 'session-1',
+    }, new AbortController().signal)
+    const options = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const body = JSON.parse(String(options.body)) as {
+      metadata: Record<string, unknown>
+    }
+
+    expect(body.metadata.session_id).toBe('session-1')
   })
 
   it('recovers persisted state when the stream transport fails', async () => {
@@ -205,6 +231,79 @@ describe('chat runtime', () => {
       '/agent-runs/run-retried/cancel',
       '/contexts/context-1/delete',
     ])
+  })
+
+  it('cancels the old run and loads a selected session transcript', async () => {
+    const context = {
+      context_id: 'context-2',
+      messages: [{
+        role: 'user',
+        content: [{ type: 'text', text: 'stored message' }],
+      }],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ...finishedRun(),
+        run_id: 'run-old',
+        status: 'canceled',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(context), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const snapshot = await loadChatSession({
+      session: {
+        session_id: 'session-2',
+        context_id: 'context-2',
+      },
+      currentRun: { ...finishedRun(), run_id: 'run-old', status: 'paused' },
+      currentRunId: 'run-old',
+    }, new AbortController().signal)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/run-old/cancel',
+      '/contexts/context-2',
+    ])
+    expect(snapshot.transcript[0]?.text).toBe('stored message')
+  })
+
+  it('clears a session context without deleting it', async () => {
+    const context = {
+      context_id: 'context-1',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'old' }] }],
+      metadata: { session_id: 'session-1' },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(context), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ...context,
+        messages: [],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await clearChatContext({
+      contextId: 'context-1',
+      sessionId: 'session-1',
+      run: finishedRun(),
+    }, new AbortController().signal)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/contexts/context-1',
+      '/contexts/context-1',
+    ])
+    const replaceOptions = fetchMock.mock.calls[1]?.[1] as RequestInit
+    expect(JSON.parse(String(replaceOptions.body))).toMatchObject({ messages: [] })
   })
 })
 

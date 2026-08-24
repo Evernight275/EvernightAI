@@ -1,23 +1,33 @@
 import {
   cancelAgentRun,
+  createSession,
   createContext,
   deleteContext,
   getAgentRun,
+  getContext,
+  getSession,
+  replaceContext,
   resumeAgentRunStream,
   retryAgentRunStream,
   startAgentRunStream,
   type AgentRunState,
   type AgentTraceEvent,
+  type Session,
   type ToolApprovalDecision,
   type ToolApprovalStatus,
   type ToolDefinition,
 } from '../api'
-import type { ChatSubmission } from '../domain/chat'
+import {
+  transcriptFromMessages,
+  type ChatSubmission,
+  type ChatTranscriptEntry,
+} from '../domain/chat'
 
 const maxToolRounds = 4
 
 export type ChatRequestInput = {
   contextId: string
+  sessionId?: string | null
   submission: ChatSubmission
   tools: ToolDefinition[]
   runId?: string
@@ -48,8 +58,20 @@ export type ChatCancelInput = {
 
 export type ChatClearInput = {
   contextId: string | null
+  sessionId?: string | null
   run: AgentRunState | null
   runId?: string | null
+}
+
+export type ChatSessionInput = {
+  session: Session
+  currentRun: AgentRunState | null
+  currentRunId: string | null
+}
+
+export type ChatSessionSnapshot = {
+  session: Session
+  transcript: ChatTranscriptEntry[]
 }
 
 export function createChatContextId(): string {
@@ -62,6 +84,49 @@ export function createChatRunId(): string {
   const suffix = globalThis.crypto?.randomUUID?.()
     || `${Date.now()}-${Math.random().toString(16).slice(2)}`
   return `web-run-${suffix}`
+}
+
+export function createChatSessionId(): string {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `web-session-${suffix}`
+}
+
+export async function createChatSession(
+  input: ChatSessionInput,
+  signal: AbortSignal,
+): Promise<ChatSessionSnapshot> {
+  await cancelCurrentChatRun(input, signal)
+  try {
+    const session = await createSession(input.session, signal)
+    return { session, transcript: [] }
+  } catch (createError) {
+    if (!signal.aborted) {
+      try {
+        const session = await getSession(input.session.session_id, signal)
+        const context = await getContext(session.context_id, signal)
+        return {
+          session,
+          transcript: transcriptFromMessages(context.messages || []),
+        }
+      } catch {
+        // Preserve the create error when the requested session does not exist.
+      }
+    }
+    throw createError
+  }
+}
+
+export async function loadChatSession(
+  input: ChatSessionInput,
+  signal: AbortSignal,
+): Promise<ChatSessionSnapshot> {
+  await cancelCurrentChatRun(input, signal)
+  const context = await getContext(input.session.context_id, signal)
+  return {
+    session: input.session,
+    transcript: transcriptFromMessages(context.messages || []),
+  }
 }
 
 export async function prepareChatContext(
@@ -79,6 +144,7 @@ export async function streamChatRun(
   const request = agentRunRequest(input, {
     run_id: runId,
     stream: true,
+    ...(input.sessionId ? { session_id: input.sessionId } : {}),
   })
   return streamAndReadRun(
     runId,
@@ -150,7 +216,15 @@ export async function clearChatContext(
     }
   }
   if (input.contextId) {
-    await deleteContext(input.contextId, signal)
+    if (input.sessionId) {
+      const context = await getContext(input.contextId, signal)
+      await replaceContext(input.contextId, {
+        ...context,
+        messages: [],
+      }, signal)
+    } else {
+      await deleteContext(input.contextId, signal)
+    }
   }
 }
 
@@ -190,6 +264,23 @@ async function streamAndReadRun(
     throw streamError
   }
   return getAgentRun(runId, signal)
+}
+
+async function cancelCurrentChatRun(
+  input: ChatSessionInput,
+  signal: AbortSignal,
+): Promise<void> {
+  const runId = input.currentRunId || input.currentRun?.run_id
+  const active = runId && (
+    !input.currentRun
+    || input.currentRun.run_id !== runId
+    || input.currentRun.status === 'running'
+    || input.currentRun.status === 'paused'
+  )
+  if (!active) {
+    return
+  }
+  await cancelAgentRun(runId, { reason: 'chat session changed' }, signal)
 }
 
 function agentRunRequest(

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   AgentRunState,
   ChatResponse,
+  Session,
   ToolDefinition,
 } from '../src/api'
 import type { ChatSubmission } from '../src/domain/chat'
@@ -12,6 +13,8 @@ import type {
   ChatRequestInput,
   ChatResumeInput,
   ChatRetryInput,
+  ChatSessionInput,
+  ChatSessionSnapshot,
 } from '../src/runtime/chatRuntime'
 import { chatMachine } from '../src/state/chatMachine'
 
@@ -49,6 +52,106 @@ describe('chatMachine', () => {
     expect(requests[0]?.tools).toEqual([tool()])
     expect(requests[1]?.contextId).toBe(requests[0]?.contextId)
     expect(requests[1]?.submission.text).toBe('second')
+    actor.stop()
+  })
+
+  it('loads a session transcript and sends later turns through its context', async () => {
+    const requests: ChatRequestInput[] = []
+    const selected = session('session-1', 'context-session-1')
+    const actor = actorWithServices(
+      async ({ input }) => {
+        requests.push(input)
+        return finishedRun(input, 'session answer')
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async ({ input }) => ({
+        session: input.session,
+        transcript: [{
+          entryId: 'user-1',
+          role: 'user',
+          text: 'stored message',
+          content: {
+            role: 'user',
+            content: [{ type: 'text', text: 'stored message' }],
+          },
+        }],
+      }),
+    )
+
+    actor.start()
+    actor.send({ type: 'SELECT_SESSION', session: selected })
+    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
+    actor.send(sendEvent('next message'))
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('idle') && state.context.transcript.length === 3
+    ))
+
+    expect(snapshot.context.contextId).toBe('context-session-1')
+    expect(snapshot.context.transcript[0]?.text).toBe('stored message')
+    expect(requests[0]).toMatchObject({
+      contextId: 'context-session-1',
+      sessionId: 'session-1',
+    })
+    actor.stop()
+  })
+
+  it('creates and selects a persisted session', async () => {
+    const created: Session[] = []
+    const target = session('session-new', 'context-new')
+    const actor = actorWithServices(
+      async ({ input }) => finishedRun(input, 'unused'),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async ({ input }) => {
+        created.push(input.session)
+        return { session: input.session, transcript: [] }
+      },
+    )
+
+    actor.start()
+    actor.send({ type: 'CREATE_SESSION', session: target })
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('idle') && state.context.session?.session_id === 'session-new'
+    ))
+
+    expect(created).toEqual([target])
+    expect(snapshot.context.contextId).toBe('context-new')
+    expect(snapshot.context.contextReady).toBe(true)
+    actor.stop()
+  })
+
+  it('clears a session without detaching it from the chat', async () => {
+    const clears: ChatClearInput[] = []
+    const selected = session('session-1', 'context-session-1')
+    const actor = actorWithServices(
+      async ({ input }) => finishedRun(input, 'unused'),
+      undefined,
+      undefined,
+      async ({ input }) => {
+        clears.push(input)
+      },
+    )
+
+    actor.start()
+    actor.send({ type: 'SELECT_SESSION', session: selected })
+    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
+    actor.send({ type: 'CLEAR' })
+    const snapshot = await waitFor(actor, (state) => (
+      state.matches('idle') && clears.length === 1
+    ))
+
+    expect(clears[0]).toMatchObject({
+      contextId: 'context-session-1',
+      sessionId: 'session-1',
+    })
+    expect(snapshot.context.session?.session_id).toBe('session-1')
+    expect(snapshot.context.contextReady).toBe(true)
     actor.stop()
   })
 
@@ -377,6 +480,18 @@ function actorWithServices(
   canceler: (
     _options: { input: ChatCancelInput; signal: AbortSignal },
   ) => Promise<AgentRunState | null> = async () => null,
+  sessionCreator: (
+    options: { input: ChatSessionInput; signal: AbortSignal },
+  ) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
+    session: input.session,
+    transcript: [],
+  }),
+  sessionLoader: (
+    options: { input: ChatSessionInput; signal: AbortSignal },
+  ) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
+    session: input.session,
+    transcript: [],
+  }),
 ) {
   return createActor(chatMachine.provide({
     actors: {
@@ -386,6 +501,8 @@ function actorWithServices(
       retryChat: fromPromise<AgentRunState, ChatRetryInput>(retryer),
       clearChat: fromPromise<void, ChatClearInput>(clearer),
       cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(canceler),
+      createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionCreator),
+      loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionLoader),
     },
   }))
 }
@@ -411,6 +528,15 @@ function tool(): ToolDefinition {
     name: 'read_file',
     description: 'Read a file',
     parameters_schema: { type: 'object' },
+  }
+}
+
+function session(sessionId: string, contextId: string): Session {
+  return {
+    session_id: sessionId,
+    context_id: contextId,
+    provider_id: 'main',
+    model_id: 'model-1',
   }
 }
 

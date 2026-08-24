@@ -14,6 +14,7 @@ const {
   canSubmit,
   providerDisabled,
   modelDisabled,
+  messageDisabled,
   submitLabel,
   submit,
 } = useChatRequestForm(props, emit)
@@ -53,7 +54,7 @@ const {
       <p>
         <label>
           Message
-          <textarea v-model="text" :disabled="busy"></textarea>
+          <textarea v-model="text" :disabled="messageDisabled"></textarea>
         </label>
       </p>
 

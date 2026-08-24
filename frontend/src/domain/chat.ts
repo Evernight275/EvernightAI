@@ -45,6 +45,22 @@ export function assistantEntry(
   }
 }
 
+export function transcriptFromMessages(messages: Content[]): ChatTranscriptEntry[] {
+  return messages.map((content, index) => ({
+    entryId: messageEntryId(content, index),
+    role: content.role,
+    text: textFromContent(content),
+    content,
+  }))
+}
+
+function messageEntryId(content: Content, index: number): string {
+  const metadataId = content.metadata?.message_id
+  return typeof metadataId === 'string' && metadataId
+    ? metadataId
+    : `${content.role}-${index + 1}`
+}
+
 function textFromContent(message: Content): string {
   const text = (message.content || [])
     .map((part) => part.text)

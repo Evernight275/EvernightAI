@@ -2,6 +2,7 @@ import { assign, createActor, fromPromise, setup } from 'xstate'
 import type {
   AgentRunState,
   AgentTraceEvent,
+  Session,
   ToolDefinition,
 } from '../api'
 import {
@@ -15,7 +16,9 @@ import {
   createChatRunId,
   cancelChatRun,
   clearChatContext,
+  createChatSession,
   prepareChatContext,
+  loadChatSession,
   resumeChatRunStream,
   retryChatRun,
   streamChatRun,
@@ -25,6 +28,8 @@ import {
   type ChatRequestInput,
   type ChatResumeInput,
   type ChatRetryInput,
+  type ChatSessionInput,
+  type ChatSessionSnapshot,
 } from '../runtime/chatRuntime'
 
 type ChatPendingRequest = {
@@ -40,6 +45,9 @@ export type ChatMachineContext = {
   contextReady: boolean
   pending: ChatPendingRequest | null
   run: AgentRunState | null
+  session: Session | null
+  requestedSession: Session | null
+  sessionOperation: 'create' | 'load' | null
   approvalStatuses: ApprovalStatuses
   error: unknown
 }
@@ -50,6 +58,8 @@ export type ChatMachineEvent =
   | { type: 'APPROVE'; approvalId: string }
   | { type: 'DENY'; approvalId: string }
   | { type: 'RESUME' }
+  | { type: 'CREATE_SESSION'; session: Session }
+  | { type: 'SELECT_SESSION'; session: Session }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
@@ -70,9 +80,31 @@ const emptyContext = (): ChatMachineContext => ({
   contextReady: false,
   pending: null,
   run: null,
+  session: null,
+  requestedSession: null,
+  sessionOperation: null,
   approvalStatuses: {},
   error: null,
 })
+
+const sessionLoadedContext = {
+  transcript: ({ event }: { event: { output: ChatSessionSnapshot } }) => (
+    event.output.transcript
+  ),
+  trace: [],
+  contextId: ({ event }: { event: { output: ChatSessionSnapshot } }) => (
+    event.output.session.context_id
+  ),
+  runId: null,
+  contextReady: true,
+  pending: null,
+  run: null,
+  session: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.session,
+  requestedSession: null,
+  sessionOperation: null,
+  approvalStatuses: {},
+  error: null,
+}
 
 export const chatMachine = setup({
   types: {
@@ -100,12 +132,66 @@ export const chatMachine = setup({
     clearChat: fromPromise<void, ChatClearInput>(({ input, signal }) => (
       clearChatContext(input, signal)
     )),
+    createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
+      createChatSession(input, signal)
+    )),
+    loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
+      loadChatSession(input, signal)
+    )),
   },
 }).createMachine({
   id: 'chat',
   initial: 'idle',
   context: emptyContext,
+  on: {
+    CREATE_SESSION: {
+      target: '.creatingSession',
+      actions: assign({
+        requestedSession: ({ event }) => event.session,
+        sessionOperation: 'create',
+        error: null,
+      }),
+    },
+    SELECT_SESSION: {
+      target: '.loadingSession',
+      actions: assign({
+        requestedSession: ({ event }) => event.session,
+        sessionOperation: 'load',
+        error: null,
+      }),
+    },
+  },
   states: {
+    creatingSession: {
+      invoke: {
+        id: 'createSession',
+        src: 'createSession',
+        input: ({ context }) => sessionInput(context),
+        onDone: {
+          target: 'idle',
+          actions: assign(sessionLoadedContext),
+        },
+        onError: {
+          target: 'failed',
+          actions: assign({ error: ({ event }) => event.error }),
+        },
+      },
+    },
+    loadingSession: {
+      invoke: {
+        id: 'loadSession',
+        src: 'loadSession',
+        input: ({ context }) => sessionInput(context),
+        onDone: {
+          target: 'idle',
+          actions: assign(sessionLoadedContext),
+        },
+        onError: {
+          target: 'failed',
+          actions: assign({ error: ({ event }) => event.error }),
+        },
+      },
+    },
     idle: {
       on: {
         SEND: {
@@ -181,6 +267,7 @@ export const chatMachine = setup({
         src: 'streamChat',
         input: ({ context, self }) => ({
           contextId: context.contextId as string,
+          sessionId: context.session?.session_id,
           runId: context.runId as string,
           submission: (context.pending as ChatPendingRequest).submission,
           tools: (context.pending as ChatPendingRequest).tools,
@@ -362,24 +449,32 @@ export const chatMachine = setup({
         src: 'clearChat',
         input: ({ context }) => ({
           contextId: context.contextId,
+          sessionId: context.session?.session_id,
           run: context.run,
           runId: context.runId,
         }),
-        onDone: {
-          target: 'canceled',
-          actions: assign(emptyContext),
-        },
+        onDone: [
+          {
+            guard: ({ context }) => context.session !== null,
+            target: 'idle',
+            actions: assign({
+              transcript: [],
+              trace: [],
+              runId: null,
+              pending: null,
+              run: null,
+              approvalStatuses: {},
+              error: null,
+            }),
+          },
+          {
+            target: 'canceled',
+            actions: assign(emptyContext),
+          },
+        ],
         onError: {
-          target: 'canceled',
+          target: 'idle',
           actions: assign({
-            transcript: [],
-            trace: [],
-            contextId: null,
-            runId: null,
-            contextReady: false,
-            pending: null,
-            run: null,
-            approvalStatuses: {},
             error: ({ event }) => event.error,
           }),
         },
@@ -464,6 +559,14 @@ export const chatMachine = setup({
         ],
         RETRY: [
           {
+            guard: ({ context }) => context.sessionOperation === 'create',
+            target: 'creatingSession',
+          },
+          {
+            guard: ({ context }) => context.sessionOperation === 'load',
+            target: 'loadingSession',
+          },
+          {
             guard: ({ context }) => (
               isApprovalPause(context.run) || isManualPause(context.run)
             ),
@@ -498,6 +601,8 @@ export const chatMachine = setup({
             ],
             trace: [],
             run: null,
+            sessionOperation: null,
+            requestedSession: null,
             approvalStatuses: {},
             error: null,
           }),
@@ -583,4 +688,12 @@ function hasPotentiallyActiveRun(context: ChatMachineContext): boolean {
     || context.run.run_id !== context.runId
     || context.run.status === 'running'
     || context.run.status === 'paused'
+}
+
+function sessionInput(context: ChatMachineContext): ChatSessionInput {
+  return {
+    session: context.requestedSession as Session,
+    currentRun: context.run,
+    currentRunId: context.runId,
+  }
 }

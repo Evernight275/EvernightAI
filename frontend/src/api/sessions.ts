@@ -42,10 +42,11 @@ export type SessionChatResult = {
   response: ChatResponse
 }
 
-export function createSession(session: Session): Promise<Session> {
+export function createSession(session: Session, signal?: AbortSignal): Promise<Session> {
   return requestJson<Session>('/sessions', {
     method: 'POST',
     body: session,
+    signal,
   })
 }
 
@@ -53,8 +54,8 @@ export function listSessions(signal?: AbortSignal): Promise<Session[]> {
   return requestJson<Session[]>('/sessions', { signal })
 }
 
-export function getSession(sessionId: string): Promise<Session> {
-  return requestJson<Session>(`/sessions/${encodeURIComponent(sessionId)}`)
+export function getSession(sessionId: string, signal?: AbortSignal): Promise<Session> {
+  return requestJson<Session>(`/sessions/${encodeURIComponent(sessionId)}`, { signal })
 }
 
 export function chatWithSession(

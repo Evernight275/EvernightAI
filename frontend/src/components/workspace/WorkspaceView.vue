@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, shallowRef } from 'vue'
 import { workspaceActor } from '../../state/workspaceMachine'
+import ApiKeySettings from '../settings/ApiKeySettings.vue'
 import WorkspaceContents from './WorkspaceContents.vue'
 import WorkspaceIssues from './WorkspaceIssues.vue'
 import WorkspaceStatus from './WorkspaceStatus.vue'
@@ -24,6 +25,8 @@ function refresh(): void {
   <main>
     <h1>EvernightAI</h1>
     <p><a href="/chat.html">打开 Chat</a></p>
+
+    <ApiKeySettings />
 
     <WorkspaceStatus
       :state="state"
