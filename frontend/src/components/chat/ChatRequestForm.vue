@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Send } from '@lucide/vue'
 import {
   useChatRequestForm,
   type ChatRequestFormEmits,
@@ -17,58 +18,66 @@ const {
   modelDisabled,
   messageDisabled,
   submitLabel,
+  handleMessageKeydown,
   submit,
 } = useChatRequestForm(props, emit)
 </script>
 
 <template>
   <section class="chat-composer">
-    <h2>发送消息</h2>
+    <h2 class="sr-only">发送消息</h2>
     <form @submit.prevent="submit">
       <div class="chat-composer-message">
-        <label for="chat-message">
-          Message
-        </label>
+        <label class="sr-only" for="chat-message">消息</label>
         <textarea
           id="chat-message"
           v-model="text"
           :disabled="messageDisabled"
+          placeholder="输入消息"
+          @keydown="handleMessageKeydown"
         ></textarea>
       </div>
 
-      <div class="chat-composer-options">
-        <label>
-          Provider
-          <select v-model="providerId" :disabled="providerDisabled">
-            <option value="">请选择</option>
-            <option
-              v-for="provider in catalog.providers"
-              :key="provider.provider_id"
-              :value="provider.provider_id"
-            >
-              {{ provider.name }}（{{ provider.provider_id }}）
-            </option>
-          </select>
-        </label>
+      <div class="chat-composer-actions">
+        <div class="chat-composer-options">
+          <label>
+            Provider
+            <select v-model="providerId" :disabled="providerDisabled">
+              <option value="">请选择</option>
+              <option
+                v-for="provider in catalog.providers"
+                :key="provider.provider_id"
+                :value="provider.provider_id"
+              >
+                {{ provider.name }}（{{ provider.provider_id }}）
+              </option>
+            </select>
+          </label>
 
-        <label>
-          Model ID
-          <select v-model="modelId" :disabled="modelDisabled">
-            <option value="">请选择</option>
-            <option
-              v-for="model in models"
-              :key="model.model_id"
-              :value="model.model_id"
-            >
-              {{ model.model_id }}
-            </option>
-          </select>
-        </label>
+          <label>
+            Model
+            <select v-model="modelId" :disabled="modelDisabled">
+              <option value="">请选择</option>
+              <option
+                v-for="model in models"
+                :key="model.model_id"
+                :value="model.model_id"
+              >
+                {{ model.model_id }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <button
+          class="button-primary chat-composer-submit"
+          type="submit"
+          :disabled="!canSubmit"
+        >
+          <Send :size="16" aria-hidden="true" />
+          {{ submitLabel }}
+        </button>
       </div>
-
-      <button type="submit" :disabled="!canSubmit">
-        {{ submitLabel }}
-      </button>
     </form>
   </section>
 </template>

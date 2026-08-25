@@ -74,21 +74,9 @@ export function sidebarItems(
   sessions: Session[],
   activeSession: Session | null,
 ): ChatSidebarItem[] {
-  const merged = activeSession
-    ? [activeSession, ...sessions.filter(
-      (session) => session.session_id !== activeSession.session_id,
-    )]
-    : sessions
+  const merged = mergeActiveSession(sessions, activeSession)
   return [...merged]
-    .sort((left, right) => {
-      if (left.session_id === activeSession?.session_id) {
-        return -1
-      }
-      if (right.session_id === activeSession?.session_id) {
-        return 1
-      }
-      return sessionTime(right) - sessionTime(left)
-    })
+    .sort((left, right) => sessionCreatedTime(right) - sessionCreatedTime(left))
     .map((session) => ({
       id: session.session_id,
       title: session.title || session.session_id,
@@ -112,10 +100,29 @@ export function createChatSessionDraft(catalog: ProviderCatalog): Session {
   }
 }
 
-function sessionTime(session: Session): number {
-  const value = session.updated_at || session.created_at
-  const timestamp = value ? Date.parse(value) : 0
+function sessionCreatedTime(session: Session): number {
+  const timestamp = session.created_at ? Date.parse(session.created_at) : 0
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function mergeActiveSession(
+  sessions: Session[],
+  activeSession: Session | null,
+): Session[] {
+  if (!activeSession) {
+    return sessions
+  }
+  const listedSession = sessions.find(
+    (session) => session.session_id === activeSession.session_id,
+  )
+  if (!listedSession) {
+    return [...sessions, activeSession]
+  }
+  return sessions.map((session) => (
+    session.session_id === activeSession.session_id
+      ? { ...listedSession, ...activeSession }
+      : session
+  ))
 }
 
 function mergeSessions(primary: Session[], secondary: Session[]): Session[] {

@@ -46,12 +46,18 @@ export function assistantEntry(
 }
 
 export function transcriptFromMessages(messages: Content[]): ChatTranscriptEntry[] {
-  return messages.map((content, index) => ({
-    entryId: messageEntryId(content, index),
-    role: content.role,
-    text: textFromContent(content),
-    content,
-  }))
+  return messages.flatMap((content, index) => {
+    const text = visibleTextFromContent(content)
+    if (!['user', 'assistant'].includes(content.role) || !text) {
+      return []
+    }
+    return [{
+      entryId: messageEntryId(content, index),
+      role: content.role,
+      text,
+      content,
+    }]
+  })
 }
 
 function messageEntryId(content: Content, index: number): string {
@@ -62,10 +68,12 @@ function messageEntryId(content: Content, index: number): string {
 }
 
 function textFromContent(message: Content): string {
-  const text = (message.content || [])
+  return visibleTextFromContent(message) || '[没有文本内容]'
+}
+
+function visibleTextFromContent(message: Content): string {
+  return (message.content || [])
     .map((part) => part.text)
     .filter((value): value is string => typeof value === 'string')
     .join('\n')
-
-  return text || '[没有文本内容]'
 }

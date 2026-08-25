@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { chatHeaderTitle } from '../src/components/chat/chatHeader'
+import { chatMessagePresentation } from '../src/components/chat/chatMessage'
 import { prerequisiteNotice } from '../src/components/chat/chatPrerequisites'
-import { canSubmitChat } from '../src/components/chat/chatRequestForm'
+import {
+  canSubmitChat,
+  shouldSubmitChatKeydown,
+} from '../src/components/chat/chatRequestForm'
 import { approvalItem, formatChatError } from '../src/components/chat/chatRequestStatus'
 import {
   isChatRunCancelable,
@@ -8,8 +13,45 @@ import {
   shouldOpenChatDetails,
 } from '../src/components/chat/chatView'
 import { sidebarItems } from '../src/components/chat/chatSidebar'
+import { transcriptFromMessages } from '../src/domain/chat'
 
 describe('chat component controllers', () => {
+  it('derives chat header and message presentation outside Vue', () => {
+    expect(chatHeaderTitle(null)).toBe('未选择会话')
+    expect(chatHeaderTitle({
+      session_id: 'session-1',
+      context_id: 'context-1',
+      title: 'Planning',
+    })).toBe('Planning')
+    expect(chatMessagePresentation({
+      entryId: 'user-1',
+      role: 'user',
+      text: 'hello',
+      modelId: 'model-1',
+      content: { role: 'user' },
+    })).toEqual({
+      roleLabel: '你',
+      roleClass: 'user',
+      markdown: false,
+    })
+  })
+
+  it('keeps only visible user and assistant text in the conversation', () => {
+    expect(transcriptFromMessages([
+      { role: 'system', content: [{ type: 'text', text: 'instruction' }] },
+      { role: 'user', content: [{ type: 'text', text: 'question' }] },
+      { role: 'assistant', tool_calls: [{
+        tool_call_id: 'call-1',
+        tool_call: { name: 'read_file' },
+      }] },
+      { role: 'tool', content: [{ type: 'text', text: 'tool output' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+    ]).map((entry) => [entry.role, entry.text])).toEqual([
+      ['user', 'question'],
+      ['assistant', 'answer'],
+    ])
+  })
+
   it('derives prerequisite notices outside the Vue component', () => {
     expect(prerequisiteNotice('loading', 0)).toBe('正在读取 Provider。')
     expect(prerequisiteNotice('offline', 0)).toBe('后端不可用。')
@@ -43,6 +85,24 @@ describe('chat component controllers', () => {
       providerId: 'main',
       modelId: ' ',
       text: 'hello',
+    })).toBe(false)
+  })
+
+  it('submits with Enter while preserving Shift+Enter and composition', () => {
+    expect(shouldSubmitChatKeydown({
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: false,
+    })).toBe(true)
+    expect(shouldSubmitChatKeydown({
+      key: 'Enter',
+      shiftKey: true,
+      isComposing: false,
+    })).toBe(false)
+    expect(shouldSubmitChatKeydown({
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: true,
     })).toBe(false)
   })
 
@@ -96,12 +156,13 @@ describe('chat component controllers', () => {
         session_id: 'older',
         context_id: 'context-1',
         created_at: '2026-08-20T00:00:00.000Z',
+        updated_at: '2026-08-25T00:00:00.000Z',
       },
       {
         session_id: 'newer',
         title: 'Recent work',
         context_id: 'context-2',
-        updated_at: '2026-08-24T00:00:00.000Z',
+        created_at: '2026-08-24T00:00:00.000Z',
         status: 'archived',
       },
     ], {
@@ -109,16 +170,16 @@ describe('chat component controllers', () => {
       context_id: 'context-1',
     })).toEqual([
       {
-        id: 'older',
-        title: 'older',
-        status: 'active',
-        active: true,
-      },
-      {
         id: 'newer',
         title: 'Recent work',
         status: 'archived',
         active: false,
+      },
+      {
+        id: 'older',
+        title: 'older',
+        status: 'active',
+        active: true,
       },
     ])
   })

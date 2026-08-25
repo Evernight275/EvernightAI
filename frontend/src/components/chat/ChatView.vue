@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import ChatPrerequisites from './ChatPrerequisites.vue'
+import ChatHeader from './ChatHeader.vue'
 import ChatRequestForm from './ChatRequestForm.vue'
-import ChatRequestStatus from './ChatRequestStatus.vue'
-import ChatToolActivity from './ChatToolActivity.vue'
+import ChatRunDetails from './ChatRunDetails.vue'
 import ChatTranscript from './ChatTranscript.vue'
 import { useChatView } from './chatView'
 
@@ -36,46 +35,33 @@ const {
 
 <template>
   <section class="chat-view">
-    <header class="chat-view-header">
-      <div class="chat-content">
-        <h1>EvernightAI Chat</h1>
-        <p v-if="session">当前会话：{{ session.title || session.session_id }}</p>
-        <p v-else>请选择或新建会话</p>
-
-        <details class="chat-details" :open="detailsOpen">
-          <summary>运行详情</summary>
-          <div class="chat-details-content">
-            <ChatPrerequisites
-              :state="workspaceState"
-              :provider-count="providerCatalog.providers.length"
-              :tool-count="toolCatalog.length"
-              :issues="workspaceIssues"
-            />
-
-            <ChatToolActivity :run="run" :trace="trace" />
-
-            <ChatRequestStatus
-              :state="chatState"
-              :error="error"
-              :has-transcript="hasTranscript"
-              :run-id="runId"
-              :pending-approvals="pendingApprovals"
-              :approval-statuses="approvalStatuses"
-              :cancelable-run="cancelableRun"
-              @retry="retry"
-              @clear="clear"
-              @cancel="cancel"
-              @approve="approve"
-              @deny="deny"
-              @resume="resume"
-            />
-          </div>
-        </details>
-      </div>
-    </header>
+    <ChatHeader :session="session">
+      <ChatRunDetails
+        :open="detailsOpen"
+        :workspace-state="workspaceState"
+        :chat-state="chatState"
+        :workspace-issues="workspaceIssues"
+        :provider-count="providerCatalog.providers.length"
+        :tool-count="toolCatalog.length"
+        :error="error"
+        :has-transcript="hasTranscript"
+        :run="run"
+        :trace="trace"
+        :run-id="runId"
+        :pending-approvals="pendingApprovals"
+        :approval-statuses="approvalStatuses"
+        :cancelable-run="cancelableRun"
+        @retry="retry"
+        @clear="clear"
+        @cancel="cancel"
+        @approve="approve"
+        @deny="deny"
+        @resume="resume"
+      />
+    </ChatHeader>
 
     <div class="chat-view-scroll">
-      <div class="chat-content chat-flow">
+      <div class="chat-content">
         <ChatTranscript :entries="transcript" />
       </div>
     </div>

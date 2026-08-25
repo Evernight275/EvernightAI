@@ -22,7 +22,7 @@ const {
     <h2>请求状态</h2>
     <p>{{ state }}</p>
     <p v-if="runId">Agent run：{{ runId }}</p>
-    <p v-if="errorMessage">{{ errorMessage }}</p>
+    <p v-if="errorMessage" class="chat-status-error">{{ errorMessage }}</p>
     <div v-if="approvalItems.length > 0">
       <h3>等待工具审批</h3>
       <ul>
@@ -47,17 +47,24 @@ const {
         </li>
       </ul>
     </div>
-    <button v-if="canRetry" type="button" @click="$emit('retry')">
-      重试
-    </button>
-    <button v-if="canResume" type="button" @click="$emit('resume')">
-      继续运行
-    </button>
-    <button v-if="canCancel" type="button" @click="$emit('cancel')">
-      取消当前运行
-    </button>
-    <button v-if="canClear" type="button" @click="$emit('clear')">
-      清空对话记录
-    </button>
+    <div class="chat-details-actions">
+      <button v-if="canRetry" type="button" @click="$emit('retry')">
+        重试
+      </button>
+      <button v-if="canResume" type="button" @click="$emit('resume')">
+        继续运行
+      </button>
+      <button v-if="canCancel" type="button" @click="$emit('cancel')">
+        取消当前运行
+      </button>
+      <button
+        v-if="canClear"
+        class="button-danger"
+        type="button"
+        @click="$emit('clear')"
+      >
+        清空对话记录
+      </button>
+    </div>
   </section>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Plus, Settings } from '@lucide/vue'
 import EmptyValue from '../common/EmptyValue.vue'
 import { useChatSidebar } from './chatSidebar'
 
@@ -8,8 +9,12 @@ const { sessions, newConversation, selectSession } = useChatSidebar()
 <template>
   <aside class="chat-sidebar" aria-label="会话管理">
     <header class="chat-sidebar-header">
-      <h1>会话</h1>
-      <button type="button" @click="newConversation">新建会话</button>
+      <h1 class="chat-sidebar-brand">EvernightAI</h1>
+      <p class="chat-sidebar-label">会话</p>
+      <button class="chat-sidebar-new" type="button" @click="newConversation">
+        <Plus :size="16" aria-hidden="true" />
+        新建会话
+      </button>
     </header>
 
     <section class="chat-sidebar-sessions" aria-label="会话列表">
@@ -17,20 +22,23 @@ const { sessions, newConversation, selectSession } = useChatSidebar()
       <ul v-else class="chat-sidebar-list">
         <li v-for="session in sessions" :key="session.id">
           <button
+            class="chat-session-button"
             type="button"
-            :disabled="session.active"
             :aria-current="session.active ? 'true' : undefined"
             @click="selectSession(session.id)"
           >
-            {{ session.title }}
+            <span class="chat-session-title">{{ session.title }}</span>
+            <small class="chat-session-status">{{ session.status }}</small>
           </button>
-          <small>{{ session.status }}</small>
         </li>
       </ul>
     </section>
 
     <footer class="chat-sidebar-settings">
-      <a href="/">设置</a>
+      <a href="/">
+        <Settings :size="16" aria-hidden="true" />
+        设置
+      </a>
     </footer>
   </aside>
 </template>

@@ -2,6 +2,7 @@ import { createSSRApp } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { describe, expect, it } from 'vitest'
 import ChatApp from '../src/ChatApp.vue'
+import ChatMessage from '../src/components/chat/ChatMessage.vue'
 import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue'
 import ChatView from '../src/components/chat/ChatView.vue'
 
@@ -14,12 +15,13 @@ describe('chat component composition', () => {
     expect(html).toContain('aria-label="会话管理"')
     expect(html).toContain('新建会话')
     expect(html).toContain('没有会话')
-    expect(html).toContain('>设置</a>')
+    expect(html).toContain('设置')
     expect(html).toContain('class="chat-main"')
     expect(html).toContain('class="chat-view-header"')
     expect(html).toContain('class="chat-view-scroll"')
     expect(html).toContain('class="chat-view-footer"')
-    expect(html).toContain('EvernightAI Chat')
+    expect(html).toContain('EvernightAI')
+    expect(html).toContain('未选择会话')
   })
 
   it('delegates the chat skeleton and its empty state', async () => {
@@ -31,7 +33,7 @@ describe('chat component composition', () => {
     expect(html).toContain('请求状态')
     expect(html).toContain('工具调用（0）')
     expect(html).toContain('Tools：0')
-    expect(html).toContain('本地对话记录（0）')
+    expect(html).toContain('aria-label="对话记录"')
     expect(html).toContain('还没有消息')
     expect(html).not.toContain('<datalist')
 
@@ -44,6 +46,26 @@ describe('chat component composition', () => {
     expect(html.indexOf('class="chat-composer-message"')).toBeLessThan(
       html.indexOf('class="chat-composer-options"'),
     )
+  })
+
+  it('renders a focused user or assistant message component', async () => {
+    const html = await renderToString(createSSRApp(ChatMessage, {
+      entry: {
+        entryId: 'assistant-1',
+        role: 'assistant',
+        text: 'A direct answer.',
+        modelId: 'model-1',
+        content: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'A direct answer.' }],
+        },
+      },
+    }))
+
+    expect(html).toContain('class="chat-message chat-message--assistant"')
+    expect(html).toContain('EvernightAI')
+    expect(html).toContain('A direct answer.')
+    expect(html).not.toContain('model-1')
   })
 
   it('selects models from the active Provider catalog', async () => {

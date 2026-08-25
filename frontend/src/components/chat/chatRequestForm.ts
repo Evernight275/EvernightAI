@@ -88,6 +88,14 @@ export function useChatRequestForm(
     text.value = ''
   }
 
+  function handleMessageKeydown(event: KeyboardEvent): void {
+    if (!shouldSubmitChatKeydown(event)) {
+      return
+    }
+    event.preventDefault()
+    submit()
+  }
+
   return {
     providerId,
     modelId,
@@ -107,8 +115,16 @@ export function useChatRequestForm(
     submitLabel: computed(() => !props.sessionReady
       ? '请先选择会话'
       : props.busy ? '发送中' : '发送'),
+    handleMessageKeydown,
     submit,
   }
+}
+
+export function shouldSubmitChatKeydown(event: Pick<
+  KeyboardEvent,
+  'key' | 'shiftKey' | 'isComposing'
+>): boolean {
+  return event.key === 'Enter' && !event.shiftKey && !event.isComposing
 }
 
 export function canSubmitChat(values: {

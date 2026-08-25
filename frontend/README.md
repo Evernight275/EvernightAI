@@ -40,10 +40,12 @@ credential changes emit `AUTH_CHANGED` through the workspace runtime.
 component per domain concept; those components own their counts, formatting,
 and empty states. `App.vue` contains no domain rendering logic.
 
-The separate `chat.html` entry renders the chat skeleton. `ChatView` composes
-the prerequisite, request form, request status, tool activity, and transcript
-components. `ChatSidebar` creates and selects persisted sessions and keeps the
-settings entry at the bottom of the layout. Its `chatMachine` owns session
+The separate `chat.html` entry renders the chat workspace. `ChatView` composes
+`ChatHeader`, `ChatRunDetails`, `ChatTranscript`, and the request form.
+`ChatTranscript` delegates each visible user or assistant turn to `ChatMessage`;
+system and tool records remain outside the conversation view. `ChatSidebar`
+creates and selects persisted sessions and keeps the settings entry at the
+bottom of the layout. Its `chatMachine` owns session
 creation/loading, context history, agent runs, tool approval, retry,
 cancellation, and errors. Selecting a session loads its persisted Context;
 every later turn uses that Context and includes its `session_id` while calling
@@ -60,6 +62,15 @@ Contexts are deleted.
 An Agent Run only returns to `idle` after a genuinely finished response.
 `tool_rounds_exhausted` remains in `failed` and can continue through the retry
 lifecycle instead of appearing as a completed conversation turn.
+
+Assistant text is rendered by `MarkdownContent` through `markdown-it`. Raw HTML
+is disabled, unsafe link schemes are rejected, and external links receive
+`noopener noreferrer`. Inline `$...$` / `\\(...\\)` and block `$$...$$` /
+`\\[...\\]` formulas render with KaTeX using untrusted input mode; user messages
+remain plain text.
+
+Visual tokens live in `src/styles/tokens.css`. The interface uses neutral
+surfaces, one blue action color, semantic status colors, and no gradients.
 
 ## Commands
 
