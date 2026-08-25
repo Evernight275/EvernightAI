@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <section>
+  <section class="chat-transcript">
     <h2>本地对话记录（{{ entries.length }}）</h2>
     <EmptyValue v-if="!entries.length" label="还没有消息" />
     <ol v-else>

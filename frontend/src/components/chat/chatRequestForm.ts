@@ -49,9 +49,11 @@ export function useChatRequestForm(
     { immediate: true },
   )
 
-  watch(providerId, () => {
-    modelId.value = models.value[0]?.model_id || ''
-  })
+  watch(models, (availableModels) => {
+    if (!availableModels.some((model) => model.model_id === modelId.value)) {
+      modelId.value = availableModels[0]?.model_id || ''
+    }
+  }, { immediate: true, flush: 'sync' })
 
   watch(
     [
@@ -89,13 +91,17 @@ export function useChatRequestForm(
   return {
     providerId,
     modelId,
+    models,
     text,
     canSubmit,
     providerDisabled: computed(() => (
       props.busy || !props.sessionReady || props.catalog.providers.length === 0
     )),
     modelDisabled: computed(() => (
-      props.busy || !props.sessionReady || providerId.value === ''
+      props.busy
+      || !props.sessionReady
+      || providerId.value === ''
+      || models.value.length === 0
     )),
     messageDisabled: computed(() => props.busy || !props.sessionReady),
     submitLabel: computed(() => !props.sessionReady

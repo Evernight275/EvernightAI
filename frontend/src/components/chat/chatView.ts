@@ -23,6 +23,12 @@ export function useChatView() {
   return {
     workspaceState: computed(() => String(workspaceSnapshot.value.value)),
     chatState: computed(() => String(chatSnapshot.value.value)),
+    detailsOpen: computed(() => shouldOpenChatDetails(
+      String(workspaceSnapshot.value.value),
+      String(chatSnapshot.value.value),
+      chatSnapshot.value.context.error,
+      workspaceSnapshot.value.context.issues.length,
+    )),
     workspaceIssues: computed(() => workspaceSnapshot.value.context.issues),
     providerCatalog: computed(
       () => workspaceSnapshot.value.context.workspace.providerCatalog,
@@ -77,6 +83,18 @@ export function useChatView() {
       chatActor.send({ type: 'RESUME' })
     },
   }
+}
+
+export function shouldOpenChatDetails(
+  workspaceState: string,
+  chatState: string,
+  error: unknown,
+  issueCount: number,
+): boolean {
+  return issueCount > 0
+    || Boolean(error)
+    || workspaceState !== 'ready'
+    || !['idle', 'canceled'].includes(chatState)
 }
 
 export function isChatSubmissionBlocked(

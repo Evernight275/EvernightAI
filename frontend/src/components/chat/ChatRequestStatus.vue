@@ -18,7 +18,7 @@ const {
 </script>
 
 <template>
-  <section>
+  <section class="chat-request-status">
     <h2>请求状态</h2>
     <p>{{ state }}</p>
     <p v-if="runId">Agent run：{{ runId }}</p>

@@ -5,6 +5,7 @@ import { approvalItem, formatChatError } from '../src/components/chat/chatReques
 import {
   isChatRunCancelable,
   isChatSubmissionBlocked,
+  shouldOpenChatDetails,
 } from '../src/components/chat/chatView'
 import { sidebarItems } from '../src/components/chat/chatSidebar'
 
@@ -66,6 +67,13 @@ describe('chat component controllers', () => {
     })).toBe(true)
     expect(isChatSubmissionBlocked('failed', null, 'run-unknown')).toBe(true)
     expect(isChatRunCancelable('failed', null, 'run-unknown')).toBe(true)
+  })
+
+  it('opens details only when runtime information needs attention', () => {
+    expect(shouldOpenChatDetails('ready', 'idle', null, 0)).toBe(false)
+    expect(shouldOpenChatDetails('ready', 'streaming', null, 0)).toBe(true)
+    expect(shouldOpenChatDetails('ready', 'idle', new Error('failed'), 0)).toBe(true)
+    expect(shouldOpenChatDetails('degraded', 'idle', null, 0)).toBe(true)
   })
 
   it('presents approval arguments, permissions, and the current decision', () => {

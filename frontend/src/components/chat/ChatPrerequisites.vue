@@ -10,7 +10,7 @@ const { notice } = useChatPrerequisites(props)
 </script>
 
 <template>
-  <section>
+  <section class="chat-prerequisites">
     <h2>前置状态</h2>
     <p>Workspace：{{ state }}</p>
     <p>Provider：{{ providerCount }}</p>

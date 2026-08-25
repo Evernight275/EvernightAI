@@ -9,7 +9,7 @@ const { activities } = useChatToolActivity(props)
 </script>
 
 <template>
-  <section>
+  <section class="chat-tool-activity">
     <h2>工具调用（{{ activities.length }}）</h2>
     <p v-if="!activities.length">还没有工具调用</p>
     <ol v-else>
