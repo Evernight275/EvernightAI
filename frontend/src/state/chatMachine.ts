@@ -525,9 +525,7 @@ export const chatMachine = setup({
           }),
         },
         {
-          guard: ({ context }) => (
-            context.run?.status === 'finished' && context.run.response != null
-          ),
+          guard: ({ context }) => isSuccessfullyFinishedRun(context.run),
           target: 'idle',
           actions: assign({
             transcript: ({ context }) => [
@@ -618,8 +616,19 @@ export const chatMachine = setup({
 export const chatActor = createActor(chatMachine)
 
 function agentRunError(run: AgentRunState): Error {
+  if (run.stop_reason === 'tool_rounds_exhausted') {
+    return new Error(
+      `Agent run exhausted ${run.tool_rounds_used ?? 'all'} tool rounds before finishing`,
+    )
+  }
   const detail = run.stop_reason || run.status || 'unknown state'
   return new Error(`Agent run did not finish: ${detail}`)
+}
+
+function isSuccessfullyFinishedRun(run: AgentRunState | null): boolean {
+  return run?.status === 'finished'
+    && run.response != null
+    && (run.stop_reason == null || run.stop_reason === 'finished')
 }
 
 function isRecoverablePause(run: AgentRunState | null): boolean {

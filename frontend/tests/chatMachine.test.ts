@@ -36,6 +36,25 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
+  it('does not become idle when tool rounds are exhausted', async () => {
+    const actor = actorWithServices(async ({ input }) => ({
+      ...finishedRun(input, ''),
+      stop_reason: 'tool_rounds_exhausted',
+      tool_rounds_used: 16,
+    }))
+
+    actor.start()
+    actor.send(sendEvent('finish the task'))
+    const snapshot = await waitFor(actor, (state) => state.matches('failed'))
+
+    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user'])
+    expect(snapshot.context.pending?.submission.text).toBe('finish the task')
+    expect(snapshot.context.error).toMatchObject({
+      message: 'Agent run exhausted 16 tool rounds before finishing',
+    })
+    actor.stop()
+  })
+
   it('sends tools and reuses the server context on later turns', async () => {
     const requests: ChatRequestInput[] = []
     const actor = actorWithServices(async ({ input }) => {
@@ -628,6 +647,7 @@ function finishedRetriedRun(input: ChatRetryInput, text: string): AgentRunState 
   return {
     ...finishedResumedRun(input.run, text),
     run_id: input.runId,
+    stop_reason: 'finished',
   }
 }
 

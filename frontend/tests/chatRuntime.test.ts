@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRunState } from '../src/api'
 import {
   approvalDecisions,
+  chatMaxToolRounds,
   clearChatContext,
   loadChatSession,
   retryChatRun,
@@ -90,9 +91,10 @@ describe('chat runtime', () => {
     expect(streamPath).toBe('/agent-runs/stream')
     expect(streamBody).toMatchObject({
       context_id: 'context-1',
-      max_tool_rounds: 4,
+      max_tool_rounds: chatMaxToolRounds,
       pause_on_approval: true,
     })
+    expect(chatMaxToolRounds).toBe(16)
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       `/agent-runs/${String((streamBody.metadata as Record<string, unknown>).run_id)}`,
     )

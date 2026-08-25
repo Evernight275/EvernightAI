@@ -57,6 +57,9 @@ id and `/agent-runs/{run_id}/retry/stream`, so an in-flight retry can be
 canceled deterministically. `CANCEL` stops a run while retaining local history.
 For a Session, `CLEAR` empties its Context without deleting it; standalone
 Contexts are deleted.
+An Agent Run only returns to `idle` after a genuinely finished response.
+`tool_rounds_exhausted` remains in `failed` and can continue through the retry
+lifecycle instead of appearing as a completed conversation turn.
 
 ## Commands
 

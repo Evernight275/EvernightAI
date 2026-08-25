@@ -23,7 +23,7 @@ import {
   type ChatTranscriptEntry,
 } from '../domain/chat'
 
-const maxToolRounds = 4
+export const chatMaxToolRounds = 16
 
 export type ChatRequestInput = {
   contextId: string
@@ -296,7 +296,7 @@ function agentRunRequest(
       content: [{ type: 'text', text: input.submission.text }],
     }],
     tools: input.tools,
-    max_tool_rounds: maxToolRounds,
+    max_tool_rounds: chatMaxToolRounds,
     recover_tool_errors: true,
     write_memory: false,
     pause_on_approval: true,

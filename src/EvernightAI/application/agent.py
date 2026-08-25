@@ -1084,8 +1084,9 @@ class AgentApplication(AgentInterfaceProtocol):
 
         if current_tool_calls:
             state.stop_reason = AgentStopReason.TOOL_ROUNDS_EXHAUSTED
-
-        state.status = AgentRunStatus.FINISHED
+            state.status = AgentRunStatus.FAILED
+        else:
+            state.status = AgentRunStatus.FINISHED
         state.pending_tool_calls = []
         state.pending_approval_requests = []
         state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
