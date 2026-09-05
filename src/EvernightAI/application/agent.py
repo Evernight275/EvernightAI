@@ -2515,26 +2515,42 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AsyncIterator[AgentTraceEvent]:
         try:
             async for event in events:
+                stored = self.get_state(state.run_id, principal_scope=principal_scope)
+                if stored.status is AgentRunStatus.CANCELED:
+                    return
                 event.sequence = self._trace_register().append_event(
                     state.run_id,
                     event,
+                )
+                # Read pending controls before replacing the persisted snapshot.
+                pause_event = self._pause_at_checkpoint_if_requested(
+                    state,
+                    event,
+                    principal_scope=principal_scope,
                 )
                 self._state_register().save_state(
                     state,
                     principal_scope=principal_scope,
                 )
                 yield event
-                pause_event = self._pause_at_checkpoint_if_requested(
-                    state,
-                    event,
-                    principal_scope=principal_scope,
-                )
+                if pause_event is None:
+                    pause_event = self._pause_at_checkpoint_if_requested(
+                        state,
+                        event,
+                        principal_scope=principal_scope,
+                    )
                 if pause_event is not None:
                     yield pause_event
                     return
         except AgentRunCanceledError:
             raise
         except Exception as exc:
+            stored = self.get_state(state.run_id, principal_scope=principal_scope)
+            if stored.status is not AgentRunStatus.CANCELED:
+                self._state_register().save_state(
+                    state,
+                    principal_scope=principal_scope,
+                )
             self._mark_failed(
                 state.run_id,
                 exc,
@@ -2546,7 +2562,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 state.run_id,
                 principal_scope=principal_scope,
             )
-            if stored.status is not AgentRunStatus.CANCELED:
+            if stored.status not in {AgentRunStatus.CANCELED, AgentRunStatus.FAILED}:
                 self._state_register().save_state(
                     state,
                     principal_scope=principal_scope,

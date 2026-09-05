@@ -2432,10 +2432,11 @@ async def test_agent_run_application_start_and_resume_stream_persist_state_and_t
 
 @pytest.mark.asyncio
 async def test_agent_run_application_stream_persists_state_when_consumer_stops_early() -> None:
+    provider = FinalAnswerProvider()
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
     runtime = make_runtime(
-        provider=FinalAnswerProvider(),
+        provider=provider,
         agent_state_register=state_register,
         agent_trace_register=trace_register,
     )
@@ -2460,6 +2461,38 @@ async def test_agent_run_application_stream_persists_state_when_consumer_stops_e
     assert first_event.event_type is AgentTraceEventType.RUN_STARTED
     assert state_register.get_state("run-early").trace == [first_event]
     assert trace_register.list_events("run-early") == [first_event]
+    assert provider.requests == []
+    assert (await runtime.contexts.get("ctx-1")).messages == []
+    with pytest.raises(StopAsyncIteration):
+        await anext(iterator)
+
+    await asyncio.wait_for(app.close(), timeout=1.0)
+    stored = state_register.get_state("run-early")
+    assert stored.status is AgentRunStatus.PAUSED
+    assert stored.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
+    assert trace_register.list_events("run-early")[-1].event_type is AgentTraceEventType.RUN_PAUSED
+
+    restarted_runtime = make_runtime(
+        provider=provider,
+        agent_state_register=state_register,
+        agent_trace_register=trace_register,
+    )
+    await restarted_runtime.contexts.create(Context(context_id="ctx-1"))
+    await restarted_runtime.providers.create(make_config())
+    restarted_app = AgentRunApplication(restarted_runtime)
+    try:
+        resumed = await restarted_app.resume("run-early", [])
+        assert resumed.status is AgentRunStatus.FINISHED
+        assert state_register.get_state("run-early").status is AgentRunStatus.FINISHED
+        assert len(provider.requests) == 1
+        context = await restarted_runtime.contexts.get("ctx-1")
+        assert [message.role for message in context.messages] == [
+            MessageRole.USER,
+            MessageRole.ASSISTANT,
+        ]
+        assert message_text(context.messages[0]) == "Hello"
+    finally:
+        await restarted_app.close()
 
 
 @pytest.mark.asyncio
@@ -2702,17 +2735,39 @@ async def test_agent_replays_safe_unknown_tool_as_new_attempt() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
+    provider = FinalAnswerProvider()
+    executed_calls: list[dict[str, object]] = []
+
+    async def write_file(arguments: dict[str, object]) -> dict[str, object]:
+        executed_calls.append(arguments)
+        return {"written": True}
+
     execution_register = InMemoryToolExecutionRegister()
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
     runtime = make_runtime(
+        provider=provider,
         agent_state_register=state_register,
         agent_trace_register=trace_register,
         tool_execution_register=execution_register,
     )
+    tool = ToolDefinition(
+        name="write_file",
+        description="Write a file",
+        parameters_schema={"type": "object"},
+        replay_policy=ToolReplayPolicy.NON_REPLAYABLE,
+    )
+    runtime.tool_register.register(tool, write_file)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
     call = ToolCall(
         tool_call_id="call-1",
         tool_call={"name": "write_file", "arguments": {"path": "a.txt"}},
+    )
+    response = ChatResponse(
+        model_id="model-1",
+        message=Content(role=MessageRole.ASSISTANT, tool_calls=[call]),
+        finish_reason="tool_calls",
     )
     state_register.save_state(
         AgentRunState(
@@ -2721,8 +2776,19 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
                 provider_id="provider-1",
                 context_id="ctx-1",
                 model_id="model-1",
+                messages=[make_message("Write a file")],
+                tools=[tool],
             ),
             status=AgentRunStatus.PAUSED,
+            response=response,
+            steps=[
+                AgentStep(
+                    step_type=AgentStepType.CHAT,
+                    response=response,
+                    message=response.message,
+                )
+            ],
+            remaining_tool_rounds=1,
             metadata={
                 "agent_runtime": {
                     "recovery_eligible": False,
@@ -2762,6 +2828,58 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
     assert execution.result.tool_call_result == {"written": True}
     assert resolved.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
     assert trace_register.list_events("run-unknown")[-1].event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
+
+    resumed = await AgentRunApplication(runtime).resume("run-unknown", [])
+
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert state_register.get_state("run-unknown").status is AgentRunStatus.FINISHED
+    assert executed_calls == []
+    assert len(execution_register.list_attempts("run-unknown")) == 1
+    assert len(provider.requests) == 1
+    tool_messages = [
+        message for message in provider.requests[0].messages
+        if message.role is MessageRole.TOOL
+    ]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].tool_call_id == "call-1"
+    assert json.loads(message_text(tool_messages[0]))["tool_call_result"] == {"written": True}
+    context = await runtime.contexts.get("ctx-1")
+    assert [message.role for message in context.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.ASSISTANT,
+    ]
+    assert context.messages[2] == tool_messages[0]
+
+
+def test_agent_state_register_requires_explicit_save_for_nested_changes() -> None:
+    register = InMemoryAgentRunStateRegister()
+    state = AgentRunState(
+        run_id="run-snapshot",
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+        metadata={"checkpoint": {"saved": True}},
+    )
+    register.save_state(state)
+    state.metadata["checkpoint"]["saved"] = False
+    assert register.get_state(state.run_id).metadata == {"checkpoint": {"saved": True}}
+
+    loaded = register.get_state(state.run_id)
+    loaded.status = AgentRunStatus.PAUSED
+    loaded.metadata["checkpoint"]["saved"] = False
+    listed = register.list_states()[0]
+    listed.request.messages.append(make_message("Unsaved"))
+    assert register.get_state(state.run_id).status is AgentRunStatus.RUNNING
+    assert register.get_state(state.run_id).metadata == {"checkpoint": {"saved": True}}
+    assert register.get_state(state.run_id).request.messages == []
+
+    register.save_state(loaded)
+    assert register.get_state(state.run_id).status is AgentRunStatus.PAUSED
+    assert register.get_state(state.run_id).metadata == {"checkpoint": {"saved": False}}
 
 
 def make_runtime(

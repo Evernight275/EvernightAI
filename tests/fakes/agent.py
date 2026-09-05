@@ -22,7 +22,7 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
-        self.states[state.run_id] = state
+        self.states[state.run_id] = state.model_copy(deep=True)
 
     def get_state(
         self,
@@ -31,7 +31,7 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         try:
-            return self.states[run_id]
+            return self.states[run_id].model_copy(deep=True)
         except KeyError as error:
             raise AgentStateError(
                 f"The agent run state {run_id} is not found"
@@ -42,7 +42,7 @@ class InMemoryAgentRunStateRegister(AgentRunStateRegisterProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> list[AgentRunState]:
-        return list(self.states.values())
+        return [state.model_copy(deep=True) for state in self.states.values()]
 
     def delete_state(
         self,
