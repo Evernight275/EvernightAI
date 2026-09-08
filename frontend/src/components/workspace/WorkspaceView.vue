@@ -22,9 +22,15 @@ function refresh(): void {
 </script>
 
 <template>
-  <main>
-    <h1>EvernightAI</h1>
-    <p><a href="/chat.html">打开 Chat</a></p>
+  <main class="settings-page">
+    <header class="settings-page-header">
+      <div>
+        <p class="settings-eyebrow">EvernightAI</p>
+        <h1>设置</h1>
+        <p class="settings-page-description">管理连接凭证与工作区状态。</p>
+      </div>
+      <a class="settings-back-link" href="/chat.html">返回 Chat</a>
+    </header>
 
     <ApiKeySettings />
 

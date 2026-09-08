@@ -1,17 +1,21 @@
 import { computed, ref, watch } from 'vue'
 import type { ChatSubmission } from '../../domain/chat'
 import type { ProviderCatalog } from '../../domain/workspace'
+import { formatChatState } from './chatRequestStatus'
 
 export type ChatRequestFormProps = {
   catalog: ProviderCatalog
   busy: boolean
   sessionReady: boolean
+  state?: string
+  canStop?: boolean
   defaultProviderId?: string | null
   defaultModelId?: string | null
 }
 
 export type ChatRequestFormEmits = {
   submit: [submission: ChatSubmission]
+  cancel: []
 }
 
 type ChatRequestFormEmit = (
@@ -114,7 +118,7 @@ export function useChatRequestForm(
     messageDisabled: computed(() => props.busy || !props.sessionReady),
     submitLabel: computed(() => !props.sessionReady
       ? '请先选择会话'
-      : props.busy ? '发送中' : '发送'),
+      : props.busy ? formatChatState(props.state || 'streaming') : '发送'),
     handleMessageKeydown,
     submit,
   }

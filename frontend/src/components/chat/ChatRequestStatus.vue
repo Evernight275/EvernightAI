@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Play, RotateCcw } from '@lucide/vue'
+import ChatToolApproval from './ChatToolApproval.vue'
 import {
   useChatRequestStatus,
   type ChatRequestStatusEmits,
@@ -8,63 +10,44 @@ import {
 const props = defineProps<ChatRequestStatusProps>()
 defineEmits<ChatRequestStatusEmits>()
 const {
+  visible,
   errorMessage,
   approvalItems,
   canRetry,
   canResume,
-  canClear,
-  canCancel,
 } = useChatRequestStatus(props)
 </script>
 
 <template>
-  <section class="chat-request-status">
-    <h2>请求状态</h2>
-    <p>{{ state }}</p>
-    <p v-if="runId">Agent run：{{ runId }}</p>
-    <p v-if="errorMessage" class="chat-status-error">{{ errorMessage }}</p>
-    <div v-if="approvalItems.length > 0">
-      <h3>等待工具审批</h3>
-      <ul>
-        <li v-for="approval in approvalItems" :key="approval.approval_id">
-          {{ approval.tool_name }} / {{ approval.safety_level }}
-          <span v-if="approval.reason"> / {{ approval.reason }}</span>
-          <p>权限：{{ approval.permissionsText }}</p>
-          <pre>{{ approval.toolCallText }}</pre>
-          <p v-if="approval.decisionText">{{ approval.decisionText }}</p>
-          <button
-            type="button"
-            @click="$emit('approve', approval.approval_id)"
-          >
-            批准此项
-          </button>
-          <button
-            type="button"
-            @click="$emit('deny', approval.approval_id)"
-          >
-            拒绝此项
-          </button>
-        </li>
-      </ul>
-    </div>
-    <div class="chat-details-actions">
+  <section v-if="visible" class="chat-request-status" aria-label="待处理事项">
+    <div v-if="errorMessage || canRetry" class="chat-notice">
+      <p class="chat-status-error" role="alert">{{ errorMessage || '运行失败' }}</p>
       <button v-if="canRetry" type="button" @click="$emit('retry')">
-        重试
+        <RotateCcw :size="16" aria-hidden="true" /> 重试
       </button>
-      <button v-if="canResume" type="button" @click="$emit('resume')">
-        继续运行
-      </button>
-      <button v-if="canCancel" type="button" @click="$emit('cancel')">
-        取消当前运行
-      </button>
-      <button
-        v-if="canClear"
-        class="button-danger"
-        type="button"
-        @click="$emit('clear')"
-      >
-        清空对话记录
+      <button type="button" @click="$emit('details')">查看详情</button>
+    </div>
+    <div v-if="workspaceNotice" class="chat-notice">
+      <p role="status">{{ workspaceNotice }}</p>
+      <button type="button" @click="$emit('details')">查看详情</button>
+    </div>
+    <div v-if="canResume" class="chat-notice">
+      <p role="status">运行已暂停</p>
+      <button type="button" @click="$emit('resume')">
+        <Play :size="16" aria-hidden="true" /> 继续运行
       </button>
     </div>
+    <details v-if="approvalItems.length > 0" class="chat-approval-group" open>
+      <summary>等待工具审批（{{ approvalItems.length }}）</summary>
+      <div class="chat-approval-list">
+        <ChatToolApproval
+          v-for="approval in approvalItems"
+          :key="approval.approval_id"
+          :approval="approval"
+          @approve="$emit('approve', $event)"
+          @deny="$emit('deny', $event)"
+        />
+      </div>
+    </details>
   </section>
 </template>

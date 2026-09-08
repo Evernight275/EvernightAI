@@ -25,7 +25,25 @@ describe('Markdown content', () => {
     expect(html).toContain('<h2>Result</h2>')
     expect(html).toContain('<ul>')
     expect(html).toContain('<table>')
+    expect(html).toContain('class="markdown-code-block"')
+    expect(html).toContain('TypeScript')
+    expect(html).toContain('data-copy-code')
     expect(html).toContain('<code class="language-ts">')
+    expect(html).toContain('hljs-keyword')
+  })
+
+  it('highlights common model code fences and safely falls back', () => {
+    const python = renderMarkdown('```python\nfor item in items:\n    print(item)\n```')
+    const matlab = renderMarkdown('```matlab\nfor index = 1:10\nend\n```')
+    const unknown = renderMarkdown('```unknown\n<script>alert(1)</script>\n```')
+
+    expect(python).toContain('Python')
+    expect(python).toContain('hljs-keyword')
+    expect(matlab).toContain('MATLAB')
+    expect(matlab).toContain('hljs-keyword')
+    expect(unknown).toContain('unknown')
+    expect(unknown).not.toContain('<script>')
+    expect(unknown).toContain('&lt;script&gt;')
   })
 
   it('disables raw HTML in model output', () => {

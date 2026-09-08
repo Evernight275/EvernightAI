@@ -44,6 +44,7 @@ export function useApiKeySettings() {
   return {
     apiKey,
     inputType,
+    revealed,
     revealLabel,
     changed,
     canClear,

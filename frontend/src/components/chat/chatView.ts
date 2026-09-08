@@ -1,12 +1,14 @@
-import { computed, onUnmounted, shallowRef } from 'vue'
+import { computed, onUnmounted, ref, shallowRef } from 'vue'
 import type { AgentRunState } from '../../api'
 import type { ChatSubmission } from '../../domain/chat'
 import { chatActor } from '../../state/chatMachine'
 import { workspaceActor } from '../../state/workspaceMachine'
+import { prerequisiteNotice } from './chatPrerequisites'
 
 export function useChatView() {
   const workspaceSnapshot = shallowRef(workspaceActor.getSnapshot())
   const chatSnapshot = shallowRef(chatActor.getSnapshot())
+  const detailsOpen = ref(false)
 
   const workspaceSubscription = workspaceActor.subscribe((snapshot) => {
     workspaceSnapshot.value = snapshot
@@ -23,11 +25,12 @@ export function useChatView() {
   return {
     workspaceState: computed(() => String(workspaceSnapshot.value.value)),
     chatState: computed(() => String(chatSnapshot.value.value)),
-    detailsOpen: computed(() => shouldOpenChatDetails(
+    detailsOpen,
+    openDetails(): void { detailsOpen.value = true },
+    closeDetails(): void { detailsOpen.value = false },
+    workspaceNotice: computed(() => prerequisiteNotice(
       String(workspaceSnapshot.value.value),
-      String(chatSnapshot.value.value),
-      chatSnapshot.value.context.error,
-      workspaceSnapshot.value.context.issues.length,
+      workspaceSnapshot.value.context.workspace.providerCatalog.providers.length,
     )),
     workspaceIssues: computed(() => workspaceSnapshot.value.context.issues),
     providerCatalog: computed(
@@ -85,18 +88,6 @@ export function useChatView() {
   }
 }
 
-export function shouldOpenChatDetails(
-  workspaceState: string,
-  chatState: string,
-  error: unknown,
-  issueCount: number,
-): boolean {
-  return issueCount > 0
-    || Boolean(error)
-    || workspaceState !== 'ready'
-    || !['idle', 'canceled'].includes(chatState)
-}
-
 export function isChatSubmissionBlocked(
   state: string,
   run: AgentRunState | null,
@@ -113,7 +104,9 @@ export function isChatRunCancelable(
   run: AgentRunState | null,
   runId: string | null,
 ): boolean {
-  return state === 'failed' && hasPotentiallyActiveRun(run, runId)
+  return ['preparing', 'streaming', 'approvalRequired', 'resumeRequired',
+    'resuming', 'retrying'].includes(state)
+    || (state === 'failed' && hasPotentiallyActiveRun(run, runId))
 }
 
 function hasPotentiallyActiveRun(

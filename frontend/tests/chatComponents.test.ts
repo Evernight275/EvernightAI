@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest'
 import ChatApp from '../src/ChatApp.vue'
 import ChatMessage from '../src/components/chat/ChatMessage.vue'
 import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue'
+import ChatRequestStatus from '../src/components/chat/ChatRequestStatus.vue'
+import ChatRunDetails from '../src/components/chat/ChatRunDetails.vue'
+import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue'
 import ChatView from '../src/components/chat/ChatView.vue'
 
 describe('chat component composition', () => {
@@ -40,9 +43,15 @@ describe('chat component composition', () => {
     expect(html.indexOf('class="chat-transcript"')).toBeLessThan(
       html.indexOf('class="chat-composer"'),
     )
-    expect(html.indexOf('class="chat-details"')).toBeLessThan(
-      html.indexOf('class="chat-transcript"'),
+    expect(html.indexOf('class="chat-details-panel"')).toBeGreaterThan(
+      html.indexOf('class="chat-composer"'),
     )
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header).toContain('准备就绪')
+    expect(header).not.toContain('前置状态')
+    expect(header).not.toContain('<dialog')
+    expect(html.indexOf('class="chat-request-status"')).toBeGreaterThan(html.indexOf('class="chat-view-footer"'))
+    expect(html.indexOf('class="chat-request-status"')).toBeLessThan(html.indexOf('class="chat-composer"'))
     expect(html.indexOf('class="chat-composer-message"')).toBeLessThan(
       html.indexOf('class="chat-composer-options"'),
     )
@@ -92,5 +101,88 @@ describe('chat component composition', () => {
     expect(html).toContain('<option value="model-1" selected>model-1</option>')
     expect(html).toContain('<option value="model-2">model-2</option>')
     expect(html).not.toContain('<input')
+  })
+
+  it('keeps approval decisions visible before large tool arguments', async () => {
+    const html = await renderToString(createSSRApp(ChatRequestStatus, {
+      state: 'approvalRequired',
+      error: null,
+      pendingApprovals: [{
+        approval_id: 'approval-1',
+        tool_call_id: 'call-1',
+        tool_name: 'write_text_file',
+        safety_level: 'sensitive',
+        permissions: ['write', 'filesystem'],
+        tool_call: {
+          name: 'write_text_file',
+          arguments: { path: 'large.py', content: 'line\n'.repeat(500) },
+        },
+      }],
+      approvalStatuses: {},
+    }))
+
+    expect(html).toContain('class="chat-tool-approval"')
+    expect(html).toContain('class="chat-approval-payload"')
+    expect(html).toContain('查看调用参数')
+    expect(html.indexOf('批准')).toBeLessThan(html.indexOf('查看调用参数'))
+    expect(html.indexOf('拒绝')).toBeLessThan(html.indexOf('查看调用参数'))
+    expect(html.indexOf('large.py')).toBeLessThan(html.indexOf('查看调用参数'))
+    expect(html).not.toContain('运行 ID')
+  })
+
+  it('shows pending approvals in the tool activity count', async () => {
+    const html = await renderToString(createSSRApp(ChatToolActivity, {
+      run: null,
+      trace: [],
+      pendingApprovals: [{
+        approval_id: 'approval-1',
+        tool_call_id: 'call-1',
+        tool_name: 'write_text_file',
+      }],
+    }))
+
+    expect(html).toContain('工具调用（1）')
+    expect(html).toContain('write_text_file / 等待审批')
+    expect(html).not.toContain('还没有工具调用')
+  })
+
+  it('keeps an idle attention area empty and shows recovery actions near errors', async () => {
+    const props = { state: 'idle', error: null, pendingApprovals: [], approvalStatuses: {} }
+    const idle = await renderToString(createSSRApp(ChatRequestStatus, props))
+    const failed = await renderToString(createSSRApp(ChatRequestStatus, {
+      ...props, state: 'failed', error: new Error('Provider unavailable'),
+    }))
+    const paused = await renderToString(createSSRApp(ChatRequestStatus, { ...props, state: 'resumeRequired' }))
+    expect(idle).not.toContain('chat-request-status')
+    expect(failed).toContain('role="alert"')
+    expect(failed).toContain('Provider unavailable')
+    expect(failed).toContain('重试')
+    expect(failed).toContain('查看详情')
+    expect(paused).toContain('继续运行')
+  })
+
+  it('places stop in the composer instead of a disabled send button', async () => {
+    const html = await renderToString(createSSRApp(ChatRequestForm, {
+      catalog: { providers: [], modelGroups: [] }, busy: true,
+      sessionReady: true, canStop: true, state: 'approvalRequired',
+    }))
+    expect(html).toContain('aria-label="停止当前运行"')
+    expect(html).not.toContain('type="submit"')
+    expect(html).not.toContain('发送中')
+  })
+
+  it('keeps diagnostics in a separate dialog without duplicate approval actions', async () => {
+    const html = await renderToString(createSSRApp(ChatRunDetails, {
+      open: false, workspaceState: 'ready', chatState: 'approvalRequired',
+      workspaceIssues: [], providerCount: 1, toolCount: 1,
+      error: null, hasTranscript: true, busy: true, run: null, trace: [], runId: 'run-1',
+      pendingApprovals: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file' }],
+    }))
+    expect(html).toContain('<dialog')
+    expect(html).toContain('运行 ID')
+    expect(html).toContain('原始请求参数')
+    expect(html).toContain('诊断信息')
+    expect(html).not.toContain('class="chat-approval-actions"')
+    expect(html).toContain('disabled')
   })
 })

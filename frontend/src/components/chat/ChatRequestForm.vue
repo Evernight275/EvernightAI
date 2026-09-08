@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send } from '@lucide/vue'
+import { Send, Square } from '@lucide/vue'
 import {
   useChatRequestForm,
   type ChatRequestFormEmits,
@@ -69,7 +69,11 @@ const {
           </label>
         </div>
 
-        <button
+        <button v-if="canStop" class="chat-composer-submit" type="button"
+          aria-label="停止当前运行" title="停止当前运行" @click="emit('cancel')">
+          <Square :size="16" aria-hidden="true" /> 停止
+        </button>
+        <button v-else
           class="button-primary chat-composer-submit"
           type="submit"
           :disabled="!canSubmit"

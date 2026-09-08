@@ -41,7 +41,15 @@ component per domain concept; those components own their counts, formatting,
 and empty states. `App.vue` contains no domain rendering logic.
 
 The separate `chat.html` entry renders the chat workspace. `ChatView` composes
-`ChatHeader`, `ChatRunDetails`, `ChatTranscript`, and the request form.
+`ChatHeader`, `ChatTranscript`, `ChatRequestStatus`, the request form, and
+`ChatRunDetails`. The header contains only a title, a short status, and the
+details entry. Approvals and recovery actions live above the composer;
+the composer keeps Provider/Model selectors below the input and replaces Send
+with Stop while cancellation is available. `ChatRunDetails` is an independently
+scrollable side dialog for tool parameters/results, run identity, and diagnostics.
+Opening it is local presentation state, not an Agent state transition.
+On small screens the sidebar becomes a modal navigation panel, while the
+transcript remains scrollable and the composer stays at the viewport bottom.
 `ChatTranscript` delegates each visible user or assistant turn to `ChatMessage`;
 system and tool records remain outside the conversation view. `ChatSidebar`
 creates and selects persisted sessions and keeps the settings entry at the
@@ -81,3 +89,19 @@ pnpm run test:typecheck
 pnpm run build
 pnpm run check
 ```
+
+The browser layout regression uses mocked API responses only. With the Vite
+server running, install Playwright Chromium and run:
+
+```bash
+pnpm exec playwright install chromium
+pnpm run test:browser
+```
+
+Linux environments also need Chromium system libraries (`playwright install-deps
+chromium`). The test covers desktop, mobile, and short landscape viewports,
+large approvals, dialog focus/Escape/backdrop behavior, stopping, approval
+decisions, and retry. `FRONTEND_URL` overrides `http://127.0.0.1:5173`;
+`SCREENSHOT_DIR` overrides `/tmp/evernight-layout`. Screenshots stay outside
+the source tree. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select an existing
+compatible Chromium installation.

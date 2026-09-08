@@ -5,9 +5,9 @@ import {
 } from './markdownContent'
 
 const props = defineProps<MarkdownContentProps>()
-const { html } = useMarkdownContent(props)
+const { html, copyCode } = useMarkdownContent(props)
 </script>
 
 <template>
-  <div class="markdown-content" v-html="html"></div>
+  <div class="markdown-content" @click="copyCode" v-html="html"></div>
 </template>

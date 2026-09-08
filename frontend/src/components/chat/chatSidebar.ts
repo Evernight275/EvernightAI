@@ -1,4 +1,4 @@
-import { computed, onUnmounted, shallowRef, type ComputedRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, type ComputedRef } from 'vue'
 import type { Session } from '../../api'
 import type { ProviderCatalog } from '../../domain/workspace'
 import {
@@ -7,6 +7,20 @@ import {
 } from '../../runtime/chatRuntime'
 import { chatActor } from '../../state/chatMachine'
 import { workspaceActor } from '../../state/workspaceMachine'
+import { useDialog } from '../common/dialog'
+
+export function useSidebarDialog(props: { open: boolean }, close: () => void) {
+  const compact = ref(false)
+  let media: MediaQueryList | undefined
+  const sync = (): void => { compact.value = media?.matches || false }
+  onMounted(() => {
+    media = window.matchMedia('(max-width: 760px)')
+    sync()
+    media.addEventListener('change', sync)
+  })
+  onUnmounted(() => media?.removeEventListener('change', sync))
+  return useDialog(() => !compact.value || props.open, close, () => compact.value)
+}
 
 export type ChatSidebarItem = {
   id: string
@@ -15,7 +29,7 @@ export type ChatSidebarItem = {
   active: boolean
 }
 
-export function useChatSidebar(): {
+export function useChatSidebar(onNavigate: () => void = () => {}): {
   sessions: ComputedRef<ChatSidebarItem[]>
   newConversation: () => void
   selectSession: (sessionId: string) => void
@@ -56,6 +70,7 @@ export function useChatSidebar(): {
           workspaceSnapshot.value.context.workspace.providerCatalog,
         ),
       })
+      onNavigate()
     },
     selectSession(sessionId: string): void {
       const session = mergeSessions(
@@ -63,9 +78,11 @@ export function useChatSidebar(): {
         observedSessions.value,
       ).find((item) => item.session_id === sessionId)
       if (!session || session.session_id === chatSnapshot.value.context.session?.session_id) {
+        onNavigate()
         return
       }
       chatActor.send({ type: 'SELECT_SESSION', session })
+      onNavigate()
     },
   }
 }

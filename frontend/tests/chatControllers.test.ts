@@ -6,11 +6,15 @@ import {
   canSubmitChat,
   shouldSubmitChatKeydown,
 } from '../src/components/chat/chatRequestForm'
-import { approvalItem, formatChatError } from '../src/components/chat/chatRequestStatus'
+import {
+  approvalItem,
+  formatChatError,
+  formatChatState,
+} from '../src/components/chat/chatRequestStatus'
+import { toolActivities } from '../src/components/chat/chatToolActivity'
 import {
   isChatRunCancelable,
   isChatSubmissionBlocked,
-  shouldOpenChatDetails,
 } from '../src/components/chat/chatView'
 import { sidebarItems } from '../src/components/chat/chatSidebar'
 import { transcriptFromMessages } from '../src/domain/chat'
@@ -112,6 +116,12 @@ describe('chat component controllers', () => {
     expect(formatChatError(null)).toBeNull()
   })
 
+  it('presents internal chat states as readable labels', () => {
+    expect(formatChatState('approvalRequired')).toBe('等待工具审批')
+    expect(formatChatState('streaming')).toBe('正在生成回复')
+    expect(formatChatState('customState')).toBe('customState')
+  })
+
   it('blocks new messages while an approval or paused run needs attention', () => {
     expect(isChatSubmissionBlocked('approvalRequired', null)).toBe(true)
     expect(isChatSubmissionBlocked('resumeRequired', null)).toBe(true)
@@ -129,11 +139,14 @@ describe('chat component controllers', () => {
     expect(isChatRunCancelable('failed', null, 'run-unknown')).toBe(true)
   })
 
-  it('opens details only when runtime information needs attention', () => {
-    expect(shouldOpenChatDetails('ready', 'idle', null, 0)).toBe(false)
-    expect(shouldOpenChatDetails('ready', 'streaming', null, 0)).toBe(true)
-    expect(shouldOpenChatDetails('ready', 'idle', new Error('failed'), 0)).toBe(true)
-    expect(shouldOpenChatDetails('degraded', 'idle', null, 0)).toBe(true)
+  it('offers stop only in states that can accept cancellation', () => {
+    for (const state of ['preparing', 'streaming', 'approvalRequired', 'resumeRequired', 'resuming', 'retrying']) {
+      expect(isChatRunCancelable(state, null, 'run-1')).toBe(true)
+    }
+    for (const state of ['idle', 'canceled', 'canceling', 'clearing', 'creatingSession', 'loadingSession']) {
+      expect(isChatRunCancelable(state, null, 'run-1')).toBe(false)
+    }
+    expect(isChatRunCancelable('failed', null, null)).toBe(false)
   })
 
   it('presents approval arguments, permissions, and the current decision', () => {
@@ -147,7 +160,25 @@ describe('chat component controllers', () => {
       permissionsText: 'filesystem, write',
       decisionText: '已批准',
       toolCallText: expect.stringContaining('note.txt'),
+      safetyLabel: '风险未知',
+      targets: [{ name: '路径', value: 'note.txt' }],
     })
+  })
+
+  it('counts a pending approval as tool activity', () => {
+    expect(toolActivities(null, [], [{
+      approval_id: 'approval-1',
+      tool_call_id: 'call-1',
+      tool_name: 'write_text_file',
+      safety_level: 'sensitive',
+    }])).toEqual([{
+      key: 'call-1',
+      name: 'write_text_file',
+      status: 'approval required',
+      statusLabel: '等待审批',
+      callText: '{}',
+      resultText: null,
+    }])
   })
 
   it('orders sidebar sessions and marks the current context', () => {
