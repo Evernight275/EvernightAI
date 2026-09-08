@@ -135,16 +135,16 @@ a:hover {
   background: var(--color-bg);
   box-shadow: 0 16px 64px rgb(0 0 0 / 12%);
 }
-.settings-titlebar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; }
+.settings-titlebar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--color-border); }
 .settings-titlebar h1 { margin: 0; font-size: 22px; font-weight: 600; }
 .settings-close { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; color: inherit; border: 0; border-radius: 50%; background: transparent; }
 .settings-close:hover { background: #f0f0f0; text-decoration: none; }
-.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 24px; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px 24px; border-right: 1px solid var(--color-border); background: var(--color-surface); }
 .settings-nav button { display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 10px 12px; border: 0; background: transparent; text-align: left; font-size: 14px; }
-.settings-nav button[aria-current] { background: #ededed; font-weight: 550; }
-.settings-nav button:hover { background: #f3f3f3; }
+.settings-nav button[aria-current] { background: #e5e5e7; font-weight: 550; }
+.settings-nav button:hover { background: #ececee; }
 .settings-content { min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 28px 32px 20px; }
-.settings-section-title { margin: 0; padding: 0 0 20px; border-bottom: 1px solid var(--color-border); font-size: 18px; font-weight: 600; }
+.settings-section-title { margin: 0; padding: 4px 0 20px; border-bottom: 1px solid var(--color-border); font-size: 18px; font-weight: 600; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--color-border); }
 .settings-row > div { min-width: 0; }
 .settings-row h3 { margin: 0; font-size: 14px; font-weight: 500; }
@@ -187,7 +187,7 @@ a:hover {
   .settings-page-frame { padding: 12px; }
   .settings-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60px auto minmax(0, 1fr); height: calc(100dvh - 24px); border-radius: 16px; }
   .settings-titlebar { padding: 14px 18px; }
-  .settings-nav { flex-direction: row; padding: 0 12px 12px; overflow-x: auto; border-bottom: 1px solid var(--color-border); }
+  .settings-nav { flex-direction: row; padding: 0 12px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); }
   .settings-nav button { justify-content: center; flex: 1 0 auto; gap: 6px; padding: 8px; font-size: 13px; }
   .settings-nav button svg { width: 16px; }
   .settings-content { padding: 20px 18px; }
