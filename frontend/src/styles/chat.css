@@ -85,7 +85,7 @@ body,
 }
 
 .chat-sidebar-new,
-.chat-sidebar-settings a,
+.chat-sidebar-settings button,
 .chat-composer-submit {
   display: inline-flex;
   align-items: center;
@@ -195,7 +195,9 @@ body,
   padding: 12px 14px 16px;
 }
 
-.chat-sidebar-settings a {
+.chat-sidebar-settings button {
+  border: 0;
+  background: transparent;
   justify-content: flex-start;
   width: 100%;
   min-height: 34px;
@@ -207,7 +209,7 @@ body,
   transition: background-color 160ms ease, color 160ms ease;
 }
 
-.chat-sidebar-settings a:hover {
+.chat-sidebar-settings button:hover {
   background: #e9edf3;
   text-decoration: none;
 }

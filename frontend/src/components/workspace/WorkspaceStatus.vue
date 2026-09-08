@@ -31,11 +31,11 @@ const errorMessage = computed(() => {
 </script>
 
 <template>
-  <section>
+  <section class="settings-status-section">
     <h2>状态</h2>
-    <p>{{ stateLabel }}</p>
-    <p v-if="loadedAt">最后加载：{{ loadedAt }}</p>
-    <p v-if="errorMessage">{{ errorMessage }}</p>
+    <p class="settings-status-value"><span class="settings-status-dot" :class="`is-${state}`" aria-hidden="true"></span>{{ stateLabel }}</p>
+    <p v-if="loadedAt" class="settings-status-meta">最后加载：{{ loadedAt }}</p>
+    <p v-if="errorMessage" class="settings-status-meta">{{ errorMessage }}</p>
     <button type="button" :disabled="state === 'loading'" @click="$emit('refresh')">
       刷新
     </button>

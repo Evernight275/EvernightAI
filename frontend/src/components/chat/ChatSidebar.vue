@@ -7,7 +7,7 @@ import EmptyValue from '../common/EmptyValue.vue'
 import { useChatSidebar, useSidebarDialog } from './chatSidebar'
 
 const props = defineProps<{ open: boolean; collapsed?: boolean }>()
-const emit = defineEmits<{ close: []; collapse: [] }>()
+const emit = defineEmits<{ close: []; collapse: []; settings: [] }>()
 const { sessions, newConversation, selectSession, removeSession, deletingId } = useChatSidebar(() => emit('close'))
 const { setDialog, onCancel, onBackdropClick, onKeydown } = useSidebarDialog(props, () => emit('close'))
 const search = ref('')
@@ -77,10 +77,10 @@ async function confirmDelete(): Promise<void> {
       </section>
 
       <footer class="chat-sidebar-settings">
-        <a href="/">
+        <button type="button" @click="$emit('settings')">
           <Settings :size="16" aria-hidden="true" />
           设置
-        </a>
+        </button>
       </footer>
     </aside>
   </dialog>

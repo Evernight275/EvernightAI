@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <section>
+  <section class="settings-resource-section">
     <h2>知识索引（{{ index.memories.length }}）</h2>
     <EmptyValue v-if="!index.memories.length" label="没有记忆" />
     <ul v-else>

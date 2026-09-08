@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <section>
+  <section class="settings-resource-section">
     <h2>会话索引（{{ index.sessions.length }}）</h2>
     <EmptyValue v-if="!index.sessions.length" label="没有会话" />
     <ul v-else>

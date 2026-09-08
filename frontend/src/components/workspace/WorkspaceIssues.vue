@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <section v-if="issues.length">
+  <section v-if="issues.length" class="settings-issues-section">
     <h2>加载问题（{{ issues.length }}）</h2>
     <ul>
       <li v-for="issue in issues" :key="`${issue.concept}:${issue.resource}`">

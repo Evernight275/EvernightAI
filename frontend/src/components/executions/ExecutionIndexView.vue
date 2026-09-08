@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <section>
+  <section class="settings-resource-section">
     <h2>执行索引（{{ index.runs.length }}）</h2>
     <EmptyValue v-if="!index.runs.length" label="没有 Agent Run" />
     <ul v-else>

@@ -118,3 +118,9 @@ messages. Stopping keeps received text. The transcript follows new text while
 near the bottom and lets readers scroll back without being pulled down.
 Deleting the selected session cancels its active run before requesting deletion;
 failed deletion keeps the session and reports the server error.
+
+Settings open in a modal over the chat workspace, keeping the current chat and
+draft mounted. The standalone index entry renders the same settings panel.
+General, connection/authentication, and data-control sections expose working
+controls; resource details remain expandable. Escape and the close button
+return to chat. Mobile layouts use a horizontal category bar.

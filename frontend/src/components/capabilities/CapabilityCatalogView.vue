@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <section>
+  <section class="settings-resource-section">
     <h2>能力目录</h2>
 
     <h3>工具（{{ catalog.tools.length }}）</h3>

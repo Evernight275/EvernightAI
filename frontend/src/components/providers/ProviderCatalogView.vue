@@ -14,7 +14,7 @@ function modelsFor(providerId: string) {
 </script>
 
 <template>
-  <section>
+  <section class="settings-resource-section">
     <h2>模型目录（{{ catalog.providers.length }}）</h2>
     <EmptyValue v-if="!catalog.providers.length" label="没有 Provider" />
     <ul v-else>
