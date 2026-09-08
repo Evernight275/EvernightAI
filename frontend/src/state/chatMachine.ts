@@ -6,7 +6,8 @@ import type {
   ToolDefinition,
 } from '../api'
 import {
-  assistantEntry,
+  applyChatTrace,
+  completeStreamedResponse,
   userEntry,
   type ChatSubmission,
   type ChatTranscriptEntry,
@@ -17,6 +18,7 @@ import {
   cancelChatRun,
   clearChatContext,
   createChatSession,
+  deleteChatSession,
   prepareChatContext,
   loadChatSession,
   resumeChatRunStream,
@@ -47,7 +49,8 @@ export type ChatMachineContext = {
   run: AgentRunState | null
   session: Session | null
   requestedSession: Session | null
-  sessionOperation: 'create' | 'load' | null
+  sessionOperation: 'create' | 'load' | 'delete' | null
+  deletedSessionId: string | null
   approvalStatuses: ApprovalStatuses
   error: unknown
 }
@@ -60,6 +63,7 @@ export type ChatMachineEvent =
   | { type: 'RESUME' }
   | { type: 'CREATE_SESSION'; session: Session }
   | { type: 'SELECT_SESSION'; session: Session }
+  | { type: 'DELETE_SESSION'; sessionId: string }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
@@ -83,6 +87,7 @@ const emptyContext = (): ChatMachineContext => ({
   session: null,
   requestedSession: null,
   sessionOperation: null,
+  deletedSessionId: null,
   approvalStatuses: {},
   error: null,
 })
@@ -102,6 +107,7 @@ const sessionLoadedContext = {
   session: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.session,
   requestedSession: null,
   sessionOperation: null,
+  deletedSessionId: null,
   approvalStatuses: {},
   error: null,
 }
@@ -135,6 +141,9 @@ export const chatMachine = setup({
     createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
       createChatSession(input, signal)
     )),
+    deleteSession: fromPromise<string, ChatSessionInput>(({ input, signal }) => (
+      deleteChatSession(input, signal)
+    )),
     loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
       loadChatSession(input, signal)
     )),
@@ -144,6 +153,11 @@ export const chatMachine = setup({
   initial: 'idle',
   context: emptyContext,
   on: {
+    DELETE_SESSION: {
+      guard: ({ context, event }) => context.session?.session_id === event.sessionId,
+      target: '.deletingSession',
+      actions: assign({ requestedSession: ({ context }) => context.session, sessionOperation: 'delete', error: null }),
+    },
     CREATE_SESSION: {
       target: '.creatingSession',
       actions: assign({
@@ -162,6 +176,17 @@ export const chatMachine = setup({
     },
   },
   states: {
+    deletingSession: {
+      invoke: {
+        src: 'deleteSession',
+        input: ({ context }) => sessionInput(context),
+        onDone: {
+          target: 'idle',
+          actions: assign(({ event }) => ({ ...emptyContext(), deletedSessionId: event.output })),
+        },
+        onError: { target: 'failed', actions: assign({ error: ({ event }) => event.error }) },
+      },
+    },
     creatingSession: {
       invoke: {
         id: 'createSession',
@@ -293,6 +318,7 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
+            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -300,6 +326,7 @@ export const chatMachine = setup({
       },
     },
     approvalRequired: {
+      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
       on: {
         APPROVE: [
           {
@@ -338,6 +365,7 @@ export const chatMachine = setup({
       },
     },
     resumeRequired: {
+      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
       on: {
         RESUME: {
           target: 'resuming',
@@ -375,6 +403,7 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
+            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -410,6 +439,7 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
+            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -417,6 +447,7 @@ export const chatMachine = setup({
       },
     },
     canceling: {
+      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
       invoke: {
         id: 'cancelChat',
         src: 'cancelChat',
@@ -528,10 +559,9 @@ export const chatMachine = setup({
           guard: ({ context }) => isSuccessfullyFinishedRun(context.run),
           target: 'idle',
           actions: assign({
-            transcript: ({ context }) => [
-              ...context.transcript,
-              assistantEntry(context.run!.response!, context.transcript.length + 1),
-            ],
+            transcript: ({ context }) => completeStreamedResponse(
+              context.transcript, context.run!.response!, context.runId || '',
+            ),
             pending: null,
             approvalStatuses: {},
             error: null,
@@ -547,6 +577,7 @@ export const chatMachine = setup({
       ],
     },
     failed: {
+      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
       on: {
         CANCEL: [
           {
@@ -556,6 +587,7 @@ export const chatMachine = setup({
           { target: 'canceled' },
         ],
         RETRY: [
+          { guard: ({ context }) => context.sessionOperation === 'delete', target: 'deletingSession' },
           {
             guard: ({ context }) => context.sessionOperation === 'create',
             target: 'creatingSession',

@@ -36,6 +36,69 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
+  it('renders deltas before completion and replaces the partial response without duplication', async () => {
+    let finish!: () => void
+    const gate = new Promise<void>((resolve) => { finish = resolve })
+    const actor = actorWithServices(async ({ input }) => {
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: '你' })
+      await gate
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: '好' })
+      input.onTrace?.({ event_type: 'chat_completed', response: response('你好') })
+      return { ...finishedRun(input, '你好'), run_id: input.runId! }
+    })
+    actor.start()
+    actor.send(sendEvent('question'))
+    const partial = await waitFor(actor, (state) => state.context.transcript.at(-1)?.text === '你')
+    expect(partial.value).toBe('streaming')
+    expect(partial.context.transcript.at(-1)?.streaming).toBe(true)
+    finish()
+    const final = await waitFor(actor, (state) => state.matches('idle'))
+    expect(final.context.transcript.map((entry) => entry.text)).toEqual(['question', '你好'])
+    expect(final.context.transcript.at(-1)?.streaming).toBe(false)
+    actor.stop()
+  })
+
+  it('keeps partial text when canceled and ignores late stream events', async () => {
+    const actor = actorWithServices(async ({ input }) => {
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: 'partial answer' })
+      return new Promise<AgentRunState>(() => {})
+    })
+    actor.start()
+    actor.send(sendEvent('question'))
+    await waitFor(actor, (state) => state.context.transcript.length === 2)
+    actor.send({ type: 'CANCEL' })
+    await waitFor(actor, (state) => state.matches('canceled'))
+    actor.send({ type: 'TRACE', event: { event_type: 'chat_delta', text_delta: 'late' } })
+    expect(actor.getSnapshot().context.transcript.at(-1)).toMatchObject({ text: 'partial answer', streaming: false })
+    actor.stop()
+  })
+
+  it('clears the active session only after deletion succeeds and retries failures', async () => {
+    let fail = true
+    const actor = createActor(chatMachine.provide({ actors: {
+      createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(async ({ input }) => ({ session: input.session, transcript: [] })),
+      deleteSession: fromPromise<string, ChatSessionInput>(async ({ input }) => {
+        if (fail) throw new Error('Delete unavailable')
+        return input.session.session_id
+      }),
+    } }))
+    actor.start()
+    actor.send({ type: 'CREATE_SESSION', session: session('delete-me', 'context-1') })
+    await waitFor(actor, (state) => state.matches('idle'))
+    actor.send({ type: 'DELETE_SESSION', sessionId: 'another-session' })
+    expect(actor.getSnapshot().value).toBe('idle')
+    actor.send({ type: 'DELETE_SESSION', sessionId: 'delete-me' })
+    await waitFor(actor, (state) => state.matches('failed'))
+    expect(actor.getSnapshot().context.session?.session_id).toBe('delete-me')
+    fail = false
+    actor.send({ type: 'RETRY' })
+    const deleted = await waitFor(actor, (state) => state.matches('idle'))
+    expect(deleted.context.session).toBeNull()
+    expect(deleted.context.deletedSessionId).toBe('delete-me')
+    expect(deleted.context.transcript).toEqual([])
+    actor.stop()
+  })
+
   it('does not become idle when tool rounds are exhausted', async () => {
     const actor = actorWithServices(async ({ input }) => ({
       ...finishedRun(input, ''),

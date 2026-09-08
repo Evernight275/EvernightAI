@@ -1,4 +1,4 @@
-import type { ChatResponse, Content } from '../api'
+import type { AgentTraceEvent, ChatResponse, Content } from '../api'
 
 export type ChatSubmission = {
   providerId: string
@@ -13,6 +13,8 @@ export type ChatTranscriptEntry = {
   content: Content
   modelId?: string | null
   finishReason?: string | null
+  streamRunId?: string
+  streaming?: boolean
 }
 
 export function userEntry(
@@ -76,4 +78,35 @@ function visibleTextFromContent(message: Content): string {
     .map((part) => part.text)
     .filter((value): value is string => typeof value === 'string')
     .join('\n')
+}
+
+export function applyChatTrace(
+  entries: ChatTranscriptEntry[], event: AgentTraceEvent, runId: string,
+): ChatTranscriptEntry[] {
+  if (event.event_type === 'chat_completed' && event.response) {
+    return completeStreamedResponse(entries, event.response, runId)
+  }
+  if (event.event_type !== 'chat_delta' || !event.text_delta) return entries
+  const last = entries.at(-1)
+  const continuing = last?.streamRunId === runId && last.streaming
+  const text = (continuing ? last.text : '') + event.text_delta
+  const entry: ChatTranscriptEntry = {
+    entryId: continuing ? last.entryId : `stream-${runId}-${entries.length}`,
+    role: 'assistant', text, streamRunId: runId, streaming: true,
+    content: { role: 'assistant', content: [{ type: 'text', text }] },
+  }
+  return continuing ? [...entries.slice(0, -1), entry] : [...entries, entry]
+}
+
+export function completeStreamedResponse(
+  entries: ChatTranscriptEntry[], response: ChatResponse, runId: string,
+): ChatTranscriptEntry[] {
+  const last = entries.at(-1)
+  const entry = { ...assistantEntry(response, entries.length + 1), streamRunId: runId, streaming: false }
+  const replace = last?.streamRunId === runId && (last.streaming
+    || (response.response_id && last.entryId === response.response_id)
+    || last.text === entry.text)
+  if (replace) return [...entries.slice(0, -1), { ...entry, entryId: last.entryId }]
+  if (!visibleTextFromContent(response.message)) return entries
+  return [...entries, entry]
 }

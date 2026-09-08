@@ -46,6 +46,7 @@ const chatStateLabels: Record<string, string> = {
   idle: '准备就绪',
   creatingSession: '正在创建会话',
   loadingSession: '正在加载会话',
+  deletingSession: '正在删除会话',
   preparing: '正在准备请求',
   streaming: '正在生成回复',
   evaluatingRun: '正在处理结果',

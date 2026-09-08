@@ -1,3 +1,5 @@
+import { waitFor } from 'xstate'
+import { createChatSessionDraft } from './chatSidebar'
 import { computed, onUnmounted, ref, shallowRef } from 'vue'
 import type { AgentRunState } from '../../api'
 import type { ChatSubmission } from '../../domain/chat'
@@ -9,6 +11,7 @@ export function useChatView() {
   const workspaceSnapshot = shallowRef(workspaceActor.getSnapshot())
   const chatSnapshot = shallowRef(chatActor.getSnapshot())
   const detailsOpen = ref(false)
+  const lifetime = new AbortController()
 
   const workspaceSubscription = workspaceActor.subscribe((snapshot) => {
     workspaceSnapshot.value = snapshot
@@ -18,6 +21,7 @@ export function useChatView() {
   })
 
   onUnmounted(() => {
+    lifetime.abort()
     workspaceSubscription.unsubscribe()
     chatSubscription.unsubscribe()
   })
@@ -60,7 +64,22 @@ export function useChatView() {
       chatSnapshot.value.context.run,
       chatSnapshot.value.context.runId,
     )),
-    send(submission: ChatSubmission): void {
+    async send(submission: ChatSubmission): Promise<void> {
+      if (!chatActor.getSnapshot().context.session) {
+        const session = createChatSessionDraft(workspaceSnapshot.value.context.workspace.providerCatalog)
+        session.provider_id = submission.providerId
+        session.model_id = submission.modelId
+        chatActor.send({ type: 'CREATE_SESSION', session })
+        try {
+          await waitFor(chatActor, (snapshot) => !snapshot.matches('creatingSession'), {
+            signal: lifetime.signal,
+          })
+        } catch {
+          return
+        }
+        const snapshot = chatActor.getSnapshot()
+        if (!snapshot.matches('idle') || snapshot.context.session?.session_id !== session.session_id) return
+      }
       chatActor.send({
         type: 'SEND',
         submission,

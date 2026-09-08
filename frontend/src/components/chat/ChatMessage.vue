@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Bot, User } from '@lucide/vue'
 import { computed } from 'vue'
 import type { ChatTranscriptEntry } from '../../domain/chat'
 import MarkdownContent from '../common/MarkdownContent.vue'
@@ -14,16 +13,13 @@ const presentation = computed(() => chatMessagePresentation(props.entry))
 
 <template>
   <article :class="['chat-message', `chat-message--${presentation.roleClass}`]">
-    <span class="chat-message-icon" aria-hidden="true">
-      <User v-if="presentation.roleClass === 'user'" :size="19" />
-      <Bot v-else :size="19" />
-    </span>
     <div class="chat-message-content">
-      <header class="chat-message-header">
+      <header class="chat-message-header sr-only">
         <strong class="chat-message-role">{{ presentation.roleLabel }}</strong>
       </header>
       <MarkdownContent v-if="presentation.markdown" :source="entry.text" />
       <p v-else class="chat-message-text">{{ entry.text }}</p>
+      <span v-if="entry.streaming" class="chat-stream-cursor" role="status" aria-label="正在生成回复"></span>
     </div>
   </article>
 </template>

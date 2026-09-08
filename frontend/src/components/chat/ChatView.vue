@@ -40,7 +40,7 @@ const {
 </script>
 
 <template>
-  <section class="chat-view">
+  <section class="chat-view" :class="{ 'chat-view--empty': !hasTranscript }">
     <ChatHeader :session="session" :state="chatState" :details-open="detailsOpen"
       @details="openDetails" @navigation="$emit('navigation')" />
 
@@ -52,6 +52,9 @@ const {
 
     <footer class="chat-view-footer">
       <div class="chat-content">
+        <div v-if="!hasTranscript" class="chat-welcome">
+          <h2>今天想聊些什么？</h2>
+        </div>
         <ChatRequestStatus :state="chatState" :error="error" :workspace-notice="workspaceNotice"
           :pending-approvals="pendingApprovals" :approval-statuses="approvalStatuses"
           @retry="retry" @resume="resume" @approve="approve" @deny="deny" @details="openDetails" />
@@ -60,12 +63,13 @@ const {
           :busy="busy"
           :state="chatState"
           :can-stop="cancelableRun"
-          :session-ready="session !== null"
+          :session-ready="true"
           :default-provider-id="session?.provider_id"
           :default-model-id="session?.model_id"
           @submit="send"
           @cancel="cancel"
         />
+        <p class="chat-composer-hint">Enter 发送 · Shift + Enter 换行</p>
       </div>
     </footer>
     <ChatRunDetails :open="detailsOpen" :workspace-state="workspaceState" :chat-state="chatState"

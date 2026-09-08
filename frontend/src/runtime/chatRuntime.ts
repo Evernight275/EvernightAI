@@ -3,6 +3,7 @@ import {
   createSession,
   createContext,
   deleteContext,
+  deleteSession,
   getAgentRun,
   getContext,
   getSession,
@@ -302,4 +303,10 @@ function agentRunRequest(
     pause_on_approval: true,
     metadata,
   }
+}
+
+export async function deleteChatSession(input: ChatSessionInput, signal: AbortSignal): Promise<string> {
+  await cancelCurrentChatRun(input, signal)
+  await deleteSession(input.session.session_id, signal)
+  return input.session.session_id
 }

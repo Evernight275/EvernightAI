@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { ChatSubmission } from '../../domain/chat'
 import type { ProviderCatalog } from '../../domain/workspace'
 import { formatChatState } from './chatRequestStatus'
@@ -30,6 +30,12 @@ export function useChatRequestForm(
   const providerId = ref('')
   const modelId = ref('')
   const text = ref('')
+  const textarea = ref<HTMLTextAreaElement | null>(null)
+  watch([text, textarea], () => {
+    if (!textarea.value) return
+    textarea.value.style.height = 'auto'
+    textarea.value.style.height = `${textarea.value.scrollHeight}px`
+  }, { flush: 'post' })
 
   const models = computed(() => props.catalog.modelGroups.find(
     (group) => group.provider.provider_id === providerId.value,
@@ -101,6 +107,9 @@ export function useChatRequestForm(
   }
 
   return {
+    setTextarea(element: Element | ComponentPublicInstance | null): void {
+      textarea.value = element as HTMLTextAreaElement | null
+    },
     providerId,
     modelId,
     models,

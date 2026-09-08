@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Send, Square } from '@lucide/vue'
+import ChatModelPicker from './ChatModelPicker.vue'
+import { ArrowUp, Square } from '@lucide/vue'
 import {
   useChatRequestForm,
   type ChatRequestFormEmits,
@@ -11,11 +12,10 @@ const emit = defineEmits<ChatRequestFormEmits>()
 const {
   providerId,
   modelId,
-  models,
   text,
+  setTextarea,
   canSubmit,
   providerDisabled,
-  modelDisabled,
   messageDisabled,
   submitLabel,
   handleMessageKeydown,
@@ -31,55 +31,33 @@ const {
         <label class="sr-only" for="chat-message">消息</label>
         <textarea
           id="chat-message"
+          :ref="setTextarea"
+          rows="1"
           v-model="text"
           :disabled="messageDisabled"
-          placeholder="输入消息"
+          placeholder="发送消息给 EvernightAI"
           @keydown="handleMessageKeydown"
         ></textarea>
       </div>
 
       <div class="chat-composer-actions">
         <div class="chat-composer-options">
-          <label>
-            Provider
-            <select v-model="providerId" :disabled="providerDisabled">
-              <option value="">请选择</option>
-              <option
-                v-for="provider in catalog.providers"
-                :key="provider.provider_id"
-                :value="provider.provider_id"
-              >
-                {{ provider.name }}（{{ provider.provider_id }}）
-              </option>
-            </select>
-          </label>
-
-          <label>
-            Model
-            <select v-model="modelId" :disabled="modelDisabled">
-              <option value="">请选择</option>
-              <option
-                v-for="model in models"
-                :key="model.model_id"
-                :value="model.model_id"
-              >
-                {{ model.model_id }}
-              </option>
-            </select>
-          </label>
+          <ChatModelPicker :catalog="catalog" :provider-id="providerId" :model-id="modelId"
+            :disabled="providerDisabled" @select="(provider, model) => { providerId = provider; modelId = model }" />
         </div>
 
         <button v-if="canStop" class="chat-composer-submit" type="button"
           aria-label="停止当前运行" title="停止当前运行" @click="emit('cancel')">
-          <Square :size="16" aria-hidden="true" /> 停止
+          <Square :size="16" aria-hidden="true" />
         </button>
         <button v-else
           class="button-primary chat-composer-submit"
           type="submit"
           :disabled="!canSubmit"
+          :aria-label="submitLabel"
+          :title="submitLabel"
         >
-          <Send :size="16" aria-hidden="true" />
-          {{ submitLabel }}
+          <ArrowUp :size="20" aria-hidden="true" />
         </button>
       </div>
     </form>

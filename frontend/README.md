@@ -42,23 +42,26 @@ and empty states. `App.vue` contains no domain rendering logic.
 
 The separate `chat.html` entry renders the chat workspace. `ChatView` composes
 `ChatHeader`, `ChatTranscript`, `ChatRequestStatus`, the request form, and
-`ChatRunDetails`. The header contains only a title, a short status, and the
-details entry. Approvals and recovery actions live above the composer;
-the composer keeps Provider/Model selectors below the input and replaces Send
-with Stop while cancellation is available. `ChatRunDetails` is an independently
+`ChatRunDetails`. The header contains a title, an active-run status, and the details entry.
+The sidebar supports title search and can collapse on desktop. The empty page
+centers the composer beneath a welcome heading; sending the first message
+creates a persisted session before starting the run. Approvals and recovery actions live above the composer;
+the rounded composer grows with the draft, offers a searchable model picker grouped by provider
+inside its bottom row, and replaces Send with Stop while cancellation is available.
+User turns appear as right-aligned bubbles and assistant turns as plain text. `ChatRunDetails` is an independently
 scrollable side dialog for tool parameters/results, run identity, and diagnostics.
 Opening it is local presentation state, not an Agent state transition.
 On small screens the sidebar becomes a modal navigation panel, while the
 transcript remains scrollable and the composer stays at the viewport bottom.
 `ChatTranscript` delegates each visible user or assistant turn to `ChatMessage`;
 system and tool records remain outside the conversation view. `ChatSidebar`
-creates and selects persisted sessions and keeps the settings entry at the
+creates, selects, and deletes persisted sessions and keeps the settings entry at the
 bottom of the layout. Its `chatMachine` owns session
-creation/loading, context history, agent runs, tool approval, retry,
+creation/loading/deletion, context history, agent runs, tool approval, retry,
 cancellation, and errors. Selecting a session loads its persisted Context;
 every later turn uses that Context and includes its `session_id` while calling
 `/agent-runs`. Chat transitions through `creatingSession`, `loadingSession`,
-`preparing`, `streaming`, `approvalRequired`,
+`deletingSession`, `preparing`, `streaming`, `approvalRequired`,
 `resumeRequired`, `resuming`, `retrying`, `canceling`, `clearing`, `canceled`,
 and `failed`. Each pending tool approval is decided separately after its call
 arguments and permissions are shown. Streaming trace events update tool
@@ -101,7 +104,17 @@ pnpm run test:browser
 Linux environments also need Chromium system libraries (`playwright install-deps
 chromium`). The test covers desktop, mobile, and short landscape viewports,
 large approvals, dialog focus/Escape/backdrop behavior, stopping, approval
-decisions, and retry. `FRONTEND_URL` overrides `http://127.0.0.1:5173`;
+decisions, and retry. Interaction coverage also checks provider/model selection,
+incremental text before the stream closes, final-response deduplication,
+and session deletion (cancel, failure, active-run cancellation, and reload).
+`FRONTEND_URL` overrides `http://127.0.0.1:5173`;
 `SCREENSHOT_DIR` overrides `/tmp/evernight-layout`. Screenshots stay outside
 the source tree. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select an existing
 compatible Chromium installation.
+
+Model text deltas update the visible assistant message immediately. Completed
+responses replace their partial message; separate tool rounds keep separate
+messages. Stopping keeps received text. The transcript follows new text while
+near the bottom and lets readers scroll back without being pulled down.
+Deleting the selected session cancels its active run before requesting deletion;
+failed deletion keeps the session and reports the server error.

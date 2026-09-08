@@ -24,7 +24,7 @@ describe('chat component composition', () => {
     expect(html).toContain('class="chat-view-scroll"')
     expect(html).toContain('class="chat-view-footer"')
     expect(html).toContain('EvernightAI')
-    expect(html).toContain('未选择会话')
+    expect(html).toContain('今天想聊些什么？')
   })
 
   it('delegates the chat skeleton and its empty state', async () => {
@@ -98,9 +98,12 @@ describe('chat component composition', () => {
       sessionReady: true,
     }))
 
-    expect(html).toContain('<option value="model-1" selected>model-1</option>')
-    expect(html).toContain('<option value="model-2">model-2</option>')
-    expect(html).not.toContain('<input')
+    expect(html).toContain('aria-label="选择模型"')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('model-1')
+    expect(html).toContain('model-2')
+    expect(html).toContain('aria-label="搜索模型"')
+    expect(html).not.toContain('<select')
   })
 
   it('keeps approval decisions visible before large tool arguments', async () => {

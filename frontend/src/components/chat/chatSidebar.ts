@@ -1,5 +1,6 @@
-import { computed, onMounted, onUnmounted, ref, shallowRef, type ComputedRef } from 'vue'
-import type { Session } from '../../api'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { waitFor } from 'xstate'
+import { deleteSession, type Session } from '../../api'
 import type { ProviderCatalog } from '../../domain/workspace'
 import {
   createChatContextId,
@@ -9,7 +10,7 @@ import { chatActor } from '../../state/chatMachine'
 import { workspaceActor } from '../../state/workspaceMachine'
 import { useDialog } from '../common/dialog'
 
-export function useSidebarDialog(props: { open: boolean }, close: () => void) {
+export function useSidebarDialog(props: { open: boolean; collapsed?: boolean }, close: () => void) {
   const compact = ref(false)
   let media: MediaQueryList | undefined
   const sync = (): void => { compact.value = media?.matches || false }
@@ -19,7 +20,7 @@ export function useSidebarDialog(props: { open: boolean }, close: () => void) {
     media.addEventListener('change', sync)
   })
   onUnmounted(() => media?.removeEventListener('change', sync))
-  return useDialog(() => !compact.value || props.open, close, () => compact.value)
+  return useDialog(() => compact.value ? props.open : !props.collapsed, close, () => compact.value)
 }
 
 export type ChatSidebarItem = {
@@ -29,11 +30,9 @@ export type ChatSidebarItem = {
   active: boolean
 }
 
-export function useChatSidebar(onNavigate: () => void = () => {}): {
-  sessions: ComputedRef<ChatSidebarItem[]>
-  newConversation: () => void
-  selectSession: (sessionId: string) => void
-} {
+export function useChatSidebar(onNavigate: () => void = () => {}) {
+  const deletingId = ref<string | null>(null)
+  const deletedIds = ref(new Set<string>())
   const workspaceSnapshot = shallowRef(workspaceActor.getSnapshot())
   const chatSnapshot = shallowRef(chatActor.getSnapshot())
   const observedSessions = shallowRef<Session[]>([])
@@ -42,6 +41,7 @@ export function useChatSidebar(onNavigate: () => void = () => {}): {
   })
   const chatSubscription = chatActor.subscribe((snapshot) => {
     chatSnapshot.value = snapshot
+    if (snapshot.context.deletedSessionId) deletedIds.value.add(snapshot.context.deletedSessionId)
     const session = snapshot.context.session
     if (session && !observedSessions.value.some(
       (item) => item.session_id === session.session_id,
@@ -56,13 +56,34 @@ export function useChatSidebar(onNavigate: () => void = () => {}): {
   })
 
   return {
+    deletingId,
+    async removeSession(sessionId: string): Promise<void> {
+      if (deletingId.value) return
+      deletingId.value = sessionId
+      try {
+        if (chatActor.getSnapshot().context.session?.session_id === sessionId) {
+          chatActor.send({ type: 'DELETE_SESSION', sessionId })
+          const snapshot = await waitFor(chatActor, (state) => !state.matches('deletingSession'))
+          if (snapshot.context.deletedSessionId !== sessionId) {
+            throw snapshot.context.error || new Error('会话未删除，请重试')
+          }
+        } else {
+          await deleteSession(sessionId)
+        }
+        deletedIds.value.add(sessionId)
+        observedSessions.value = observedSessions.value.filter((session) => session.session_id !== sessionId)
+        workspaceActor.send({ type: 'REFRESH' })
+      } finally {
+        deletingId.value = null
+      }
+    },
     sessions: computed(() => sidebarItems(
       mergeSessions(
         workspaceSnapshot.value.context.workspace.conversationIndex.sessions,
         observedSessions.value,
       ),
       chatSnapshot.value.context.session,
-    )),
+    ).filter((session) => !deletedIds.value.has(session.id))),
     newConversation(): void {
       chatActor.send({
         type: 'CREATE_SESSION',

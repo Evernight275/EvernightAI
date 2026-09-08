@@ -4,6 +4,7 @@ import {
   approvalDecisions,
   chatMaxToolRounds,
   clearChatContext,
+  deleteChatSession,
   loadChatSession,
   retryChatRun,
   streamChatRun,
@@ -19,6 +20,23 @@ describe('chat runtime', () => {
       EVERNIGHTAI_API_KEY: '',
       EVERNIGHTAI_ACCESS_TOKEN: '',
     })
+  })
+
+  it('cancels the active run before deleting its session and stops if cancellation fails', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...finishedRun(), status: 'canceled' })))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetcher)
+    const input = {
+      session: { session_id: 'session-1', context_id: 'context-1' },
+      currentRun: null, currentRunId: 'running-1',
+    }
+    await deleteChatSession(input, new AbortController().signal)
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('/agent-runs/running-1/cancel')
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain('/sessions/session-1/delete')
+    fetcher.mockReset().mockResolvedValue(new Response('Unavailable', { status: 503 }))
+    await expect(deleteChatSession(input, new AbortController().signal)).rejects.toThrow()
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
   it('builds one decision for every pending approval', () => {

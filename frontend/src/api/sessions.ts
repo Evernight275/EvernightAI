@@ -91,8 +91,9 @@ export function archiveSession(sessionId: string): Promise<Session> {
   })
 }
 
-export function deleteSession(sessionId: string): Promise<void> {
+export function deleteSession(sessionId: string, signal?: AbortSignal): Promise<void> {
   return requestJson<void>(`/sessions/${encodeURIComponent(sessionId)}/delete`, {
+    signal,
     method: 'POST',
   })
 }

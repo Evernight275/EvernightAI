@@ -16,5 +16,5 @@ export function useChatHeader(props: ChatHeaderProps) {
 }
 
 export function chatHeaderTitle(session: Session | null): string {
-  return session?.title || session?.session_id || '未选择会话'
+  return session?.title || session?.session_id || 'EvernightAI'
 }

@@ -21,7 +21,7 @@ import { transcriptFromMessages } from '../src/domain/chat'
 
 describe('chat component controllers', () => {
   it('derives chat header and message presentation outside Vue', () => {
-    expect(chatHeaderTitle(null)).toBe('未选择会话')
+    expect(chatHeaderTitle(null)).toBe('EvernightAI')
     expect(chatHeaderTitle({
       session_id: 'session-1',
       context_id: 'context-1',

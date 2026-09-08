@@ -30,6 +30,7 @@ try {
     let run
     let failNext = false
     let cancellations = 0
+    const createdSessions = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.addInitScript(() => { window.EVERNIGHTAI_API_BASE = '/mock-api' })
     await page.route('**/mock-api/**', async (route) => {
@@ -40,6 +41,11 @@ try {
       if (path === '/providers') return json([{ provider_id: 'test', name: 'Test', type: 'openai' }])
       if (path === '/providers/test/models') return json([{ model_id: 'test-model' }])
       if (path === '/tools') return json([{ name: 'write_text_file', description: 'Write a file' }])
+      if (path === '/sessions' && route.request().method() === 'POST') {
+        const created = route.request().postDataJSON()
+        createdSessions.push(created)
+        return json(created)
+      }
       if (path === '/sessions') return json([session])
       if (path === '/contexts/layout-context') return json({ context_id: session.context_id, messages: [
         { role: 'user', content: [{ type: 'text', text: '计算一维热传导。' }] },
@@ -80,10 +86,28 @@ try {
     })
 
     await page.goto(`${base}/chat.html`)
-    if (width <= 760) await page.getByRole('button', { name: '会话管理', exact: true }).click()
-    await page.getByRole('button', { name: /热传导计算/ }).click()
+    await page.locator('.chat-welcome').waitFor()
+    await page.screenshot({ path: `${screenshots}/${width}x${height}-welcome.png` })
+    if (width > 760) {
+      await page.getByRole('button', { name: '收起侧栏', exact: true }).click()
+      await page.waitForFunction(() => !document.querySelector('.chat-sidebar-dialog').open)
+      assert.equal((await page.locator('.chat-main').boundingBox()).width, width)
+    }
+    await page.getByRole('button', { name: '会话管理', exact: true }).click()
+    await page.getByRole('searchbox', { name: '搜索会话' }).fill('不存在的标题')
+    await page.getByText('没有找到匹配的会话').waitFor()
+    assert.equal(await page.getByRole('button', { name: '热传导计算', exact: true }).count(), 0)
+    await page.getByRole('searchbox', { name: '搜索会话' }).fill('热传导')
+    await page.getByRole('button', { name: '热传导计算', exact: true }).click()
     await page.locator('#chat-message').waitFor({ state: 'visible' })
     await page.waitForFunction(() => !document.querySelector('#chat-message').disabled)
+    const editor = page.locator('#chat-message')
+    const shortHeight = (await editor.boundingBox()).height
+    await editor.fill('第一行\n第二行\n第三行\n第四行')
+    await page.waitForFunction((minimum) => document.querySelector('#chat-message').getBoundingClientRect().height > minimum, shortHeight)
+    await editor.fill('')
+    await page.waitForFunction((expected) => document.querySelector('#chat-message').getBoundingClientRect().height === expected, shortHeight)
+    await page.screenshot({ path: `${screenshots}/${width}x${height}-conversation.png` })
     const headerHeight = (await page.locator('.chat-view-header').boundingBox()).height
     assert.equal(await page.locator('.chat-request-status').count(), 0)
 
@@ -109,7 +133,7 @@ try {
       assert.ok(bounds.editor.bottom <= height)
       assert.ok(bounds.footer.bottom <= height + 1)
       assert.ok(bounds.documentWidth <= width)
-      assert.ok(bounds.documentHeight <= height + 1)
+      assert.ok(bounds.documentHeight <= height + 1, JSON.stringify(bounds))
     }
     await send()
     await checkBounds()
@@ -169,6 +193,16 @@ try {
       await page.setViewportSize({ width, height })
       await page.waitForFunction(() => !document.querySelector('.chat-sidebar-dialog').open)
     }
+    await page.reload()
+    await page.waitForFunction(() => !document.querySelector('#chat-message').disabled)
+    await page.locator('#chat-message').fill('直接开始一段新对话。')
+    await page.getByRole('button', { name: '发送', exact: true }).click()
+    await page.locator('.chat-approval-group').waitFor()
+    assert.equal(createdSessions.length, 1)
+    assert.equal(createdSessions[0].provider_id, 'test')
+    assert.equal(createdSessions[0].model_id, 'test-model')
+    assert.ok(await page.locator('.chat-message--user').innerText().then((text) => text.includes('直接开始一段新对话。')))
+    await checkBounds()
     assert.deepEqual(errors, [])
     console.log(`${width}x${height}: layout, dialog focus/Escape, stop, approvals and retry passed`)
     await page.close()

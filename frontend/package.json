@@ -9,7 +9,7 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
-    "test:browser": "node tests/chatLayout.browser.mjs",
+    "test:browser": "node tests/chatLayout.browser.mjs && node tests/chatInteractions.browser.mjs",
     "test:typecheck": "vue-tsc -p tsconfig.test.json --noEmit",
     "check": "pnpm run test:typecheck && pnpm test && pnpm run build"
   },
