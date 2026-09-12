@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, ChevronDown, UserRound } from '@lucide/vue'
+import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, UserRound } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useDialog } from '../common/dialog'
 import type { ChatSidebarItem } from './chatSidebar'
@@ -40,11 +40,10 @@ async function confirmDelete(): Promise<void> {
       <header class="chat-sidebar-header">
         <button class="icon-button chat-navigation-close" type="button" aria-label="关闭会话管理"
           title="关闭会话管理" @click="$emit('close')"><X :size="18" aria-hidden="true" /></button>
-        <button class="chat-sidebar-brand" type="button" aria-label="选择工作区">
+        <h1 class="chat-sidebar-brand">
           <span class="chat-sidebar-brand-mark" aria-hidden="true">E</span>
           <span>EvernightAI</span>
-          <ChevronDown :size="15" aria-hidden="true" />
-        </button>
+        </h1>
         <button class="icon-button chat-sidebar-collapse" type="button" aria-label="收起侧栏"
           title="收起侧栏" @click="$emit('collapse')"><PanelLeftClose :size="19" aria-hidden="true" /></button>
         <button class="chat-sidebar-new" type="button" :disabled="!!deletingId" @click="newConversation">
@@ -81,14 +80,10 @@ async function confirmDelete(): Promise<void> {
       </section>
 
       <footer class="chat-sidebar-settings">
-        <button type="button" @click="$emit('settings')">
-          <Settings :size="16" aria-hidden="true" />
-          设置
-        </button>
-        <button class="chat-sidebar-account" type="button" aria-label="账户菜单">
+        <button class="chat-sidebar-account" type="button" aria-label="设置" aria-haspopup="dialog" @click="$emit('settings')">
           <span class="chat-sidebar-avatar" aria-hidden="true"><UserRound :size="15" /></span>
           <span class="chat-sidebar-account-copy"><strong>EvernightAI</strong><small>本地工作区</small></span>
-          <ChevronDown :size="14" aria-hidden="true" />
+          <Settings :size="17" aria-hidden="true" />
         </button>
       </footer>
     </aside>

@@ -131,7 +131,7 @@ try {
       assert.ok(bounds.body.height > 40, JSON.stringify(bounds))
       assert.ok(bounds.body.bottom <= bounds.footer.top + 1)
       assert.ok(bounds.editor.bottom <= height)
-      assert.ok(bounds.footer.bottom <= height + 1)
+      assert.ok(bounds.footer.bottom <= height + 1, JSON.stringify(bounds))
       assert.ok(bounds.documentWidth <= width)
       assert.ok(bounds.documentHeight <= height + 1, JSON.stringify(bounds))
     }
@@ -204,6 +204,22 @@ try {
     assert.ok(await page.locator('.chat-message--user').innerText().then((text) => text.includes('直接开始一段新对话。')))
     await checkBounds()
     assert.deepEqual(errors, [])
+    await page.route('**/mock-api/sessions', (route) => route.fulfill({ json:
+      Array.from({ length: 40 }, (_, index) => ({ ...session,
+        session_id: `sidebar-${index}`, title: `会话 ${index + 1}`,
+      })),
+    }))
+    await page.reload()
+    if (width <= 760) await page.getByRole('button', { name: '会话管理', exact: true }).click()
+    await page.getByRole('button', { name: '会话 40', exact: true }).waitFor()
+    const footerBefore = await page.locator('.chat-sidebar-settings').boundingBox()
+    await page.getByRole('button', { name: '会话 40', exact: true }).scrollIntoViewIfNeeded()
+    const footerAfter = await page.locator('.chat-sidebar-settings').boundingBox()
+    assert.equal(footerAfter.y, footerBefore.y)
+    assert.equal(footerAfter.height, footerBefore.height)
+    assert.ok(footerBefore.y + footerBefore.height <= height + 1)
+    assert.ok(await page.locator('.chat-sidebar-sessions').evaluate((el) => el.scrollTop > 0))
+    await page.screenshot({ path: `${screenshots}/${width}x${height}-sidebar-long.png` })
     console.log(`${width}x${height}: layout, dialog focus/Escape, stop, approvals and retry passed`)
     await page.close()
   }

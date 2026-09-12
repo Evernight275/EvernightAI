@@ -37,7 +37,11 @@ try {
     await page.keyboard.press('Escape')
     await page.waitForFunction(() => !document.querySelector('.settings-dialog').open)
     assert.equal(await page.locator('#chat-message').inputValue(), '保留这份草稿')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await openSettings()
+    await page.getByLabel('API Key', { exact: true }).waitFor()
+    assert.ok(await page.locator('.settings-dialog').evaluate((el) =>
+      parseFloat(getComputedStyle(el).transitionDuration) < .001))
     await page.getByRole('button', { name: '关闭设置', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('.settings-dialog').open)
     await page.goto(base)

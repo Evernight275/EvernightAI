@@ -1,6 +1,10 @@
 :root {
   color-scheme: light;
-  --font-sans: Inter, "Noto Sans SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-sans: Inter, "Noto Sans SC", "PingFang SC", -apple-system,
+    BlinkMacSystemFont, "SF Pro Text", "Noto Sans CJK SC", "Microsoft YaHei UI",
+    "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas,
+    "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
   --color-bg: #fbfcfe;
   --color-surface: #f4f6f9;
   --color-surface-strong: #e9edf3;
