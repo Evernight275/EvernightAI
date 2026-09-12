@@ -22,13 +22,15 @@ export type ProviderConfig = {
   name: string
   type: ProviderType
   is_enabled?: boolean
+  discover_models?: boolean
+  api_key_secret_ref?: string | null
   api_key?: string | null
   base_url?: string | null
   model?: Record<string, ProviderModelConfig>
   metadata?: Record<string, unknown>
 }
 
-export type ProviderInfo = Omit<ProviderConfig, 'api_key'>
+export type ProviderInfo = Pick<ProviderConfig, 'provider_id' | 'name' | 'type' | 'is_enabled' | 'model' | 'metadata'>
 
 export function createProvider(config: ProviderConfig): Promise<ProviderInfo> {
   return requestJson<ProviderInfo>('/providers', {

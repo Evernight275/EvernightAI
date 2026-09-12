@@ -187,6 +187,25 @@ a:hover {
 .settings-dialog::backdrop { background: rgb(0 0 0 / 35%); }
 .settings-dialog .settings-page-frame { min-height: 0; padding: 0; background: transparent; }
 .settings-dialog .settings-shell { width: 100%; box-shadow: none; border: 0; }
+.settings-form { padding: 16px 0; }
+.settings-form fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-form label { display: grid; gap: 6px; font-size: 13px; }
+.settings-form input, .settings-form textarea, .settings-form select { width: 100%; min-width: 0; }
+.settings-form .settings-checkbox { display: flex; align-items: center; }
+.settings-checkbox input { width: auto; min-height: 0; }
+.settings-inline-actions, .settings-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-toolbar { margin: 16px 0; }
+.settings-toolbar input { flex: 1; min-width: 100px; }
+.settings-manager .settings-row { flex-wrap: wrap; }
+.settings-manager .settings-row > div:first-child { flex: 1 1 200px; overflow-wrap: anywhere; }
+.settings-confirm { padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; overflow-wrap: anywhere; }
+.settings-confirm button + button { margin-left: 8px; }
+.settings-result { overflow: auto; max-height: 360px; margin: 16px 0; padding: 12px; background: var(--color-surface); border-radius: 10px; }
+.settings-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); }
+.settings-result table { border-collapse: collapse; min-width: 100%; font-size: 13px; }
+.settings-result th, .settings-result td { padding: 8px; text-align: left; border-bottom: 1px solid var(--color-border); }
+.settings-manager pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.settings-manager [role='alert'] { color: var(--color-danger); overflow-wrap: anywhere; }
 
 @keyframes settings-content-in {
   from { opacity: 0; transform: translateY(5px); }

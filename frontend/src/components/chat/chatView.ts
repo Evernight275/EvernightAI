@@ -27,6 +27,7 @@ export function useChatView() {
   })
 
   return {
+    skills: computed(() => workspaceSnapshot.value.context.workspace.capabilityCatalog.skills),
     workspaceState: computed(() => String(workspaceSnapshot.value.value)),
     chatState: computed(() => String(chatSnapshot.value.value)),
     detailsOpen,

@@ -6,8 +6,13 @@ import ApiKeySettings from '../settings/ApiKeySettings.vue'
 import WorkspaceContents from './WorkspaceContents.vue'
 import WorkspaceIssues from './WorkspaceIssues.vue'
 import WorkspaceStatus from './WorkspaceStatus.vue'
+import ProviderSettings from '../settings/ProviderSettings.vue'
+import MemorySettings from '../settings/MemorySettings.vue'
+import ResourceSettings from '../settings/ResourceSettings.vue'
+import RunSettings from '../settings/RunSettings.vue'
+import DataSettings from '../settings/DataSettings.vue'
 
-defineProps<{ embedded?: boolean }>()
+defineProps<{ embedded?: boolean; active?: boolean }>()
 defineEmits<{ close: [] }>()
 const snapshot = shallowRef(workspaceActor.getSnapshot())
 const subscription = workspaceActor.subscribe((next) => { snapshot.value = next })
@@ -19,6 +24,10 @@ const sections = [
   { id: 'general', label: '常规', icon: SlidersHorizontal },
   { id: 'connections', label: '连接与认证', icon: Server },
   { id: 'privacy', label: '数据控制', icon: KeyRound },
+  { id: 'memories', label: '记忆管理', icon: SlidersHorizontal },
+  { id: 'resources', label: '工作区资源', icon: Server },
+  { id: 'runs', label: '运行管理', icon: SlidersHorizontal },
+  { id: 'data', label: '数据分析', icon: SlidersHorizontal },
 ]
 function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
 </script>
@@ -48,10 +57,15 @@ function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
         </template>
         <template v-else-if="activeSection === 'connections'">
           <ApiKeySettings />
+          <ProviderSettings :catalog="context.workspace.providerCatalog" @changed="refresh" />
           <div class="settings-row"><div><h3>可用模型</h3><p>{{ context.workspace.providerCatalog.providers.length }} 个服务 · {{ context.workspace.providerCatalog.modelGroups.reduce((count, group) => count + group.models.length, 0) }} 个模型</p></div>
             <button type="button" :disabled="state === 'loading'" @click="refresh">刷新</button></div>
           <details class="settings-resource-details" v-if="context.workspace.loadedAt"><summary>查看工作区资源</summary><WorkspaceContents :workspace="context.workspace" /></details>
         </template>
+        <MemorySettings v-else-if="activeSection === 'memories'" @changed="refresh" />
+        <ResourceSettings v-else-if="activeSection === 'resources'" @changed="refresh" />
+        <RunSettings v-else-if="activeSection === 'runs'" :active="active !== false" @changed="refresh" />
+        <DataSettings v-else-if="activeSection === 'data'" />
         <template v-else>
           <div class="settings-row"><div><h3>聊天记录</h3><p>会话保存在 EvernightAI 服务端，可在聊天侧栏中逐个删除。</p></div></div>
           <div class="settings-row"><div><h3>浏览器凭证</h3><p>保存的 API Key 位于此浏览器的本地存储中。</p></div>

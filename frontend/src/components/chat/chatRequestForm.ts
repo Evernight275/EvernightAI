@@ -2,8 +2,13 @@ import { computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { ChatSubmission } from '../../domain/chat'
 import type { ProviderCatalog } from '../../domain/workspace'
 import { formatChatState } from './chatRequestStatus'
+import { composeContextPreview, type SkillDefinition, type ToolDefinition } from '../../api'
 
 export type ChatRequestFormProps = {
+  skills?: SkillDefinition[]
+  contextId?: string | null
+  sessionId?: string | null
+  tools?: ToolDefinition[]
   catalog: ProviderCatalog
   busy: boolean
   sessionReady: boolean
@@ -30,6 +35,27 @@ export function useChatRequestForm(
   const providerId = ref('')
   const modelId = ref('')
   const text = ref('')
+  const selectedSkill = ref('')
+  const skillVariables = ref('{}')
+  const optionsError = ref('')
+  const preview = ref('')
+  const previewing = ref(false)
+  function currentSkills() {
+    if (!selectedSkill.value) return undefined
+    const variables: unknown = JSON.parse(skillVariables.value)
+    if (!variables || typeof variables !== 'object' || Array.isArray(variables)) throw new Error('技能参数必须是 JSON 对象')
+    return [{ skill_name: selectedSkill.value, variables: variables as Record<string, unknown> }]
+  }
+  async function previewContext() {
+    if (!props.contextId || previewing.value) return
+    previewing.value = true; optionsError.value = ''; preview.value = ''
+    try { preview.value = JSON.stringify(await composeContextPreview(props.contextId, {
+      model_id: modelId.value, messages: [{ role: 'user', content: [{ type: 'text', text: text.value.trim() }] }],
+      skills: currentSkills(), tools: props.tools,
+      metadata: props.sessionId ? { session_id: props.sessionId } : {},
+    }), null, 2) } catch (cause) { optionsError.value = cause instanceof Error ? cause.message : '预览失败' }
+    finally { previewing.value = false }
+  }
   const textarea = ref<HTMLTextAreaElement | null>(null)
   watch([text, textarea], () => {
     if (!textarea.value) return
@@ -90,10 +116,14 @@ export function useChatRequestForm(
       return
     }
 
+    optionsError.value = ''
+    let skills
+    try { skills = currentSkills() } catch (cause) { optionsError.value = cause instanceof Error ? cause.message : '技能参数无效'; return }
     emit('submit', {
       providerId: providerId.value,
       modelId: modelId.value.trim(),
       text: text.value.trim(),
+      ...(skills ? { skills } : {}),
     })
     text.value = ''
   }
@@ -107,6 +137,7 @@ export function useChatRequestForm(
   }
 
   return {
+    selectedSkill, skillVariables, optionsError, preview, previewing, previewContext,
     setTextarea(element: Element | ComponentPublicInstance | null): void {
       textarea.value = element as HTMLTextAreaElement | null
     },

@@ -63,6 +63,7 @@ export type ChatMachineEvent =
   | { type: 'RESUME' }
   | { type: 'CREATE_SESSION'; session: Session }
   | { type: 'SELECT_SESSION'; session: Session }
+  | { type: 'SESSION_UPDATED'; session: Session }
   | { type: 'DELETE_SESSION'; sessionId: string }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
@@ -153,6 +154,10 @@ export const chatMachine = setup({
   initial: 'idle',
   context: emptyContext,
   on: {
+    SESSION_UPDATED: {
+      guard: ({ context, event }) => context.session?.session_id === event.session.session_id,
+      actions: assign({ session: ({ event }) => event.session }),
+    },
     DELETE_SESSION: {
       guard: ({ context, event }) => context.session?.session_id === event.sessionId,
       target: '.deletingSession',

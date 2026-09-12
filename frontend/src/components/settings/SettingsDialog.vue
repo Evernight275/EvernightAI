@@ -9,6 +9,6 @@ const { setDialog, onCancel, onBackdropClick, onKeydown } = useDialog(() => prop
 <template>
   <dialog :ref="setDialog" class="settings-dialog" aria-label="设置"
     @cancel="onCancel" @click="onBackdropClick" @keydown="onKeydown">
-    <WorkspaceView embedded @close="emit('close')" />
+    <WorkspaceView embedded :active="open" @close="emit('close')" />
   </dialog>
 </template>

@@ -1,9 +1,10 @@
-import type { AgentTraceEvent, ChatResponse, Content } from '../api'
+import type { AgentTraceEvent, ChatResponse, Content, ChatSkill } from '../api'
 
 export type ChatSubmission = {
   providerId: string
   modelId: string
   text: string
+  skills?: ChatSkill[]
 }
 
 export type ChatTranscriptEntry = {

@@ -849,6 +849,9 @@ body,
   background: #f4f4f4;
   box-shadow: 0 2px 8px rgb(0 0 0 / 3%);
 }
+.chat-advanced { margin: 8px 0; font-size: 12px; max-height: 26dvh; overflow-y: auto; }
+.chat-advanced summary { cursor: pointer; color: var(--color-muted); }
+.chat-advanced pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .chat-composer form:focus-within { border-color: #c8c8c8; }
 .chat-composer-message { display: grid; }

@@ -9,6 +9,7 @@ import { useChatView } from './chatView'
 defineEmits<{ navigation: [] }>()
 
 const {
+  skills,
   workspaceState,
   chatState,
   detailsOpen,
@@ -60,6 +61,10 @@ const {
           @retry="retry" @resume="resume" @approve="approve" @deny="deny" @details="openDetails" />
         <ChatRequestForm
           :catalog="providerCatalog"
+          :skills="skills"
+          :context-id="session?.context_id"
+          :session-id="session?.session_id"
+          :tools="toolCatalog"
           :busy="busy"
           :state="chatState"
           :can-stop="cancelableRun"

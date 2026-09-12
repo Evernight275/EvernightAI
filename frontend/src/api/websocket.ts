@@ -312,8 +312,7 @@ export class AgentRunSocketClient {
 }
 
 function webSocketUrl(): string {
-  const base = apiBase || window.location.origin
-  const url = new URL('/ws', base)
+  const url = new URL(`${apiBase}/ws`, window.location.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
 }
