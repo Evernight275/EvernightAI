@@ -73,16 +73,11 @@ async def _call_with_scope(
     principal_scope: PrincipalScope,
     **kwargs: object,
 ) -> ScopedResult:
-    try:
-        return await operation(
-            *args,
-            **kwargs,
-            principal_scope=principal_scope,
-        )
-    except TypeError as exc:
-        if "principal_scope" not in str(exc):
-            raise
-        return await operation(*args, **kwargs)
+    return await operation(
+        *args,
+        **kwargs,
+        principal_scope=principal_scope,
+    )
 
 
 def _call_with_scope_sync(
@@ -91,16 +86,11 @@ def _call_with_scope_sync(
     principal_scope: PrincipalScope,
     **kwargs: object,
 ) -> ScopedResult:
-    try:
-        return operation(
-            *args,
-            **kwargs,
-            principal_scope=principal_scope,
-        )
-    except TypeError as exc:
-        if "principal_scope" not in str(exc):
-            raise
-        return operation(*args, **kwargs)
+    return operation(
+        *args,
+        **kwargs,
+        principal_scope=principal_scope,
+    )
 
 
 class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
@@ -277,17 +267,12 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[Context]:
         self._require("contexts", "list")
-        try:
-            return await self._inner.list_contexts(
-                cursor=cursor,
-                limit=limit,
-                owner_id=owner_id,
-                principal_scope=self._principal_scope,
-            )
-        except TypeError as exc:
-            if "unexpected keyword argument" not in str(exc):
-                raise
-            return await self._inner.list_contexts()
+        return await self._inner.list_contexts(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            principal_scope=self._principal_scope,
+        )
 
     async def delete_context(
         self,
@@ -351,18 +336,13 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[MemoryItem]:
         self._require("memories", "list")
-        try:
-            return await self._inner.list_memories(
-                cursor=cursor,
-                limit=limit,
-                owner_id=owner_id,
-                query=query,
-                principal_scope=self._principal_scope,
-            )
-        except TypeError as exc:
-            if "unexpected keyword argument" not in str(exc):
-                raise
-            return await self._inner.list_memories()
+        return await self._inner.list_memories(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            query=query,
+            principal_scope=self._principal_scope,
+        )
 
     async def delete_memory(
         self,
@@ -888,19 +868,14 @@ class AuthorizedAgentRunInterface(AgentRunInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[AgentRunState]:
         self._require("agent-runs", "list")
-        try:
-            return self._inner.list_states(
-                cursor=cursor,
-                limit=limit,
-                owner_id=owner_id,
-                status=status,
-                context_id=context_id,
-                principal_scope=self._principal_scope,
-            )
-        except TypeError as exc:
-            if "unexpected keyword argument" not in str(exc):
-                raise
-            return self._inner.list_states()
+        return self._inner.list_states(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            status=status,
+            context_id=context_id,
+            principal_scope=self._principal_scope,
+        )
 
     def list_trace(
         self,
@@ -1095,20 +1070,15 @@ class AuthorizedSessionInterface(SessionInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[Session]:
         self._require("sessions", "list")
-        try:
-            return await self._inner.list_sessions(
-                cursor=cursor,
-                limit=limit,
-                owner_id=owner_id,
-                status=status,
-                provider_id=provider_id,
-                model_id=model_id,
-                principal_scope=self._principal_scope,
-            )
-        except TypeError as exc:
-            if "unexpected keyword argument" not in str(exc):
-                raise
-            return await self._inner.list_sessions()
+        return await self._inner.list_sessions(
+            cursor=cursor,
+            limit=limit,
+            owner_id=owner_id,
+            status=status,
+            provider_id=provider_id,
+            model_id=model_id,
+            principal_scope=self._principal_scope,
+        )
 
     async def delete_session(
         self,

@@ -22,6 +22,7 @@ from EvernightAI.interface.http.protocol import (
     HttpAuthDeviceProtocol,
 )
 from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_router
+from EvernightAI.interface.http.routes.auth import router as auth_router
 from EvernightAI.interface.http.routes.chat import router as chat_router
 from EvernightAI.interface.http.routes.contexts import router as contexts_router
 from EvernightAI.interface.http.routes.data_analysis import (
@@ -90,6 +91,7 @@ def create_http_app(
     app.add_exception_handler(EvernightAIError, handle_evernight_error)
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(logs_router)
     app.include_router(providers_router)
     app.include_router(contexts_router)

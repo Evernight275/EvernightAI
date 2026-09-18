@@ -611,51 +611,51 @@ class FakeChatInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def create_context(self, context: Context) -> str:
+    async def create_context(self, context: Context, **kwargs: object) -> str:
         self.calls.append("create_context")
         return "delegated"
 
-    async def get_context(self, context_id: str) -> str:
+    async def get_context(self, context_id: str, **kwargs: object) -> str:
         self.calls.append("get_context")
         return "delegated"
 
-    async def append_context(self, context_id: str, message: Content) -> str:
+    async def append_context(self, context_id: str, message: Content, **kwargs: object) -> str:
         self.calls.append("append_context")
         return "delegated"
 
-    async def replace_context(self, context: Context) -> str:
+    async def replace_context(self, context: Context, **kwargs: object) -> str:
         self.calls.append("replace_context")
         return "delegated"
 
-    async def list_contexts(self) -> str:
+    async def list_contexts(self, **kwargs: object) -> str:
         self.calls.append("list_contexts")
         return "delegated"
 
-    async def delete_context(self, context_id: str) -> str:
+    async def delete_context(self, context_id: str, **kwargs: object) -> str:
         self.calls.append("delete_context")
         return "delegated"
 
-    async def create_memory(self, memory: MemoryItem) -> str:
+    async def create_memory(self, memory: MemoryItem, **kwargs: object) -> str:
         self.calls.append("create_memory")
         return "delegated"
 
-    async def get_memory(self, memory_id: str) -> str:
+    async def get_memory(self, memory_id: str, **kwargs: object) -> str:
         self.calls.append("get_memory")
         return "delegated"
 
-    async def list_memories(self) -> str:
+    async def list_memories(self, **kwargs: object) -> str:
         self.calls.append("list_memories")
         return "delegated"
 
-    async def delete_memory(self, memory_id: str) -> str:
+    async def delete_memory(self, memory_id: str, **kwargs: object) -> str:
         self.calls.append("delete_memory")
         return "delegated"
 
-    async def select_memories(self, query: MemoryQuery | None = None) -> str:
+    async def select_memories(self, query: MemoryQuery | None = None, **kwargs: object) -> str:
         self.calls.append("select_memories")
         return "delegated"
 
-    async def chat(self, provider_id: str, request: ChatRequest) -> str:
+    async def chat(self, provider_id: str, request: ChatRequest, **kwargs: object) -> str:
         self.calls.append("chat")
         return "delegated"
 
@@ -668,7 +668,7 @@ class FakeChatInterface:
         self.calls.append("chat_with_context")
         return "delegated"
 
-    async def chat_stream(self, provider_id: str, request: ChatRequest) -> str:
+    async def chat_stream(self, provider_id: str, request: ChatRequest, **kwargs: object) -> str:
         self.calls.append("chat_stream")
         return "delegated"
 
@@ -766,11 +766,11 @@ class FakeAgentInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def run_agent(self, request: AgentRunRequest) -> str:
+    async def run_agent(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("run_agent")
         return "delegated"
 
-    async def run_agent_until_pause(self, request: AgentRunRequest) -> str:
+    async def run_agent_until_pause(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("run_agent_until_pause")
         return "delegated"
 
@@ -778,6 +778,7 @@ class FakeAgentInterface:
         self,
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
+        **kwargs: object,
     ) -> str:
         self.calls.append("resume_agent")
         return "delegated"
@@ -786,11 +787,12 @@ class FakeAgentInterface:
         self,
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
+        **kwargs: object,
     ) -> str:
         self.calls.append("resume_agent_until_pause")
         return "delegated"
 
-    async def start_agent_run(self, request: AgentRunRequest) -> str:
+    async def start_agent_run(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("start_agent_run")
         return "delegated"
 
@@ -798,11 +800,12 @@ class FakeAgentInterface:
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        **kwargs: object,
     ) -> str:
         self.calls.append("resume_agent_run")
         return "delegated"
 
-    def run_agent_stream(self, request: AgentRunRequest) -> str:
+    def run_agent_stream(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("run_agent_stream")
         return "delegated"
 
@@ -810,6 +813,7 @@ class FakeAgentInterface:
         self,
         state: AgentRunState,
         approvals: list[ToolApprovalDecision],
+        **kwargs: object,
     ) -> str:
         self.calls.append("resume_agent_stream")
         return "delegated"
@@ -828,7 +832,7 @@ class FakeAgentRunInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def start(self, request: AgentRunRequest) -> str:
+    async def start(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("start")
         return "delegated"
 
@@ -836,6 +840,7 @@ class FakeAgentRunInterface:
         self,
         run_id: str,
         approvals: list[ToolApprovalDecision],
+        **kwargs: object,
     ) -> str:
         self.calls.append("resume")
         return "delegated"
@@ -845,6 +850,7 @@ class FakeAgentRunInterface:
         run_id: str,
         *,
         retried_run_id: str | None = None,
+        **kwargs: object,
     ) -> str:
         self.calls.append("retry")
         return "delegated"
@@ -854,23 +860,24 @@ class FakeAgentRunInterface:
         run_id: str,
         *,
         retried_run_id: str | None = None,
+        **kwargs: object,
     ) -> str:
         self.calls.append("retry_stream")
         return "delegated"
 
-    def start_stream(self, request: AgentRunRequest) -> str:
+    def start_stream(self, request: AgentRunRequest, **kwargs: object) -> str:
         self.calls.append("start_stream")
         return "delegated"
 
-    def resume_stream(self, run_id: str, approvals: list[ToolApprovalDecision]) -> str:
+    def resume_stream(self, run_id: str, approvals: list[ToolApprovalDecision], **kwargs: object) -> str:
         self.calls.append("resume_stream")
         return "delegated"
 
-    def get_state(self, run_id: str) -> str:
+    def get_state(self, run_id: str, **kwargs: object) -> str:
         self.calls.append("get_state")
         return "delegated"
 
-    def list_states(self) -> str:
+    def list_states(self, **kwargs: object) -> str:
         self.calls.append("list_states")
         return "delegated"
 
@@ -880,11 +887,12 @@ class FakeAgentRunInterface:
         *,
         after_sequence: int = 0,
         limit: int | None = None,
+        **kwargs: object,
     ) -> str:
         self.calls.append("list_trace")
         return "delegated"
 
-    def list_tool_executions(self, run_id: str) -> str:
+    def list_tool_executions(self, run_id: str, **kwargs: object) -> str:
         self.calls.append("list_tool_executions")
         return "delegated"
 
@@ -897,6 +905,7 @@ class FakeAgentRunInterface:
         *,
         result: dict[str, object] | None = None,
         reason: str | None = None,
+        **kwargs: object,
     ) -> str:
         self.calls.append("resolve_tool_execution")
         return "delegated"
@@ -934,27 +943,27 @@ class FakeSessionInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def create_session(self, session: Session) -> str:
+    async def create_session(self, session: Session, **kwargs: object) -> str:
         self.calls.append("create_session")
         return "delegated"
 
-    async def get_session(self, session_id: str) -> str:
+    async def get_session(self, session_id: str, **kwargs: object) -> str:
         self.calls.append("get_session")
         return "delegated"
 
-    async def replace_session(self, session: Session) -> str:
+    async def replace_session(self, session: Session, **kwargs: object) -> str:
         self.calls.append("replace_session")
         return "delegated"
 
-    async def archive_session(self, session_id: str) -> str:
+    async def archive_session(self, session_id: str, **kwargs: object) -> str:
         self.calls.append("archive_session")
         return "delegated"
 
-    async def list_sessions(self) -> str:
+    async def list_sessions(self, **kwargs: object) -> str:
         self.calls.append("list_sessions")
         return "delegated"
 
-    async def delete_session(self, session_id: str) -> str:
+    async def delete_session(self, session_id: str, **kwargs: object) -> str:
         self.calls.append("delete_session")
         return "delegated"
 
@@ -962,6 +971,7 @@ class FakeSessionInterface:
         self,
         session_id: str,
         request: SessionChatRequest,
+        **kwargs: object,
     ) -> str:
         self.calls.append("chat_with_session")
         return "delegated"
@@ -970,6 +980,64 @@ class FakeSessionInterface:
         self,
         session_id: str,
         request: SessionAgentRunRequest,
+        **kwargs: object,
     ) -> str:
         self.calls.append("start_agent_run_for_session")
         return "delegated"
+
+
+@pytest.mark.asyncio
+async def test_scope_error_never_retries_without_ownership() -> None:
+    from EvernightAI.core.domain.authorized_interface import _call_with_scope
+    from EvernightAI.core.schema.auth import PrincipalScope
+
+    calls: list[PrincipalScope | None] = []
+
+    async def operation(*, principal_scope: PrincipalScope | None = None) -> str:
+        calls.append(principal_scope)
+        if principal_scope is not None:
+            raise TypeError("principal_scope adapter failure")
+        return "unscoped data"
+
+    scope = PrincipalScope(owner_id="alice")
+    with pytest.raises(TypeError, match="adapter failure"):
+        await _call_with_scope(operation, principal_scope=scope)
+    assert calls == [scope]
+
+
+def test_sync_scope_error_never_retries_without_ownership() -> None:
+    from EvernightAI.core.domain.authorized_interface import _call_with_scope_sync
+    from EvernightAI.core.schema.auth import PrincipalScope
+
+    calls: list[PrincipalScope | None] = []
+
+    def operation(*, principal_scope: PrincipalScope | None = None) -> str:
+        calls.append(principal_scope)
+        if principal_scope is not None:
+            raise TypeError("principal_scope adapter failure")
+        return "unscoped data"
+
+    scope = PrincipalScope(owner_id="alice")
+    with pytest.raises(TypeError, match="adapter failure"):
+        _call_with_scope_sync(operation, principal_scope=scope)
+    assert calls == [scope]
+
+
+@pytest.mark.asyncio
+async def test_legacy_context_listing_fails_closed() -> None:
+    class LegacyChat:
+        calls = 0
+
+        async def list_contexts(self) -> list[Context]:
+            self.calls += 1
+            return [Context(context_id="private", owner_id="bob")]
+
+    legacy = LegacyChat()
+    interface = AuthorizedChatInterface(
+        cast(ChatInterfaceProtocol, legacy),
+        Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="alice", permissions=["contexts:list"]),
+    )
+    with pytest.raises(TypeError):
+        await interface.list_contexts()
+    assert legacy.calls == 0

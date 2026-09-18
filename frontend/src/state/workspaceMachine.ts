@@ -36,11 +36,17 @@ export const workspaceMachine = setup({
     issues: [],
     connectionError: null,
   },
+  on: {
+    AUTH_CHANGED: {
+      target: ".loading",
+      reenter: true,
+      actions: assign({ workspace: () => emptyWorkspaceSnapshot(), issues: [], connectionError: null }),
+    },
+  },
   states: {
     idle: {
       on: {
         START: 'loading',
-        AUTH_CHANGED: 'loading',
       },
     },
     loading: {
@@ -87,34 +93,26 @@ export const workspaceMachine = setup({
           target: 'loading',
           reenter: true,
         },
-        AUTH_CHANGED: {
-          target: 'loading',
-          reenter: true,
-        },
       },
     },
     ready: {
       on: {
         REFRESH: 'loading',
-        AUTH_CHANGED: 'loading',
       },
     },
     degraded: {
       on: {
         REFRESH: 'loading',
-        AUTH_CHANGED: 'loading',
       },
     },
     unauthorized: {
       on: {
         REFRESH: 'loading',
-        AUTH_CHANGED: 'loading',
       },
     },
     offline: {
       on: {
         REFRESH: 'loading',
-        AUTH_CHANGED: 'loading',
       },
     },
   },

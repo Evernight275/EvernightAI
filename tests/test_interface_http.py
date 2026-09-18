@@ -3723,3 +3723,37 @@ class StaticJwkClient:
 class StaticSigningKey:
     def __init__(self, key: str) -> None:
         self.key = key
+
+
+def test_identity_reports_unsecured_mode_without_inventing_a_user() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    with TestClient(app) as client:
+        response = client.get("/auth/me")
+    assert response.status_code == 200
+    assert response.json() == {"authentication_enabled": False, "principal": None}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_identity_requires_valid_credentials_and_omits_private_metadata() -> None:
+    app = create_http_app(
+        create_interface(make_runtime()),
+        auth_device=ApiKeyHttpAuthDevice([
+            HttpApiKeyCredential(api_key="secret", principal=Principal(
+                principal_id="alice", roles=["reader"], permissions=[],
+                metadata={"private": "do-not-expose"},
+            )),
+        ]),
+        close_on_shutdown=False,
+    )
+    with TestClient(app) as client:
+        for headers in ({}, {"x-evernight-api-key": "wrong"}):
+            denied = client.get("/auth/me", headers=headers)
+            assert denied.status_code == 401
+            assert denied.headers["cache-control"] == "no-store"
+        response = client.get("/auth/me", headers={"x-evernight-api-key": "secret"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"authentication_enabled": True, "principal": {
+        "principal_id": "alice", "principal_type": "user", "roles": ["reader"], "permissions": [],
+    }}
+    assert "secret" not in response.text

@@ -6,8 +6,10 @@ export const apiBase = normalizeApiBase(
 
 const apiKeyStorageKey = 'evernight.apiKey'
 const accessTokenStorageKey = 'evernight.accessToken'
+const signedOutStorageKey = 'evernight.signedOut'
 
 export type RequestOptions = {
+  credentials?: boolean
   method?: string
   body?: unknown
   headers?: Record<string, string>
@@ -57,12 +59,15 @@ export class ApiError extends Error {
 }
 
 export function getApiKey(): string {
+  if (localStorage.getItem(signedOutStorageKey)) return ''
+  if (localStorage.getItem(accessTokenStorageKey)) return ''
   return localStorage.getItem(apiKeyStorageKey) || window.EVERNIGHTAI_API_KEY || ''
 }
 
 export function setApiKey(apiKey: string): void {
   const value = apiKey.trim()
   if (value) {
+    localStorage.removeItem(signedOutStorageKey)
     localStorage.setItem(apiKeyStorageKey, value)
     localStorage.removeItem(accessTokenStorageKey)
   } else {
@@ -72,18 +77,28 @@ export function setApiKey(apiKey: string): void {
 }
 
 export function getAccessToken(): string {
+  if (localStorage.getItem(signedOutStorageKey)) return ''
+  if (localStorage.getItem(apiKeyStorageKey)) return ''
   return localStorage.getItem(accessTokenStorageKey) || window.EVERNIGHTAI_ACCESS_TOKEN || ''
 }
 
 export function setAccessToken(accessToken: string): void {
   const value = accessToken.trim()
   if (value) {
+    localStorage.removeItem(signedOutStorageKey)
     localStorage.setItem(accessTokenStorageKey, value)
     localStorage.removeItem(apiKeyStorageKey)
   } else {
     localStorage.removeItem(accessTokenStorageKey)
   }
   window.dispatchEvent(new CustomEvent('evernight-access-token-change'))
+}
+
+export function signOut(): void {
+  localStorage.removeItem(apiKeyStorageKey)
+  localStorage.removeItem(accessTokenStorageKey)
+  localStorage.setItem(signedOutStorageKey, '1')
+  window.dispatchEvent(new CustomEvent('evernight-api-key-change'))
 }
 
 export async function requestJson<T>(
@@ -145,8 +160,8 @@ async function sendRequest(
   options: RequestOptions,
   accept: string,
 ): Promise<Response> {
-  const apiKey = getApiKey()
-  const accessToken = getAccessToken()
+  const apiKey = options.credentials === false ? '' : getApiKey()
+  const accessToken = options.credentials === false ? '' : getAccessToken()
   return fetch(`${apiBase}${normalizePath(path)}`, {
     method: options.method || 'GET',
     headers: {
@@ -167,7 +182,11 @@ async function throwForError(path: string, response: Response): Promise<void> {
   }
 
   const body = await readErrorBody(response)
-  const message = body?.error?.message || `Request failed with status ${response.status}`
+  const message = response.status === 401
+    ? '访问凭证无效或已过期，请在设置中重新验证。'
+    : response.status === 403
+      ? '当前身份没有执行此操作的权限。'
+      : body?.error?.message || `Request failed with status ${response.status}`
   throw new ApiError(message, {
     status: response.status,
     path,

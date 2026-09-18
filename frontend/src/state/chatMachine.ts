@@ -56,6 +56,7 @@ export type ChatMachineContext = {
 }
 
 export type ChatMachineEvent =
+  | { type: 'AUTH_CHANGED' }
   | { type: 'SEND'; submission: ChatSubmission; tools: ToolDefinition[] }
   | { type: 'RETRY' }
   | { type: 'APPROVE'; approvalId: string }
@@ -154,6 +155,7 @@ export const chatMachine = setup({
   initial: 'idle',
   context: emptyContext,
   on: {
+    AUTH_CHANGED: { target: '.idle', actions: assign(emptyContext), reenter: true },
     SESSION_UPDATED: {
       guard: ({ context, event }) => context.session?.session_id === event.session.session_id,
       actions: assign({ session: ({ event }) => event.session }),

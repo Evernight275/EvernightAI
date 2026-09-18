@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef } from 'vue'
 import { X, KeyRound, Server, SlidersHorizontal } from '@lucide/vue'
+import { authGeneration } from '../../runtime/workspaceRuntime'
 import { workspaceActor } from '../../state/workspaceMachine'
 import ApiKeySettings from '../settings/ApiKeySettings.vue'
 import WorkspaceContents from './WorkspaceContents.vue'
@@ -57,15 +58,15 @@ function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
         </template>
         <template v-else-if="activeSection === 'connections'">
           <ApiKeySettings />
-          <ProviderSettings :catalog="context.workspace.providerCatalog" @changed="refresh" />
+          <ProviderSettings :key="authGeneration" :catalog="context.workspace.providerCatalog" @changed="refresh" />
           <div class="settings-row"><div><h3>可用模型</h3><p>{{ context.workspace.providerCatalog.providers.length }} 个服务 · {{ context.workspace.providerCatalog.modelGroups.reduce((count, group) => count + group.models.length, 0) }} 个模型</p></div>
             <button type="button" :disabled="state === 'loading'" @click="refresh">刷新</button></div>
           <details class="settings-resource-details" v-if="context.workspace.loadedAt"><summary>查看工作区资源</summary><WorkspaceContents :workspace="context.workspace" /></details>
         </template>
-        <MemorySettings v-else-if="activeSection === 'memories'" @changed="refresh" />
-        <ResourceSettings v-else-if="activeSection === 'resources'" @changed="refresh" />
-        <RunSettings v-else-if="activeSection === 'runs'" :active="active !== false" @changed="refresh" />
-        <DataSettings v-else-if="activeSection === 'data'" />
+        <MemorySettings :key="authGeneration" v-else-if="activeSection === 'memories'" @changed="refresh" />
+        <ResourceSettings :key="authGeneration" v-else-if="activeSection === 'resources'" @changed="refresh" />
+        <RunSettings :key="authGeneration" v-else-if="activeSection === 'runs'" :active="active !== false" @changed="refresh" />
+        <DataSettings :key="authGeneration" v-else-if="activeSection === 'data'" />
         <template v-else>
           <div class="settings-row"><div><h3>聊天记录</h3><p>会话保存在 EvernightAI 服务端，可在聊天侧栏中逐个删除。</p></div></div>
           <div class="settings-row"><div><h3>浏览器凭证</h3><p>保存的 API Key 位于此浏览器的本地存储中。</p></div>

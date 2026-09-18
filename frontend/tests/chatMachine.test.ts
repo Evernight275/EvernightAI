@@ -19,6 +19,19 @@ import type {
 import { chatMachine } from '../src/state/chatMachine'
 
 describe('chatMachine', () => {
+  it('clears the old transcript on an identity change without deleting server data', async () => {
+    const actor = actorWithServices(async ({ input }) => finishedRun(input, 'private answer'))
+    actor.start()
+    actor.send(sendEvent('private question'))
+    await waitFor(actor, state => state.matches('idle') && state.context.transcript.length === 2)
+    actor.send({ type: 'AUTH_CHANGED' })
+    expect(actor.getSnapshot().matches('idle')).toBe(true)
+    expect(actor.getSnapshot().context.transcript).toEqual([])
+    expect(actor.getSnapshot().context.contextId).toBeNull()
+    expect(actor.getSnapshot().context.run).toBeNull()
+    actor.stop()
+  })
+
   it('records both sides of a successful agent run', async () => {
     const actor = actorWithServices(async ({ input }) => finishedRun(input, 'answer'))
 

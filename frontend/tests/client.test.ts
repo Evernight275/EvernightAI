@@ -5,6 +5,7 @@ import {
   requestSse,
   setAccessToken,
   setApiKey,
+  signOut,
 } from '../src/api/client'
 
 describe('API client', () => {
@@ -18,6 +19,30 @@ describe('API client', () => {
       dispatchEvent: vi.fn(),
     })
     vi.restoreAllMocks()
+  })
+
+  it('validates a candidate without sending the stored credential', async () => {
+    setAccessToken('old-token')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    await requestJson('/auth/me', { credentials: false, headers: { 'x-evernight-api-key': 'candidate' } })
+    expect(requestHeaders(fetchMock, 0).authorization).toBeUndefined()
+    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBe('candidate')
+  })
+
+  it('sign out suppresses page defaults until a new credential is saved', async () => {
+    window.EVERNIGHTAI_ACCESS_TOKEN = 'page-token'
+    window.EVERNIGHTAI_API_KEY = 'page-key'
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    signOut()
+    await requestJson('/auth/me')
+    expect(requestHeaders(fetchMock, 0).authorization).toBeUndefined()
+    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBeUndefined()
+    setApiKey('new-key')
+    await requestJson('/auth/me')
+    expect(requestHeaders(fetchMock, 1).authorization).toBeUndefined()
+    expect(requestHeaders(fetchMock, 1)['x-evernight-api-key']).toBe('new-key')
   })
 
   it('sends exactly one credential type', async () => {

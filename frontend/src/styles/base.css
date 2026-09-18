@@ -256,3 +256,8 @@ a:hover {
   .settings-row button { padding: 7px 12px; }
   .settings-dialog { width: calc(100% - 24px); border-radius: 16px; }
 }
+
+.settings-auth-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.settings-auth-fields > select { width: 100%; margin-bottom: 16px; }
+.settings-auth .settings-actions { flex-wrap: wrap; justify-content: flex-start; }
+.settings-auth .settings-actions button { white-space: nowrap; }

@@ -8,6 +8,24 @@ import {
 import { workspaceMachine } from '../src/state/workspaceMachine'
 
 describe('workspaceMachine', () => {
+  it('clears the previous identity data immediately even if the next load fails', async () => {
+    let loads = 0
+    const initial = loadResult()
+    initial.workspace.loadedAt = 'private-snapshot'
+    const actor = actorWithLoader(async () => {
+      if (++loads === 1) return initial
+      throw new Error('offline')
+    })
+    actor.start()
+    actor.send({ type: 'START' })
+    await waitFor(actor, state => state.matches('ready'))
+    actor.send({ type: 'AUTH_CHANGED' })
+    expect(actor.getSnapshot().context.workspace).toEqual(emptyWorkspaceSnapshot())
+    await waitFor(actor, state => state.matches('offline'))
+    expect(actor.getSnapshot().context.workspace).toEqual(emptyWorkspaceSnapshot())
+    actor.stop()
+  })
+
   it('enters ready after every concept loads', async () => {
     const result = loadResult()
     const actor = actorWithLoader(async () => result)

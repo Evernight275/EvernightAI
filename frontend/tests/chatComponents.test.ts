@@ -32,10 +32,10 @@ describe('chat component composition', () => {
 
     expect(html).toContain('发送消息')
     expect(html).toContain('运行详情')
-    expect(html).toContain('前置状态')
+    expect(html).toContain('环境与诊断')
     expect(html).toContain('请求状态')
     expect(html).toContain('工具调用（0）')
-    expect(html).toContain('Tools：0')
+    expect(html).toContain('可用工具')
     expect(html).toContain('aria-label="对话记录"')
     expect(html).toContain('还没有消息')
     expect(html).not.toContain('<datalist')
@@ -145,7 +145,8 @@ describe('chat component composition', () => {
     }))
 
     expect(html).toContain('工具调用（1）')
-    expect(html).toContain('write_text_file / 等待审批')
+    expect(html).toContain('write_text_file')
+    expect(html).toContain('等待审批')
     expect(html).not.toContain('还没有工具调用')
   })
 
@@ -184,7 +185,7 @@ describe('chat component composition', () => {
     expect(html).toContain('<dialog')
     expect(html).toContain('运行 ID')
     expect(html).toContain('原始请求参数')
-    expect(html).toContain('诊断信息')
+    expect(html).toContain('环境与诊断')
     expect(html).not.toContain('class="chat-approval-actions"')
     expect(html).toContain('disabled')
   })

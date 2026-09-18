@@ -22,8 +22,8 @@ describe('workspace component composition', () => {
 
     expect(html).toContain('<h2>认证</h2>')
     expect(html).toContain('type="password"')
-    expect(html).toContain('>保存</button>')
-    expect(html).toContain('清除')
+    expect(html).toContain('>验证并保存</button>')
+    expect(html).toContain('退出')
   })
 
   it('delegates every workspace concept and its empty state', async () => {

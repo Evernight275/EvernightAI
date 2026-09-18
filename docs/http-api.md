@@ -615,3 +615,21 @@ curl -N -X POST http://127.0.0.1:8000/agent-runs/run-1/retry/stream \
 The retry state is persisted before the SSE response starts. A client may
 therefore cancel it immediately with
 `POST /agent-runs/run-retry-1/cancel`, including after the stream disconnects.
+
+### Current authentication identity
+
+`GET /auth/me` validates the request credential using the configured authentication
+adapters. It returns `authentication_enabled` and a `principal` containing only
+`principal_id`, `principal_type`, `roles`, and `permissions`. No resource permission
+is required to inspect one's own identity. Invalid or missing credentials return
+401 when authentication is enabled. With authentication disabled, `principal` is
+null. Identity responses and authentication/permission errors use `Cache-Control:
+no-store`.
+
+The browser validates API keys or Bearer tokens before saving them. Signing out
+removes browser credentials and disables page-provided fallback credentials for
+that browser until another credential is saved. This does not revoke a static API
+key or an externally issued token on the server. Identity changes clear the chat
+view and workspace data and disconnect settings trace subscriptions. Authorization
+adapters must implement the scope-aware protocols: a failing scoped call is never
+retried without its ownership scope.
