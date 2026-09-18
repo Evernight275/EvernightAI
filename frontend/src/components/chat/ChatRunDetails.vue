@@ -34,6 +34,7 @@ const {
       <section class="chat-run-overview">
         <div class="chat-run-status-heading"><h3>请求状态</h3><span class="chat-run-badge" :class="{ 'is-active': busy, 'is-error': !!errorMessage }"><span aria-hidden="true"></span>{{ stateLabel }}</span></div>
         <p class="chat-run-description">{{ busy ? '请求正在进行，执行信息会实时更新。' : runId ? '本次请求的执行记录与诊断信息。' : '发送消息后，可在这里查看执行过程。' }}</p>
+        <p v-if="run?.request.working_directory" class="chat-run-id">工作文件夹：<code>{{ run.request.working_directory }}</code></p>
         <p v-if="runId" class="chat-run-id">运行 ID：<code>{{ runId }}</code></p>
         <p v-if="errorMessage" class="chat-status-error">{{ errorMessage }}</p>
       </section>

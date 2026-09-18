@@ -112,6 +112,7 @@ class AgentRunRequest(EvernightAISchema):
     """Agent运行请求"""
 
     provider_id: str
+    working_directory: str | None = None
     owner_id: str | None = None
     context_id: str
     model_id: str

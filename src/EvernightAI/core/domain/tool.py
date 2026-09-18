@@ -182,7 +182,7 @@ class ToolManager(ToolManageProtocol):
 
     def authorize(self, call: ToolCall) -> ToolSafetyDecision:
         tool_name = self._get_tool_name(call.tool_call)
-        arguments = self._get_arguments(call.tool_call)
+        arguments = self._execution_arguments(call)
         tool = self._register.get(tool_name)
         preflight_policy = self._register.get_preflight_policy(tool_name)
         if preflight_policy is not None:
@@ -193,7 +193,7 @@ class ToolManager(ToolManageProtocol):
 
     async def execute(self, call: ToolCall) -> ToolCallResult:
         tool_name = self._get_tool_name(call.tool_call)
-        arguments = dict(self._get_arguments(call.tool_call))
+        arguments = self._execution_arguments(call)
         decision = self.authorize(call)
         if not decision.allowed:
             raise ToolPolicyError(
@@ -224,6 +224,16 @@ class ToolManager(ToolManageProtocol):
             tool_call_id=call.tool_call_id,
             tool_call_result=result,
         )
+
+    def _execution_arguments(self, call: ToolCall) -> dict[str, Any]:
+        arguments = dict(self._get_arguments(call.tool_call))
+        tool = self._register.get(self._get_tool_name(call.tool_call))
+        if tool.metadata.get("supports_working_directory"):
+            arguments.pop("_working_directory", None)
+            directory = call.metadata.get("working_directory")
+            if directory is not None:
+                arguments["_working_directory"] = directory
+        return arguments
 
     def _get_tool_name(self, tool_call: dict[str, Any]) -> str:
         tool_name = tool_call.get("tool_name") or tool_call.get("name")
@@ -308,6 +318,8 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             return ToolSafetyDecision(
                 allowed=False,
                 reason="Tool call requires approval",
+            metadata={"working_directory": call.metadata["working_directory"]}
+            if tool.metadata.get("supports_working_directory") and call.metadata.get("working_directory") is not None else {},
                 requires_approval=True,
                 approval_request=self._approval_request(tool, call),
             )
@@ -341,4 +353,6 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             permissions=list(tool.permissions),
             safety_level=tool.safety_level,
             reason="Tool call requires approval",
+            metadata={"working_directory": call.metadata["working_directory"]}
+            if tool.metadata.get("supports_working_directory") and call.metadata.get("working_directory") is not None else {},
         )

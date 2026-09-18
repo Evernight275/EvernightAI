@@ -633,3 +633,21 @@ key or an externally issued token on the server. Identity changes clear the chat
 view and workspace data and disconnect settings trace subscriptions. Authorization
 adapters must implement the scope-aware protocols: a failing scoped call is never
 retried without its ownership scope.
+
+### Working folders
+
+With filesystem tools enabled, `GET /workspaces?path=.` lists up to 500 entries
+inside their configured root. `POST /workspaces` with `{"path":".","name":"demo"}`
+creates a child directory. Authentication requires `workspaces:list` or
+`workspaces:create` respectively (or `*`). The configured filesystem root is shared
+by principals granted these permissions; these are not private per-user folders.
+Absolute paths, parent traversal, and symlinks escaping the root are rejected.
+
+The chat sidebar provides browsing, folder creation, and selection. Selection is
+stored in this browser, validated on reload, and cleared on authentication changes.
+`AgentRunRequest.working_directory` (also accepted by session agent requests) stores
+the relative directory on each run. Restricted filesystem tools resolve their
+paths inside that directory, including resumed runs and approval previews. Changing
+the sidebar selection affects subsequent requests only. Shell, Git, and project
+commands retain their separately configured directories. This selection is not a
+replacement for server-side permissions or the configured filesystem root boundary.

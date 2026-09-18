@@ -101,7 +101,9 @@ describe('chat runtime', () => {
       }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const run = await streamChatRun(requestInput(), new AbortController().signal)
+    const input = requestInput()
+    input.submission.workingDirectory = 'projects/demo'
+    const run = await streamChatRun(input, new AbortController().signal)
     const [streamPath, streamOptions] = fetchMock.mock.calls[0] as [string, RequestInit]
     const streamBody = JSON.parse(String(streamOptions.body)) as Record<string, unknown>
 
@@ -109,6 +111,7 @@ describe('chat runtime', () => {
     expect(streamPath).toBe('/agent-runs/stream')
     expect(streamBody).toMatchObject({
       context_id: 'context-1',
+      working_directory: 'projects/demo',
       max_tool_rounds: chatMaxToolRounds,
       pause_on_approval: true,
     })

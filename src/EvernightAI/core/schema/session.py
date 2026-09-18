@@ -52,6 +52,7 @@ class SessionChatRequest(EvernightAISchema):
 class SessionAgentRunRequest(SessionChatRequest):
     """会话 Agent 运行请求"""
 
+    working_directory: str | None = None
     max_tool_rounds: int = Field(default=1, ge=0)
     recover_tool_errors: bool = True
     write_memory: bool = False

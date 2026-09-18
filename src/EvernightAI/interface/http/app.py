@@ -13,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.interface.http.routes.workspaces import router as workspaces_router
 from EvernightAI.interface.http.errors import (
     handle_evernight_error,
     handle_request_validation_error,
@@ -50,6 +52,7 @@ def create_http_app(
     interface: EvernightInterfaceProtocol,
     *,
     auth_device: HttpAuthDeviceProtocol | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
     authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
     initialize_handler: Callable[[], Awaitable[None]] | None = None,
@@ -76,6 +79,7 @@ def create_http_app(
         openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
     )
+    app.state.workspace_directories = workspace_directories
     app.state.interface = interface
     app.state.auth_device = auth_device
     app.state.readiness_checker = readiness_checker or _always_ready
@@ -92,6 +96,7 @@ def create_http_app(
     app.add_exception_handler(RequestValidationError, handle_request_validation_error)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(workspaces_router)
     app.include_router(logs_router)
     app.include_router(providers_router)
     app.include_router(contexts_router)

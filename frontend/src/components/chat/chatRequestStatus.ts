@@ -88,7 +88,11 @@ export function approvalItem(
     safetyLabel: approval.safety_level === 'safe' ? '低风险'
       : approval.safety_level === 'sensitive' ? '敏感操作'
         : approval.safety_level === 'restricted' ? '受限操作' : '风险未知',
-    targets: approvalTargets(approval.tool_call?.arguments),
+    targets: [
+      ...(typeof approval.metadata?.working_directory === 'string'
+        ? [{ name: '工作文件夹', value: approval.metadata.working_directory }] : []),
+      ...approvalTargets(approval.tool_call?.arguments),
+    ],
   }
 }
 

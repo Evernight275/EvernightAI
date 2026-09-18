@@ -3415,3 +3415,26 @@ class NoStreamingResponseAgentApplication(AgentApplication):
 
 class UnknownTraceEventType:
     value = "unknown_event"
+
+
+@pytest.mark.asyncio
+async def test_agent_binds_request_directory_to_tool_execution() -> None:
+    seen: list[object] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        seen.append(arguments.get('_working_directory'))
+        return {'result': 3}
+
+    runtime = make_runtime()
+    runtime.tool_register.register(ToolDefinition(
+        name='add', description='Add', parameters_schema={'type': 'object'},
+        metadata={'supports_working_directory': True},
+    ), add)
+    await runtime.contexts.create(Context(context_id='ctx-workspace'))
+    await runtime.providers.create(make_config())
+    await AgentApplication(runtime).run_agent(AgentRunRequest(
+        provider_id='provider-1', context_id='ctx-workspace', model_id='model-1',
+        messages=[make_message('What is 1 + 2?')], tools=runtime.tools.list_tools(),
+        working_directory='projects/one',
+    ))
+    assert seen == ['projects/one']

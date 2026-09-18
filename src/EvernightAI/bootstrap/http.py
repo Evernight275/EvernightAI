@@ -21,6 +21,7 @@ from EvernightAI.interface.http.auth import (
     OAuthBearerHttpAuthDevice,
 )
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
+from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
 
 
 DEFAULT_DATABASE_PATH = Path(".evernight") / "runtime.sqlite3"
@@ -40,6 +41,7 @@ def create_app(
     static_files_path: str | Path | None = None,
     close_on_shutdown: bool = True,
 ) -> FastAPI:
+    file_root = filesystem_root or _env_optional_path("EVERNIGHTAI_FILESYSTEM_ROOT")
     runtime = create_sqlite_runtime(
         database_path or _env_path("EVERNIGHTAI_DATABASE_PATH", DEFAULT_DATABASE_PATH),
         filesystem_root=filesystem_root or _env_optional_path(
@@ -69,6 +71,7 @@ def create_app(
     return create_http_app(
         create_interface(runtime),
         auth_device=_env_auth_device(),
+        workspace_directories=WorkspaceDirectoryStore(file_root) if file_root else None,
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
@@ -101,6 +104,10 @@ def create_app_from_config(
     return create_http_app(
         interface,
         auth_device=_config_auth_device(config),
+        workspace_directories=(
+            WorkspaceDirectoryStore(config.tools.filesystem.root)
+            if config.tools.filesystem.enabled else None
+        ),
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,

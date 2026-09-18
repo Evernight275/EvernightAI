@@ -293,6 +293,7 @@ function agentRunRequest(
     context_id: input.contextId,
     model_id: input.submission.modelId,
     skills: input.submission.skills,
+    working_directory: input.submission.workingDirectory,
     messages: [{
       role: 'user' as const,
       content: [{ type: 'text', text: input.submission.text }],

@@ -31,6 +31,16 @@ class _ProjectAwareFilesystemTool:
         self._root_directory = self._roots.default_root
 
     def _resolve_root(self, arguments: dict[str, Any]) -> tuple[str | None, Path]:
+        directory = arguments.get("_working_directory")
+        if directory is not None:
+            if not isinstance(directory, str) or Path(directory).is_absolute() or ".." in Path(directory).parts:
+                raise ToolInputError("工作目录必须是根目录内的相对路径")
+            if arguments.get("project") is not None:
+                raise ToolInputError("已选择工作文件夹，不能同时指定其他项目")
+            root = (self._root_directory / directory).resolve()
+            if not root.is_relative_to(self._root_directory) or not root.is_dir():
+                raise ToolInputError("工作文件夹不存在或超出根目录")
+            return None, root
         return self._roots.resolve(
             arguments.get("project"),
             require_configured=True,
@@ -39,6 +49,7 @@ class _ProjectAwareFilesystemTool:
     def _root_metadata(self) -> dict[str, Any]:
         return {
             "root_directory": str(self._root_directory),
+            "supports_working_directory": True,
             "projects": self._roots.project_names,
         }
 

@@ -53,6 +53,7 @@ export type ToolExecutionAttempt = {
 }
 
 export type AgentRunRequest = {
+  working_directory?: string | null
   provider_id: string
   context_id: string
   model_id: string

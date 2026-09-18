@@ -959,6 +959,9 @@ class AgentApplication(AgentInterfaceProtocol):
                     raw_call,
                     approvals.get(raw_call.tool_call_id),
                 )
+                call = call.model_copy(update={"metadata": {
+                    **call.metadata, "working_directory": request.working_directory,
+                }})
                 decision = self._tool_safety_decision(call)
                 include_approval_request = (
                     call.tool_call_id not in already_requested_approval_call_ids

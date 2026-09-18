@@ -139,6 +139,7 @@ class SessionApplication(SessionInterfaceProtocol):
             principal_scope=principal_scope,
         )
         agent_request = AgentRunRequest(
+            working_directory=request.working_directory,
             provider_id=self._required_provider_id(session, request),
             owner_id=session.owner_id,
             context_id=session.context_id,

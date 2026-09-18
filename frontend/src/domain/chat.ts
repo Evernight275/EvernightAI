@@ -5,6 +5,7 @@ export type ChatSubmission = {
   modelId: string
   text: string
   skills?: ChatSkill[]
+  workingDirectory?: string
 }
 
 export type ChatTranscriptEntry = {

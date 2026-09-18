@@ -1,11 +1,13 @@
 import { workspaceActor } from '../state/workspaceMachine'
 import { chatActor } from '../state/chatMachine'
 import { ref } from 'vue'
+import { clearWorkingDirectory } from './workingDirectory'
 
 export const authGeneration = ref(0)
 
 export function startWorkspaceRuntime(): () => void {
   const notifyAuthChanged = () => {
+    clearWorkingDirectory()
     chatActor.send({ type: 'AUTH_CHANGED' })
     workspaceActor.send({ type: 'AUTH_CHANGED' })
     authGeneration.value += 1

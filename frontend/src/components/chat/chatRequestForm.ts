@@ -1,3 +1,4 @@
+import { workingDirectory } from '../../runtime/workingDirectory'
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { ChatSubmission } from '../../domain/chat'
 import type { ProviderCatalog } from '../../domain/workspace'
@@ -120,6 +121,7 @@ export function useChatRequestForm(
     let skills
     try { skills = currentSkills() } catch (cause) { optionsError.value = cause instanceof Error ? cause.message : '技能参数无效'; return }
     emit('submit', {
+      workingDirectory: workingDirectory.value,
       providerId: providerId.value,
       modelId: modelId.value.trim(),
       text: text.value.trim(),
