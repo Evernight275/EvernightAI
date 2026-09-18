@@ -2,6 +2,7 @@
 import type { ChatTranscriptEntry } from '../../domain/chat'
 import EmptyValue from '../common/EmptyValue.vue'
 import ChatMessage from './ChatMessage.vue'
+import ChatInlineTool from './ChatInlineTool.vue'
 import { useChatTranscript } from './chatTranscript'
 
 const props = defineProps<{
@@ -17,8 +18,13 @@ const { setEndMarker } = useChatTranscript(() => props.entries)
       <EmptyValue label="还没有消息" />
     </div>
     <ol v-else class="chat-transcript-list">
-      <li v-for="entry in entries" :key="entry.entryId">
-        <ChatMessage :entry="entry" />
+      <li
+        v-for="entry in entries"
+        :key="entry.entryId"
+        :class="{ 'chat-transcript-tool': !!entry.toolActivity }"
+      >
+        <ChatInlineTool v-if="entry.toolActivity" :activity="entry.toolActivity" />
+        <ChatMessage v-else :entry="entry" />
       </li>
     </ol>
     <span :ref="setEndMarker" aria-hidden="true"></span>
