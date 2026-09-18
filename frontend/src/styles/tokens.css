@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light;
+  --font-sans: Inter, "Noto Sans SC", "PingFang SC", -apple-system,
+    BlinkMacSystemFont, "SF Pro Text", "Noto Sans CJK SC", "Microsoft YaHei UI",
+    "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas,
+    "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
+  --color-bg: #fbfcfe;
+  --color-surface: #f4f6f9;
+  --color-surface-strong: #e9edf3;
+  --color-text: #17202b;
+  --color-muted: #687586;
+  --color-border: #dce2ea;
+  --color-accent: #3267d6;
+  --color-accent-hover: #2858bd;
+  --color-danger: #bd3b3b;
+  --color-success: #21805d;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --content-width: 880px;
+}

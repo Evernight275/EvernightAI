@@ -28,6 +28,11 @@ DEFAULT_HTTP_AUTH_PRINCIPAL_ID = "http-api-key"
 DEFAULT_HTTP_OAUTH_PRINCIPAL_ID = "http-oauth"
 
 
+def _default_static_files_path() -> Path | None:
+    path = Path("frontend") / "dist"
+    return path if path.is_dir() else None
+
+
 def create_app(
     *,
     database_path: str | Path | None = None,
@@ -72,8 +77,10 @@ def create_app(
             "EVERNIGHTAI_HTTP_SERVER_HEADER",
             "EvernightAI",
         ),
-        static_files_path=static_files_path or _env_optional_path(
-            "EVERNIGHTAI_HTTP_STATIC_FILES_PATH"
+        static_files_path=(
+            static_files_path
+            or _env_optional_path("EVERNIGHTAI_HTTP_STATIC_FILES_PATH")
+            or _default_static_files_path()
         ),
     )
 

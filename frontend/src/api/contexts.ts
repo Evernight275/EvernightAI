@@ -9,10 +9,11 @@ export type Context = {
   metadata?: Record<string, unknown>
 }
 
-export function createContext(context: Context): Promise<Context> {
+export function createContext(context: Context, signal?: AbortSignal): Promise<Context> {
   return requestJson<Context>('/contexts', {
     method: 'POST',
     body: context,
+    signal,
   })
 }
 
@@ -20,8 +21,8 @@ export function listContexts(): Promise<Context[]> {
   return requestJson<Context[]>('/contexts')
 }
 
-export function getContext(contextId: string): Promise<Context> {
-  return requestJson<Context>(`/contexts/${encodeURIComponent(contextId)}`)
+export function getContext(contextId: string, signal?: AbortSignal): Promise<Context> {
+  return requestJson<Context>(`/contexts/${encodeURIComponent(contextId)}`, { signal })
 }
 
 export function appendContextMessage(contextId: string, message: Content): Promise<Context> {
@@ -31,16 +32,22 @@ export function appendContextMessage(contextId: string, message: Content): Promi
   })
 }
 
-export function replaceContext(contextId: string, context: Context): Promise<Context> {
+export function replaceContext(
+  contextId: string,
+  context: Context,
+  signal?: AbortSignal,
+): Promise<Context> {
   return requestJson<Context>(`/contexts/${encodeURIComponent(contextId)}`, {
     method: 'PUT',
     body: context,
+    signal,
   })
 }
 
-export function deleteContext(contextId: string): Promise<void> {
+export function deleteContext(contextId: string, signal?: AbortSignal): Promise<void> {
   return requestJson<void>(`/contexts/${encodeURIComponent(contextId)}/delete`, {
     method: 'POST',
+    signal,
   })
 }
 

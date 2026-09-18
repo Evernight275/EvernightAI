@@ -45,11 +45,11 @@ export async function fetchDashboard() {
   }
 }
 
-export async function fetchProviderModels() {
-  const providers = await listProviders()
+export async function fetchProviderModels(signal?: AbortSignal) {
+  const providers = await listProviders(signal)
   return {
     providers,
-    providerModelGroups: await fetchProviderModelGroups(providers),
+    providerModelGroups: await fetchProviderModelGroups(providers, signal),
   }
 }
 
@@ -58,11 +58,14 @@ export type ProviderModelGroup = {
   models: ProviderModelConfig[]
 }
 
-async function fetchProviderModelGroups(providers: ProviderInfo[]): Promise<ProviderModelGroup[]> {
+async function fetchProviderModelGroups(
+  providers: ProviderInfo[],
+  signal?: AbortSignal,
+): Promise<ProviderModelGroup[]> {
   const results = await Promise.allSettled(
     providers.map(async (provider) => ({
       provider,
-      models: await listProviderModels(provider.provider_id),
+      models: await listProviderModels(provider.provider_id, signal),
     })),
   )
 

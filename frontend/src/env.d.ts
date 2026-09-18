@@ -7,4 +7,5 @@ interface ImportMetaEnv {
 interface Window {
   EVERNIGHTAI_API_BASE?: string
   EVERNIGHTAI_API_KEY?: string
+  EVERNIGHTAI_ACCESS_TOKEN?: string
 }

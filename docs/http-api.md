@@ -18,12 +18,13 @@ When running the frontend dev server separately, the Vite proxy defaults to
 
 ```bash
 cd frontend
-VITE_EVERNIGHTAI_API_BASE="http://127.0.0.1:9001" pnpm run dev
+EVERNIGHTAI_API_PROXY_TARGET="http://127.0.0.1:9001" pnpm run dev
 ```
 
-The same `VITE_EVERNIGHTAI_API_BASE` value is compiled into production builds.
-For deployments that inject runtime configuration, `window.EVERNIGHTAI_API_BASE`
-takes precedence.
+Production builds use same-origin API requests by default. Set
+`VITE_EVERNIGHTAI_API_BASE` at build time for a separate API origin, or inject
+`window.EVERNIGHTAI_API_BASE` at runtime; the runtime value takes precedence.
+Separate origins must allow the frontend origin through CORS.
 
 To serve the compiled frontend from the same HTTP process, build the frontend
 first and point the HTTP app at the generated static directory:
@@ -601,3 +602,16 @@ curl -X POST http://127.0.0.1:8000/agent-runs/run-1/resume \
     ]
   }'
 ```
+
+Retry a failed, canceled, or unrecoverable paused run as SSE with a
+caller-known new run id:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/agent-runs/run-1/retry/stream \
+  -H 'content-type: application/json' \
+  -d '{"retried_run_id": "run-retry-1"}'
+```
+
+The retry state is persisted before the SSE response starts. A client may
+therefore cancel it immediately with
+`POST /agent-runs/run-retry-1/cancel`, including after the stream disconnects.

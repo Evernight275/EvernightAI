@@ -22,13 +22,15 @@ export type ProviderConfig = {
   name: string
   type: ProviderType
   is_enabled?: boolean
+  discover_models?: boolean
+  api_key_secret_ref?: string | null
   api_key?: string | null
   base_url?: string | null
   model?: Record<string, ProviderModelConfig>
   metadata?: Record<string, unknown>
 }
 
-export type ProviderInfo = Omit<ProviderConfig, 'api_key'>
+export type ProviderInfo = Pick<ProviderConfig, 'provider_id' | 'name' | 'type' | 'is_enabled' | 'model' | 'metadata'>
 
 export function createProvider(config: ProviderConfig): Promise<ProviderInfo> {
   return requestJson<ProviderInfo>('/providers', {
@@ -37,13 +39,17 @@ export function createProvider(config: ProviderConfig): Promise<ProviderInfo> {
   })
 }
 
-export function listProviders(): Promise<ProviderInfo[]> {
-  return requestJson<ProviderInfo[]>('/providers')
+export function listProviders(signal?: AbortSignal): Promise<ProviderInfo[]> {
+  return requestJson<ProviderInfo[]>('/providers', { signal })
 }
 
-export function listProviderModels(providerId: string): Promise<ProviderModelConfig[]> {
+export function listProviderModels(
+  providerId: string,
+  signal?: AbortSignal,
+): Promise<ProviderModelConfig[]> {
   return requestJson<ProviderModelConfig[]>(
     `/providers/${encodeURIComponent(providerId)}/models`,
+    { signal },
   )
 }
 

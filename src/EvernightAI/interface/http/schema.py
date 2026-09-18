@@ -64,6 +64,10 @@ class ResumeAgentRunRequest(EvernightAISchema):
     approvals: list[ToolApprovalDecision]
 
 
+class RetryAgentRunRequest(EvernightAISchema):
+    retried_run_id: str | None = Field(default=None, min_length=1)
+
+
 class AgentRunControlRequest(EvernightAISchema):
     reason: str | None = None
 

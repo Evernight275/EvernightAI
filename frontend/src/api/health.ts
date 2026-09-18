@@ -1,9 +1,17 @@
 import { requestJson } from './client'
 
 export type HealthResponse = {
-  status?: string
+  status: 'ok'
 }
 
-export function getHealth(): Promise<HealthResponse> {
-  return requestJson<HealthResponse>('/health')
+export type ReadinessResponse = {
+  status: 'ready'
+}
+
+export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  return requestJson<HealthResponse>('/health', { signal })
+}
+
+export function getReadiness(signal?: AbortSignal): Promise<ReadinessResponse> {
+  return requestJson<ReadinessResponse>('/ready', { signal })
 }

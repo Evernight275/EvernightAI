@@ -12,6 +12,7 @@ export type ToolPermission =
   | 'destructive'
 
 export type ToolSafetyLevel = 'safe' | 'sensitive' | 'restricted'
+export type ToolApprovalMode = 'auto' | 'required' | 'never'
 export type ToolReplayPolicy = 'safe' | 'idempotent' | 'non_replayable'
 export type ToolApprovalStatus = 'requested' | 'approved' | 'denied' | 'expired'
 
@@ -22,6 +23,7 @@ export type ToolDefinition = {
   permissions?: ToolPermission[]
   safety_level?: ToolSafetyLevel
   requires_approval?: boolean
+  approval_mode?: ToolApprovalMode
   replay_policy?: ToolReplayPolicy
   idempotency_key_parameter?: string | null
   metadata?: Record<string, unknown>
@@ -59,6 +61,6 @@ export type ToolCallResult = {
   metadata?: Record<string, unknown>
 }
 
-export function listTools(): Promise<ToolDefinition[]> {
-  return requestJson<ToolDefinition[]>('/tools')
+export function listTools(signal?: AbortSignal): Promise<ToolDefinition[]> {
+  return requestJson<ToolDefinition[]>('/tools', { signal })
 }
