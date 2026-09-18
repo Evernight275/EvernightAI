@@ -55,6 +55,7 @@ class SingleProcessAgentRunExecutor(AgentRunExecutorProtocol):
             self._executor_id,
             ttl_seconds=self._lease_ttl_seconds,
         )
+
         async def invoke() -> AgentRunState:
             return await operation()
 

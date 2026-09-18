@@ -732,11 +732,7 @@ def _json_object(value: str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ConfigurationError("Expected a JSON object")
 
-    return {
-        key: item
-        for key, item in parsed.items()
-        if isinstance(key, str)
-    }
+    return {key: item for key, item in parsed.items() if isinstance(key, str)}
 
 
 if __name__ == "__main__":

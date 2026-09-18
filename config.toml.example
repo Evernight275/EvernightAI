@@ -64,6 +64,9 @@ role_permission_map = { evernight_admin = ["*"], evernight_reader = ["tools:list
 [tools.filesystem]
 # Keep disabled unless you intentionally want file tools exposed.
 enabled = false
+# 前端“工作文件夹”与文件工具共用此根目录；目录需预先创建。
+# 相对路径基于启动服务时的工作目录；建议使用绝对路径。
+# 例如 root = "/home/cyrene/EvernightAI-workspaces"
 root = "."
 max_read_chars = 12000
 max_directory_entries = 100

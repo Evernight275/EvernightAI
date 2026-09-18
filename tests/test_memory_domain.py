@@ -282,7 +282,9 @@ def test_basic_memory_strategy_supports_text_include_flags_and_sorting() -> None
     ]
 
 
-def test_basic_memory_strategy_merges_scopes_by_precedence_before_deduplication() -> None:
+def test_basic_memory_strategy_merges_scopes_by_precedence_before_deduplication() -> (
+    None
+):
     strategy = BasicMemoryStrategy()
     memories = [
         make_memory(
@@ -375,7 +377,9 @@ def test_basic_memory_write_strategy_creates_context_summary_when_enabled() -> N
     }
 
 
-def test_basic_memory_write_strategy_creates_session_summary_when_session_id_present() -> None:
+def test_basic_memory_write_strategy_creates_session_summary_when_session_id_present() -> (
+    None
+):
     strategy = BasicMemoryWriteStrategy()
     request = AgentRunRequest(
         provider_id="provider-1",

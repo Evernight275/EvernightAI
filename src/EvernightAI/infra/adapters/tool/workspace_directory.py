@@ -31,11 +31,13 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
                     break
                 if entry.is_symlink():
                     continue
-                entries.append(WorkspaceEntry(
-                    name=entry.name,
-                    path=entry.relative_to(self._root).as_posix(),
-                    is_directory=entry.is_dir(),
-                ))
+                entries.append(
+                    WorkspaceEntry(
+                        name=entry.name,
+                        path=entry.relative_to(self._root).as_posix(),
+                        is_directory=entry.is_dir(),
+                    )
+                )
         except OSError as exc:
             raise ValidationError("无法读取此工作文件夹") from exc
         entries.sort(key=lambda entry: (not entry.is_directory, entry.name.casefold()))
@@ -47,7 +49,11 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
         )
 
     def create(self, path: str, name: str) -> WorkspaceDirectory:
-        if not name.strip() or name in {".", ".."} or any(char in name for char in '/\\\0'):
+        if (
+            not name.strip()
+            or name in {".", ".."}
+            or any(char in name for char in "/\\\0")
+        ):
             raise ValidationError("请输入有效的文件夹名称")
         target = self._directory(path) / name
         try:

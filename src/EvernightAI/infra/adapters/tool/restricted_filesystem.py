@@ -33,7 +33,11 @@ class _ProjectAwareFilesystemTool:
     def _resolve_root(self, arguments: dict[str, Any]) -> tuple[str | None, Path]:
         directory = arguments.get("_working_directory")
         if directory is not None:
-            if not isinstance(directory, str) or Path(directory).is_absolute() or ".." in Path(directory).parts:
+            if (
+                not isinstance(directory, str)
+                or Path(directory).is_absolute()
+                or ".." in Path(directory).parts
+            ):
                 raise ToolInputError("工作目录必须是根目录内的相对路径")
             if arguments.get("project") is not None:
                 raise ToolInputError("已选择工作文件夹，不能同时指定其他项目")

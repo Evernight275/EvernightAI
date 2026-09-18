@@ -182,7 +182,9 @@ async def test_scrape_web_page_extracts_visible_text(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_file_writes_inside_output_directory(tmp_path, monkeypatch) -> None:
+async def test_download_file_writes_inside_output_directory(
+    tmp_path, monkeypatch
+) -> None:
     client = FakeAsyncClient(get_response=httpx.Response(200, content=b"hello"))
     monkeypatch.setattr(
         "EvernightAI.infra.adapters.tool.restricted_web.httpx.AsyncClient",

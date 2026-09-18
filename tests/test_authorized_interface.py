@@ -183,9 +183,23 @@ def make_session(session_id: str) -> Session:
 
 
 @pytest.mark.parametrize(
-    ("method_name", "args", "kwargs", "expected_resource", "expected_action", "expected_id"),
+    (
+        "method_name",
+        "args",
+        "kwargs",
+        "expected_resource",
+        "expected_action",
+        "expected_id",
+    ),
     [
-        ("create_context", (Context(context_id="ctx-1"),), {}, "contexts", "create", "ctx-1"),
+        (
+            "create_context",
+            (Context(context_id="ctx-1"),),
+            {},
+            "contexts",
+            "create",
+            "ctx-1",
+        ),
         ("get_context", ("ctx-1",), {}, "contexts", "get", "ctx-1"),
         (
             "append_context",
@@ -195,15 +209,36 @@ def make_session(session_id: str) -> Session:
             "append",
             "ctx-1",
         ),
-        ("replace_context", (Context(context_id="ctx-1"),), {}, "contexts", "replace", "ctx-1"),
+        (
+            "replace_context",
+            (Context(context_id="ctx-1"),),
+            {},
+            "contexts",
+            "replace",
+            "ctx-1",
+        ),
         ("list_contexts", (), {}, "contexts", "list", None),
         ("delete_context", ("ctx-1",), {}, "contexts", "delete", "ctx-1"),
-        ("create_memory", (MemoryItem(memory_id="mem-1", content="memory"),), {}, "memories", "create", "mem-1"),
+        (
+            "create_memory",
+            (MemoryItem(memory_id="mem-1", content="memory"),),
+            {},
+            "memories",
+            "create",
+            "mem-1",
+        ),
         ("get_memory", ("mem-1",), {}, "memories", "get", "mem-1"),
         ("list_memories", (), {}, "memories", "list", None),
         ("delete_memory", ("mem-1",), {}, "memories", "delete", "mem-1"),
         ("select_memories", (MemoryQuery(),), {}, "memories", "select", None),
-        ("chat", ("provider-1", ChatRequest(model_id="model-1", messages=[])), {}, "chat", "create", "provider-1"),
+        (
+            "chat",
+            ("provider-1", ChatRequest(model_id="model-1", messages=[])),
+            {},
+            "chat",
+            "create",
+            "provider-1",
+        ),
         (
             "chat_with_context",
             ("provider-1", "ctx-1"),
@@ -258,14 +293,30 @@ async def test_authorized_chat_interface_requires_expected_permission(
     [
         (
             "create_provider",
-            (ProviderConfig(provider_id="provider-1", name="Fake", type=ProviderType.OPENAI),),
+            (
+                ProviderConfig(
+                    provider_id="provider-1", name="Fake", type=ProviderType.OPENAI
+                ),
+            ),
             "providers",
             "create",
             "provider-1",
         ),
         ("list_providers", (), "providers", "list", None),
-        ("list_provider_models", ("provider-1",), "providers", "list_models", "provider-1"),
-        ("get_provider_model", ("provider-1", "model-1"), "providers", "get_model", "provider-1"),
+        (
+            "list_provider_models",
+            ("provider-1",),
+            "providers",
+            "list_models",
+            "provider-1",
+        ),
+        (
+            "get_provider_model",
+            ("provider-1", "model-1"),
+            "providers",
+            "get_model",
+            "provider-1",
+        ),
         (
             "provider_supports",
             ("provider-1", ProviderModelCapability.CHAT),
@@ -302,7 +353,13 @@ async def test_authorized_provider_interface_requires_expected_permission(
     ("method_name", "args", "expected_resource", "expected_action", "expected_id"),
     [
         ("run_agent", (make_agent_request("ctx-1"),), "agent", "run", "ctx-1"),
-        ("run_agent_until_pause", (make_agent_request("ctx-1"),), "agent", "run", "ctx-1"),
+        (
+            "run_agent_until_pause",
+            (make_agent_request("ctx-1"),),
+            "agent",
+            "run",
+            "ctx-1",
+        ),
         ("resume_agent", (make_agent_state("run-1"), []), "agent", "resume", "run-1"),
         (
             "resume_agent_until_pause",
@@ -319,7 +376,13 @@ async def test_authorized_provider_interface_requires_expected_permission(
             "ctx-1",
         ),
         ("resume_agent_run", ("run-1", []), "agent-runs", "resume", "run-1"),
-        ("run_agent_stream", (make_agent_request("ctx-1"),), "agent", "stream", "ctx-1"),
+        (
+            "run_agent_stream",
+            (make_agent_request("ctx-1"),),
+            "agent",
+            "stream",
+            "ctx-1",
+        ),
         (
             "resume_agent_stream",
             (make_agent_state("run-1"), []),
@@ -368,7 +431,13 @@ async def test_authorized_agent_interface_requires_expected_permission(
         ("resume", ("run-1", []), "agent-runs", "resume", "run-1"),
         ("retry", ("run-1",), "agent-runs", "retry", "run-1"),
         ("retry_stream", ("run-1",), "agent-runs", "retry", "run-1"),
-        ("start_stream", (make_agent_request("ctx-1"),), "agent-runs", "stream", "ctx-1"),
+        (
+            "start_stream",
+            (make_agent_request("ctx-1"),),
+            "agent-runs",
+            "stream",
+            "ctx-1",
+        ),
         ("resume_stream", ("run-1", []), "agent-runs", "resume_stream", "run-1"),
         ("get_state", ("run-1",), "agent-runs", "get", "run-1"),
         ("list_states", (), "agent-runs", "list", None),
@@ -418,7 +487,13 @@ async def test_authorized_agent_run_interface_requires_expected_permission(
     [
         ("list_skills", (), "skills", "list", None),
         ("get_skill", ("skill-1",), "skills", "get", "skill-1"),
-        ("skill_supports", ("skill-1", SkillCapability.CHAT), "skills", "supports", "skill-1"),
+        (
+            "skill_supports",
+            ("skill-1", SkillCapability.CHAT),
+            "skills",
+            "supports",
+            "skill-1",
+        ),
         (
             "render_skill",
             (SkillRenderRequest(render_id="render-1", skill_name="skill-1"),),
@@ -455,22 +530,44 @@ async def test_authorized_skill_interface_requires_expected_permission(
 @pytest.mark.parametrize(
     ("method_name", "args", "expected_resource", "expected_action", "expected_id"),
     [
-        ("create_session", (make_session("session-1"),), "sessions", "create", "session-1"),
+        (
+            "create_session",
+            (make_session("session-1"),),
+            "sessions",
+            "create",
+            "session-1",
+        ),
         ("get_session", ("session-1",), "sessions", "get", "session-1"),
-        ("replace_session", (make_session("session-1"),), "sessions", "replace", "session-1"),
+        (
+            "replace_session",
+            (make_session("session-1"),),
+            "sessions",
+            "replace",
+            "session-1",
+        ),
         ("archive_session", ("session-1",), "sessions", "archive", "session-1"),
         ("list_sessions", (), "sessions", "list", None),
         ("delete_session", ("session-1",), "sessions", "delete", "session-1"),
         (
             "chat_with_session",
-            ("session-1", SessionChatRequest(provider_id="provider-1", model_id="model-1", messages=[])),
+            (
+                "session-1",
+                SessionChatRequest(
+                    provider_id="provider-1", model_id="model-1", messages=[]
+                ),
+            ),
             "sessions",
             "chat",
             "session-1",
         ),
         (
             "start_agent_run_for_session",
-            ("session-1", SessionAgentRunRequest(provider_id="provider-1", model_id="model-1", messages=[])),
+            (
+                "session-1",
+                SessionAgentRunRequest(
+                    provider_id="provider-1", model_id="model-1", messages=[]
+                ),
+            ),
             "sessions",
             "start_agent_run",
             "session-1",
@@ -619,7 +716,9 @@ class FakeChatInterface:
         self.calls.append("get_context")
         return "delegated"
 
-    async def append_context(self, context_id: str, message: Content, **kwargs: object) -> str:
+    async def append_context(
+        self, context_id: str, message: Content, **kwargs: object
+    ) -> str:
         self.calls.append("append_context")
         return "delegated"
 
@@ -651,11 +750,15 @@ class FakeChatInterface:
         self.calls.append("delete_memory")
         return "delegated"
 
-    async def select_memories(self, query: MemoryQuery | None = None, **kwargs: object) -> str:
+    async def select_memories(
+        self, query: MemoryQuery | None = None, **kwargs: object
+    ) -> str:
         self.calls.append("select_memories")
         return "delegated"
 
-    async def chat(self, provider_id: str, request: ChatRequest, **kwargs: object) -> str:
+    async def chat(
+        self, provider_id: str, request: ChatRequest, **kwargs: object
+    ) -> str:
         self.calls.append("chat")
         return "delegated"
 
@@ -668,7 +771,9 @@ class FakeChatInterface:
         self.calls.append("chat_with_context")
         return "delegated"
 
-    async def chat_stream(self, provider_id: str, request: ChatRequest, **kwargs: object) -> str:
+    async def chat_stream(
+        self, provider_id: str, request: ChatRequest, **kwargs: object
+    ) -> str:
         self.calls.append("chat_stream")
         return "delegated"
 
@@ -770,7 +875,9 @@ class FakeAgentInterface:
         self.calls.append("run_agent")
         return "delegated"
 
-    async def run_agent_until_pause(self, request: AgentRunRequest, **kwargs: object) -> str:
+    async def run_agent_until_pause(
+        self, request: AgentRunRequest, **kwargs: object
+    ) -> str:
         self.calls.append("run_agent_until_pause")
         return "delegated"
 
@@ -869,7 +976,9 @@ class FakeAgentRunInterface:
         self.calls.append("start_stream")
         return "delegated"
 
-    def resume_stream(self, run_id: str, approvals: list[ToolApprovalDecision], **kwargs: object) -> str:
+    def resume_stream(
+        self, run_id: str, approvals: list[ToolApprovalDecision], **kwargs: object
+    ) -> str:
         self.calls.append("resume_stream")
         return "delegated"
 

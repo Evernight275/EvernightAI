@@ -299,15 +299,11 @@ async def test_bootstrap_injects_shared_sandbox_into_process_tools(tmp_path) -> 
             "run_project_task",
         ]
         assert (
-            runtime.tool_register.get("restricted_shell").metadata[
-                "sandbox_mount_path"
-            ]
+            runtime.tool_register.get("restricted_shell").metadata["sandbox_mount_path"]
             == "/workspace"
         )
         assert (
-            runtime.tool_register.get("run_project_task").metadata[
-                "sandbox_mount_path"
-            ]
+            runtime.tool_register.get("run_project_task").metadata["sandbox_mount_path"]
             == "/workspace"
         )
 
@@ -413,7 +409,9 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
     try:
         assert await reopened.contexts.get("ctx-1") == Context(context_id="ctx-1")
         assert (await reopened.sessions.get("session-1")).context_id == "ctx-1"
-        assert (await reopened.memories.get("mem-1")).content == "Prefer concise answers"
+        assert (
+            await reopened.memories.get("mem-1")
+        ).content == "Prefer concise answers"
         assert reopened.agent_state_register is not None
         assert reopened.agent_trace_register is not None
         assert (
@@ -441,8 +439,7 @@ async def test_sqlite_runtime_registers_builtin_data_analysis_sources(
 
     try:
         assert [
-            source.source_id
-            for source in runtime.data_analysis.list_sources()
+            source.source_id for source in runtime.data_analysis.list_sources()
         ] == [
             "agent_runs",
             "agent_trace_events",
@@ -817,6 +814,7 @@ def test_bootstrap_can_create_sqlite_runtime_without_agent_storage(tmp_path) -> 
     assert runtime.agent_state_register is None
     assert runtime.agent_trace_register is None
 
+
 @pytest.mark.asyncio
 async def test_openai_instance_chat_maps_request_and_response() -> None:
     config = make_openai_config()
@@ -1165,7 +1163,9 @@ async def test_openai_instance_lists_remote_models_when_discovery_enabled() -> N
 
 
 @pytest.mark.asyncio
-async def test_openai_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+async def test_openai_instance_falls_back_to_declared_models_when_discovery_fails() -> (
+    None
+):
     instance = OpenAICompatibleProviderInstance(
         make_openai_config(discover_models=True)
     )

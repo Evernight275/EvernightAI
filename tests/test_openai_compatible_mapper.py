@@ -105,9 +105,7 @@ def test_maps_base64_image_content_part_to_data_uri() -> None:
 
 def test_rejects_base64_image_without_mime_type() -> None:
     with pytest.raises(ChatInputError, match="requires mime_type"):
-        to_openai_content_part(
-            ContentPart(type=ContentPartType.IMAGE, data="aW1hZ2U=")
-        )
+        to_openai_content_part(ContentPart(type=ContentPartType.IMAGE, data="aW1hZ2U="))
 
 
 def test_rejects_mismatched_image_data_uri_mime_type() -> None:
@@ -612,7 +610,7 @@ def test_normalizes_chat_completion_tool_call_chunks() -> None:
                                     "type": "function",
                                     "function": {
                                         "name": "add",
-                                        "arguments": "{\"left\":",
+                                        "arguments": '{"left":',
                                     },
                                 }
                             ]

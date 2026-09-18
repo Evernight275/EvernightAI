@@ -383,7 +383,9 @@ def from_openai_chat_completion_chunk(chunk: ChatCompletionChunk) -> ChatStreamE
 def from_openai_tool_call(tool_call: Any) -> ToolCall:
     tool_call_type = getattr(tool_call, "type", None)
     if tool_call_type != "function":
-        raise ProviderResponseError(f"Unsupported OpenAI tool call type: {tool_call_type}")
+        raise ProviderResponseError(
+            f"Unsupported OpenAI tool call type: {tool_call_type}"
+        )
 
     return ToolCall(
         tool_call_id=tool_call.id,
@@ -485,7 +487,9 @@ def _usage_from_openai(response: ChatCompletion) -> ChatUsage | None:
             prompt_details.get("cache_write_tokens")
         )
     if usage.completion_tokens_details is not None:
-        metadata["completion_tokens_details"] = usage.completion_tokens_details.model_dump()
+        metadata["completion_tokens_details"] = (
+            usage.completion_tokens_details.model_dump()
+        )
 
     return ChatUsage(
         prompt_tokens=token_count(usage.prompt_tokens),
@@ -510,9 +514,7 @@ def _usage_from_openai_chunk(chunk: ChatCompletionChunk) -> ChatUsage | None:
     if prompt_details is not None:
         prompt_details_payload = prompt_details.model_dump()
         metadata["prompt_tokens_details"] = prompt_details_payload
-        cached_prompt_tokens = token_count(
-            prompt_details_payload.get("cached_tokens")
-        )
+        cached_prompt_tokens = token_count(prompt_details_payload.get("cached_tokens"))
         cache_write_prompt_tokens = token_count(
             prompt_details_payload.get("cache_write_tokens")
         )

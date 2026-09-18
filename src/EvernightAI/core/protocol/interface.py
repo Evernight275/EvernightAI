@@ -1,4 +1,3 @@
-
 from EvernightAI.core.protocol.base import EvernightAIProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
@@ -15,7 +14,12 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionResolution,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    ChatSkill,
+    Content,
+)
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
     DataAnalysisRequest,
@@ -192,6 +196,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol: ...
+
 
 class ProviderInterfaceProtocol(InterfaceProtocol):
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...

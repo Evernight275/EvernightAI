@@ -511,7 +511,9 @@ def create_sqlite_runtime(
             tool_execution_register,
         )
         older_than = (
-            (datetime.now(timezone.utc) - timedelta(days=trace_retention_days)).isoformat()
+            (
+                datetime.now(timezone.utc) - timedelta(days=trace_retention_days)
+            ).isoformat()
             if trace_retention_days is not None
             else None
         )
@@ -609,7 +611,9 @@ def _create_runtime(
         keep_recent_messages=context_keep_recent_messages,
     )
     data_analysis_register = data_analysis_register or create_data_analysis_register()
-    data_analysis = data_analysis or create_data_analysis_manager(data_analysis_register)
+    data_analysis = data_analysis or create_data_analysis_manager(
+        data_analysis_register
+    )
     memories = MemoryManager(memory_register)
     memory_strategy = create_memory_strategy()
     memory_write_strategy = create_memory_write_strategy()

@@ -64,13 +64,9 @@ class SQLiteDataStatisticsExecutor:
             rows=[
                 DataStatisticsRow(
                     dimensions={
-                        dimension: row[dimension]
-                        for dimension in request.dimensions
+                        dimension: row[dimension] for dimension in request.dimensions
                     },
-                    metrics={
-                        metric: row[metric]
-                        for metric in request.metrics
-                    },
+                    metrics={metric: row[metric] for metric in request.metrics},
                 )
                 for row in rows
             ],
@@ -102,8 +98,7 @@ class SQLiteDataStatisticsExecutor:
             select_parts.append(f"{metric_sql} AS {alias}")
 
         where_parts = [
-            self._filter_sql(filter_, parameters)
-            for filter_ in request.filters
+            self._filter_sql(filter_, parameters) for filter_ in request.filters
         ]
         if request.time_range is not None and request.time_range.field_id is not None:
             time_column = _quote_identifier(

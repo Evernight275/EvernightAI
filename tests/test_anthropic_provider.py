@@ -5,7 +5,10 @@ import pytest
 
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.error.provider import ProviderResponseError
-from EvernightAI.core.error.provider import ProviderNotFoundError, ProviderUnavailableError
+from EvernightAI.core.error.provider import (
+    ProviderNotFoundError,
+    ProviderUnavailableError,
+)
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -22,7 +25,9 @@ from EvernightAI.core.schema.provider import (
 )
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.infra.adapters.providers.anthropic.instance import AnthropicProviderInstance
+from EvernightAI.infra.adapters.providers.anthropic.instance import (
+    AnthropicProviderInstance,
+)
 from EvernightAI.infra.adapters.providers.anthropic.mapper import (
     AnthropicStreamNormalizer,
     from_anthropic_response,
@@ -166,9 +171,7 @@ def test_maps_anthropic_response_to_chat_response() -> None:
     assert mapped.response_id == "msg-1"
     assert mapped.model_id == "claude-test"
     assert mapped.finish_reason == "end_turn"
-    assert mapped.message.content == [
-        ContentPart(type=ContentPartType.TEXT, text="Hi")
-    ]
+    assert mapped.message.content == [ContentPart(type=ContentPartType.TEXT, text="Hi")]
     assert mapped.usage is not None
     assert mapped.usage.total_tokens == 5
 
@@ -263,7 +266,7 @@ def test_normalizes_anthropic_tool_use_stream_events() -> None:
                     "index": 0,
                     "delta": {
                         "type": "input_json_delta",
-                        "partial_json": "{\"left\": 1}",
+                        "partial_json": '{"left": 1}',
                     },
                 },
             ),
@@ -538,14 +541,20 @@ def test_anthropic_stream_normalizer_preserves_malformed_events() -> None:
 def test_anthropic_stream_normalizer_ignores_empty_text_and_non_tool_blocks() -> None:
     normalizer = AnthropicStreamNormalizer()
 
-    assert normalizer.map_event(
-        "content_block_start",
-        {"index": 0, "content_block": {"type": "text", "text": ""}},
-    ) == []
-    assert normalizer.map_event(
-        "content_block_delta",
-        {"index": 0, "delta": {"type": "text_delta", "text": ""}},
-    ) == []
+    assert (
+        normalizer.map_event(
+            "content_block_start",
+            {"index": 0, "content_block": {"type": "text", "text": ""}},
+        )
+        == []
+    )
+    assert (
+        normalizer.map_event(
+            "content_block_delta",
+            {"index": 0, "delta": {"type": "text_delta", "text": ""}},
+        )
+        == []
+    )
     assert normalizer.map_event("content_block_stop", {"index": 0}) == []
 
 
@@ -756,7 +765,9 @@ async def test_anthropic_instance_stream_translates_network_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_instance_lists_declared_models_without_remote_discovery() -> None:
+async def test_anthropic_instance_lists_declared_models_without_remote_discovery() -> (
+    None
+):
     instance = AnthropicProviderInstance(make_config())
     fake_client = FakeAnthropicClient(
         models_response={
@@ -804,7 +815,9 @@ async def test_anthropic_instance_lists_remote_models_when_discovery_enabled() -
 
 
 @pytest.mark.asyncio
-async def test_anthropic_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+async def test_anthropic_instance_falls_back_to_declared_models_when_discovery_fails() -> (
+    None
+):
     instance = AnthropicProviderInstance(make_config(discover_models=True))
     fake_client = FakeAnthropicClient(
         get_error=httpx.ConnectError(
@@ -865,7 +878,7 @@ class FakeAnthropicClient:
             return httpx.Response(
                 200,
                 text=(
-                    'event: message_start\n'
+                    "event: message_start\n"
                     'data: {"type": "message_start", '
                     '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
                 ),
@@ -904,7 +917,7 @@ class FakeAnthropicClient:
             httpx.Response(
                 200,
                 text=(
-                    'event: message_start\n'
+                    "event: message_start\n"
                     'data: {"type": "message_start", '
                     '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
                 ),

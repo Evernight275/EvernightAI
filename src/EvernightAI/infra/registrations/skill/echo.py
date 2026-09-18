@@ -1,7 +1,12 @@
 import json
 
 from EvernightAI.core.protocol.skill import SkillRegisterProtocol
-from EvernightAI.core.schema.content import Content, ContentPart, ContentPartType, MessageRole
+from EvernightAI.core.schema.content import (
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
     SkillCapability,

@@ -139,7 +139,12 @@ class McpServerConfig(EvernightAISchema):
 
         if not self.url:
             raise ValueError(f"MCP {self.transport.value} transport requires url")
-        if self.command is not None or self.args or self.cwd is not None or self.env_from:
+        if (
+            self.command is not None
+            or self.args
+            or self.cwd is not None
+            or self.env_from
+        ):
             raise ValueError(
                 f"MCP {self.transport.value} transport does not accept stdio fields"
             )

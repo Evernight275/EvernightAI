@@ -371,8 +371,4 @@ def _dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
 
-    return {
-        key: item
-        for key, item in value.items()
-        if isinstance(key, str)
-    }
+    return {key: item for key, item in value.items() if isinstance(key, str)}

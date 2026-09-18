@@ -17,7 +17,11 @@ from EvernightAI.core.domain.memory import (
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.domain.session import SessionManager, SessionRegister
-from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
@@ -79,7 +83,7 @@ async def test_session_application_reuses_existing_context() -> None:
         messages=[
             Content(
                 role=MessageRole.USER,
-                content=[ContentPart(type=ContentPartType.TEXT, text="Stored")]
+                content=[ContentPart(type=ContentPartType.TEXT, text="Stored")],
             )
         ],
         metadata={"source": "existing"},
@@ -126,7 +130,9 @@ async def test_session_application_creates_context_when_replacing_session() -> N
 
 
 @pytest.mark.asyncio
-async def test_session_chat_request_provider_and_model_override_session_defaults() -> None:
+async def test_session_chat_request_provider_and_model_override_session_defaults() -> (
+    None
+):
     provider = RecordingProvider()
     runtime = make_runtime(provider)
     app = SessionApplication(runtime)
@@ -156,7 +162,9 @@ async def test_session_chat_request_provider_and_model_override_session_defaults
 
 
 @pytest.mark.asyncio
-async def test_session_agent_request_provider_and_model_override_session_defaults() -> None:
+async def test_session_agent_request_provider_and_model_override_session_defaults() -> (
+    None
+):
     provider = RecordingProvider()
     runtime = make_runtime(provider)
     app = SessionApplication(runtime)

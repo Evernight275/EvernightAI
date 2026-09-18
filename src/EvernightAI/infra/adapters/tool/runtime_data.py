@@ -77,10 +77,7 @@ class ListContextsTool:
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         contexts = await self._contexts.list_contexts()
         return {
-            "contexts": [
-                context.model_dump(mode="json")
-                for context in contexts
-            ],
+            "contexts": [context.model_dump(mode="json") for context in contexts],
         }
 
 
@@ -232,10 +229,7 @@ class ListMemoriesTool:
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         memories = await self._memories.list_memories()
         return {
-            "memories": [
-                memory.model_dump(mode="json")
-                for memory in memories
-            ],
+            "memories": [memory.model_dump(mode="json") for memory in memories],
         }
 
 
@@ -331,10 +325,7 @@ class ListSessionsTool:
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         sessions = await self._sessions.list_sessions()
         return {
-            "sessions": [
-                session.model_dump(mode="json")
-                for session in sessions
-            ],
+            "sessions": [session.model_dump(mode="json") for session in sessions],
         }
 
 

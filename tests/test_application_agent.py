@@ -41,7 +41,11 @@ from EvernightAI.core.domain.memory import (
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
-from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -134,7 +138,9 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
     assert [message_text(message) for message in provider.requests[0].messages] == [
         "What is 1 + 2?"
     ]
-    assert response.message == make_message("The result is 3", role=MessageRole.ASSISTANT)
+    assert response.message == make_message(
+        "The result is 3", role=MessageRole.ASSISTANT
+    )
     assert [message.role for message in context.messages] == [
         MessageRole.USER,
         MessageRole.ASSISTANT,
@@ -1388,7 +1394,9 @@ async def test_agent_run_application_rejects_retry_of_nonterminal_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_application_rejects_unrecoverable_retry_before_new_run_when_trace_missing() -> None:
+async def test_agent_run_application_rejects_unrecoverable_retry_before_new_run_when_trace_missing() -> (
+    None
+):
     state_register = InMemoryAgentRunStateRegister()
     runtime = make_runtime(
         provider=FinalAnswerProvider(),
@@ -1468,8 +1476,7 @@ async def test_agent_run_application_facade_manages_persisted_runs() -> None:
     ]
     assert [event.sequence for event in state.trace] == [1, 2, 3, 4]
     assert [
-        event.sequence
-        for event in app.list_trace("run-1", after_sequence=2, limit=1)
+        event.sequence for event in app.list_trace("run-1", after_sequence=2, limit=1)
     ] == [3]
 
     resumed = await app.resume(
@@ -1524,7 +1531,9 @@ async def test_agent_run_application_requires_storage_registers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_application_shutdown_blocks_new_runs_and_waits_for_active_run() -> None:
+async def test_agent_run_application_shutdown_blocks_new_runs_and_waits_for_active_run() -> (
+    None
+):
     provider = BlockingFinalAnswerProvider()
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
@@ -1881,7 +1890,9 @@ async def test_agent_can_write_memory_after_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_writes_memory_to_session_scope_when_session_id_is_present() -> None:
+async def test_agent_writes_memory_to_session_scope_when_session_id_is_present() -> (
+    None
+):
     runtime = make_runtime(provider=FinalAnswerProvider())
     await runtime.contexts.create(Context(context_id="ctx-1"))
     await runtime.providers.create(make_config())
@@ -1939,8 +1950,9 @@ async def test_agent_replaces_existing_memory_with_same_memory_key() -> None:
     assert "Remember first" not in memories[0].content
     assert memories[0].metadata["write_operation"] == "replace"
     assert memories[0].metadata["previous_memory_id"] == memories[0].memory_id
-    assert memories[0].metadata["previous_content_fingerprint"] != (
-        memories[0].metadata["content_fingerprint"]
+    assert (
+        memories[0].metadata["previous_content_fingerprint"]
+        != (memories[0].metadata["content_fingerprint"])
     )
     assert first.steps[-1].metadata["operation"] == "create"
     assert second.steps[-1].metadata["operation"] == "replace"
@@ -2261,7 +2273,9 @@ async def test_agent_streaming_chat_requires_completed_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_uses_content_part_delta_and_tool_completion_metadata() -> None:
+async def test_agent_stream_uses_content_part_delta_and_tool_completion_metadata() -> (
+    None
+):
     provider = ContentPartAndToolStreamProvider()
     runtime = make_runtime(provider=provider)
     await runtime.contexts.create(Context(context_id="ctx-1"))
@@ -2352,15 +2366,11 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
         == "Memory written"
     )
     assert (
-        app._trace_summary(
-            AgentTraceEvent(event_type=AgentTraceEventType.RUN_PAUSED)
-        )
+        app._trace_summary(AgentTraceEvent(event_type=AgentTraceEventType.RUN_PAUSED))
         == "Agent run paused"
     )
     assert (
-        app._trace_summary(
-            AgentTraceEvent(event_type=AgentTraceEventType.RUN_STOPPED)
-        )
+        app._trace_summary(AgentTraceEvent(event_type=AgentTraceEventType.RUN_STOPPED))
         == "Agent run stopped"
     )
     assert (
@@ -2373,10 +2383,14 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
         == "unknown_event"
     )
     assert (
-        app._event_tool_name(AgentTraceEvent(event_type=AgentTraceEventType.TOOL_FAILED))
+        app._event_tool_name(
+            AgentTraceEvent(event_type=AgentTraceEventType.TOOL_FAILED)
+        )
         == "unknown tool"
     )
-    assert app._tool_safety_decision(ToolCall(tool_call_id="call-1", tool_call={})) is None
+    assert (
+        app._tool_safety_decision(ToolCall(tool_call_id="call-1", tool_call={})) is None
+    )
     missing_tool_decision = app._tool_safety_decision(
         ToolCall(tool_call_id="call-2", tool_call={"name": "missing"})
     )
@@ -2386,9 +2400,12 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
         "Tool safety policy failed: The tool missing is not found"
     )
     assert missing_tool_decision.metadata["safety_policy_error"] is True
-    assert app._chat_stream_text_delta(
-        ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_DELTA)
-    ) is None
+    assert (
+        app._chat_stream_text_delta(
+            ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_DELTA)
+        )
+        is None
+    )
 
     state.steps.append(AgentStep(step_type=AgentStepType.CHAT))
     assert app._run_transcript(state) == state.request.messages
@@ -2406,7 +2423,9 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
     assert state.trace[-1].subject.kind == "agent_run"
     assert state.trace[-1].subject.subject_id == state.run_id
 
-    missing_register_app = AgentApplication(make_runtime(provider=FinalAnswerProvider()))
+    missing_register_app = AgentApplication(
+        make_runtime(provider=FinalAnswerProvider())
+    )
     with pytest.raises(AgentStateError, match="state register is not configured"):
         missing_register_app._get_agent_state("missing-run")
     with pytest.raises(AgentStateError, match="trace register is not configured"):
@@ -2417,7 +2436,9 @@ def test_agent_private_helpers_cover_fallbacks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_application_start_and_resume_stream_persist_state_and_trace() -> None:
+async def test_agent_run_application_start_and_resume_stream_persist_state_and_trace() -> (
+    None
+):
     async def write(arguments: dict[str, object]) -> dict[str, object]:
         return {"written": True}
 
@@ -2501,7 +2522,9 @@ async def test_agent_run_application_start_and_resume_stream_persist_state_and_t
 
 
 @pytest.mark.asyncio
-async def test_agent_run_application_stream_persists_state_when_consumer_stops_early() -> None:
+async def test_agent_run_application_stream_persists_state_when_consumer_stops_early() -> (
+    None
+):
     provider = FinalAnswerProvider()
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()
@@ -2540,7 +2563,10 @@ async def test_agent_run_application_stream_persists_state_when_consumer_stops_e
     stored = state_register.get_state("run-early")
     assert stored.status is AgentRunStatus.PAUSED
     assert stored.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
-    assert trace_register.list_events("run-early")[-1].event_type is AgentTraceEventType.RUN_PAUSED
+    assert (
+        trace_register.list_events("run-early")[-1].event_type
+        is AgentTraceEventType.RUN_PAUSED
+    )
 
     restarted_runtime = make_runtime(
         provider=provider,
@@ -2594,10 +2620,7 @@ async def test_agent_run_manual_pause_resumes_from_persisted_chat_checkpoint() -
     requested = await app.pause("run-checkpoint", reason="test pause")
     assert requested.status is AgentRunStatus.RUNNING
     checkpoint_events = [event async for event in iterator]
-    resumed_events = [
-        event
-        async for event in app.resume_stream("run-checkpoint", [])
-    ]
+    resumed_events = [event async for event in app.resume_stream("run-checkpoint", [])]
 
     assert [event.event_type for event in checkpoint_events] == [
         AgentTraceEventType.RUN_PAUSED,
@@ -2654,8 +2677,7 @@ async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
     await app.pause("run-tool-checkpoint")
     assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_PAUSED
     resumed_events = [
-        event
-        async for event in app.resume_stream("run-tool-checkpoint", [])
+        event async for event in app.resume_stream("run-tool-checkpoint", [])
     ]
 
     assert [event.event_type for event in resumed_events] == [
@@ -2667,7 +2689,9 @@ async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_execution_ledger_persists_result_and_idempotency_key() -> None:
+async def test_agent_tool_execution_ledger_persists_result_and_idempotency_key() -> (
+    None
+):
     execution_register = InMemoryToolExecutionRegister()
     received_arguments: list[dict[str, object]] = []
 
@@ -2898,7 +2922,10 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
     assert execution.result is not None
     assert execution.result.tool_call_result == {"written": True}
     assert resolved.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
-    assert trace_register.list_events("run-unknown")[-1].event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
+    assert (
+        trace_register.list_events("run-unknown")[-1].event_type
+        is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
+    )
 
     resumed = await AgentRunApplication(runtime).resume("run-unknown", [])
 
@@ -2908,12 +2935,15 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
     assert len(execution_register.list_attempts("run-unknown")) == 1
     assert len(provider.requests) == 1
     tool_messages = [
-        message for message in provider.requests[0].messages
+        message
+        for message in provider.requests[0].messages
         if message.role is MessageRole.TOOL
     ]
     assert len(tool_messages) == 1
     assert tool_messages[0].tool_call_id == "call-1"
-    assert json.loads(message_text(tool_messages[0]))["tool_call_result"] == {"written": True}
+    assert json.loads(message_text(tool_messages[0]))["tool_call_result"] == {
+        "written": True
+    }
     context = await runtime.contexts.get("ctx-1")
     assert [message.role for message in context.messages] == [
         MessageRole.USER,
@@ -3203,7 +3233,9 @@ class RecoveringToolErrorProvider(ToolCallingProvider):
 
         return ChatResponse(
             model_id=request.model_id,
-            message=make_message("Recovered from tool error", role=MessageRole.ASSISTANT),
+            message=make_message(
+                "Recovered from tool error", role=MessageRole.ASSISTANT
+            ),
             finish_reason="stop",
         )
 
@@ -3422,19 +3454,29 @@ async def test_agent_binds_request_directory_to_tool_execution() -> None:
     seen: list[object] = []
 
     async def add(arguments: dict[str, object]) -> dict[str, object]:
-        seen.append(arguments.get('_working_directory'))
-        return {'result': 3}
+        seen.append(arguments.get("_working_directory"))
+        return {"result": 3}
 
     runtime = make_runtime()
-    runtime.tool_register.register(ToolDefinition(
-        name='add', description='Add', parameters_schema={'type': 'object'},
-        metadata={'supports_working_directory': True},
-    ), add)
-    await runtime.contexts.create(Context(context_id='ctx-workspace'))
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add",
+            parameters_schema={"type": "object"},
+            metadata={"supports_working_directory": True},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-workspace"))
     await runtime.providers.create(make_config())
-    await AgentApplication(runtime).run_agent(AgentRunRequest(
-        provider_id='provider-1', context_id='ctx-workspace', model_id='model-1',
-        messages=[make_message('What is 1 + 2?')], tools=runtime.tools.list_tools(),
-        working_directory='projects/one',
-    ))
-    assert seen == ['projects/one']
+    await AgentApplication(runtime).run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-workspace",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+            tools=runtime.tools.list_tools(),
+            working_directory="projects/one",
+        )
+    )
+    assert seen == ["projects/one"]

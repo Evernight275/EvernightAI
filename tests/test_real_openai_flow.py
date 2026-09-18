@@ -29,7 +29,9 @@ RUN_REAL_OPENAI = os.getenv("EVERNIGHTAI_RUN_REAL_OPENAI") == "1"
 
 
 def get_real_openai_config() -> tuple[str, str, str | None]:
-    api_key = os.getenv("EVERNIGHTAI_REAL_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("EVERNIGHTAI_REAL_OPENAI_API_KEY") or os.getenv(
+        "OPENAI_API_KEY"
+    )
     model_id = os.getenv("EVERNIGHTAI_REAL_OPENAI_MODEL")
     base_url = os.getenv("EVERNIGHTAI_REAL_OPENAI_BASE_URL") or os.getenv(
         "OPENAI_BASE_URL"

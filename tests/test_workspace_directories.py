@@ -10,78 +10,182 @@ from EvernightAI.core.error.base import ConflictError, ValidationError
 from EvernightAI.core.error.tool import ToolPolicyError
 from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
-from EvernightAI.infra.registrations.tool.restricted_filesystem import register_restricted_filesystem_tools
+from EvernightAI.infra.registrations.tool.restricted_filesystem import (
+    register_restricted_filesystem_tools,
+)
 
 
 def test_workspace_browse_create_and_reject_escape(tmp_path: Path) -> None:
-    root = tmp_path / 'root'
+    root = tmp_path / "root"
     root.mkdir()
-    (root / 'note.txt').write_text('hello')
-    (root / 'external').symlink_to(tmp_path, target_is_directory=True)
+    (root / "note.txt").write_text("hello")
+    (root / "external").symlink_to(tmp_path, target_is_directory=True)
     store = WorkspaceDirectoryStore(root)
-    assert [item.name for item in store.browse('.').entries] == ['note.txt']
-    created = store.create('.', '项目')
-    assert created.path == '项目'
+    assert [item.name for item in store.browse(".").entries] == ["note.txt"]
+    created = store.create(".", "项目")
+    assert created.path == "项目"
     assert created.entries == []
-    assert store.browse('.').entries[0].is_directory
-    for path in ['..', str(tmp_path), 'external']:
+    assert store.browse(".").entries[0].is_directory
+    for path in ["..", str(tmp_path), "external"]:
         with pytest.raises(ValidationError):
             store.browse(path)
-    for name in ['../escape', '.', '', '/absolute', 'a/b']:
+    for name in ["../escape", ".", "", "/absolute", "a/b"]:
         with pytest.raises(ValidationError):
-            store.create('.', name)
+            store.create(".", name)
     with pytest.raises(ConflictError):
-        store.create('.', '项目')
+        store.create(".", "项目")
 
 
 def test_workspace_http_auth_and_creation(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv('EVERNIGHTAI_HTTP_API_KEY', 'test-key')
-    monkeypatch.setenv('EVERNIGHTAI_HTTP_AUTH_PERMISSIONS', 'workspaces:list')
-    app = create_app(database_path=tmp_path / 'runtime.db', filesystem_root=tmp_path, close_on_shutdown=False)
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_API_KEY", "test-key")
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_AUTH_PERMISSIONS", "workspaces:list")
+    app = create_app(
+        database_path=tmp_path / "runtime.db",
+        filesystem_root=tmp_path,
+        close_on_shutdown=False,
+    )
     with TestClient(app) as client:
-        assert client.get('/workspaces').status_code == 401
-        headers = {'x-evernight-api-key': 'test-key'}
-        response = client.get('/workspaces', headers=headers)
+        assert client.get("/workspaces").status_code == 401
+        headers = {"x-evernight-api-key": "test-key"}
+        response = client.get("/workspaces", headers=headers)
         assert response.status_code == 200
-        assert response.json()['root'] == str(tmp_path)
-        assert client.post('/workspaces', headers=headers, json={'name': 'denied'}).status_code == 403
-        assert not (tmp_path / 'denied').exists()
+        assert response.json()["root"] == str(tmp_path)
+        assert (
+            client.post(
+                "/workspaces", headers=headers, json={"name": "denied"}
+            ).status_code
+            == 403
+        )
+        assert not (tmp_path / "denied").exists()
     asyncio.run(app.state.interface.close())
-    monkeypatch.setenv('EVERNIGHTAI_HTTP_AUTH_PERMISSIONS', 'workspaces:list,workspaces:create')
-    app = create_app(database_path=tmp_path / 'runtime.db', filesystem_root=tmp_path, close_on_shutdown=False)
+    monkeypatch.setenv(
+        "EVERNIGHTAI_HTTP_AUTH_PERMISSIONS", "workspaces:list,workspaces:create"
+    )
+    app = create_app(
+        database_path=tmp_path / "runtime.db",
+        filesystem_root=tmp_path,
+        close_on_shutdown=False,
+    )
     with TestClient(app) as client:
-        response = client.post('/workspaces', headers=headers, json={'name': 'new'})
+        response = client.post("/workspaces", headers=headers, json={"name": "new"})
         assert response.status_code == 201
-        assert response.json()['path'] == 'new'
-        assert client.get('/workspaces', params={'path': '../'}, headers=headers).status_code == 400
-        assert client.post('/workspaces', headers=headers, json={'name': 'new'}).status_code == 409
+        assert response.json()["path"] == "new"
+        assert (
+            client.get(
+                "/workspaces", params={"path": "../"}, headers=headers
+            ).status_code
+            == 400
+        )
+        assert (
+            client.post(
+                "/workspaces", headers=headers, json={"name": "new"}
+            ).status_code
+            == 409
+        )
     asyncio.run(app.state.interface.close())
 
 
 @pytest.mark.asyncio
-async def test_file_tools_bind_directory_per_call_and_reject_escape(tmp_path: Path) -> None:
-    for name in ['one', 'two']:
+async def test_file_tools_bind_directory_per_call_and_reject_escape(
+    tmp_path: Path,
+) -> None:
+    for name in ["one", "two"]:
         (tmp_path / name).mkdir()
-        (tmp_path / name / 'note.txt').write_text(name)
-    (tmp_path / 'note.txt').write_text('root')
+        (tmp_path / name / "note.txt").write_text(name)
+    (tmp_path / "note.txt").write_text("root")
     register = ToolRegister()
     register_restricted_filesystem_tools(register, root_directory=tmp_path)
     manager = ToolManager(register)
-    def call(directory: str, path: str = 'note.txt') -> ToolCall:
-        return ToolCall(tool_call_id=directory, tool_call={
-            'name': 'read_text_file', 'arguments': {'path': path, '_working_directory': 'two'},
-        }, metadata={'working_directory': directory})
+
+    def call(directory: str, path: str = "note.txt") -> ToolCall:
+        return ToolCall(
+            tool_call_id=directory,
+            tool_call={
+                "name": "read_text_file",
+                "arguments": {"path": path, "_working_directory": "two"},
+            },
+            metadata={"working_directory": directory},
+        )
+
     import asyncio
-    first, second = await asyncio.gather(manager.execute(call('one')), manager.execute(call('two')))
-    assert first.tool_call_result['content'] == 'one'
-    assert second.tool_call_result['content'] == 'two'
+
+    first, second = await asyncio.gather(
+        manager.execute(call("one")), manager.execute(call("two"))
+    )
+    assert first.tool_call_result["content"] == "one"
+    assert second.tool_call_result["content"] == "two"
     with pytest.raises(ToolPolicyError):
-        await manager.execute(call('..'))
+        await manager.execute(call(".."))
     from EvernightAI.core.error.tool import ToolExecutionError
+
     with pytest.raises(ToolExecutionError):
-        await manager.execute(call('one', '../note.txt'))
-    approval = manager.authorize(ToolCall(tool_call_id='write', tool_call={
-        'name': 'write_text_file', 'arguments': {'path': 'new.txt', 'content': 'test'},
-    }, metadata={'working_directory': 'one'}))
+        await manager.execute(call("one", "../note.txt"))
+    approval = manager.authorize(
+        ToolCall(
+            tool_call_id="write",
+            tool_call={
+                "name": "write_text_file",
+                "arguments": {"path": "new.txt", "content": "test"},
+            },
+            metadata={"working_directory": "one"},
+        )
+    )
     assert approval.approval_request is not None
-    assert approval.approval_request.metadata['working_directory'] == 'one'
+    assert approval.approval_request.metadata["working_directory"] == "one"
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_toml_root_is_shared_by_browser_and_file_tools(
+    tmp_path: Path,
+    monkeypatch,
+    relative: bool,
+) -> None:
+    from EvernightAI.bootstrap.http import create_app_from_config
+    from EvernightAI.interface.cli.config import load_config
+
+    root = tmp_path / "workspaces"
+    root.mkdir()
+    (root / "note.txt").write_text("configured workspace", encoding="utf-8")
+    config_dir = tmp_path / "configuration"
+    config_dir.mkdir()
+    config_path = config_dir / "config.toml"
+    configured_root = "workspaces" if relative else root.as_posix()
+    config_path.write_text(
+        "[runtime]\n"
+        f'database_path = "{(tmp_path / "runtime.db").as_posix()}"\n'
+        "[tools.filesystem]\n"
+        "enabled = true\n"
+        f'root = "{configured_root}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EVERNIGHTAI_FILESYSTEM_ROOT", str(config_dir))
+    app = create_app_from_config(load_config(config_path), close_on_shutdown=False)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/workspaces")
+            assert response.status_code == 200
+            assert response.json()["root"] == str(root)
+            assert [entry["name"] for entry in response.json()["entries"]] == [
+                "note.txt"
+            ]
+            assert (
+                client.post("/workspaces", json={"name": "new-project"}).status_code
+                == 201
+            )
+            assert client.portal is not None
+            result = client.portal.call(
+                app.state.interface.runtime.tools.execute,
+                ToolCall(
+                    tool_call_id="configured-root",
+                    tool_call={
+                        "name": "read_text_file",
+                        "arguments": {"path": "note.txt"},
+                    },
+                ),
+            )
+            assert result.tool_call_result["content"] == "configured workspace"
+            assert (root / "new-project").is_dir()
+            assert not (config_dir / "new-project").exists()
+    finally:
+        asyncio.run(app.state.interface.close())

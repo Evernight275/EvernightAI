@@ -395,7 +395,9 @@ def _memory_score(memory: MemoryItem, query: MemoryQuery) -> float:
     )
 
 
-def _sort_key(memory: MemoryItem, query: MemoryQuery, score: float) -> tuple[object, ...]:
+def _sort_key(
+    memory: MemoryItem, query: MemoryQuery, score: float
+) -> tuple[object, ...]:
     scope_rank = _scope_rank(memory, query)
     if query.sort in {MemorySort.DEFAULT, MemorySort.PRIORITY}:
         return (
@@ -459,7 +461,9 @@ class BasicMemoryWriteStrategy(MemoryWriteStrategyProtocol):
             return []
 
         user_text = self._join_messages(request.messages, MessageRole.USER)
-        assistant_text = self._join_messages([result.response.message], MessageRole.ASSISTANT)
+        assistant_text = self._join_messages(
+            [result.response.message], MessageRole.ASSISTANT
+        )
         if not user_text and not assistant_text:
             return []
 

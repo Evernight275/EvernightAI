@@ -39,8 +39,7 @@ class BasicSandboxPolicy(SandboxPolicyProtocol):
                 return SandboxPolicyDecision(
                     allowed=False,
                     reason=(
-                        "Blocked environment variables: "
-                        + ", ".join(blocked_env_keys)
+                        "Blocked environment variables: " + ", ".join(blocked_env_keys)
                     ),
                 )
 

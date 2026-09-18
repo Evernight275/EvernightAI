@@ -133,8 +133,10 @@ async def replace_memory(
     ],
     interface: InterfaceDependency,
 ) -> MemoryItem:
-    updated = memory if memory.memory_id == memory_id else memory.model_copy(
-        update={"memory_id": memory_id}
+    updated = (
+        memory
+        if memory.memory_id == memory_id
+        else memory.model_copy(update={"memory_id": memory_id})
     )
     return await interface.chat.replace_memory(updated)
 

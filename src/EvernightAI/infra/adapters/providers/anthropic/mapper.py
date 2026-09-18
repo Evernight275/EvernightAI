@@ -27,7 +27,9 @@ class AnthropicStreamNormalizer:
         self._model_id: str | None = None
         self._tool_calls: dict[int, dict[str, Any]] = {}
 
-    def map_event(self, event: str | None, data: dict[str, Any]) -> list[ChatStreamEvent]:
+    def map_event(
+        self, event: str | None, data: dict[str, Any]
+    ) -> list[ChatStreamEvent]:
         raw_event = event or data.get("type") or "anthropic.message.chunk"
         if raw_event == "message_start":
             return self._map_message_start(raw_event, data)
@@ -159,7 +161,9 @@ class AnthropicStreamNormalizer:
             call_state = self._tool_calls.get(index)
             if call_state is None:
                 return [from_anthropic_stream_event(raw_event, data)]
-            call_state["arguments"] = str(call_state.get("arguments", "")) + partial_json
+            call_state["arguments"] = (
+                str(call_state.get("arguments", "")) + partial_json
+            )
             return [
                 ChatStreamEvent(
                     event_type=ChatStreamEventType.TOOL_CALL_DELTA,
@@ -310,9 +314,7 @@ def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
         if tool_call is not None
     ]
     message_content = (
-        [ContentPart(type=ContentPartType.TEXT, text=text)]
-        if text
-        else None
+        [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
     )
 
     model_id = response.get("model")
@@ -367,7 +369,9 @@ def _message_content(message: Content) -> list[dict[str, Any]]:
 
     parts = message.content or []
     content = [_content_part(part) for part in parts]
-    content.extend(_tool_use_content(tool_call) for tool_call in message.tool_calls or [])
+    content.extend(
+        _tool_use_content(tool_call) for tool_call in message.tool_calls or []
+    )
     if not content:
         return [{"type": "text", "text": ""}]
 
@@ -455,9 +459,7 @@ def _usage_from_anthropic(response: dict[str, Any]) -> ChatUsage | None:
     input_tokens = token_count(usage.get("input_tokens"))
     completion_tokens = token_count(usage.get("output_tokens"))
     cached_prompt_tokens = token_count(usage.get("cache_read_input_tokens"))
-    cache_write_prompt_tokens = token_count(
-        usage.get("cache_creation_input_tokens")
-    )
+    cache_write_prompt_tokens = token_count(usage.get("cache_creation_input_tokens"))
 
     cache_values_are_valid = all(
         key not in usage or value is not None

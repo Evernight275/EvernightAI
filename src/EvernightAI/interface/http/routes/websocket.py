@@ -158,9 +158,7 @@ async def _handle_client_event(
     if client_event.event_name != "agent_run.start":
         await _send_error(
             connection,
-            ValueError(
-                f"Unsupported client event: {client_event.event_name}"
-            ),
+            ValueError(f"Unsupported client event: {client_event.event_name}"),
             correlation_id=message.message_id,
         )
         return
@@ -228,6 +226,7 @@ async def _subscribe_agent_run(
     generation: int,
 ) -> None:
     try:
+
         def load_messages(cursor: int) -> list[WebSocketMessage]:
             events = interface.agent_runs.list_trace(
                 run_id,
@@ -243,9 +242,7 @@ async def _subscribe_agent_run(
                 )
                 for event in events
             ]
-            subscribed_sequence = (
-                events[-1].sequence if events else cursor
-            )
+            subscribed_sequence = events[-1].sequence if events else cursor
             replay_messages.append(
                 WebSocketMessage(
                     message_type=WebSocketMessageType.CLIENT_EVENT,
@@ -370,9 +367,7 @@ async def _handle_agent_control(
 
     await _send_error(
         connection,
-        ValueError(
-            f"Unsupported agent control action: {agent_control.action}"
-        ),
+        ValueError(f"Unsupported agent control action: {agent_control.action}"),
         correlation_id=message.message_id,
     )
 
@@ -486,9 +481,7 @@ async def _send_trace_stream(
 ) -> None:
     async for event in stream:
         trace_event = (
-            event
-            if run_id is not None
-            else event.model_copy(update={"sequence": None})
+            event if run_id is not None else event.model_copy(update={"sequence": None})
         )
         message = WebSocketMessage(
             message_type=WebSocketMessageType.AGENT_TRACE,

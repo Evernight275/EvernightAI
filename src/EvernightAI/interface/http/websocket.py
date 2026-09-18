@@ -359,7 +359,9 @@ class WebSocketConnectionManager:
                 return
 
         await connection.send(message)
-        if sequence is not None and self._is_subscribed(connection.connection_id, run_id):
+        if sequence is not None and self._is_subscribed(
+            connection.connection_id, run_id
+        ):
             self._subscription_sequences[key] = sequence
 
     def _is_subscribed(self, connection_id: str, run_id: str) -> bool:

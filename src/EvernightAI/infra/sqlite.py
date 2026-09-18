@@ -257,9 +257,7 @@ def _ensure_column(
     column: str,
     declaration: str,
 ) -> None:
-    columns = {
-        str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")
-    }
+    columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
@@ -439,5 +437,7 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
     SQLiteMigration(3, "add memory policy columns", _add_memory_policy_columns),
-    SQLiteMigration(4, "add agent tool execution table", _add_agent_tool_execution_table),
+    SQLiteMigration(
+        4, "add agent tool execution table", _add_agent_tool_execution_table
+    ),
 )

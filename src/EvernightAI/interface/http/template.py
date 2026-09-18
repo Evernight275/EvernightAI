@@ -389,388 +389,420 @@ AGENT_TRACE_SSE_EXAMPLE = {
 }
 
 
-PROVIDER_CONFIG_EXAMPLES = _openapi_examples({
-    "openaiCompatible": _example(
-        summary="OpenAI-compatible provider",
-        description="Register a provider id that later chat requests can use.",
-        value=ProviderConfig(
-            provider_id="main",
-            name="Main provider",
-            type=ProviderType.OPENAI,
-            api_key="sk-...",
-            base_url="https://api.openai.com/v1",
-            model={
-                "gpt-4.1-mini": ProviderModelConfig(
-                    model_id="gpt-4.1-mini",
-                    capabilities=[ProviderModelCapability.CHAT],
-                )
-            },
+PROVIDER_CONFIG_EXAMPLES = _openapi_examples(
+    {
+        "openaiCompatible": _example(
+            summary="OpenAI-compatible provider",
+            description="Register a provider id that later chat requests can use.",
+            value=ProviderConfig(
+                provider_id="main",
+                name="Main provider",
+                type=ProviderType.OPENAI,
+                api_key="sk-...",
+                base_url="https://api.openai.com/v1",
+                model={
+                    "gpt-4.1-mini": ProviderModelConfig(
+                        model_id="gpt-4.1-mini",
+                        capabilities=[ProviderModelCapability.CHAT],
+                    )
+                },
+            ),
         ),
-    ),
-    "anthropic": _example(
-        summary="Anthropic provider",
-        value=ProviderConfig(
-            provider_id="anthropic-main",
-            name="Anthropic",
-            type=ProviderType.ANTHROPIC,
-            api_key="sk-ant-...",
-            model={
-                "claude-3-5-haiku-latest": ProviderModelConfig(
-                    model_id="claude-3-5-haiku-latest",
-                    capabilities=[ProviderModelCapability.CHAT],
-                )
-            },
+        "anthropic": _example(
+            summary="Anthropic provider",
+            value=ProviderConfig(
+                provider_id="anthropic-main",
+                name="Anthropic",
+                type=ProviderType.ANTHROPIC,
+                api_key="sk-ant-...",
+                model={
+                    "claude-3-5-haiku-latest": ProviderModelConfig(
+                        model_id="claude-3-5-haiku-latest",
+                        capabilities=[ProviderModelCapability.CHAT],
+                    )
+                },
+            ),
         ),
-    ),
-})
+    }
+)
 
 
-DIRECT_CHAT_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Smallest one-off chat",
-        description="Use this after registering provider id `main`.",
-        value=_direct_chat_request("Hello, give me a short answer."),
-    ),
-    "withMetadata": _example(
-        summary="One-off chat with request metadata",
-        description="Metadata is passed through for tracing; providers may ignore it.",
-        value=_direct_chat_request(
-            "Answer in one sentence.",
-            metadata={"request_id": "req-1"},
+DIRECT_CHAT_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Smallest one-off chat",
+            description="Use this after registering provider id `main`.",
+            value=_direct_chat_request("Hello, give me a short answer."),
         ),
-    ),
-    "withReasoningEffort": _example(
-        summary="One-off chat with reasoning effort",
-        description="OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
-        value=_direct_chat_request(
-            "Think carefully, then answer briefly.",
-            metadata={"reasoning_effort": "high"},
+        "withMetadata": _example(
+            summary="One-off chat with request metadata",
+            description="Metadata is passed through for tracing; providers may ignore it.",
+            value=_direct_chat_request(
+                "Answer in one sentence.",
+                metadata={"request_id": "req-1"},
+            ),
         ),
-    ),
-    "withSkill": _example(
-        summary="Chat with a skill prompt",
-        value=_direct_chat_request(
-            "Echo this request.",
-            skills=[ChatSkill(skill_name="echo")],
+        "withReasoningEffort": _example(
+            summary="One-off chat with reasoning effort",
+            description="OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
+            value=_direct_chat_request(
+                "Think carefully, then answer briefly.",
+                metadata={"reasoning_effort": "high"},
+            ),
         ),
-    ),
-})
+        "withSkill": _example(
+            summary="Chat with a skill prompt",
+            value=_direct_chat_request(
+                "Echo this request.",
+                skills=[ChatSkill(skill_name="echo")],
+            ),
+        ),
+    }
+)
 
 
-CHAT_WITH_CONTEXT_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Smallest context chat",
-        description="Create `ctx-1` first with `POST /contexts`.",
-        value=_context_chat_request("Continue from the stored context."),
-    ),
-    "streamReady": _example(
-        summary="Same body for `/chat/context/stream`",
-        description="Use this exact body with the streaming endpoint.",
-        value=_context_chat_request(
-            "Stream the answer and save it.",
-            metadata={"request_id": "stream-1"},
+CHAT_WITH_CONTEXT_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Smallest context chat",
+            description="Create `ctx-1` first with `POST /contexts`.",
+            value=_context_chat_request("Continue from the stored context."),
         ),
-    ),
-    "withSessionMemory": _example(
-        summary="Chat with selected session memory",
-        value=_context_chat_request(
-            "Use my saved preference.",
-            memory_query=MemoryQuery(
+        "streamReady": _example(
+            summary="Same body for `/chat/context/stream`",
+            description="Use this exact body with the streaming endpoint.",
+            value=_context_chat_request(
+                "Stream the answer and save it.",
+                metadata={"request_id": "stream-1"},
+            ),
+        ),
+        "withSessionMemory": _example(
+            summary="Chat with selected session memory",
+            value=_context_chat_request(
+                "Use my saved preference.",
+                memory_query=MemoryQuery(
+                    scope=MemoryScope.SESSION,
+                    scope_id="session-1",
+                    limit=3,
+                ),
+                metadata={"request_id": "req-1"},
+            ),
+        ),
+        "withReasoningEffort": _example(
+            summary="Context chat with reasoning effort",
+            value=_context_chat_request(
+                "Reason through this before answering.",
+                metadata={"reasoning_effort": "high"},
+            ),
+        ),
+    }
+)
+
+
+CONTEXT_EXAMPLES = _openapi_examples(
+    {
+        "empty": _example(
+            summary="Empty context",
+            description="Create this first, then call `/chat/context`.",
+            value=Context(context_id="ctx-1"),
+        ),
+        "withSystemMessage": _example(
+            summary="Context with a system message",
+            value=Context(
+                context_id="ctx-1",
+                messages=[
+                    _message(
+                        "You are concise and practical.",
+                        role=MessageRole.SYSTEM,
+                    )
+                ],
+                metadata={"topic": "support"},
+            ),
+        ),
+    }
+)
+
+
+CONTENT_MESSAGE_EXAMPLES = _openapi_examples(
+    {
+        "userText": _example(
+            summary="Append one user message",
+            value=_message("Remember that I prefer short answers."),
+        ),
+        "systemText": _example(
+            summary="Append one system message",
+            value=_message("Always answer in JSON.", role=MessageRole.SYSTEM),
+        ),
+    }
+)
+
+
+SESSION_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Conversation session",
+            description="The session references a context, provider, and model.",
+            value=Session(
+                session_id="session-1",
+                title="Planning chat",
+                context_id="ctx-1",
+                provider_id="main",
+                model_id="gpt-4.1-mini",
+            ),
+        ),
+    }
+)
+
+
+SESSION_CHAT_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Smallest session chat",
+            description="Provider, model, and context come from the session.",
+            value=SessionChatRequest(
+                messages=[_message("Summarize our current plan.")],
+            ),
+        ),
+        "streamEquivalent": _example(
+            summary="Request shape used by session agent flows",
+            description="Session chat is not a streaming endpoint; use agent run streams for trace SSE.",
+            value=SessionChatRequest(
+                messages=[_message("Give me the next action only.")],
+                metadata={"request_id": "session-chat-1"},
+            ),
+        ),
+        "withMemory": _example(
+            summary="Session chat with memory selection",
+            value=SessionChatRequest(
+                messages=[_message("Apply my preferences.")],
+                memory_query=MemoryQuery(
+                    scope=MemoryScope.SESSION,
+                    scope_id="session-1",
+                    limit=5,
+                ),
+            ),
+        ),
+        "overrideProvider": _example(
+            summary="Override provider and model for this request",
+            description="Request values win over the session defaults.",
+            value=SessionChatRequest(
+                provider_id="main",
+                model_id="gpt-4.1-mini",
+                messages=[_message("Use this provider for this turn.")],
+            ),
+        ),
+        "withReasoningEffort": _example(
+            summary="Session chat with reasoning effort",
+            value=SessionChatRequest(
+                messages=[_message("Give a careful answer.")],
+                metadata={"reasoning_effort": "high"},
+            ),
+        ),
+    }
+)
+
+
+SESSION_AGENT_RUN_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Smallest session agent run",
+            value=SessionAgentRunRequest(
+                messages=[_message("Use available tools if needed.")],
+                max_tool_rounds=1,
+                write_memory=False,
+            ),
+        ),
+        "overrideProvider": _example(
+            summary="Start a session agent run with a request provider",
+            description="Request provider and model override the session defaults.",
+            value=SessionAgentRunRequest(
+                provider_id="main",
+                model_id="gpt-4.1-mini",
+                messages=[_message("Use this provider for this agent run.")],
+                max_tool_rounds=1,
+            ),
+        ),
+        "traceOnly": _example(
+            summary="Plain traced model step",
+            description="No tool rounds; useful when you want run state and trace records.",
+            value=SessionAgentRunRequest(
+                messages=[_message("Answer once and stop.")],
+                max_tool_rounds=0,
+                write_memory=False,
+            ),
+        ),
+        "withReasoningEffort": _example(
+            summary="Session agent run with reasoning effort",
+            value=SessionAgentRunRequest(
+                messages=[_message("Plan the next step carefully.")],
+                max_tool_rounds=0,
+                metadata={"reasoning_effort": "high"},
+            ),
+        ),
+    }
+)
+
+
+AGENT_RUN_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Smallest agent run",
+            description="Create `main` and `ctx-1` first. This performs one model step.",
+            value=_agent_run_request("Answer and stop."),
+        ),
+        "streamReady": _example(
+            summary="Same body for `/agent-runs/stream`",
+            description="Use this exact body with the streaming endpoint to receive trace SSE.",
+            value=_agent_run_request(
+                "Stream trace events while answering.",
+                metadata={"request_id": "agent-stream-1"},
+            ),
+        ),
+        "withTools": _example(
+            summary="Run an agent with tool approval pauses",
+            value=_agent_run_request(
+                "Inspect the workspace if needed.",
+                max_tool_rounds=2,
+                tools=[_tool_definition()],
+            ),
+        ),
+        "withReasoningEffort": _example(
+            summary="Agent run with reasoning effort",
+            value=_agent_run_request(
+                "Reason carefully, then stop.",
+                metadata={"reasoning_effort": "high"},
+            ),
+        ),
+    }
+)
+
+
+RESUME_AGENT_RUN_EXAMPLES = _openapi_examples(
+    {
+        "approveTool": _example(
+            summary="Resume with an approved tool call",
+            value=ResumeAgentRunRequest(
+                approvals=[
+                    ToolApprovalDecision(
+                        approval_id="approval-1",
+                        tool_call_id="tool-call-1",
+                        status=ToolApprovalStatus.APPROVED,
+                    )
+                ]
+            ),
+        ),
+        "denyTool": _example(
+            summary="Resume with a denied tool call",
+            value=ResumeAgentRunRequest(
+                approvals=[
+                    ToolApprovalDecision(
+                        approval_id="approval-1",
+                        tool_call_id="tool-call-1",
+                        status=ToolApprovalStatus.DENIED,
+                        reason="Not allowed for this run.",
+                    )
+                ]
+            ),
+        ),
+    }
+)
+
+
+AGENT_RUN_CONTROL_EXAMPLES = _openapi_examples(
+    {
+        "withReason": _example(
+            summary="Control with a reason",
+            value=AgentRunControlRequest(reason="operator paused"),
+        ),
+        "withoutReason": _example(
+            summary="Control without a reason",
+            value=AgentRunControlRequest(),
+        ),
+    }
+)
+
+
+RENDER_SKILL_EXAMPLES = _openapi_examples(
+    {
+        "minimal": _example(
+            summary="Render a skill prompt",
+            value=RenderSkillRequest(variables={"topic": "EvernightAI"}),
+        ),
+    }
+)
+
+
+MEMORY_ITEM_EXAMPLES = _openapi_examples(
+    {
+        "preference": _example(
+            summary="Store a user preference",
+            value=MemoryItem(
+                memory_id="mem-1",
+                content="Prefer concise answers.",
+                kind=MemoryKind.PREFERENCE,
+                scope=MemoryScope.USER,
+                scope_id="user-1",
+                tags=["style"],
+                priority=10,
+            ),
+        ),
+        "sessionFact": _example(
+            summary="Store a session fact",
+            value=MemoryItem(
+                memory_id="mem-session-1",
+                content="The current project is EvernightAI.",
+                kind=MemoryKind.FACT,
                 scope=MemoryScope.SESSION,
                 scope_id="session-1",
-                limit=3,
             ),
-            metadata={"request_id": "req-1"},
         ),
-    ),
-    "withReasoningEffort": _example(
-        summary="Context chat with reasoning effort",
-        value=_context_chat_request(
-            "Reason through this before answering.",
-            metadata={"reasoning_effort": "high"},
-        ),
-    ),
-})
+    }
+)
 
 
-CONTEXT_EXAMPLES = _openapi_examples({
-    "empty": _example(
-        summary="Empty context",
-        description="Create this first, then call `/chat/context`.",
-        value=Context(context_id="ctx-1"),
-    ),
-    "withSystemMessage": _example(
-        summary="Context with a system message",
-        value=Context(
-            context_id="ctx-1",
-            messages=[
-                _message(
-                    "You are concise and practical.",
-                    role=MessageRole.SYSTEM,
-                )
-            ],
-            metadata={"topic": "support"},
-        ),
-    ),
-})
-
-
-CONTENT_MESSAGE_EXAMPLES = _openapi_examples({
-    "userText": _example(
-        summary="Append one user message",
-        value=_message("Remember that I prefer short answers."),
-    ),
-    "systemText": _example(
-        summary="Append one system message",
-        value=_message("Always answer in JSON.", role=MessageRole.SYSTEM),
-    ),
-})
-
-
-SESSION_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Conversation session",
-        description="The session references a context, provider, and model.",
-        value=Session(
-            session_id="session-1",
-            title="Planning chat",
-            context_id="ctx-1",
-            provider_id="main",
-            model_id="gpt-4.1-mini",
-        ),
-    ),
-})
-
-
-SESSION_CHAT_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Smallest session chat",
-        description="Provider, model, and context come from the session.",
-        value=SessionChatRequest(
-            messages=[_message("Summarize our current plan.")],
-        ),
-    ),
-    "streamEquivalent": _example(
-        summary="Request shape used by session agent flows",
-        description="Session chat is not a streaming endpoint; use agent run streams for trace SSE.",
-        value=SessionChatRequest(
-            messages=[_message("Give me the next action only.")],
-            metadata={"request_id": "session-chat-1"},
-        ),
-    ),
-    "withMemory": _example(
-        summary="Session chat with memory selection",
-        value=SessionChatRequest(
-            messages=[_message("Apply my preferences.")],
-            memory_query=MemoryQuery(
+MEMORY_QUERY_EXAMPLES = _openapi_examples(
+    {
+        "session": _example(
+            summary="Select session memories",
+            value=MemoryQuery(
                 scope=MemoryScope.SESSION,
                 scope_id="session-1",
                 limit=5,
             ),
         ),
-    ),
-    "overrideProvider": _example(
-        summary="Override provider and model for this request",
-        description="Request values win over the session defaults.",
-        value=SessionChatRequest(
-            provider_id="main",
-            model_id="gpt-4.1-mini",
-            messages=[_message("Use this provider for this turn.")],
+        "userPreferences": _example(
+            summary="Select user preferences",
+            value=MemoryQuery(
+                scope=MemoryScope.USER,
+                scope_id="user-1",
+                kinds=[MemoryKind.PREFERENCE],
+                tags=["style"],
+                limit=3,
+            ),
         ),
-    ),
-    "withReasoningEffort": _example(
-        summary="Session chat with reasoning effort",
-        value=SessionChatRequest(
-            messages=[_message("Give a careful answer.")],
-            metadata={"reasoning_effort": "high"},
+    }
+)
+
+
+DATA_STATISTICS_EXAMPLES = _openapi_examples(
+    {
+        "ordersByStatus": _example(
+            summary="Aggregate order metrics by status",
+            value=_statistics_request(),
         ),
-    ),
-})
+    }
+)
 
 
-SESSION_AGENT_RUN_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Smallest session agent run",
-        value=SessionAgentRunRequest(
-            messages=[_message("Use available tools if needed.")],
-            max_tool_rounds=1,
-            write_memory=False,
+DATA_ANALYSIS_EXAMPLES = _openapi_examples(
+    {
+        "fromStatistics": _example(
+            summary="Analyze a statistics request",
+            value=DataAnalysisRequest(
+                source_id="orders",
+                question="Which order status generated the most revenue?",
+                statistics_request=_statistics_request(),
+            ),
         ),
-    ),
-    "overrideProvider": _example(
-        summary="Start a session agent run with a request provider",
-        description="Request provider and model override the session defaults.",
-        value=SessionAgentRunRequest(
-            provider_id="main",
-            model_id="gpt-4.1-mini",
-            messages=[_message("Use this provider for this agent run.")],
-            max_tool_rounds=1,
-        ),
-    ),
-    "traceOnly": _example(
-        summary="Plain traced model step",
-        description="No tool rounds; useful when you want run state and trace records.",
-        value=SessionAgentRunRequest(
-            messages=[_message("Answer once and stop.")],
-            max_tool_rounds=0,
-            write_memory=False,
-        ),
-    ),
-    "withReasoningEffort": _example(
-        summary="Session agent run with reasoning effort",
-        value=SessionAgentRunRequest(
-            messages=[_message("Plan the next step carefully.")],
-            max_tool_rounds=0,
-            metadata={"reasoning_effort": "high"},
-        ),
-    ),
-})
-
-
-AGENT_RUN_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Smallest agent run",
-        description="Create `main` and `ctx-1` first. This performs one model step.",
-        value=_agent_run_request("Answer and stop."),
-    ),
-    "streamReady": _example(
-        summary="Same body for `/agent-runs/stream`",
-        description="Use this exact body with the streaming endpoint to receive trace SSE.",
-        value=_agent_run_request(
-            "Stream trace events while answering.",
-            metadata={"request_id": "agent-stream-1"},
-        ),
-    ),
-    "withTools": _example(
-        summary="Run an agent with tool approval pauses",
-        value=_agent_run_request(
-            "Inspect the workspace if needed.",
-            max_tool_rounds=2,
-            tools=[_tool_definition()],
-        ),
-    ),
-    "withReasoningEffort": _example(
-        summary="Agent run with reasoning effort",
-        value=_agent_run_request(
-            "Reason carefully, then stop.",
-            metadata={"reasoning_effort": "high"},
-        ),
-    ),
-})
-
-
-RESUME_AGENT_RUN_EXAMPLES = _openapi_examples({
-    "approveTool": _example(
-        summary="Resume with an approved tool call",
-        value=ResumeAgentRunRequest(
-            approvals=[
-                ToolApprovalDecision(
-                    approval_id="approval-1",
-                    tool_call_id="tool-call-1",
-                    status=ToolApprovalStatus.APPROVED,
-                )
-            ]
-        ),
-    ),
-    "denyTool": _example(
-        summary="Resume with a denied tool call",
-        value=ResumeAgentRunRequest(
-            approvals=[
-                ToolApprovalDecision(
-                    approval_id="approval-1",
-                    tool_call_id="tool-call-1",
-                    status=ToolApprovalStatus.DENIED,
-                    reason="Not allowed for this run.",
-                )
-            ]
-        ),
-    ),
-})
-
-
-AGENT_RUN_CONTROL_EXAMPLES = _openapi_examples({
-    "withReason": _example(
-        summary="Control with a reason",
-        value=AgentRunControlRequest(reason="operator paused"),
-    ),
-    "withoutReason": _example(
-        summary="Control without a reason",
-        value=AgentRunControlRequest(),
-    ),
-})
-
-
-RENDER_SKILL_EXAMPLES = _openapi_examples({
-    "minimal": _example(
-        summary="Render a skill prompt",
-        value=RenderSkillRequest(variables={"topic": "EvernightAI"}),
-    ),
-})
-
-
-MEMORY_ITEM_EXAMPLES = _openapi_examples({
-    "preference": _example(
-        summary="Store a user preference",
-        value=MemoryItem(
-            memory_id="mem-1",
-            content="Prefer concise answers.",
-            kind=MemoryKind.PREFERENCE,
-            scope=MemoryScope.USER,
-            scope_id="user-1",
-            tags=["style"],
-            priority=10,
-        ),
-    ),
-    "sessionFact": _example(
-        summary="Store a session fact",
-        value=MemoryItem(
-            memory_id="mem-session-1",
-            content="The current project is EvernightAI.",
-            kind=MemoryKind.FACT,
-            scope=MemoryScope.SESSION,
-            scope_id="session-1",
-        ),
-    ),
-})
-
-
-MEMORY_QUERY_EXAMPLES = _openapi_examples({
-    "session": _example(
-        summary="Select session memories",
-        value=MemoryQuery(
-            scope=MemoryScope.SESSION,
-            scope_id="session-1",
-            limit=5,
-        ),
-    ),
-    "userPreferences": _example(
-        summary="Select user preferences",
-        value=MemoryQuery(
-            scope=MemoryScope.USER,
-            scope_id="user-1",
-            kinds=[MemoryKind.PREFERENCE],
-            tags=["style"],
-            limit=3,
-        ),
-    ),
-})
-
-
-DATA_STATISTICS_EXAMPLES = _openapi_examples({
-    "ordersByStatus": _example(
-        summary="Aggregate order metrics by status",
-        value=_statistics_request(),
-    ),
-})
-
-
-DATA_ANALYSIS_EXAMPLES = _openapi_examples({
-    "fromStatistics": _example(
-        summary="Analyze a statistics request",
-        value=DataAnalysisRequest(
-            source_id="orders",
-            question="Which order status generated the most revenue?",
-            statistics_request=_statistics_request(),
-        ),
-    ),
-})
+    }
+)

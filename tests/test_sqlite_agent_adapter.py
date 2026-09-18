@@ -163,10 +163,13 @@ def test_sqlite_agent_trace_register_migrates_legacy_events(tmp_path: Path) -> N
     try:
         assert [event.sequence for event in register.list_events("run-1")] == [1, 2]
         assert [event.sequence for event in register.list_events("run-2")] == [1]
-        assert register.append_event(
-            "run-1",
-            make_event(AgentTraceEventType.RUN_STOPPED),
-        ) == 3
+        assert (
+            register.append_event(
+                "run-1",
+                make_event(AgentTraceEventType.RUN_STOPPED),
+            )
+            == 3
+        )
     finally:
         register.close()
 

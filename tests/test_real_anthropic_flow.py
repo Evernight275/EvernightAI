@@ -71,7 +71,9 @@ async def test_real_anthropic_chat_flow() -> None:
                 ChatRequest(
                     model_id=model_id,
                     messages=[
-                        make_message("Reply with exactly: EvernightAI Anthropic flow ok")
+                        make_message(
+                            "Reply with exactly: EvernightAI Anthropic flow ok"
+                        )
                     ],
                 ),
             )

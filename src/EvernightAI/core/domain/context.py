@@ -267,7 +267,9 @@ class ContextOrganizer(ContextOrganizerProtocol):
 
             tool_calls = message.tool_calls or []
             if message.role is MessageRole.ASSISTANT and tool_calls:
-                tool_messages = self._following_tool_messages(messages, index, tool_calls)
+                tool_messages = self._following_tool_messages(
+                    messages, index, tool_calls
+                )
                 if len(tool_messages) == len(tool_calls):
                     safe_messages.append(message)
                     safe_messages.extend(tool_messages)
@@ -508,7 +510,11 @@ class TokenBudgetContextStrategy(ContextStrategyProtocol):
             group = groups[index]
             cost = sum(self._estimator.estimate(message) for message in group)
             if used + elastic_used + cost > self._max_tokens:
-                if not selected_indexes and elastic_used == 0 and index == len(groups) - 1:
+                if (
+                    not selected_indexes
+                    and elastic_used == 0
+                    and index == len(groups) - 1
+                ):
                     selected_indexes.add(index)
                     elastic_used += cost
                     reasons.append("newest_message_group_exceeds_token_budget")
@@ -580,9 +586,7 @@ class SummarizingContextStrategy(ContextStrategyProtocol):
             self._keep_recent_messages,
         )
         recent_group_count = len(recent_groups)
-        removed_groups = (
-            groups[:-recent_group_count] if recent_group_count else groups
-        )
+        removed_groups = groups[:-recent_group_count] if recent_group_count else groups
         removed = [message for group in removed_groups for message in group]
         recent = [message for group in recent_groups for message in group]
         if not removed:

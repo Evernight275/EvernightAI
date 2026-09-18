@@ -82,7 +82,6 @@ async def test_chat_application_commands_core_runtime() -> None:
     ]
 
 
-
 @pytest.mark.asyncio
 async def test_chat_application_organizes_context_and_memory_flow() -> None:
     runtime = make_runtime()
@@ -224,7 +223,9 @@ async def test_chat_request_global_cache_scope_crosses_owners() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_request_owner_cache_scope_falls_back_for_anonymous_context() -> None:
+async def test_chat_request_owner_cache_scope_falls_back_for_anonymous_context() -> (
+    None
+):
     runtime = make_runtime(prompt_cache_scope=PromptCacheScope.OWNER)
     app = ChatApplication(runtime)
     await app.create_context(Context(context_id="ctx-1"))
@@ -293,7 +294,9 @@ async def test_chat_application_streams_with_context_and_persists_messages() -> 
 
 
 @pytest.mark.asyncio
-async def test_chat_application_stream_with_context_persists_partial_message_on_close() -> None:
+async def test_chat_application_stream_with_context_persists_partial_message_on_close() -> (
+    None
+):
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
@@ -362,7 +365,9 @@ async def test_chat_application_selects_session_memory_from_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_application_combines_context_user_session_and_global_memory() -> None:
+async def test_chat_application_combines_context_user_session_and_global_memory() -> (
+    None
+):
     runtime = make_runtime()
     app = ChatApplication(runtime)
 
@@ -416,7 +421,9 @@ async def test_chat_application_combines_context_user_session_and_global_memory(
 
 
 @pytest.mark.asyncio
-async def test_chat_application_respects_explicit_memory_query_over_session_metadata() -> None:
+async def test_chat_application_respects_explicit_memory_query_over_session_metadata() -> (
+    None
+):
     runtime = make_runtime()
     app = ChatApplication(runtime)
 

@@ -186,7 +186,9 @@ def test_context_organizer_filters_inactive_messages() -> None:
         ],
     )
 
-    assert [message.content[0].text for message in window.messages if message.content] == [
+    assert [
+        message.content[0].text for message in window.messages if message.content
+    ] == [
         "Existing",
         "Current",
     ]
@@ -277,7 +279,9 @@ def test_basic_context_strategy_composes_memory_into_chat_request() -> None:
     )
 
     assert request.model_id == "model-1"
-    assert [message.content[0].text for message in request.messages if message.content] == [
+    assert [
+        message.content[0].text for message in request.messages if message.content
+    ] == [
         "System",
         "Relevant memory:\n- preference: Prefer concise answers",
         "Existing",
@@ -313,7 +317,9 @@ def test_window_trimming_strategy_is_independent_from_basic_organizer() -> None:
     )
 
     assert request.messages == [make_message("two"), make_message("three")]
-    assert request.metadata["context_strategy"]["name"] == "WindowTrimmingContextStrategy"
+    assert (
+        request.metadata["context_strategy"]["name"] == "WindowTrimmingContextStrategy"
+    )
     assert request.metadata["context_strategy"]["original_message_count"] == 3
     assert request.metadata["context_strategy"]["dropped_message_count"] == 1
     assert request.metadata["context_strategy_steps"] == [

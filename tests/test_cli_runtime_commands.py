@@ -21,7 +21,11 @@ from EvernightAI.core.domain.memory import (
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
-from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
@@ -116,9 +120,7 @@ def test_list_models_raises_for_unknown_provider() -> None:
 
 
 def test_list_models_handles_provider_without_models() -> None:
-    config = parse_config(
-        {"provider": {"main": {"name": "Main", "type": "openai"}}}
-    )
+    config = parse_config({"provider": {"main": {"name": "Main", "type": "openai"}}})
 
     assert list_models(config, "main") == "No models declared for provider 'main'."
 
@@ -632,9 +634,7 @@ def test_create_app_from_config_serves_health_and_tools(
         "write_json_file",
     ]
     assert models_response.status_code == 200
-    assert [model["model_id"] for model in models_response.json()] == [
-        "gpt-4.1-mini"
-    ]
+    assert [model["model_id"] for model in models_response.json()] == ["gpt-4.1-mini"]
 
 
 def make_runtime() -> RuntimeKernel:

@@ -128,7 +128,9 @@ def test_core_application_and_infra_do_not_depend_on_interface_modules() -> None
                     module = node.module or ""
                     if _is_interface_dependency(module):
                         imported = ", ".join(alias.name for alias in node.names)
-                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+                        violations.append(
+                            f"{_rel(path)} imports {imported} from {module}"
+                        )
 
     assert violations == []
 
@@ -214,7 +216,9 @@ def test_inner_layers_do_not_depend_on_entrypoint_modules() -> None:
                     module = node.module or ""
                     if _is_entrypoint_dependency(module):
                         imported = ", ".join(alias.name for alias in node.names)
-                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+                        violations.append(
+                            f"{_rel(path)} imports {imported} from {module}"
+                        )
 
     assert violations == []
 
@@ -285,7 +289,9 @@ def test_inner_layers_do_not_depend_on_bootstrap_modules() -> None:
                     module = node.module or ""
                     if _is_bootstrap_dependency(module):
                         imported = ", ".join(alias.name for alias in node.names)
-                        violations.append(f"{_rel(path)} imports {imported} from {module}")
+                        violations.append(
+                            f"{_rel(path)} imports {imported} from {module}"
+                        )
 
     assert violations == []
 
@@ -380,11 +386,7 @@ def test_provider_adapters_live_under_provider_adapter_package() -> None:
 
 
 def _python_files(root: Path) -> list[Path]:
-    return [
-        path
-        for path in root.rglob("*.py")
-        if "__pycache__" not in path.parts
-    ]
+    return [path for path in root.rglob("*.py") if "__pycache__" not in path.parts]
 
 
 def _is_forbidden_core_dependency(module: str) -> bool:

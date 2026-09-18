@@ -92,9 +92,7 @@ def from_gemini_response(response: dict[str, Any], model_id: str) -> ChatRespons
         if tool_call is not None
     ]
     message_content = (
-        [ContentPart(type=ContentPartType.TEXT, text=text)]
-        if text
-        else None
+        [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
     )
 
     return ChatResponse(
@@ -293,7 +291,9 @@ def _message_parts(message: Content) -> list[dict[str, Any]]:
 
     parts = message.content or []
     message_parts = [_content_part(part) for part in parts]
-    message_parts.extend(_function_call_part(tool_call) for tool_call in message.tool_calls or [])
+    message_parts.extend(
+        _function_call_part(tool_call) for tool_call in message.tool_calls or []
+    )
     if not message_parts:
         return [{"text": ""}]
 
@@ -404,7 +404,9 @@ def _tool_call_from_gemini_part(
     if not isinstance(arguments, dict):
         arguments = {}
 
-    call_id_prefix = response_id if isinstance(response_id, str) and response_id else "gemini"
+    call_id_prefix = (
+        response_id if isinstance(response_id, str) and response_id else "gemini"
+    )
     return ToolCall(
         tool_call_id=f"{call_id_prefix}:tool:0",
         tool_call={

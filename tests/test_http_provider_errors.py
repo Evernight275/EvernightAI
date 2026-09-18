@@ -21,7 +21,9 @@ def _request() -> httpx.Request:
     return httpx.Request("POST", "https://provider.test/chat")
 
 
-def _status_error(status_code: int, text: str = "upstream error") -> httpx.HTTPStatusError:
+def _status_error(
+    status_code: int, text: str = "upstream error"
+) -> httpx.HTTPStatusError:
     response = httpx.Response(
         status_code,
         headers={"x-request-id": "req_http"},
@@ -35,7 +37,10 @@ def _status_error(status_code: int, text: str = "upstream error") -> httpx.HTTPS
     ("error", "expected_type"),
     [
         (httpx.ReadTimeout("slow", request=_request()), ProviderRequestTimeoutError),
-        (httpx.ConnectError("network down", request=_request()), ProviderUnavailableError),
+        (
+            httpx.ConnectError("network down", request=_request()),
+            ProviderUnavailableError,
+        ),
         (_status_error(401), ProviderAuthorizationError),
         (_status_error(403), ProviderAuthorizationError),
         (_status_error(404), ProviderNotFoundError),
@@ -62,7 +67,7 @@ def test_httpx_error_translation_preserves_response_detail() -> None:
     translated = translate_httpx_provider_error(_status_error(429, '{"error":"limit"}'))
 
     assert translated.detail == (
-        "status_code=429; request_id=req_http; body='{\"error\":\"limit\"}'"
+        'status_code=429; request_id=req_http; body=\'{"error":"limit"}\''
     )
 
 

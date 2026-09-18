@@ -301,7 +301,9 @@ def _resolve_output_path(output_directory: Path, raw_path: object) -> Path:
     try:
         path.relative_to(output_directory)
     except ValueError as exc:
-        raise ToolInputError("The output path must stay inside the output directory") from exc
+        raise ToolInputError(
+            "The output path must stay inside the output directory"
+        ) from exc
     return path
 
 

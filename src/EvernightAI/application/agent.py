@@ -547,9 +547,7 @@ def _mark_started_executions_unknown(
     reconciled: list[ToolExecutionAttempt] = []
     for attempt in attempts:
         if attempt.status is ToolExecutionStatus.STARTED:
-            attempt = attempt.model_copy(
-                update={"status": ToolExecutionStatus.UNKNOWN}
-            )
+            attempt = attempt.model_copy(update={"status": ToolExecutionStatus.UNKNOWN})
             register.save_attempt(attempt)
         reconciled.append(attempt)
     return reconciled
@@ -766,9 +764,7 @@ class AgentApplication(AgentInterfaceProtocol):
         if state.status is not AgentRunStatus.PAUSED:
             raise AgentStateError("Agent run is not paused")
         if not self._is_recovery_eligible(state):
-            raise AgentStateError(
-                "Agent run cannot resume safely; retry it instead"
-            )
+            raise AgentStateError("Agent run cannot resume safely; retry it instead")
         if self._is_manual_pause(state):
             async for event in self._resume_manual_pause_events(state):
                 yield event
@@ -855,9 +851,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 state,
                 state.response,
                 state.remaining_tool_rounds,
-                approvals=self._tool_approvals_by_call_id(
-                    state.request.tool_approvals
-                ),
+                approvals=self._tool_approvals_by_call_id(state.request.tool_approvals),
                 pending_tool_calls=remaining_tool_calls,
                 already_requested_approval_call_ids=set(),
             ):
@@ -868,9 +862,7 @@ class AgentApplication(AgentInterfaceProtocol):
             async for event in self._continue_after_completed_tool_round(
                 state.request,
                 state,
-                approvals=self._tool_approvals_by_call_id(
-                    state.request.tool_approvals
-                ),
+                approvals=self._tool_approvals_by_call_id(state.request.tool_approvals),
             ):
                 yield event
             return
@@ -959,9 +951,14 @@ class AgentApplication(AgentInterfaceProtocol):
                     raw_call,
                     approvals.get(raw_call.tool_call_id),
                 )
-                call = call.model_copy(update={"metadata": {
-                    **call.metadata, "working_directory": request.working_directory,
-                }})
+                call = call.model_copy(
+                    update={
+                        "metadata": {
+                            **call.metadata,
+                            "working_directory": request.working_directory,
+                        }
+                    }
+                )
                 decision = self._tool_safety_decision(call)
                 include_approval_request = (
                     call.tool_call_id not in already_requested_approval_call_ids
@@ -1202,7 +1199,8 @@ class AgentApplication(AgentInterfaceProtocol):
             )
         if (
             latest is not None
-            and latest.status in {ToolExecutionStatus.STARTED, ToolExecutionStatus.UNKNOWN}
+            and latest.status
+            in {ToolExecutionStatus.STARTED, ToolExecutionStatus.UNKNOWN}
             and not _tool_call_can_resume(
                 call.tool_call_id,
                 {call.tool_call_id: latest},
@@ -2196,10 +2194,14 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state: AgentRunState,
         abandon_unrecoverable_pause: bool,
     ) -> bool:
-        return state.status in {
-            AgentRunStatus.CANCELED,
-            AgentRunStatus.FAILED,
-        } or abandon_unrecoverable_pause
+        return (
+            state.status
+            in {
+                AgentRunStatus.CANCELED,
+                AgentRunStatus.FAILED,
+            }
+            or abandon_unrecoverable_pause
+        )
 
     def _retry_request(
         self,

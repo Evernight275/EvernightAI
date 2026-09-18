@@ -63,9 +63,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                     "enabled": True,
                     "working_directory": ".",
                     "commands": {"tests": ["python", "-m", "pytest"]},
-                    "project_directories": {
-                        "EvernightAI": "/home/cyrene/EvernightAI"
-                    },
+                    "project_directories": {"EvernightAI": "/home/cyrene/EvernightAI"},
                     "projects": {
                         "EvernightAI": {
                             "tests": ["uv", "run", "pytest"],
@@ -119,7 +117,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
                             "roles": ["reader"],
                             "permissions": ["tools:list"],
                         }
-                    }
+                    },
                 },
             },
             "data_analysis": {

@@ -22,8 +22,15 @@ class CreateDirectoryRequest(EvernightAISchema):
 def directory_store(request: Request, action: str) -> WorkspaceDirectoryProtocol:
     device = cast(HttpAuthDeviceProtocol | None, request.app.state.auth_device)
     if device is not None:
-        require_permission(Authorizer(PermissionAuthPolicy()), device.principal_for_request(request), "workspaces", action)
-    store = cast(WorkspaceDirectoryProtocol | None, request.app.state.workspace_directories)
+        require_permission(
+            Authorizer(PermissionAuthPolicy()),
+            device.principal_for_request(request),
+            "workspaces",
+            action,
+        )
+    store = cast(
+        WorkspaceDirectoryProtocol | None, request.app.state.workspace_directories
+    )
     if store is None:
         raise UnsupportedError("服务未启用文件工作目录，请先配置文件工具根目录")
     return store
@@ -35,5 +42,7 @@ def browse_directories(request: Request, path: str = ".") -> WorkspaceDirectory:
 
 
 @router.post("", response_model=WorkspaceDirectory, status_code=201)
-def create_directory(body: CreateDirectoryRequest, request: Request) -> WorkspaceDirectory:
+def create_directory(
+    body: CreateDirectoryRequest, request: Request
+) -> WorkspaceDirectory:
     return directory_store(request, "create").create(body.path, body.name)

@@ -318,8 +318,10 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             return ToolSafetyDecision(
                 allowed=False,
                 reason="Tool call requires approval",
-            metadata={"working_directory": call.metadata["working_directory"]}
-            if tool.metadata.get("supports_working_directory") and call.metadata.get("working_directory") is not None else {},
+                metadata={"working_directory": call.metadata["working_directory"]}
+                if tool.metadata.get("supports_working_directory")
+                and call.metadata.get("working_directory") is not None
+                else {},
                 requires_approval=True,
                 approval_request=self._approval_request(tool, call),
             )
@@ -354,5 +356,7 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
             safety_level=tool.safety_level,
             reason="Tool call requires approval",
             metadata={"working_directory": call.metadata["working_directory"]}
-            if tool.metadata.get("supports_working_directory") and call.metadata.get("working_directory") is not None else {},
+            if tool.metadata.get("supports_working_directory")
+            and call.metadata.get("working_directory") is not None
+            else {},
         )

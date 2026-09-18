@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from EvernightAI.core.domain.data_analysis import DataAnalysisManager, DataAnalysisRegister
+from EvernightAI.core.domain.data_analysis import (
+    DataAnalysisManager,
+    DataAnalysisRegister,
+)
 from EvernightAI.core.error.data_analysis import (
     DataAnalysisInputError,
     DataStatisticsExecutionError,
@@ -310,7 +313,9 @@ async def test_sqlite_data_statistics_executor_applies_time_range_and_limit(
                 start=datetime(2026, 1, 1, tzinfo=timezone.utc),
                 end=datetime(2026, 1, 3, tzinfo=timezone.utc),
             ),
-            sorts=[DataSort(field_id="average_amount", direction=DataSortDirection.DESC)],
+            sorts=[
+                DataSort(field_id="average_amount", direction=DataSortDirection.DESC)
+            ],
             limit=1,
         )
     )
@@ -343,7 +348,9 @@ async def test_sqlite_data_statistics_executor_uses_view_and_column_metadata(
             source_id="mapped_orders",
             metrics=["mapped_count", "mapped_revenue"],
             dimensions=["public_status"],
-            sorts=[DataSort(field_id="mapped_revenue", direction=DataSortDirection.DESC)],
+            sorts=[
+                DataSort(field_id="mapped_revenue", direction=DataSortDirection.DESC)
+            ],
         )
     )
 

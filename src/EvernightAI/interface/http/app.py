@@ -205,9 +205,7 @@ def _secured_openapi_factory(app: FastAPI):
             "type": "apiKey",
             "in": "header",
             "name": "X-Evernight-API-Key",
-            "description": (
-                "Send the API key as `X-Evernight-API-Key: <api-key>`."
-            ),
+            "description": ("Send the API key as `X-Evernight-API-Key: <api-key>`."),
         }
         for path, methods in schema.get("paths", {}).items():
             if path in {"/health", "/ready"}:

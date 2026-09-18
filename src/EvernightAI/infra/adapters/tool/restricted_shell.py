@@ -172,7 +172,9 @@ class RestrictedShellTool:
     def _is_allowed_command(self, command: list[str]) -> bool:
         if command[0] in self._allowed_commands:
             return True
-        return any(self._parse_command_rule(rule) == command for rule in self._allowed_commands)
+        return any(
+            self._parse_command_rule(rule) == command for rule in self._allowed_commands
+        )
 
     def _command_rejection_reason(self, command: list[str]) -> str | None:
         rendered_command = " ".join(command)
@@ -215,7 +217,9 @@ class RestrictedShellTool:
     def _parse_command(self, arguments: dict[str, Any]) -> list[str]:
         command = arguments.get("command")
         if not isinstance(command, list) or not command:
-            raise ToolInputError("The restricted shell command must be a non-empty list")
+            raise ToolInputError(
+                "The restricted shell command must be a non-empty list"
+            )
         if not all(isinstance(part, str) and part for part in command):
             raise ToolInputError("The restricted shell command parts must be strings")
         return command

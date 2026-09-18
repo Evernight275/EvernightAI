@@ -43,7 +43,10 @@ def test_evernight_log_formatter_colors_log_parts() -> None:
     message = EvernightLogFormatter().format(record)
 
     assert message.startswith(ANSI_GRAY)
-    assert f"{ANSI_RESET} \033[32m[info]{ANSI_RESET} {ANSI_WHITE}hello{ANSI_RESET}" in message
+    assert (
+        f"{ANSI_RESET} \033[32m[info]{ANSI_RESET} {ANSI_WHITE}hello{ANSI_RESET}"
+        in message
+    )
 
 
 def test_evernight_log_formatter_highlights_errors() -> None:
@@ -111,13 +114,14 @@ def test_recent_log_handler_skips_routine_successful_transport_logs() -> None:
     handler.emit(make_access_record("POST", "/logs/clear", 204))
     handler.emit(make_access_record("GET", "/sessions", 200))
     handler.emit(make_access_record("GET", "/logs?limit=500&after=1", 500))
-    handler.emit(make_httpx_record(logging.INFO, 'HTTP Request: GET https://example.test "HTTP/1.1 200 OK"'))
+    handler.emit(
+        make_httpx_record(
+            logging.INFO, 'HTTP Request: GET https://example.test "HTTP/1.1 200 OK"'
+        )
+    )
     handler.emit(make_httpx_record(logging.WARNING, "HTTP retry failed"))
 
-    assert [
-        entry.message
-        for entry in store.list()
-    ] == [
+    assert [entry.message for entry in store.list()] == [
         '127.0.0.1:41800 - "GET /logs?limit=500&after=1 HTTP/1.1" 500',
         "HTTP retry failed",
     ]

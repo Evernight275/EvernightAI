@@ -37,15 +37,19 @@ def to_openai_response_input_item(message: Content) -> dict[str, Any]:
 
 def to_openai_response_input_items(message: Content) -> list[dict[str, Any]]:
     if message.role is MessageRole.SYSTEM:
-        return [{
-            "role": "system",
-            "content": _input_content(message),
-        }]
+        return [
+            {
+                "role": "system",
+                "content": _input_content(message),
+            }
+        ]
     if message.role is MessageRole.USER:
-        return [{
-            "role": "user",
-            "content": _input_content(message),
-        }]
+        return [
+            {
+                "role": "user",
+                "content": _input_content(message),
+            }
+        ]
     if message.role is MessageRole.ASSISTANT:
         items: list[dict[str, Any]] = []
         if message.content:
@@ -65,11 +69,13 @@ def to_openai_response_input_items(message: Content) -> list[dict[str, Any]]:
         if not message.tool_call_id:
             raise ChatInputError("Tool message requires tool_call_id")
 
-        return [{
-            "type": "function_call_output",
-            "call_id": message.tool_call_id,
-            "output": _text_content(message),
-        }]
+        return [
+            {
+                "type": "function_call_output",
+                "call_id": message.tool_call_id,
+                "output": _text_content(message),
+            }
+        ]
 
     raise ChatInputError(f"Unsupported message role: {message.role}")
 
@@ -120,9 +126,7 @@ def from_openai_response(response: Response) -> ChatResponse:
         message=Content(
             role=MessageRole.ASSISTANT,
             content=(
-                [ContentPart(type=ContentPartType.TEXT, text=text)]
-                if text
-                else None
+                [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
             ),
             tool_calls=tool_calls or None,
         ),
@@ -575,9 +579,7 @@ def _usage_from_openai_response(response: Response) -> ChatUsage | None:
         input_details = usage.input_tokens_details.model_dump()
         metadata["input_tokens_details"] = input_details
         cached_prompt_tokens = token_count(input_details.get("cached_tokens"))
-        cache_write_prompt_tokens = token_count(
-            input_details.get("cache_write_tokens")
-        )
+        cache_write_prompt_tokens = token_count(input_details.get("cache_write_tokens"))
     if usage.output_tokens_details is not None:
         metadata["output_tokens_details"] = usage.output_tokens_details.model_dump()
 

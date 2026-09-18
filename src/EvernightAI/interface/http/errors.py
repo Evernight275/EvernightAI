@@ -45,7 +45,9 @@ async def handle_evernight_error(
         )
     return JSONResponse(
         status_code=response_status,
-        headers={"Cache-Control": "no-store"} if response_status in (401, 403) else None,
+        headers={"Cache-Control": "no-store"}
+        if response_status in (401, 403)
+        else None,
         content={
             "error": {
                 "type": error.error_type,

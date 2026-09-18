@@ -105,7 +105,9 @@ class AgentRunStateRegisterProtocol(AgentProtocol, RegisterProtocol):
         if status is not None:
             states = [state for state in states if state.status is status]
         if context_id is not None:
-            states = [state for state in states if state.request.context_id == context_id]
+            states = [
+                state for state in states if state.request.context_id == context_id
+            ]
         return states if limit is None else states[:limit]
 
     def acquire_lease(

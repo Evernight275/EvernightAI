@@ -304,6 +304,7 @@ class ChatApplication(ChatInterfaceProtocol):
             principal_scope,
         )
 
+
 class _ContextAppendingChatStream:
     def __init__(
         self,
@@ -368,11 +369,7 @@ class _ContextAppendingChatStream:
 
     def _assistant_message(self) -> Content | None:
         text = "".join(self._text_deltas)
-        content = (
-            [ContentPart(type=ContentPartType.TEXT, text=text)]
-            if text
-            else None
-        )
+        content = [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
         tool_calls = self._tool_calls or None
         if content is None and tool_calls is None:
             return None

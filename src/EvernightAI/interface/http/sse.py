@@ -48,7 +48,9 @@ def chat_stream_response_body_from(
     return _iter_chat_stream_response_body_from(stream_factory)
 
 
-async def _iter_sse_response_body(events: AsyncIterable[SSEEvent]) -> AsyncIterator[str]:
+async def _iter_sse_response_body(
+    events: AsyncIterable[SSEEvent],
+) -> AsyncIterator[str]:
     try:
         async for event in events:
             yield format_sse_event(event)
@@ -65,7 +67,9 @@ async def _iter_chat_stream_response_body(
         async for event in events:
             yield format_sse_event(chat_stream_event_to_sse_event(event))
     except EvernightAIError as error:
-        yield format_sse_event(chat_stream_event_to_sse_event(error_to_chat_stream_event(error)))
+        yield format_sse_event(
+            chat_stream_event_to_sse_event(error_to_chat_stream_event(error))
+        )
     finally:
         await _close_async_iterable(events)
 
@@ -79,7 +83,9 @@ async def _iter_chat_stream_response_body_from(
         async for event in stream:
             yield format_sse_event(chat_stream_event_to_sse_event(event))
     except EvernightAIError as error:
-        yield format_sse_event(chat_stream_event_to_sse_event(error_to_chat_stream_event(error)))
+        yield format_sse_event(
+            chat_stream_event_to_sse_event(error_to_chat_stream_event(error))
+        )
     finally:
         if stream is not None:
             await _close_async_iterable(stream)

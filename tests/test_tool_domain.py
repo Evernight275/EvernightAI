@@ -2,7 +2,11 @@ from typing import Any
 
 import pytest
 
-from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.error.tool import (
     ToolExecutionError,
     ToolInputError,
@@ -139,8 +143,9 @@ async def test_tool_manager_rejects_invalid_call_arguments() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_manager_rejects_preflight_policy_before_approval_and_execution(
-) -> None:
+async def test_tool_manager_rejects_preflight_policy_before_approval_and_execution() -> (
+    None
+):
     executed = False
 
     async def write(arguments: dict[str, object]) -> dict[str, object]:

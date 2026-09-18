@@ -73,7 +73,9 @@ def make_messages() -> list[Content]:
     ]
 
 
-def make_response(model_id: str = "gpt-test", output: list[Any] | None = None) -> Response:
+def make_response(
+    model_id: str = "gpt-test", output: list[Any] | None = None
+) -> Response:
     return Response(
         id="resp-1",
         created_at=123.0,
@@ -315,7 +317,9 @@ def test_maps_openai_response_usage_and_metadata_details() -> None:
             tools=[],
             status="incomplete",
             error=SimpleNamespace(model_dump=lambda: {"code": "rate_limit"}),
-            incomplete_details=SimpleNamespace(model_dump=lambda: {"reason": "max_tokens"}),
+            incomplete_details=SimpleNamespace(
+                model_dump=lambda: {"reason": "max_tokens"}
+            ),
             usage=SimpleNamespace(
                 input_tokens=10,
                 output_tokens=5,
@@ -326,7 +330,9 @@ def test_maps_openai_response_usage_and_metadata_details() -> None:
                         "cache_write_tokens": 4,
                     }
                 ),
-                output_tokens_details=SimpleNamespace(model_dump=lambda: {"reasoning_tokens": 3}),
+                output_tokens_details=SimpleNamespace(
+                    model_dump=lambda: {"reasoning_tokens": 3}
+                ),
             ),
         ),
     )
@@ -360,9 +366,7 @@ def test_maps_openai_response_to_chat_response() -> None:
     assert mapped.response_id == "resp-1"
     assert mapped.model_id == "gpt-test"
     assert mapped.finish_reason == "completed"
-    assert mapped.message.content == [
-        ContentPart(type=ContentPartType.TEXT, text="Hi")
-    ]
+    assert mapped.message.content == [ContentPart(type=ContentPartType.TEXT, text="Hi")]
 
 
 def test_maps_openai_response_refusal_to_chat_response() -> None:
@@ -526,21 +530,27 @@ def test_maps_single_response_stream_event() -> None:
 def test_response_stream_normalizer_falls_back_to_raw_events() -> None:
     normalizer = OpenAIResponsesStreamNormalizer()
 
-    assert normalizer._map_payload({"type": "response.output_item.added"}).event_type is (
-        ChatStreamEventType.RAW
+    assert normalizer._map_payload(
+        {"type": "response.output_item.added"}
+    ).event_type is (ChatStreamEventType.RAW)
+    assert normalizer._map_payload(
+        {"type": "response.output_text.delta", "delta": ""}
+    ).event_type is (ChatStreamEventType.RAW)
+    assert (
+        normalizer._map_payload(
+            {"type": "response.function_call_arguments.delta", "delta": ""}
+        ).event_type
+        is ChatStreamEventType.RAW
     )
-    assert normalizer._map_payload({"type": "response.output_text.delta", "delta": ""}).event_type is (
-        ChatStreamEventType.RAW
+    assert (
+        normalizer._map_payload(
+            {"type": "response.function_call_arguments.done"}
+        ).event_type
+        is ChatStreamEventType.RAW
     )
     assert normalizer._map_payload(
-        {"type": "response.function_call_arguments.delta", "delta": ""}
-    ).event_type is ChatStreamEventType.RAW
-    assert normalizer._map_payload(
-        {"type": "response.function_call_arguments.done"}
-    ).event_type is ChatStreamEventType.RAW
-    assert normalizer._map_payload({"type": "response.output_item.done"}).event_type is (
-        ChatStreamEventType.RAW
-    )
+        {"type": "response.output_item.done"}
+    ).event_type is (ChatStreamEventType.RAW)
     assert normalizer._map_payload({"type": "response.completed"}).event_type is (
         ChatStreamEventType.RAW
     )
@@ -571,7 +581,7 @@ def test_response_stream_normalizer_handles_loose_function_call_events() -> None
             "type": "response.function_call_arguments.delta",
             "response_id": "resp-1",
             "item_id": "item-1",
-            "delta": "{\"query\":",
+            "delta": '{"query":',
             "output_index": 0,
         }
     )
@@ -831,7 +841,9 @@ async def test_openai_responses_instance_stream_allows_undeclared_model() -> Non
 
 
 @pytest.mark.asyncio
-async def test_openai_responses_instance_stream_maps_reasoning_effort_metadata() -> None:
+async def test_openai_responses_instance_stream_maps_reasoning_effort_metadata() -> (
+    None
+):
     instance = OpenAIResponsesProviderInstance(make_config())
     responses = FakeResponses()
     fake_client = FakeClient(responses)
@@ -966,7 +978,9 @@ async def test_openai_responses_stream_maps_text_delta_and_item_done() -> None:
 
 
 @pytest.mark.asyncio
-async def test_openai_responses_instance_lists_declared_models_without_remote_discovery() -> None:
+async def test_openai_responses_instance_lists_declared_models_without_remote_discovery() -> (
+    None
+):
     instance = OpenAIResponsesProviderInstance(make_config())
     fake_client = FakeClient(
         FakeResponses(),
@@ -985,7 +999,9 @@ async def test_openai_responses_instance_lists_declared_models_without_remote_di
 
 
 @pytest.mark.asyncio
-async def test_openai_responses_instance_lists_remote_models_when_discovery_enabled() -> None:
+async def test_openai_responses_instance_lists_remote_models_when_discovery_enabled() -> (
+    None
+):
     instance = OpenAIResponsesProviderInstance(make_config(discover_models=True))
     fake_client = FakeClient(
         FakeResponses(),
@@ -1008,7 +1024,9 @@ async def test_openai_responses_instance_lists_remote_models_when_discovery_enab
 
 
 @pytest.mark.asyncio
-async def test_openai_responses_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+async def test_openai_responses_instance_falls_back_to_declared_models_when_discovery_fails() -> (
+    None
+):
     instance = OpenAIResponsesProviderInstance(make_config(discover_models=True))
     fake_client = FakeClient(
         FakeResponses(),
@@ -1036,12 +1054,12 @@ class FakeResponses:
         self.params = params
         if params.get("stream") is True:
             events = self._stream_events or [
-                    ResponseCompletedEvent(
-                        response=make_response("provider-model"),
-                        sequence_number=0,
-                        type="response.completed",
-                    )
-                ]
+                ResponseCompletedEvent(
+                    response=make_response("provider-model"),
+                    sequence_number=0,
+                    type="response.completed",
+                )
+            ]
             return FakeResponseStream(events)
 
         return make_response()

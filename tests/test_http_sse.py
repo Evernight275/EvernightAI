@@ -29,11 +29,7 @@ def test_format_sse_event_encodes_all_fields_and_multiline_data() -> None:
     )
 
     assert format_sse_event(event) == (
-        "event: message\n"
-        "id: event-1\n"
-        "retry: 1500\n"
-        "data: 你好\n"
-        "data: second line\n\n"
+        "event: message\nid: event-1\nretry: 1500\ndata: 你好\ndata: second line\n\n"
     )
 
 
@@ -49,9 +45,7 @@ def test_format_sse_event_prevents_field_line_injection() -> None:
     )
 
     assert format_sse_event(event) == (
-        "event: messageevent: injected\n"
-        "id: event-1id: injected\n"
-        "data: payload\n\n"
+        "event: messageevent: injected\nid: event-1id: injected\ndata: payload\n\n"
     )
 
 

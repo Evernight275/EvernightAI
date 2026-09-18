@@ -4,7 +4,10 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from EvernightAI.bootstrap.config import create_unsecured_interface_from_config
-from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
+from EvernightAI.bootstrap.interface import (
+    create_authorized_interface,
+    create_interface,
+)
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.error.base import ConfigurationError
@@ -44,9 +47,8 @@ def create_app(
     file_root = filesystem_root or _env_optional_path("EVERNIGHTAI_FILESYSTEM_ROOT")
     runtime = create_sqlite_runtime(
         database_path or _env_path("EVERNIGHTAI_DATABASE_PATH", DEFAULT_DATABASE_PATH),
-        filesystem_root=filesystem_root or _env_optional_path(
-            "EVERNIGHTAI_FILESYSTEM_ROOT"
-        ),
+        filesystem_root=filesystem_root
+        or _env_optional_path("EVERNIGHTAI_FILESYSTEM_ROOT"),
         allow_file_overwrite=_env_bool("EVERNIGHTAI_ALLOW_FILE_OVERWRITE", False),
         shell_allowed_commands=_env_optional_set("EVERNIGHTAI_SHELL_ALLOWED_COMMANDS"),
         shell_blocked_commands=_env_optional_set("EVERNIGHTAI_SHELL_BLOCKED_COMMANDS"),
@@ -106,7 +108,8 @@ def create_app_from_config(
         auth_device=_config_auth_device(config),
         workspace_directories=(
             WorkspaceDirectoryStore(config.tools.filesystem.root)
-            if config.tools.filesystem.enabled else None
+            if config.tools.filesystem.enabled
+            else None
         ),
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
@@ -300,11 +303,7 @@ def _env_optional_set(name: str) -> set[str] | None:
     if value is None or value.strip() == "":
         return None
 
-    return {
-        item.strip()
-        for item in value.split(",")
-        if item.strip()
-    }
+    return {item.strip() for item in value.split(",") if item.strip()}
 
 
 def _env_set(name: str) -> list[str]:
@@ -312,11 +311,7 @@ def _env_set(name: str) -> list[str]:
     if value is None or value.strip() == "":
         return []
 
-    return [
-        item.strip()
-        for item in value.split(",")
-        if item.strip()
-    ]
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _env_bool(name: str, default: bool) -> bool:

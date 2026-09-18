@@ -119,9 +119,7 @@ class InMemoryToolExecutionRegister(ToolExecutionRegisterProtocol):
         try:
             return self.attempts[(run_id, tool_call_id, attempt)]
         except KeyError as error:
-            raise AgentStateError(
-                "The tool execution attempt is not found"
-            ) from error
+            raise AgentStateError("The tool execution attempt is not found") from error
 
     def list_attempts(
         self,
@@ -130,10 +128,6 @@ class InMemoryToolExecutionRegister(ToolExecutionRegisterProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[ToolExecutionAttempt]:
         return sorted(
-            (
-                attempt
-                for attempt in self.attempts.values()
-                if attempt.run_id == run_id
-            ),
+            (attempt for attempt in self.attempts.values() if attempt.run_id == run_id),
             key=lambda attempt: (attempt.tool_call_id, attempt.attempt),
         )

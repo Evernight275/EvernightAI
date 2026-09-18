@@ -138,8 +138,10 @@ async def replace_context(
     ],
     interface: InterfaceDependency,
 ) -> Context:
-    updated = context if context.context_id == context_id else context.model_copy(
-        update={"context_id": context_id}
+    updated = (
+        context
+        if context.context_id == context_id
+        else context.model_copy(update={"context_id": context_id})
     )
     return await interface.chat.replace_context(updated)
 

@@ -216,9 +216,7 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
                 values,
             )
             if cursor.rowcount == 0:
-                raise AgentStateError(
-                    f"The agent run state {run_id} is not registered"
-                )
+                raise AgentStateError(f"The agent run state {run_id} is not registered")
 
     def acquire_lease(
         self,
@@ -253,9 +251,12 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
             )
             if cursor.rowcount != 1:
                 where, values = _scoped_identity("run_id", run_id, principal_scope)
-                if self._connection.execute(
-                    f"SELECT 1 FROM agent_run_states WHERE {where}", values
-                ).fetchone() is None:
+                if (
+                    self._connection.execute(
+                        f"SELECT 1 FROM agent_run_states WHERE {where}", values
+                    ).fetchone()
+                    is None
+                ):
                     raise AgentStateError(f"The agent run state {run_id} is not found")
                 raise AgentStateError(f"The agent run {run_id} lease is held")
             row = self._connection.execute(

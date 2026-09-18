@@ -27,7 +27,12 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionStatus,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, Content, MessageRole
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    Content,
+    MessageRole,
+)
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery
 from EvernightAI.core.schema.provider import (
@@ -46,7 +51,9 @@ from EvernightAI.infra.adapters.agent.sqlite import (
 )
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
-from EvernightAI.infra.adapters.providers.secrets import EnvironmentProviderSecretResolver
+from EvernightAI.infra.adapters.providers.secrets import (
+    EnvironmentProviderSecretResolver,
+)
 from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.sqlite import SQLiteMigrationRunner, connect_sqlite
@@ -125,7 +132,10 @@ def test_sqlite_stores_enforce_principal_scope(tmp_path: Path) -> None:
     assert contexts.get("ctx-1", principal_scope=owner_scope).owner_id == "owner-1"
     assert memories.get("memory-1", principal_scope=owner_scope).owner_id == "owner-1"
     assert sessions.get("session-1", principal_scope=owner_scope).owner_id == "owner-1"
-    assert agent_states.get_state("run-1", principal_scope=owner_scope).owner_id == "owner-1"
+    assert (
+        agent_states.get_state("run-1", principal_scope=owner_scope).owner_id
+        == "owner-1"
+    )
     with pytest.raises(ContextNotFoundError):
         contexts.get("ctx-1", principal_scope=other_scope)
     with pytest.raises(MemoryNotFoundError):
@@ -365,7 +375,9 @@ async def test_single_process_executor_enforces_timeout(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_single_process_executor_controls_stream_lifecycle(tmp_path: Path) -> None:
+async def test_single_process_executor_controls_stream_lifecycle(
+    tmp_path: Path,
+) -> None:
     register = SQLiteAgentRunStateRegister(tmp_path / "runtime.sqlite3")
     register.create_state(_running_state("run-1"))
     executor = SingleProcessAgentRunExecutor(register, default_timeout_seconds=None)
@@ -494,10 +506,16 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
         assert runtime_metadata["pause_source"] == "lease_expired"
         assert runtime_metadata["pause_checkpoint"] == "tool_execution_incomplete"
         assert runtime_metadata["recovery_eligible"] is False
-        assert trace_register.list_events("run-1")[-1].metadata["reason"] == "lease_expired"
+        assert (
+            trace_register.list_events("run-1")[-1].metadata["reason"]
+            == "lease_expired"
+        )
         execution_register = runtime.tool_execution_register
         assert execution_register is not None
-        assert execution_register.list_attempts("run-1")[0].status is ToolExecutionStatus.UNKNOWN
+        assert (
+            execution_register.list_attempts("run-1")[0].status
+            is ToolExecutionStatus.UNKNOWN
+        )
 
         with pytest.raises(AgentStateError, match="cannot resume safely"):
             await AgentRunApplication(runtime).resume("run-1", [])

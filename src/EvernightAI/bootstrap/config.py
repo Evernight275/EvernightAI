@@ -1,7 +1,10 @@
 import os
 from typing import Any
 
-from EvernightAI.bootstrap.interface import create_authorized_interface, create_interface
+from EvernightAI.bootstrap.interface import (
+    create_authorized_interface,
+    create_interface,
+)
 from EvernightAI.bootstrap.runtime import (
     create_bubblewrap_sandbox_executor,
     create_sandbox_executor,
@@ -223,9 +226,7 @@ def _runtime_context_options(config: EvernightConfig) -> dict[str, Any]:
         "context_max_messages": context_strategy.max_messages,
         "context_max_tokens": context_strategy.max_tokens,
         "context_enable_summary": context_strategy.enable_summary,
-        "context_summarize_after_messages": (
-            context_strategy.summarize_after_messages
-        ),
+        "context_summarize_after_messages": (context_strategy.summarize_after_messages),
         "context_keep_recent_messages": context_strategy.keep_recent_messages,
     }
 

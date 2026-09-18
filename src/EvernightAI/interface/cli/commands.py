@@ -71,9 +71,7 @@ def list_providers(config: EvernightConfig) -> str:
 def list_models(config: EvernightConfig, provider_id: str) -> str:
     provider = _find_provider(config, provider_id)
     if provider is None:
-        raise ConfigurationError(
-            f"Provider '{provider_id}' is not declared in config"
-        )
+        raise ConfigurationError(f"Provider '{provider_id}' is not declared in config")
 
     if not provider.model:
         return f"No models declared for provider '{provider_id}'."
@@ -81,10 +79,7 @@ def list_models(config: EvernightConfig, provider_id: str) -> str:
     rows = [
         [
             model.model_id,
-            ", ".join(
-                capability.value for capability in model.capabilities
-            )
-            or "-",
+            ", ".join(capability.value for capability in model.capabilities) or "-",
         ]
         for model in provider.model.values()
     ]
@@ -408,13 +403,9 @@ async def run_chat(
 ) -> str:
     provider_config = _find_provider(config, provider_id)
     if provider_config is None:
-        raise ConfigurationError(
-            f"Provider '{provider_id}' is not declared in config"
-        )
+        raise ConfigurationError(f"Provider '{provider_id}' is not declared in config")
     if not provider_config.is_enabled:
-        raise ConfigurationError(
-            f"Provider '{provider_id}' is disabled in config"
-        )
+        raise ConfigurationError(f"Provider '{provider_id}' is disabled in config")
 
     await interface.providers.create_provider(provider_config)
     request = ChatRequest(
@@ -432,9 +423,7 @@ async def run_chat(
 
 def format_config_summary(config: EvernightConfig) -> str:
     enabled_providers = [
-        provider
-        for provider in config.providers
-        if provider.is_enabled
+        provider for provider in config.providers if provider.is_enabled
     ]
     mcp_servers = list(config.tools.mcp.server.values())
     lines = [
@@ -481,9 +470,7 @@ def _extract_text(message: Content) -> str:
         return ""
 
     return "".join(
-        part.text or ""
-        for part in message.content
-        if part.type is ContentPartType.TEXT
+        part.text or "" for part in message.content if part.type is ContentPartType.TEXT
     )
 
 
@@ -529,11 +516,7 @@ def _json_object(value: str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ConfigurationError("Expected a JSON object")
 
-    return {
-        key: item
-        for key, item in parsed.items()
-        if isinstance(key, str)
-    }
+    return {key: item for key, item in parsed.items() if isinstance(key, str)}
 
 
 def _json_value(value: str) -> object:
@@ -554,8 +537,7 @@ def _format_table(headers: list[str], rows: list[list[str]]) -> str:
     header_line = "  ".join(header.ljust(widths[header]) for header in headers)
     body_lines = [
         "  ".join(
-            row[index].ljust(widths[header])
-            for index, header in enumerate(headers)
+            row[index].ljust(widths[header]) for index, header in enumerate(headers)
         )
         for row in rows
     ]

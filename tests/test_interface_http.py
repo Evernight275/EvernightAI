@@ -27,9 +27,16 @@ from EvernightAI.core.domain.memory import (
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.domain.runtime import RuntimeKernel
-from EvernightAI.core.domain.tool import BasicToolSafetyPolicy, ToolManager, ToolRegister
+from EvernightAI.core.domain.tool import (
+    BasicToolSafetyPolicy,
+    ToolManager,
+    ToolRegister,
+)
 from EvernightAI.core.error.auth import AuthPermissionDeniedError, AuthRequiredError
-from EvernightAI.core.error.provider import ProviderRequestError, ProviderUnavailableError
+from EvernightAI.core.error.provider import (
+    ProviderRequestError,
+    ProviderUnavailableError,
+)
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -180,12 +187,8 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
         "max_tool_rounds": 0,
         "metadata": {"request_id": "agent-stream-1"},
     }
-    assert agent_pause_examples["withReason"]["value"] == {
-        "reason": "operator paused"
-    }
-    assert agent_cancel_examples["withReason"]["value"] == {
-        "reason": "operator paused"
-    }
+    assert agent_pause_examples["withReason"]["value"] == {"reason": "operator paused"}
+    assert agent_cancel_examples["withReason"]["value"] == {"reason": "operator paused"}
     assert agent_pause_response_example["status"] == "running"
     assert agent_pause_response_example["metadata"]["agent_runtime"] == {
         "pause_requested": True,
@@ -262,7 +265,9 @@ def test_http_request_id_is_returned_and_logged(
             )
 
     record = next(
-        item for item in caplog.records if item.name == "EvernightAI.interface.http.access"
+        item
+        for item in caplog.records
+        if item.name == "EvernightAI.interface.http.access"
     )
     assert response.headers["X-Request-ID"] == "request-1"
     assert getattr(record, "request_id") == "request-1"
@@ -543,8 +548,7 @@ def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
         "scheme": "bearer",
         "bearerFormat": "OAuth Access Token",
         "description": (
-            "Send an OAuth access token or API key as "
-            "`Authorization: Bearer <token>`."
+            "Send an OAuth access token or API key as `Authorization: Bearer <token>`."
         ),
     }
     assert schema["components"]["securitySchemes"]["EvernightApiKey"] == {
@@ -668,8 +672,7 @@ def test_http_app_chat_context_retry_marks_old_branch() -> None:
         "Original question",
     ]
     assert [
-        message.get("status")
-        for message in stored_context_response.json()["messages"]
+        message.get("status") for message in stored_context_response.json()["messages"]
     ] == [
         None,
         MessageStatus.REJECTED.value,
@@ -908,9 +911,7 @@ def test_http_app_exposes_session_routes() -> None:
     assert create_response.json()["status"] == "active"
     assert create_response.json()["context_id"] == "ctx-1"
     assert list_response.status_code == 200
-    assert [session["session_id"] for session in list_response.json()] == [
-        "session-1"
-    ]
+    assert [session["session_id"] for session in list_response.json()] == ["session-1"]
     assert get_response.status_code == 200
     assert get_response.json()["title"] == "First chat"
     assert created_context_response.status_code == 200
@@ -1087,7 +1088,9 @@ def test_http_app_chats_with_session_defaults_and_memory() -> None:
     assert provider.last_request.metadata["request_id"] == "req-1"
     assert provider.last_request.metadata["context_id"] == "ctx-1"
     assert provider.last_request.metadata["memory_ids"] == ["session-memory"]
-    assert [message["content"][0]["text"] for message in context_response.json()["messages"]] == [
+    assert [
+        message["content"][0]["text"] for message in context_response.json()["messages"]
+    ] == [
         "Hello",
         "ok",
     ]
@@ -1148,7 +1151,9 @@ def test_http_app_starts_agent_run_from_session_defaults() -> None:
     assert stored_response.json()["status"] == "finished"
     assert provider.last_request is not None
     assert provider.last_request.metadata["session_id"] == "session-1"
-    assert [message["content"][0]["text"] for message in context_response.json()["messages"]] == [
+    assert [
+        message["content"][0]["text"] for message in context_response.json()["messages"]
+    ] == [
         "Use the session",
         "ok",
     ]
@@ -1197,8 +1202,7 @@ def test_http_app_logs_downstream_agent_run_failures(
     assert response.json()["error"]["type"] == "ProviderRequestError"
     assert any(
         "HTTP request failed: POST /sessions/session-1/agent-runs -> 502 "
-        "ProviderRequestError: upstream rejected request"
-        in record.getMessage()
+        "ProviderRequestError: upstream rejected request" in record.getMessage()
         for record in caplog.records
     )
 
@@ -1264,7 +1268,9 @@ def test_http_app_exposes_skill_routes() -> None:
     assert rendered["metadata"] == {"source": "fake"}
     assert default_render_response.status_code == 200
     assert default_render_response.json()["render_id"] == "summarize-0"
-    assert default_render_response.json()["messages"][0]["content"][0]["text"] == "default"
+    assert (
+        default_render_response.json()["messages"][0]["content"][0]["text"] == "default"
+    )
     assert missing_response.status_code == 404
 
 
@@ -1325,7 +1331,8 @@ def test_http_app_orchestrates_chat_skills() -> None:
     assert [
         message["content"][0]["text"]
         for message in [
-            message.model_dump(mode="json") for message in provider.last_request.messages
+            message.model_dump(mode="json")
+            for message in provider.last_request.messages
         ]
     ] == ["Use concise style", "Hello"]
     assert provider.last_request.skills is None
@@ -1502,8 +1509,7 @@ def test_http_app_exposes_chat_context_stream_route() -> None:
         "Hello",
     ]
     assert [
-        message["content"][0]["text"]
-        for message in context_response.json()["messages"]
+        message["content"][0]["text"] for message in context_response.json()["messages"]
     ] == ["Stored", "Hello", "hello"]
 
 
@@ -2055,12 +2061,9 @@ def test_http_websocket_receive_loop_stays_responsive_during_stream() -> None:
             )
             early_messages = [websocket.receive_json() for _ in range(2)]
 
-    assert "heartbeat_ack" in [
-        message["message_type"] for message in early_messages
-    ]
+    assert "heartbeat_ack" in [message["message_type"] for message in early_messages]
     assert "run_stopped" not in [
-        message.get("trace_event", {}).get("event_type")
-        for message in early_messages
+        message.get("trace_event", {}).get("event_type") for message in early_messages
     ]
 
 
@@ -2155,12 +2158,11 @@ def test_http_websocket_replays_trace_after_reconnect() -> None:
         "run_stopped",
     ]
     assert [message["payload"]["sequence"] for message in replayed_messages] == [2, 3]
-    assert [
-        message["trace_event"]["sequence"] for message in replayed_messages
-    ] == [2, 3]
-    assert {message["payload"]["replayed"] for message in replayed_messages} == {
-        True
-    }
+    assert [message["trace_event"]["sequence"] for message in replayed_messages] == [
+        2,
+        3,
+    ]
+    assert {message["payload"]["replayed"] for message in replayed_messages} == {True}
     assert subscribed["message_type"] == "client_event"
     assert subscribed["correlation_id"] == "subscribe-1"
     assert subscribed["client_event"]["event_name"] == "agent_run.subscribed"
@@ -2406,9 +2408,7 @@ def test_http_websocket_resumes_manually_paused_agent_run() -> None:
     assert [message["trace_event"]["event_type"] for message in resumed_messages] == [
         "run_stopped",
     ]
-    assert {message["correlation_id"] for message in resumed_messages} == {
-        "resume-1"
-    }
+    assert {message["correlation_id"] for message in resumed_messages} == {"resume-1"}
     assert state_register.get_state("run-ws").status.value == "finished"
 
 
@@ -2611,9 +2611,7 @@ def test_http_websocket_resumes_agent_run_with_tool_approval() -> None:
         "chat_completed",
         "run_stopped",
     ]
-    assert {message["correlation_id"] for message in resumed_messages} == {
-        "approval-1"
-    }
+    assert {message["correlation_id"] for message in resumed_messages} == {"approval-1"}
     assert tool_executed is True
     assert len(provider.requests) == 2
 
@@ -3309,9 +3307,7 @@ def test_http_app_lists_and_resolves_unknown_tool_execution() -> None:
     app = create_http_app(create_interface(runtime), close_on_shutdown=False)
 
     with TestClient(app) as client:
-        list_response = client.get(
-            "/agent-runs/run-unknown/tool-executions"
-        )
+        list_response = client.get("/agent-runs/run-unknown/tool-executions")
         resolve_response = client.post(
             "/agent-runs/run-unknown/tool-executions/call-1/1/resolve",
             json={
@@ -3326,9 +3322,10 @@ def test_http_app_lists_and_resolves_unknown_tool_execution() -> None:
     assert list_response.json()[0]["status"] == "unknown"
     assert list_response.json()[0]["replay_policy"] == "non_replayable"
     assert resolve_response.status_code == 200
-    assert resolve_response.json()["metadata"]["agent_runtime"][
-        "recovery_eligible"
-    ] is True
+    assert (
+        resolve_response.json()["metadata"]["agent_runtime"]["recovery_eligible"]
+        is True
+    )
     execution = execution_register.get_attempt("run-unknown", "call-1", 1)
     assert execution.status is ToolExecutionStatus.COMPLETED
     assert execution.result is not None
@@ -3609,9 +3606,7 @@ class SlowProvider(FakeProvider):
 class FailingStreamProvider(FakeProvider):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         self.last_request = request
-        return FailingChatStream(
-            ProviderUnavailableError("provider stream failed")
-        )
+        return FailingChatStream(ProviderUnavailableError("provider stream failed"))
 
 
 class ImmediateFailingStreamProvider(FakeProvider):
@@ -3737,12 +3732,19 @@ def test_identity_reports_unsecured_mode_without_inventing_a_user() -> None:
 def test_identity_requires_valid_credentials_and_omits_private_metadata() -> None:
     app = create_http_app(
         create_interface(make_runtime()),
-        auth_device=ApiKeyHttpAuthDevice([
-            HttpApiKeyCredential(api_key="secret", principal=Principal(
-                principal_id="alice", roles=["reader"], permissions=[],
-                metadata={"private": "do-not-expose"},
-            )),
-        ]),
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="secret",
+                    principal=Principal(
+                        principal_id="alice",
+                        roles=["reader"],
+                        permissions=[],
+                        metadata={"private": "do-not-expose"},
+                    ),
+                ),
+            ]
+        ),
         close_on_shutdown=False,
     )
     with TestClient(app) as client:
@@ -3753,7 +3755,13 @@ def test_identity_requires_valid_credentials_and_omits_private_metadata() -> Non
         response = client.get("/auth/me", headers={"x-evernight-api-key": "secret"})
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert response.json() == {"authentication_enabled": True, "principal": {
-        "principal_id": "alice", "principal_type": "user", "roles": ["reader"], "permissions": [],
-    }}
+    assert response.json() == {
+        "authentication_enabled": True,
+        "principal": {
+            "principal_id": "alice",
+            "principal_type": "user",
+            "roles": ["reader"],
+            "permissions": [],
+        },
+    }
     assert "secret" not in response.text

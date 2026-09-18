@@ -270,9 +270,7 @@ async def test_manager_delegates_model_queries_to_provider_instance() -> None:
 
     models = await manager.list_models("provider-1")
     model = await manager.get_model("provider-1", "model-1")
-    supports_chat = await manager.supports(
-        "provider-1", ProviderModelCapability.CHAT
-    )
+    supports_chat = await manager.supports("provider-1", ProviderModelCapability.CHAT)
 
     assert models == [model]
     assert model.model_id == "model-1"
@@ -415,7 +413,9 @@ async def test_manager_logs_stream_usage_after_consumption(
         )
         _ = [event async for event in stream]
 
-    record = next(item for item in caplog.records if item.name == "EvernightAI.provider")
+    record = next(
+        item for item in caplog.records if item.name == "EvernightAI.provider"
+    )
     assert getattr(record, "prompt_tokens") == 3
     assert getattr(record, "completion_tokens") == 2
     assert getattr(record, "total_tokens") == 5

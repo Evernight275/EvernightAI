@@ -46,7 +46,9 @@ def make_memory(
 
 
 @contextmanager
-def memory_register(kind: str, tmp_path: Path) -> Iterator[MemoryRegister | SQLiteMemoryRegister]:
+def memory_register(
+    kind: str, tmp_path: Path
+) -> Iterator[MemoryRegister | SQLiteMemoryRegister]:
     if kind == "memory":
         yield MemoryRegister()
         return

@@ -120,9 +120,7 @@ def test_entrypoint_cli_skill_commands(
     assert "summarize" in list_output
 
     assert (
-        entrypoint_main(
-            ["skill", "show", "summarize", "--config", str(config_path)]
-        )
+        entrypoint_main(["skill", "show", "summarize", "--config", str(config_path)])
         == 0
     )
     show_output = capsys.readouterr().out
@@ -576,7 +574,6 @@ class FailingProviderCommand:
 
 
 class FailingChatCommand:
-
     async def chat(
         self,
         _provider_id: str,
@@ -620,9 +617,7 @@ class FakeChatOperations:
 
     async def append_context(self, context_id: str, message: Content) -> Context:
         context = self.contexts[context_id]
-        updated = context.model_copy(
-            update={"messages": [*context.messages, message]}
-        )
+        updated = context.model_copy(update={"messages": [*context.messages, message]})
         self.contexts[context_id] = updated
         return updated
 

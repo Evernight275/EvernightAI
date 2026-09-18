@@ -69,9 +69,7 @@ class ToolDefinition(EvernightAISchema):
             self.replay_policy is ToolReplayPolicy.IDEMPOTENT
             and not self.idempotency_key_parameter
         ):
-            raise ValueError(
-                "Idempotent tools must declare idempotency_key_parameter"
-            )
+            raise ValueError("Idempotent tools must declare idempotency_key_parameter")
         return self
 
 

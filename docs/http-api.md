@@ -636,6 +636,25 @@ retried without its ownership scope.
 
 ### Working folders
 
+Configure the shared root in `config.toml`:
+
+```toml
+[tools.filesystem]
+enabled = true
+root = "/srv/evernight/workspaces"
+```
+
+Create this directory before starting the service. Absolute paths avoid dependence
+on the startup directory; `root = "."` means the process working directory, not
+necessarily the directory containing `config.toml`. The sidebar browser and
+filesystem tools use the same root. Restart the backend after changing it, then
+select a folder under the new root in the browser.
+
+Start with `evernight-http --config config.toml` to load this configuration.
+The direct `uvicorn EvernightAI.bootstrap.http:create_app --factory` entry instead
+uses environment variables, including `EVERNIGHTAI_FILESYSTEM_ROOT`; it does not
+read `config.toml`.
+
 With filesystem tools enabled, `GET /workspaces?path=.` lists up to 500 entries
 inside their configured root. `POST /workspaces` with `{"path":".","name":"demo"}`
 creates a child directory. Authentication requires `workspaces:list` or

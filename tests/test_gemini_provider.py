@@ -5,7 +5,10 @@ import pytest
 
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.error.provider import ProviderResponseError
-from EvernightAI.core.error.provider import ProviderNotFoundError, ProviderUnavailableError
+from EvernightAI.core.error.provider import (
+    ProviderNotFoundError,
+    ProviderUnavailableError,
+)
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -163,9 +166,7 @@ def test_maps_gemini_response_to_chat_response() -> None:
     assert mapped.response_id == "resp-1"
     assert mapped.model_id == "gemini-test"
     assert mapped.finish_reason == "STOP"
-    assert mapped.message.content == [
-        ContentPart(type=ContentPartType.TEXT, text="Hi")
-    ]
+    assert mapped.message.content == [ContentPart(type=ContentPartType.TEXT, text="Hi")]
     assert mapped.usage is not None
     assert mapped.usage.total_tokens == 5
 
@@ -672,7 +673,9 @@ async def test_gemini_instance_lists_remote_models_when_discovery_enabled() -> N
 
 
 @pytest.mark.asyncio
-async def test_gemini_instance_falls_back_to_declared_models_when_discovery_fails() -> None:
+async def test_gemini_instance_falls_back_to_declared_models_when_discovery_fails() -> (
+    None
+):
     instance = GeminiProviderInstance(make_config(discover_models=True))
     fake_client = FakeGeminiClient(
         get_error=httpx.ConnectError(

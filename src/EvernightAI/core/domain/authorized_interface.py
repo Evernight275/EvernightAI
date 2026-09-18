@@ -14,7 +14,10 @@ from EvernightAI.core.protocol.interface import (
     ToolInterfaceProtocol,
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.protocol.stream import AgentTraceStreamProtocol, ChatStreamProtocol
+from EvernightAI.core.protocol.stream import (
+    AgentTraceStreamProtocol,
+    ChatStreamProtocol,
+)
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunResult,
@@ -30,7 +33,12 @@ from EvernightAI.core.schema.auth import (
     Principal,
     PrincipalScope,
 )
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    ChatSkill,
+    Content,
+)
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
     DataAnalysisRequest,

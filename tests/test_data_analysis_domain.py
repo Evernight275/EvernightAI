@@ -230,7 +230,10 @@ def test_data_analysis_register_replaces_analyzer_and_closes_executor_once() -> 
     assert register.get_analyzer("orders") is None
 
     register.register(make_source(), executor.statistics)
-    register.register(make_source().model_copy(update={"source_id": "orders-copy"}), executor.statistics)
+    register.register(
+        make_source().model_copy(update={"source_id": "orders-copy"}),
+        executor.statistics,
+    )
     register.close()
 
     assert executor.close_count == 1
@@ -256,7 +259,9 @@ async def test_data_analysis_manager_rejects_unknown_metric() -> None:
 
 
 @pytest.mark.asyncio
-async def test_data_analysis_manager_rejects_invalid_statistics_request_fields() -> None:
+async def test_data_analysis_manager_rejects_invalid_statistics_request_fields() -> (
+    None
+):
     async def statistics(
         request: DataStatisticsRequest,
     ) -> DataStatisticsResult:
@@ -404,7 +409,9 @@ async def test_data_analysis_manager_preserves_analysis_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_data_analysis_manager_requires_statistics_request_without_analyzer() -> None:
+async def test_data_analysis_manager_requires_statistics_request_without_analyzer() -> (
+    None
+):
     async def statistics(
         request: DataStatisticsRequest,
     ) -> DataStatisticsResult:

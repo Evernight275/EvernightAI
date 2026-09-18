@@ -18,9 +18,13 @@ def compose_scoped_memory_query(
 ) -> MemoryQuery:
     scopes: list[MemoryScopeSelector] = []
     if context_id:
-        scopes.append(MemoryScopeSelector(scope=MemoryScope.CONTEXT, scope_id=context_id))
+        scopes.append(
+            MemoryScopeSelector(scope=MemoryScope.CONTEXT, scope_id=context_id)
+        )
     if session_id:
-        scopes.append(MemoryScopeSelector(scope=MemoryScope.SESSION, scope_id=session_id))
+        scopes.append(
+            MemoryScopeSelector(scope=MemoryScope.SESSION, scope_id=session_id)
+        )
     if user_id:
         scopes.append(MemoryScopeSelector(scope=MemoryScope.USER, scope_id=user_id))
     scopes.append(MemoryScopeSelector(scope=MemoryScope.GLOBAL))
@@ -63,7 +67,9 @@ async def write_memory_candidate(
     )
     if existing is None:
         created = memory.model_copy(
-            update={"metadata": _with_write_operation(memory, MemoryWriteOperation.CREATE)}
+            update={
+                "metadata": _with_write_operation(memory, MemoryWriteOperation.CREATE)
+            }
         )
         return (
             await runtime.memories.create(
