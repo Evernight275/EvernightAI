@@ -1,12 +1,9 @@
+import { ApiError } from '../api/client'
 import { assign, createActor, fromPromise, setup } from 'xstate'
-import type {
-  AgentRunState,
-  AgentTraceEvent,
-  Session,
-  ToolDefinition,
-} from '../api'
+import type { AgentRunState, AgentTraceEvent, Session, ToolDefinition } from '../api'
 import {
   applyChatTrace,
+  reconcileRunTranscript,
   completeStreamedResponse,
   userEntry,
   type ChatSubmission,
@@ -24,6 +21,8 @@ import {
   resumeChatRunStream,
   retryChatRun,
   streamChatRun,
+  recoverChatRun,
+  type ChatConnectionState,
   type ApprovalStatuses,
   type ChatCancelInput,
   type ChatClearInput,
@@ -53,9 +52,12 @@ export type ChatMachineContext = {
   deletedSessionId: string | null
   approvalStatuses: ApprovalStatuses
   error: unknown
+  connection: ChatConnectionState
 }
 
 export type ChatMachineEvent =
+  | { type: 'SNAPSHOT'; run: AgentRunState }
+  | { type: 'CONNECTION'; runId: string; connection: ChatConnectionState }
   | { type: 'AUTH_CHANGED' }
   | { type: 'SEND'; submission: ChatSubmission; tools: ToolDefinition[] }
   | { type: 'RETRY' }
@@ -70,13 +72,7 @@ export type ChatMachineEvent =
   | { type: 'TRACE'; event: AgentTraceEvent }
   | { type: 'CLEAR' }
 
-export type {
-  ChatCancelInput,
-  ChatClearInput,
-  ChatRequestInput,
-  ChatResumeInput,
-  ChatRetryInput,
-}
+export type { ChatCancelInput, ChatClearInput, ChatRequestInput, ChatResumeInput, ChatRetryInput }
 
 const emptyContext = (): ChatMachineContext => ({
   transcript: [],
@@ -91,17 +87,15 @@ const emptyContext = (): ChatMachineContext => ({
   sessionOperation: null,
   deletedSessionId: null,
   approvalStatuses: {},
+  connection: 'live' as const,
   error: null,
 })
 
 const sessionLoadedContext = {
-  transcript: ({ event }: { event: { output: ChatSessionSnapshot } }) => (
-    event.output.transcript
-  ),
+  transcript: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.transcript,
   trace: [],
-  contextId: ({ event }: { event: { output: ChatSessionSnapshot } }) => (
-    event.output.session.context_id
-  ),
+  contextId: ({ event }: { event: { output: ChatSessionSnapshot } }) =>
+    event.output.session.context_id,
   runId: null,
   contextReady: true,
   pending: null,
@@ -111,6 +105,7 @@ const sessionLoadedContext = {
   sessionOperation: null,
   deletedSessionId: null,
   approvalStatuses: {},
+  connection: 'live' as const,
   error: null,
 }
 
@@ -120,41 +115,62 @@ export const chatMachine = setup({
     events: {} as ChatMachineEvent,
   },
   actors: {
-    prepareContext: fromPromise<void, string>(({ input, signal }) => (
-      prepareChatContext(input, signal)
-    )),
-    streamChat: fromPromise<AgentRunState, ChatRequestInput>(({ input, signal }) => (
-      streamChatRun(input, signal)
-    )),
-    resumeChat: fromPromise<AgentRunState, ChatResumeInput & {
-      onTrace?: (event: AgentTraceEvent) => void
-    }>(({ input, signal }) => (
-      resumeChatRunStream(input, signal)
-    )),
-    retryChat: fromPromise<AgentRunState, ChatRetryInput>(({ input, signal }) => (
-      retryChatRun(input, signal)
-    )),
-    cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(({ input, signal }) => (
-      cancelChatRun(input, signal)
-    )),
-    clearChat: fromPromise<void, ChatClearInput>(({ input, signal }) => (
-      clearChatContext(input, signal)
-    )),
-    createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
-      createChatSession(input, signal)
-    )),
-    deleteSession: fromPromise<string, ChatSessionInput>(({ input, signal }) => (
-      deleteChatSession(input, signal)
-    )),
-    loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) => (
-      loadChatSession(input, signal)
-    )),
+    recoverChat: fromPromise<
+      AgentRunState,
+      {
+        runId: string
+        onSnapshot: (run: AgentRunState) => void
+        onConnection: (state: ChatConnectionState) => void
+      }
+    >(({ input, signal }) => recoverChatRun(input.runId, signal, input)),
+    prepareContext: fromPromise<void, string>(({ input, signal }) =>
+      prepareChatContext(input, signal),
+    ),
+    streamChat: fromPromise<AgentRunState, ChatRequestInput>(({ input, signal }) =>
+      streamChatRun(input, signal),
+    ),
+    resumeChat: fromPromise<
+      AgentRunState,
+      ChatResumeInput & {
+        onTrace?: (event: AgentTraceEvent) => void
+      }
+    >(({ input, signal }) => resumeChatRunStream(input, signal)),
+    retryChat: fromPromise<AgentRunState, ChatRetryInput>(({ input, signal }) =>
+      retryChatRun(input, signal),
+    ),
+    cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(({ input, signal }) =>
+      cancelChatRun(input, signal),
+    ),
+    clearChat: fromPromise<void, ChatClearInput>(({ input, signal }) =>
+      clearChatContext(input, signal),
+    ),
+    createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) =>
+      createChatSession(input, signal),
+    ),
+    deleteSession: fromPromise<string, ChatSessionInput>(({ input, signal }) =>
+      deleteChatSession(input, signal),
+    ),
+    loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(({ input, signal }) =>
+      loadChatSession(input, signal),
+    ),
   },
 }).createMachine({
   id: 'chat',
   initial: 'idle',
   context: emptyContext,
   on: {
+    SNAPSHOT: {
+      guard: ({ context, event }) => context.runId === event.run.run_id,
+      actions: assign({
+        run: ({ event }) => event.run,
+        trace: ({ context, event }) => (event.run.trace?.length ? event.run.trace : context.trace),
+        transcript: ({ context, event }) => reconcileRunTranscript(context.transcript, event.run),
+      }),
+    },
+    CONNECTION: {
+      guard: ({ context, event }) => context.runId === event.runId,
+      actions: assign({ connection: ({ event }) => event.connection }),
+    },
     AUTH_CHANGED: { target: '.idle', actions: assign(emptyContext), reenter: true },
     SESSION_UPDATED: {
       guard: ({ context, event }) => context.session?.session_id === event.session.session_id,
@@ -163,7 +179,11 @@ export const chatMachine = setup({
     DELETE_SESSION: {
       guard: ({ context, event }) => context.session?.session_id === event.sessionId,
       target: '.deletingSession',
-      actions: assign({ requestedSession: ({ context }) => context.session, sessionOperation: 'delete', error: null }),
+      actions: assign({
+        requestedSession: ({ context }) => context.session,
+        sessionOperation: 'delete',
+        error: null,
+      }),
     },
     CREATE_SESSION: {
       target: '.creatingSession',
@@ -191,7 +211,17 @@ export const chatMachine = setup({
           target: 'idle',
           actions: assign(({ event }) => ({ ...emptyContext(), deletedSessionId: event.output })),
         },
-        onError: { target: 'failed', actions: assign({ error: ({ event }) => event.error }) },
+        onError: [
+          {
+            guard: ({ context, event }) =>
+              !context.run &&
+              Boolean(context.pending) &&
+              event.error instanceof ApiError &&
+              event.error.status === 404,
+            target: 'streaming',
+          },
+          { target: 'failed', actions: assign({ error: ({ event }) => event.error }) },
+        ],
       },
     },
     creatingSession: {
@@ -304,6 +334,9 @@ export const chatMachine = setup({
           submission: (context.pending as ChatPendingRequest).submission,
           tools: (context.pending as ChatPendingRequest).tools,
           onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
+          onSnapshot: (run: AgentRunState) => self.send({ type: 'SNAPSHOT', run }),
+          onConnection: (connection: ChatConnectionState) =>
+            self.send({ type: 'CONNECTION', runId: context.runId!, connection }),
         }),
         onDone: {
           target: 'evaluatingRun',
@@ -325,7 +358,8 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
-            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
+            transcript: ({ context, event }) =>
+              applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -333,7 +367,10 @@ export const chatMachine = setup({
       },
     },
     approvalRequired: {
-      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
+      entry: assign({
+        transcript: ({ context }) =>
+          context.transcript.map((entry) => ({ ...entry, streaming: false })),
+      }),
       on: {
         APPROVE: [
           {
@@ -372,7 +409,10 @@ export const chatMachine = setup({
       },
     },
     resumeRequired: {
-      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
+      entry: assign({
+        transcript: ({ context }) =>
+          context.transcript.map((entry) => ({ ...entry, streaming: false })),
+      }),
       on: {
         RESUME: {
           target: 'resuming',
@@ -390,6 +430,9 @@ export const chatMachine = setup({
           run: context.run as AgentRunState,
           approvalStatuses: context.approvalStatuses,
           onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
+          onSnapshot: (run: AgentRunState) => self.send({ type: 'SNAPSHOT', run }),
+          onConnection: (connection: ChatConnectionState) =>
+            self.send({ type: 'CONNECTION', runId: context.runId!, connection }),
         }),
         onDone: {
           target: 'evaluatingRun',
@@ -410,7 +453,8 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
-            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
+            transcript: ({ context, event }) =>
+              applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -425,6 +469,9 @@ export const chatMachine = setup({
           run: context.run as AgentRunState,
           runId: context.runId as string,
           onTrace: (event: AgentTraceEvent) => self.send({ type: 'TRACE', event }),
+          onSnapshot: (run: AgentRunState) => self.send({ type: 'SNAPSHOT', run }),
+          onConnection: (connection: ChatConnectionState) =>
+            self.send({ type: 'CONNECTION', runId: context.runId!, connection }),
         }),
         onDone: {
           target: 'evaluatingRun',
@@ -446,7 +493,8 @@ export const chatMachine = setup({
         TRACE: {
           actions: assign({
             trace: ({ context, event }) => [...context.trace, event.event],
-            transcript: ({ context, event }) => applyChatTrace(context.transcript, event.event, context.runId || ''),
+            transcript: ({ context, event }) =>
+              applyChatTrace(context.transcript, event.event, context.runId || ''),
           }),
         },
         CANCEL: 'canceling',
@@ -454,7 +502,10 @@ export const chatMachine = setup({
       },
     },
     canceling: {
-      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
+      entry: assign({
+        transcript: ({ context }) =>
+          context.transcript.map((entry) => ({ ...entry, streaming: false })),
+      }),
       invoke: {
         id: 'cancelChat',
         src: 'cancelChat',
@@ -466,6 +517,10 @@ export const chatMachine = setup({
           target: 'canceled',
           actions: assign({
             run: ({ event }) => event.output,
+            transcript: ({ context, event }) =>
+              event.output
+                ? reconcileRunTranscript(context.transcript, event.output)
+                : context.transcript,
             approvalStatuses: {},
             error: null,
           }),
@@ -544,7 +599,41 @@ export const chatMachine = setup({
         },
       },
     },
+    recovering: {
+      invoke: {
+        src: 'recoverChat',
+        input: ({ context, self }) => ({
+          runId: context.runId!,
+          onSnapshot: (run: AgentRunState) => self.send({ type: 'SNAPSHOT', run }),
+          onConnection: (connection: ChatConnectionState) =>
+            self.send({ type: 'CONNECTION', runId: context.runId!, connection }),
+        }),
+        onDone: {
+          target: 'evaluatingRun',
+          actions: assign({ run: ({ event }) => event.output, error: null }),
+        },
+        onError: [
+          {
+            guard: ({ context, event }) =>
+              !context.run &&
+              Boolean(context.pending) &&
+              event.error instanceof ApiError &&
+              event.error.status === 404,
+            target: 'streaming',
+          },
+          { target: 'failed', actions: assign({ error: ({ event }) => event.error }) },
+        ],
+      },
+      on: { CANCEL: 'canceling', CLEAR: 'clearing' },
+    },
     evaluatingRun: {
+      entry: assign({
+        transcript: ({ context }) =>
+          context.run
+            ? reconcileRunTranscript(context.transcript, context.run)
+            : context.transcript,
+        connection: 'live',
+      }),
       always: [
         {
           guard: ({ context }) => isApprovalPause(context.run),
@@ -556,19 +645,18 @@ export const chatMachine = setup({
         },
         {
           guard: ({ context }) => context.run?.status === 'paused',
-          target: 'retrying',
-          actions: assign({
-            runId: () => createChatRunId(),
-            trace: [],
-          }),
+          target: 'resumeRequired',
         },
         {
           guard: ({ context }) => isSuccessfullyFinishedRun(context.run),
           target: 'idle',
           actions: assign({
-            transcript: ({ context }) => completeStreamedResponse(
-              context.transcript, context.run!.response!, context.runId || '',
-            ),
+            transcript: ({ context }) =>
+              completeStreamedResponse(
+                context.transcript,
+                context.run!.response!,
+                context.runId || '',
+              ),
             pending: null,
             approvalStatuses: {},
             error: null,
@@ -584,7 +672,10 @@ export const chatMachine = setup({
       ],
     },
     failed: {
-      entry: assign({ transcript: ({ context }) => context.transcript.map((entry) => ({ ...entry, streaming: false })) }),
+      entry: assign({
+        transcript: ({ context }) =>
+          context.transcript.map((entry) => ({ ...entry, streaming: false })),
+      }),
       on: {
         CANCEL: [
           {
@@ -594,7 +685,15 @@ export const chatMachine = setup({
           { target: 'canceled' },
         ],
         RETRY: [
-          { guard: ({ context }) => context.sessionOperation === 'delete', target: 'deletingSession' },
+          {
+            guard: ({ context }) =>
+              Boolean(context.runId) && (!context.run || context.run.status === 'running'),
+            target: 'recovering',
+          },
+          {
+            guard: ({ context }) => context.sessionOperation === 'delete',
+            target: 'deletingSession',
+          },
           {
             guard: ({ context }) => context.sessionOperation === 'create',
             target: 'creatingSession',
@@ -604,9 +703,7 @@ export const chatMachine = setup({
             target: 'loadingSession',
           },
           {
-            guard: ({ context }) => (
-              isApprovalPause(context.run) || isManualPause(context.run)
-            ),
+            guard: ({ context }) => isApprovalPause(context.run) || isManualPause(context.run),
             target: 'resuming',
           },
           {
@@ -665,9 +762,11 @@ function agentRunError(run: AgentRunState): Error {
 }
 
 function isSuccessfullyFinishedRun(run: AgentRunState | null): boolean {
-  return run?.status === 'finished'
-    && run.response != null
-    && (run.stop_reason == null || run.stop_reason === 'finished')
+  return (
+    run?.status === 'finished' &&
+    run.response != null &&
+    (run.stop_reason == null || run.stop_reason === 'finished')
+  )
 }
 
 function isRecoverablePause(run: AgentRunState | null): boolean {
@@ -675,9 +774,12 @@ function isRecoverablePause(run: AgentRunState | null): boolean {
     return false
   }
   const runtime = run.metadata?.agent_runtime
-  return !(runtime && typeof runtime === 'object'
-    && 'recovery_eligible' in runtime
-    && runtime.recovery_eligible === false)
+  return !(
+    runtime &&
+    typeof runtime === 'object' &&
+    'recovery_eligible' in runtime &&
+    runtime.recovery_eligible === false
+  )
 }
 
 function isApprovalPause(run: AgentRunState | null): boolean {
@@ -689,20 +791,20 @@ function isManualPause(run: AgentRunState | null): boolean {
     return false
   }
   const runtime = run?.metadata?.agent_runtime
-  return Boolean(runtime && typeof runtime === 'object'
-    && 'manual_pause' in runtime
-    && runtime.manual_pause === true)
+  return Boolean(
+    runtime &&
+      typeof runtime === 'object' &&
+      'manual_pause' in runtime &&
+      runtime.manual_pause === true,
+  )
 }
 
-type ApprovalDecisionEvent = Extract<
-  ChatMachineEvent,
-  { type: 'APPROVE' | 'DENY' }
->
+type ApprovalDecisionEvent = Extract<ChatMachineEvent, { type: 'APPROVE' | 'DENY' }>
 
 function isPendingApproval(context: ChatMachineContext, approvalId: string): boolean {
-  return Boolean(context.run?.pending_approval_requests?.some(
-    (request) => request.approval_id === approvalId,
-  ))
+  return Boolean(
+    context.run?.pending_approval_requests?.some((request) => request.approval_id === approvalId),
+  )
 }
 
 function recordApproval(
@@ -715,27 +817,26 @@ function recordApproval(
   }
 }
 
-function completesApprovals(
-  context: ChatMachineContext,
-  event: ApprovalDecisionEvent,
-): boolean {
+function completesApprovals(context: ChatMachineContext, event: ApprovalDecisionEvent): boolean {
   if (!isPendingApproval(context, event.approvalId)) {
     return false
   }
   const statuses = recordApproval(context, event)
-  return Boolean(context.run?.pending_approval_requests?.every(
-    (request) => statuses[request.approval_id],
-  ))
+  return Boolean(
+    context.run?.pending_approval_requests?.every((request) => statuses[request.approval_id]),
+  )
 }
 
 function hasPotentiallyActiveRun(context: ChatMachineContext): boolean {
   if (!context.runId) {
     return false
   }
-  return !context.run
-    || context.run.run_id !== context.runId
-    || context.run.status === 'running'
-    || context.run.status === 'paused'
+  return (
+    !context.run ||
+    context.run.run_id !== context.runId ||
+    context.run.status === 'running' ||
+    context.run.status === 'paused'
+  )
 }
 
 function sessionInput(context: ChatMachineContext): ChatSessionInput {

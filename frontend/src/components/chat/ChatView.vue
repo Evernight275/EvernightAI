@@ -12,6 +12,7 @@ const {
   skills,
   workspaceState,
   chatState,
+  connection,
   detailsOpen,
   openDetails,
   closeDetails,
@@ -42,12 +43,25 @@ const {
 
 <template>
   <section class="chat-view" :class="{ 'chat-view--empty': !hasTranscript }">
-    <ChatHeader :session="session" :state="chatState" :details-open="detailsOpen"
-      @details="openDetails" @navigation="$emit('navigation')" />
+    <ChatHeader
+      :session="session"
+      :state="chatState"
+      :details-open="detailsOpen"
+      @details="openDetails"
+      @navigation="$emit('navigation')"
+    />
 
     <div class="chat-view-scroll">
       <div class="chat-content">
-        <ChatTranscript :entries="transcript" />
+        <ChatTranscript
+          :entries="transcript"
+          :run-id="runId"
+          :pending-approvals="pendingApprovals"
+          :approval-statuses="approvalStatuses"
+          :can-approve="chatState === 'approvalRequired'"
+          @approve="approve"
+          @deny="deny"
+        />
       </div>
     </div>
 
@@ -56,9 +70,32 @@ const {
         <div v-if="!hasTranscript" class="chat-welcome">
           <h2>今天想聊些什么？</h2>
         </div>
-        <ChatRequestStatus :state="chatState" :error="error" :workspace-notice="workspaceNotice"
-          :pending-approvals="pendingApprovals" :approval-statuses="approvalStatuses"
-          @retry="retry" @resume="resume" @approve="approve" @deny="deny" @details="openDetails" />
+        <p
+          v-if="
+            ['streaming', 'resuming', 'retrying', 'recovering'].includes(chatState) &&
+            connection !== 'live'
+          "
+          class="chat-connection-notice"
+          role="status"
+        >
+          {{
+            connection === 'reconnecting'
+              ? '连接中断，正在自动重连…'
+              : '连接已恢复，正在同步运行进度…'
+          }}
+        </p>
+        <ChatRequestStatus
+          :state="chatState"
+          :error="error"
+          :workspace-notice="workspaceNotice"
+          :pending-approvals="pendingApprovals"
+          :approval-statuses="approvalStatuses"
+          @retry="retry"
+          @resume="resume"
+          @approve="approve"
+          @deny="deny"
+          @details="openDetails"
+        />
         <ChatRequestForm
           :catalog="providerCatalog"
           :skills="skills"
@@ -77,10 +114,22 @@ const {
         <p class="chat-composer-hint">Enter 发送 · Shift + Enter 换行</p>
       </div>
     </footer>
-    <ChatRunDetails :open="detailsOpen" :workspace-state="workspaceState" :chat-state="chatState"
-      :workspace-issues="workspaceIssues" :provider-count="providerCatalog.providers.length"
-      :tool-count="toolCatalog.length" :error="error" :has-transcript="hasTranscript" :busy="busy"
-      :run="run" :trace="trace" :run-id="runId" :pending-approvals="pendingApprovals"
-      @clear="clear" @close="closeDetails" />
+    <ChatRunDetails
+      :open="detailsOpen"
+      :workspace-state="workspaceState"
+      :chat-state="chatState"
+      :workspace-issues="workspaceIssues"
+      :provider-count="providerCatalog.providers.length"
+      :tool-count="toolCatalog.length"
+      :error="error"
+      :has-transcript="hasTranscript"
+      :busy="busy"
+      :run="run"
+      :trace="trace"
+      :run-id="runId"
+      :pending-approvals="pendingApprovals"
+      @clear="clear"
+      @close="closeDetails"
+    />
   </section>
 </template>

@@ -1,4 +1,11 @@
-import type { AgentTraceEvent, ChatResponse, Content, ChatSkill, ToolCall } from '../api'
+import type {
+  AgentRunState,
+  AgentTraceEvent,
+  ChatResponse,
+  Content,
+  ChatSkill,
+  ToolCall,
+} from '../api'
 
 export type ChatSubmission = {
   providerId: string
@@ -20,9 +27,11 @@ export type ChatTranscriptEntry = {
   toolActivity?: {
     callId: string
     name: string
-    status: 'pending' | 'approval' | 'completed' | 'failed' | 'denied' | 'unknown'
+    status: 'pending' | 'approval' | 'running' | 'completed' | 'failed'
     argumentsText: string
     resultText?: string
+    errorType?: string
+    notice?: string
   }
 }
 
@@ -59,7 +68,16 @@ export function transcriptFromMessages(messages: Content[]): ChatTranscriptEntry
     }
     if (content.role === 'assistant') {
       for (const call of content.tool_calls || [])
-        entries = upsertTool(entries, call, 'history', 'unknown')
+        entries = upsertTool(
+          entries,
+          call,
+          'history',
+          'pending',
+          undefined,
+          false,
+          undefined,
+          '结果尚未确认',
+        )
     }
     if (content.role === 'tool' && content.tool_call_id) {
       entries = upsertTool(
@@ -111,20 +129,26 @@ export function applyChatTrace(
       : undefined)
   if (
     call &&
-    ['tool_completed', 'tool_failed', 'tool_approval_requested', 'tool_approval_decided'].includes(
-      event.event_type,
-    )
+    [
+      'tool_started',
+      'tool_completed',
+      'tool_failed',
+      'tool_approval_requested',
+      'tool_approval_decided',
+    ].includes(event.event_type)
   ) {
     const status =
-      event.event_type === 'tool_completed'
-        ? 'completed'
-        : event.event_type === 'tool_failed'
-          ? 'failed'
-          : event.event_type === 'tool_approval_requested'
-            ? 'approval'
-            : event.approval_decision?.status === 'approved' || event.metadata?.allowed === true
-              ? 'pending'
-              : 'denied'
+      event.event_type === 'tool_started'
+        ? 'running'
+        : event.event_type === 'tool_completed'
+          ? 'completed'
+          : event.event_type === 'tool_failed'
+            ? 'failed'
+            : event.event_type === 'tool_approval_requested'
+              ? 'approval'
+              : event.approval_decision?.status === 'approved' || event.metadata?.allowed === true
+                ? 'pending'
+                : 'failed'
     return upsertTool(
       entries,
       call,
@@ -133,7 +157,13 @@ export function applyChatTrace(
       event.error_message ||
         (event.tool_result
           ? JSON.stringify(event.tool_result.tool_call_result, null, 2)
-          : undefined),
+          : status === 'failed'
+            ? event.event_type === 'tool_failed'
+              ? '工具执行失败'
+              : '调用未获批准'
+            : undefined),
+      false,
+      event.error_type || undefined,
     )
   }
   if (event.event_type !== 'chat_delta' || !event.text_delta) return entries
@@ -197,6 +227,8 @@ function upsertTool(
   status: NonNullable<ChatTranscriptEntry['toolActivity']>['status'],
   resultText?: string,
   preserveStatus = false,
+  errorType?: string,
+  notice?: string,
 ): ChatTranscriptEntry[] {
   const turnStart = lastIndex(entries, (entry) => entry.role === 'user')
   const index = lastIndex(
@@ -215,6 +247,8 @@ function upsertTool(
     callId: call.tool_call_id,
     name: typeof name === 'string' ? name : previousActivity?.name || '工具调用',
     status,
+    errorType,
+    notice,
     argumentsText:
       args === undefined ? previousActivity?.argumentsText || '{}' : JSON.stringify(args, null, 2),
     resultText: resultText ?? previousActivity?.resultText,
@@ -238,4 +272,90 @@ function lastIndex(
     if (matches(entries[index]!, index)) return index
   }
   return -1
+}
+
+export const toolStatusLabels = {
+  pending: '准备',
+  approval: '审批',
+  running: '执行中',
+  completed: '完成',
+  failed: '失败',
+}
+
+export function reconcileRunTranscript(
+  entries: ChatTranscriptEntry[],
+  run: AgentRunState,
+): ChatTranscriptEntry[] {
+  const events: AgentTraceEvent[] = run.trace?.length
+    ? run.trace
+    : (run.steps || []).flatMap<AgentTraceEvent>((step) => {
+        if (step.step_type === 'chat' && step.response)
+          return [{ ...step, event_type: 'chat_completed' as const }]
+        if (step.step_type === 'tool') return [{ ...step, event_type: 'tool_completed' as const }]
+        if (step.step_type === 'tool_error')
+          return [{ ...step, event_type: 'tool_failed' as const }]
+        return []
+      })
+  let result = entries
+  if (events.length) {
+    result = entries.filter((entry) => entry.streamRunId !== run.run_id)
+    const seen = new Set<number>()
+    for (const event of events) {
+      if (event.sequence != null && seen.has(event.sequence)) continue
+      if (event.sequence != null) seen.add(event.sequence)
+      result = applyChatTrace(result, event, run.run_id)
+    }
+  }
+  for (const approval of run.pending_approval_requests || []) {
+    const recorded = [...result]
+      .reverse()
+      .find(
+        (entry) =>
+          entry.streamRunId === run.run_id && entry.toolActivity?.callId === approval.tool_call_id,
+      )?.toolActivity
+    if (recorded && ['running', 'completed', 'failed'].includes(recorded.status)) continue
+    if (
+      recorded?.status === 'pending' &&
+      events.some(
+        (event) =>
+          event.event_type === 'tool_approval_decided' &&
+          (event.tool_call?.tool_call_id || event.approval_decision?.tool_call_id) ===
+            approval.tool_call_id,
+      )
+    )
+      continue
+    result = applyChatTrace(
+      result,
+      { event_type: 'tool_approval_requested', approval_request: approval },
+      run.run_id,
+    )
+  }
+  if (run.status && run.status !== 'running') {
+    result = result.map((entry) =>
+      entry.streamRunId !== run.run_id
+        ? entry
+        : {
+            ...entry,
+            streaming: false,
+            toolActivity:
+              entry.toolActivity &&
+              !['completed', 'failed'].includes(entry.toolActivity.status) &&
+              !(
+                entry.toolActivity.status === 'approval' &&
+                run.status === 'paused' &&
+                run.pending_approval_requests?.some(
+                  (approval) => approval.tool_call_id === entry.toolActivity?.callId,
+                )
+              )
+                ? {
+                    ...entry.toolActivity,
+                    status: 'pending',
+                    notice:
+                      run.status === 'paused' ? '运行已暂停，等待继续' : '运行已停止，结果尚未确认',
+                  }
+                : entry.toolActivity,
+          },
+    )
+  }
+  return result
 }

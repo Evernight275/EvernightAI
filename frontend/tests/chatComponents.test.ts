@@ -50,26 +50,32 @@ describe('chat component composition', () => {
     expect(header).toContain('准备就绪')
     expect(header).not.toContain('前置状态')
     expect(header).not.toContain('<dialog')
-    expect(html.indexOf('class="chat-request-status"')).toBeGreaterThan(html.indexOf('class="chat-view-footer"'))
-    expect(html.indexOf('class="chat-request-status"')).toBeLessThan(html.indexOf('class="chat-composer"'))
+    expect(html.indexOf('class="chat-request-status"')).toBeGreaterThan(
+      html.indexOf('class="chat-view-footer"'),
+    )
+    expect(html.indexOf('class="chat-request-status"')).toBeLessThan(
+      html.indexOf('class="chat-composer"'),
+    )
     expect(html.indexOf('class="chat-composer-message"')).toBeLessThan(
       html.indexOf('class="chat-composer-options"'),
     )
   })
 
   it('renders a focused user or assistant message component', async () => {
-    const html = await renderToString(createSSRApp(ChatMessage, {
-      entry: {
-        entryId: 'assistant-1',
-        role: 'assistant',
-        text: 'A direct answer.',
-        modelId: 'model-1',
-        content: {
+    const html = await renderToString(
+      createSSRApp(ChatMessage, {
+        entry: {
+          entryId: 'assistant-1',
           role: 'assistant',
-          content: [{ type: 'text', text: 'A direct answer.' }],
+          text: 'A direct answer.',
+          modelId: 'model-1',
+          content: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'A direct answer.' }],
+          },
         },
-      },
-    }))
+      }),
+    )
 
     expect(html).toContain('class="chat-message chat-message--assistant"')
     expect(html).toContain('EvernightAI')
@@ -78,25 +84,31 @@ describe('chat component composition', () => {
   })
 
   it('selects models from the active Provider catalog', async () => {
-    const html = await renderToString(createSSRApp(ChatRequestForm, {
-      catalog: {
-        providers: [{
-          provider_id: 'main',
-          name: 'Main',
-          type: 'openai',
-        }],
-        modelGroups: [{
-          provider: {
-            provider_id: 'main',
-            name: 'Main',
-            type: 'openai',
-          },
-          models: [{ model_id: 'model-1' }, { model_id: 'model-2' }],
-        }],
-      },
-      busy: false,
-      sessionReady: true,
-    }))
+    const html = await renderToString(
+      createSSRApp(ChatRequestForm, {
+        catalog: {
+          providers: [
+            {
+              provider_id: 'main',
+              name: 'Main',
+              type: 'openai',
+            },
+          ],
+          modelGroups: [
+            {
+              provider: {
+                provider_id: 'main',
+                name: 'Main',
+                type: 'openai',
+              },
+              models: [{ model_id: 'model-1' }, { model_id: 'model-2' }],
+            },
+          ],
+        },
+        busy: false,
+        sessionReady: true,
+      }),
+    )
 
     expect(html).toContain('aria-label="选择模型"')
     expect(html).toContain('aria-pressed="true"')
@@ -107,22 +119,26 @@ describe('chat component composition', () => {
   })
 
   it('keeps approval decisions visible before large tool arguments', async () => {
-    const html = await renderToString(createSSRApp(ChatRequestStatus, {
-      state: 'approvalRequired',
-      error: null,
-      pendingApprovals: [{
-        approval_id: 'approval-1',
-        tool_call_id: 'call-1',
-        tool_name: 'write_text_file',
-        safety_level: 'sensitive',
-        permissions: ['write', 'filesystem'],
-        tool_call: {
-          name: 'write_text_file',
-          arguments: { path: 'large.py', content: 'line\n'.repeat(500) },
-        },
-      }],
-      approvalStatuses: {},
-    }))
+    const html = await renderToString(
+      createSSRApp(ChatRequestStatus, {
+        state: 'approvalRequired',
+        error: null,
+        pendingApprovals: [
+          {
+            approval_id: 'approval-1',
+            tool_call_id: 'call-1',
+            tool_name: 'write_text_file',
+            safety_level: 'sensitive',
+            permissions: ['write', 'filesystem'],
+            tool_call: {
+              name: 'write_text_file',
+              arguments: { path: 'large.py', content: 'line\n'.repeat(500) },
+            },
+          },
+        ],
+        approvalStatuses: {},
+      }),
+    )
 
     expect(html).toContain('class="chat-tool-approval"')
     expect(html).toContain('class="chat-approval-payload"')
@@ -134,29 +150,39 @@ describe('chat component composition', () => {
   })
 
   it('shows pending approvals in the tool activity count', async () => {
-    const html = await renderToString(createSSRApp(ChatToolActivity, {
-      run: null,
-      trace: [],
-      pendingApprovals: [{
-        approval_id: 'approval-1',
-        tool_call_id: 'call-1',
-        tool_name: 'write_text_file',
-      }],
-    }))
+    const html = await renderToString(
+      createSSRApp(ChatToolActivity, {
+        run: null,
+        trace: [],
+        pendingApprovals: [
+          {
+            approval_id: 'approval-1',
+            tool_call_id: 'call-1',
+            tool_name: 'write_text_file',
+          },
+        ],
+      }),
+    )
 
     expect(html).toContain('工具调用（1）')
     expect(html).toContain('write_text_file')
-    expect(html).toContain('等待审批')
+    expect(html).toContain('审批')
     expect(html).not.toContain('还没有工具调用')
   })
 
   it('keeps an idle attention area empty and shows recovery actions near errors', async () => {
     const props = { state: 'idle', error: null, pendingApprovals: [], approvalStatuses: {} }
     const idle = await renderToString(createSSRApp(ChatRequestStatus, props))
-    const failed = await renderToString(createSSRApp(ChatRequestStatus, {
-      ...props, state: 'failed', error: new Error('Provider unavailable'),
-    }))
-    const paused = await renderToString(createSSRApp(ChatRequestStatus, { ...props, state: 'resumeRequired' }))
+    const failed = await renderToString(
+      createSSRApp(ChatRequestStatus, {
+        ...props,
+        state: 'failed',
+        error: new Error('Provider unavailable'),
+      }),
+    )
+    const paused = await renderToString(
+      createSSRApp(ChatRequestStatus, { ...props, state: 'resumeRequired' }),
+    )
     expect(idle).not.toContain('chat-request-status')
     expect(failed).toContain('role="alert"')
     expect(failed).toContain('Provider unavailable')
@@ -166,22 +192,40 @@ describe('chat component composition', () => {
   })
 
   it('places stop in the composer instead of a disabled send button', async () => {
-    const html = await renderToString(createSSRApp(ChatRequestForm, {
-      catalog: { providers: [], modelGroups: [] }, busy: true,
-      sessionReady: true, canStop: true, state: 'approvalRequired',
-    }))
+    const html = await renderToString(
+      createSSRApp(ChatRequestForm, {
+        catalog: { providers: [], modelGroups: [] },
+        busy: true,
+        sessionReady: true,
+        canStop: true,
+        state: 'approvalRequired',
+      }),
+    )
     expect(html).toContain('aria-label="停止当前运行"')
     expect(html).not.toContain('type="submit"')
     expect(html).not.toContain('发送中')
   })
 
   it('keeps diagnostics in a separate dialog without duplicate approval actions', async () => {
-    const html = await renderToString(createSSRApp(ChatRunDetails, {
-      open: false, workspaceState: 'ready', chatState: 'approvalRequired',
-      workspaceIssues: [], providerCount: 1, toolCount: 1,
-      error: null, hasTranscript: true, busy: true, run: null, trace: [], runId: 'run-1',
-      pendingApprovals: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file' }],
-    }))
+    const html = await renderToString(
+      createSSRApp(ChatRunDetails, {
+        open: false,
+        workspaceState: 'ready',
+        chatState: 'approvalRequired',
+        workspaceIssues: [],
+        providerCount: 1,
+        toolCount: 1,
+        error: null,
+        hasTranscript: true,
+        busy: true,
+        run: null,
+        trace: [],
+        runId: 'run-1',
+        pendingApprovals: [
+          { approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file' },
+        ],
+      }),
+    )
     expect(html).toContain('<dialog')
     expect(html).toContain('运行 ID')
     expect(html).toContain('原始请求参数')

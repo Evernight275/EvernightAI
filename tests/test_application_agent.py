@@ -47,6 +47,7 @@ from EvernightAI.core.domain.tool import (
     ToolRegister,
 )
 from EvernightAI.core.protocol.agent import (
+    AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
 )
@@ -168,6 +169,7 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
     assert [event.event_type for event in result.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -264,6 +266,7 @@ async def test_agent_streams_tool_loop_events() -> None:
     assert [event.event_type for event in events] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -271,11 +274,12 @@ async def test_agent_streams_tool_loop_events() -> None:
     assert [event.summary for event in events] == [
         "Agent run started",
         "Model response received",
+        "Tool add started",
         "Tool add completed",
         "Model response received",
         "Agent run stopped: finished",
     ]
-    assert events[2].tool_result is not None
+    assert events[3].tool_result is not None
     assert events[-1].metadata["reason"] == AgentStopReason.FINISHED.value
     assert [message.role for message in context.messages] == [
         MessageRole.USER,
@@ -577,6 +581,7 @@ async def test_agent_streams_tool_approval_events() -> None:
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -838,6 +843,7 @@ async def test_agent_resume_stream_continues_after_approved_tool() -> None:
 
     assert [event.event_type for event in events] == [
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -998,7 +1004,9 @@ async def test_agent_pause_keeps_current_and_remaining_tool_calls() -> None:
 
     assert [event.event_type for event in events] == [
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -1210,6 +1218,7 @@ async def test_agent_start_and_resume_run_persist_state_and_trace() -> None:
         AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
         AgentTraceEventType.RUN_PAUSED,
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -1498,11 +1507,12 @@ async def test_agent_run_application_facade_manages_persisted_runs() -> None:
         AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
         AgentTraceEventType.RUN_PAUSED,
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
-    assert [event.sequence for event in resumed.trace] == list(range(1, 9))
+    assert [event.sequence for event in resumed.trace] == list(range(1, 10))
 
 
 @pytest.mark.asyncio
@@ -2066,8 +2076,9 @@ async def test_agent_resume_agent_returns_result_after_approved_tool() -> None:
 
     assert result.stop_reason is AgentStopReason.FINISHED
     assert result.response == make_response("Written")
-    assert [event.event_type for event in result.trace][-4:] == [
+    assert [event.event_type for event in result.trace][-5:] == [
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
@@ -2509,12 +2520,13 @@ async def test_agent_run_application_start_and_resume_stream_persist_state_and_t
     ]
     assert [event.event_type for event in resumed_events] == [
         AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
         AgentTraceEventType.TOOL_COMPLETED,
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
     assert state_register.get_state("run-stream").status is AgentRunStatus.FINISHED
-    assert len(trace_register.list_events("run-stream")) == 8
+    assert len(trace_register.list_events("run-stream")) == 9
     assert [message.status for message in context.messages[:2]] == [
         None,
         MessageStatus.REJECTED,
@@ -2673,6 +2685,7 @@ async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
 
     assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_STARTED
     assert (await anext(iterator)).event_type is AgentTraceEventType.CHAT_COMPLETED
+    assert (await anext(iterator)).event_type is AgentTraceEventType.TOOL_STARTED
     assert (await anext(iterator)).event_type is AgentTraceEventType.TOOL_COMPLETED
     await app.pause("run-tool-checkpoint")
     assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_PAUSED
@@ -2988,6 +3001,7 @@ def make_runtime(
     agent_state_register: AgentRunStateRegisterProtocol | None = None,
     agent_trace_register: AgentTraceRegisterProtocol | None = None,
     tool_execution_register: InMemoryToolExecutionRegister | None = None,
+    agent_run_executor: AgentRunExecutorProtocol | None = None,
 ) -> RuntimeKernel:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return provider or ToolCallingProvider()
@@ -3017,6 +3031,7 @@ def make_runtime(
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
         tool_execution_register=tool_execution_register,
+        agent_run_executor=agent_run_executor,
     )
 
 
@@ -3480,3 +3495,81 @@ async def test_agent_binds_request_directory_to_tool_execution() -> None:
         )
     )
     assert seen == ["projects/one"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["complete", "cancel", "timeout"])
+async def test_disconnected_tool_stream_keeps_execution_and_controls(
+    ending: str,
+) -> None:
+    from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        calls.append(arguments)
+        started.set()
+        await release.wait()
+        return {"result": 3}
+
+    states = InMemoryAgentRunStateRegister()
+    traces = InMemoryAgentTraceRegister()
+    executor = SingleProcessAgentRunExecutor(states)
+    runtime = make_runtime(
+        agent_state_register=states,
+        agent_trace_register=traces,
+        tool_execution_register=InMemoryToolExecutionRegister(),
+        agent_run_executor=executor,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add", description="Add numbers", parameters_schema={"type": "object"}
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    stream = app.start_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("add")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "disconnected"},
+            timeout_seconds=0.1 if ending == "timeout" else 5,
+        )
+    )
+    iterator = cast(AsyncGenerator[AgentTraceEvent, None], stream.__aiter__())
+    while (await anext(iterator)).event_type is not AgentTraceEventType.TOOL_STARTED:
+        pass
+    await asyncio.wait_for(started.wait(), 1)
+    assert (
+        traces.list_events("disconnected")[-1].event_type
+        is AgentTraceEventType.TOOL_STARTED
+    )
+    await iterator.aclose()
+    if ending == "complete":
+        release.set()
+    elif ending == "cancel":
+        await app.cancel("disconnected")
+    await asyncio.wait_for(app.close(), 2)
+    state = app.get_state("disconnected")
+    assert len(calls) == 1
+    assert (
+        state.status
+        is {
+            "complete": AgentRunStatus.FINISHED,
+            "cancel": AgentRunStatus.CANCELED,
+            "timeout": AgentRunStatus.PAUSED,
+        }[ending]
+    )
+    completed = [
+        event
+        for event in state.trace
+        if event.event_type is AgentTraceEventType.TOOL_COMPLETED
+    ]
+    assert len(completed) == (1 if ending == "complete" else 0)

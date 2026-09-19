@@ -308,6 +308,16 @@ curl -X POST http://127.0.0.1:8000/agent-runs \
 ```
 
 Use `/agent-runs/stream` with the same body to receive trace events as SSE.
+Tools emit `tool_started` before execution, followed by `tool_completed` or
+`tool_failed`. Approval events precede execution for tools requiring consent.
+
+With the managed run executor used by the SQLite runtime, closing a stream
+connection does not cancel its run. Execution continues to persist its state
+and trace, including pending approvals. Recover progress by reading
+`GET /agent-runs/{run_id}` until the run stops or pauses; do not repeat the
+start, resume, or retry POST merely because the connection dropped. Use
+`POST /agent-runs/{run_id}/cancel` to stop execution explicitly. Timeouts and
+shutdown recovery still apply.
 
 Each persisted trace event has a 1-based `sequence` scoped to its run. Read a
 trace incrementally with

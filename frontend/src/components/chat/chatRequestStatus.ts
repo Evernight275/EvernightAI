@@ -18,9 +18,7 @@ export type ChatRequestStatusEmits = {
   details: []
 }
 
-export function useChatRequestStatus(
-  props: ChatRequestStatusProps,
-): {
+export function useChatRequestStatus(props: ChatRequestStatusProps): {
   visible: ComputedRef<boolean>
   errorMessage: ComputedRef<string | null>
   approvalItems: ComputedRef<ChatApprovalItem[]>
@@ -28,15 +26,20 @@ export function useChatRequestStatus(
   canResume: ComputedRef<boolean>
 } {
   return {
-    visible: computed(() => ['approvalRequired', 'resumeRequired', 'failed'].includes(props.state)
-      || Boolean(props.error) || Boolean(props.workspaceNotice)),
+    visible: computed(
+      () =>
+        ['approvalRequired', 'resumeRequired', 'failed'].includes(props.state) ||
+        Boolean(props.error) ||
+        Boolean(props.workspaceNotice),
+    ),
     errorMessage: computed(() => formatChatError(props.error)),
-    approvalItems: computed(() => props.state === 'approvalRequired'
-      ? props.pendingApprovals.map((approval) => approvalItem(
-        approval,
-        props.approvalStatuses[approval.approval_id],
-      ))
-      : []),
+    approvalItems: computed(() =>
+      props.state === 'approvalRequired'
+        ? props.pendingApprovals.map((approval) =>
+            approvalItem(approval, props.approvalStatuses[approval.approval_id]),
+          )
+        : [],
+    ),
     canRetry: computed(() => props.state === 'failed'),
     canResume: computed(() => props.state === 'resumeRequired'),
   }
@@ -54,6 +57,7 @@ const chatStateLabels: Record<string, string> = {
   resumeRequired: '等待继续运行',
   resuming: '正在继续运行',
   retrying: '正在重试',
+  recovering: '正在恢复运行进度',
   canceling: '正在取消',
   clearing: '正在清空',
   canceled: '已取消',
@@ -81,16 +85,20 @@ export function approvalItem(
     ...approval,
     toolCallText: JSON.stringify(approval.tool_call || {}, null, 2),
     permissionsText: approval.permissions?.join(', ') || '无',
-    decisionText: status === 'approved'
-      ? '已批准'
-      : status === 'denied' ? '已拒绝' : null,
+    decisionText: status === 'approved' ? '已批准' : status === 'denied' ? '已拒绝' : null,
     decided: status === 'approved' || status === 'denied',
-    safetyLabel: approval.safety_level === 'safe' ? '低风险'
-      : approval.safety_level === 'sensitive' ? '敏感操作'
-        : approval.safety_level === 'restricted' ? '受限操作' : '风险未知',
+    safetyLabel:
+      approval.safety_level === 'safe'
+        ? '低风险'
+        : approval.safety_level === 'sensitive'
+          ? '敏感操作'
+          : approval.safety_level === 'restricted'
+            ? '受限操作'
+            : '风险未知',
     targets: [
       ...(typeof approval.metadata?.working_directory === 'string'
-        ? [{ name: '工作文件夹', value: approval.metadata.working_directory }] : []),
+        ? [{ name: '工作文件夹', value: approval.metadata.working_directory }]
+        : []),
       ...approvalTargets(approval.tool_call?.arguments),
     ],
   }
@@ -99,13 +107,21 @@ export function approvalItem(
 function approvalTargets(value: unknown): { name: string; value: string }[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return []
   const labels: Record<string, string> = {
-    project: '项目', path: '路径', file_path: '文件', directory: '目录',
-    command: '命令', url: '地址', query: '查询', source: '来源', destination: '目标',
+    project: '项目',
+    path: '路径',
+    file_path: '文件',
+    directory: '目录',
+    command: '命令',
+    url: '地址',
+    query: '查询',
+    source: '来源',
+    destination: '目标',
   }
-  return Object.entries(value).flatMap(([key, target]) => (
+  return Object.entries(value).flatMap(([key, target]) =>
     Object.hasOwn(labels, key) && typeof target === 'string'
-      ? [{ name: labels[key] as string, value: target }] : []
-  ))
+      ? [{ name: labels[key] as string, value: target }]
+      : [],
+  )
 }
 
 export function formatChatError(error: unknown): string | null {

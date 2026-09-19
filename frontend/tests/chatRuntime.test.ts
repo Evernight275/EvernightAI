@@ -23,13 +23,15 @@ describe('chat runtime', () => {
   })
 
   it('cancels the active run before deleting its session and stops if cancellation fails', async () => {
-    const fetcher = vi.fn()
+    const fetcher = vi
+      .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...finishedRun(), status: 'canceled' })))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetcher)
     const input = {
       session: { session_id: 'session-1', context_id: 'context-1' },
-      currentRun: null, currentRunId: 'running-1',
+      currentRun: null,
+      currentRunId: 'running-1',
     }
     await deleteChatSession(input, new AbortController().signal)
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('/agent-runs/running-1/cancel')
@@ -54,10 +56,12 @@ describe('chat runtime', () => {
       },
     ]
 
-    expect(approvalDecisions(run, {
-      'approval-1': 'approved',
-      'approval-2': 'denied',
-    })).toEqual([
+    expect(
+      approvalDecisions(run, {
+        'approval-1': 'approved',
+        'approval-2': 'denied',
+      }),
+    ).toEqual([
       {
         approval_id: 'approval-1',
         tool_call_id: 'call-1',
@@ -75,11 +79,13 @@ describe('chat runtime', () => {
     expect(approvalDecisions(finishedRun(), {})).toEqual([])
 
     const run = finishedRun()
-    run.pending_approval_requests = [{
-      approval_id: 'approval-1',
-      tool_call_id: 'call-1',
-      tool_name: 'write_file',
-    }]
+    run.pending_approval_requests = [
+      {
+        approval_id: 'approval-1',
+        tool_call_id: 'call-1',
+        tool_name: 'write_file',
+      },
+    ]
     expect(() => approvalDecisions(run, {})).toThrow(
       'Missing decision for tool approval: approval-1',
     )
@@ -90,15 +96,20 @@ describe('chat runtime', () => {
       'event: run_started\ndata: {"event_type":"run_started"}\n\n',
       'data: [DONE]\n\n',
     ].join('')
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(stream, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(finishedRun()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     const input = requestInput()
@@ -123,21 +134,29 @@ describe('chat runtime', () => {
 
   it('tags a selected session on its agent run', async () => {
     const stream = 'data: [DONE]\n\n'
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(stream, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(finishedRun()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
-    await streamChatRun({
-      ...requestInput(),
-      sessionId: 'session-1',
-    }, new AbortController().signal)
+    await streamChatRun(
+      {
+        ...requestInput(),
+        sessionId: 'session-1',
+      },
+      new AbortController().signal,
+    )
     const options = fetchMock.mock.calls[0]?.[1] as RequestInit
     const body = JSON.parse(String(options.body)) as {
       metadata: Record<string, unknown>
@@ -148,12 +167,15 @@ describe('chat runtime', () => {
 
   it('recovers persisted state when the stream transport fails', async () => {
     const persisted = { ...finishedRun(), run_id: 'run-recovered' }
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(new Response('stream disconnected', { status: 502 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(persisted), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(persisted), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     vi.stubGlobal('fetch', fetchMock)
     const input = { ...requestInput(), runId: 'run-recovered' }
 
@@ -169,21 +191,29 @@ describe('chat runtime', () => {
   it('streams a retry under a caller-known run id', async () => {
     const stream = 'data: [DONE]\n\n'
     const retried = { ...finishedRun(), run_id: 'run-retried' }
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(stream, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(retried), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(retried), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await retryChatRun({
-      run: { ...finishedRun(), status: 'failed' },
-      runId: 'run-retried',
-    }, new AbortController().signal)
+    const result = await retryChatRun(
+      {
+        run: { ...finishedRun(), status: 'failed' },
+        runId: 'run-retried',
+      },
+      new AbortController().signal,
+    )
     const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit]
 
     expect(result.run_id).toBe('run-retried')
@@ -195,18 +225,24 @@ describe('chat runtime', () => {
   })
 
   it('cancels a known run before deleting its context', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(finishedRun()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await clearChatContext({
-      contextId: 'context-1',
-      run: { ...finishedRun(), status: 'running' },
-    }, new AbortController().signal)
+    await clearChatContext(
+      {
+        contextId: 'context-1',
+        run: { ...finishedRun(), status: 'running' },
+      },
+      new AbortController().signal,
+    )
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-1/cancel',
@@ -215,19 +251,25 @@ describe('chat runtime', () => {
   })
 
   it('can cancel a streamed run before its final state is returned', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(finishedRun()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await clearChatContext({
-      contextId: 'context-1',
-      run: null,
-      runId: 'run-streaming-1',
-    }, new AbortController().signal)
+    await clearChatContext(
+      {
+        contextId: 'context-1',
+        run: null,
+        runId: 'run-streaming-1',
+      },
+      new AbortController().signal,
+    )
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-streaming-1/cancel',
@@ -236,19 +278,25 @@ describe('chat runtime', () => {
   })
 
   it('cancels a preallocated retry instead of its terminal source run', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun()), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(finishedRun()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await clearChatContext({
-      contextId: 'context-1',
-      run: { ...finishedRun(), status: 'failed' },
-      runId: 'run-retried',
-    }, new AbortController().signal)
+    await clearChatContext(
+      {
+        contextId: 'context-1',
+        run: { ...finishedRun(), status: 'failed' },
+        runId: 'run-retried',
+      },
+      new AbortController().signal,
+    )
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-retried/cancel',
@@ -259,34 +307,47 @@ describe('chat runtime', () => {
   it('cancels the old run and loads a selected session transcript', async () => {
     const context = {
       context_id: 'context-2',
-      messages: [{
-        role: 'user',
-        content: [{ type: 'text', text: 'stored message' }],
-      }],
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'stored message' }],
+        },
+      ],
     }
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ...finishedRun(),
-        run_id: 'run-old',
-        status: 'canceled',
-      }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(context), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...finishedRun(),
+            run_id: 'run-old',
+            status: 'canceled',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(context), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
-    const snapshot = await loadChatSession({
-      session: {
-        session_id: 'session-2',
-        context_id: 'context-2',
+    const snapshot = await loadChatSession(
+      {
+        session: {
+          session_id: 'session-2',
+          context_id: 'context-2',
+        },
+        currentRun: { ...finishedRun(), run_id: 'run-old', status: 'paused' },
+        currentRunId: 'run-old',
       },
-      currentRun: { ...finishedRun(), run_id: 'run-old', status: 'paused' },
-      currentRunId: 'run-old',
-    }, new AbortController().signal)
+      new AbortController().signal,
+    )
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-old/cancel',
@@ -301,25 +362,36 @@ describe('chat runtime', () => {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'old' }] }],
       metadata: { session_id: 'session-1' },
     }
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(context), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ...context,
-        messages: [],
-      }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(context), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...context,
+            messages: [],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
-    await clearChatContext({
-      contextId: 'context-1',
-      sessionId: 'session-1',
-      run: finishedRun(),
-    }, new AbortController().signal)
+    await clearChatContext(
+      {
+        contextId: 'context-1',
+        sessionId: 'session-1',
+        run: finishedRun(),
+      },
+      new AbortController().signal,
+    )
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/contexts/context-1',
@@ -338,11 +410,13 @@ function requestInput(): ChatRequestInput {
       modelId: 'model-1',
       text: 'read the file',
     },
-    tools: [{
-      name: 'read_file',
-      description: 'Read a file',
-      parameters_schema: { type: 'object' },
-    }],
+    tools: [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        parameters_schema: { type: 'object' },
+      },
+    ],
   }
 }
 
@@ -357,3 +431,69 @@ function finishedRun(): AgentRunState {
     status: 'finished',
   }
 }
+
+it('polls the same run through network loss and stops at approval without a second POST', async () => {
+  vi.useFakeTimers()
+  try {
+    const finished = finishedRun()
+    const running = { ...finished, run_id: 'original', status: 'running' }
+    const paused = {
+      ...running,
+      status: 'paused',
+      pending_approval_requests: [{ approval_id: 'a', tool_call_id: 'c', tool_name: 'write_file' }],
+    }
+    const fetcher = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(new Response(JSON.stringify(running)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(paused)))
+    vi.stubGlobal('fetch', fetcher)
+    const snapshots: AgentRunState[] = []
+    const states: string[] = []
+    const promise = streamChatRun(
+      {
+        ...requestInput(),
+        runId: 'original',
+        onSnapshot: (run) => snapshots.push(run),
+        onConnection: (state) => states.push(state),
+      },
+      new AbortController().signal,
+    )
+    await vi.runAllTimersAsync()
+    expect(await promise).toEqual(paused)
+    expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/stream',
+      ...Array(3).fill('/agent-runs/original'),
+    ])
+    expect(snapshots.map((run) => run.status)).toEqual(['running', 'paused'])
+    expect(states).toContain('reconnecting')
+    expect(states).toContain('syncing')
+    expect(states.at(-1)).toBe('live')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('aborts reconnect timers and never retries an authorization failure', async () => {
+  vi.useFakeTimers()
+  try {
+    const fetcher = vi.fn().mockRejectedValue(new TypeError('offline'))
+    vi.stubGlobal('fetch', fetcher)
+    const controller = new AbortController()
+    const promise = streamChatRun({ ...requestInput(), runId: 'original' }, controller.signal)
+    const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(0)
+    controller.abort()
+    await rejected
+    await vi.runAllTimersAsync()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    fetcher.mockReset().mockResolvedValue(new Response('Forbidden', { status: 403 }))
+    await expect(streamChatRun(requestInput(), new AbortController().signal)).rejects.toMatchObject(
+      { status: 403 },
+    )
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})

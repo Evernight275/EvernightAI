@@ -224,8 +224,8 @@ describe('chat component controllers', () => {
       {
         key: 'call-1',
         name: 'write_text_file',
-        status: 'approval required',
-        statusLabel: '等待审批',
+        status: 'approval',
+        statusLabel: '审批',
         callText: '{}',
         resultText: null,
       },
@@ -270,4 +270,37 @@ describe('chat component controllers', () => {
       },
     ])
   })
+})
+
+import { toolResultSummary } from '../src/components/chat/toolResult'
+
+it('summarizes text, command output, arrays and persisted results without hiding raw data', () => {
+  expect(toolResultSummary('{"tool_call_result":{"content":"line one\\nline two"}}')).toBe(
+    'line one line two',
+  )
+  expect(toolResultSummary('{"exit_code":1,"stdout":"missing file"}')).toBe(
+    '退出码 1 · missing file',
+  )
+  expect(toolResultSummary('[1,2,3]')).toBe('3 项结果')
+  expect(toolResultSummary('{"result":0}')).toBe('0')
+  expect(toolResultSummary('x'.repeat(200))).toBe('x'.repeat(160) + '…')
+})
+
+it('shows live tool execution in diagnostics even when the last snapshot was paused', () => {
+  const call = {
+    tool_call_id: 'c',
+    tool_call: { name: 'write_file', arguments: { path: 'a.txt' } },
+  }
+  const run = {
+    run_id: 'r',
+    status: 'paused',
+    request: { provider_id: 'p', model_id: 'm', context_id: 'c' },
+  }
+  expect(
+    toolActivities(
+      run,
+      [{ event_type: 'tool_started', tool_call: call }],
+      [{ approval_id: 'a', tool_call_id: 'c', tool_name: 'write_file' }],
+    )[0]?.statusLabel,
+  ).toBe('执行中')
 })

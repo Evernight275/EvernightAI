@@ -18,6 +18,7 @@ export type AgentTraceEventType =
   | 'chat_completed'
   | 'tool_approval_requested'
   | 'tool_approval_decided'
+  | 'tool_started'
   | 'tool_completed'
   | 'tool_failed'
   | 'tool_execution_resolved'
@@ -141,16 +142,20 @@ export function startAgentRunStream(
   onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return requestSse('/agent-runs/stream', {
-    method: 'POST',
-    body: request,
-    signal,
-  }, (rawEvent) => {
-    const event = agentTraceEventFromSse(rawEvent)
-    if (event) {
-      onEvent(event, rawEvent)
-    }
-  })
+  return requestSse(
+    '/agent-runs/stream',
+    {
+      method: 'POST',
+      body: request,
+      signal,
+    },
+    (rawEvent) => {
+      const event = agentTraceEventFromSse(rawEvent)
+      if (event) {
+        onEvent(event, rawEvent)
+      }
+    },
+  )
 }
 
 export function listAgentRuns(signal?: AbortSignal): Promise<AgentRunState[]> {
@@ -179,16 +184,20 @@ export function resumeAgentRunStream(
   onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return requestSse(`/agent-runs/${encodeURIComponent(runId)}/resume/stream`, {
-    method: 'POST',
-    body: request,
-    signal,
-  }, (rawEvent) => {
-    const event = agentTraceEventFromSse(rawEvent)
-    if (event) {
-      onEvent(event, rawEvent)
-    }
-  })
+  return requestSse(
+    `/agent-runs/${encodeURIComponent(runId)}/resume/stream`,
+    {
+      method: 'POST',
+      body: request,
+      signal,
+    },
+    (rawEvent) => {
+      const event = agentTraceEventFromSse(rawEvent)
+      if (event) {
+        onEvent(event, rawEvent)
+      }
+    },
+  )
 }
 
 export function pauseAgentRun(
@@ -237,16 +246,20 @@ export function retryAgentRunStream(
   onEvent: (event: AgentTraceEvent, rawEvent: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  return requestSse(`/agent-runs/${encodeURIComponent(runId)}/retry/stream`, {
-    method: 'POST',
-    body: request,
-    signal,
-  }, (rawEvent) => {
-    const event = agentTraceEventFromSse(rawEvent)
-    if (event) {
-      onEvent(event, rawEvent)
-    }
-  })
+  return requestSse(
+    `/agent-runs/${encodeURIComponent(runId)}/retry/stream`,
+    {
+      method: 'POST',
+      body: request,
+      signal,
+    },
+    (rawEvent) => {
+      const event = agentTraceEventFromSse(rawEvent)
+      if (event) {
+        onEvent(event, rawEvent)
+      }
+    },
+  )
 }
 
 export function listAgentRunToolExecutions(runId: string): Promise<ToolExecutionAttempt[]> {
@@ -286,9 +299,7 @@ export function listAgentTrace(
     query.set('limit', String(options.limit))
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : ''
-  return requestJson<AgentTraceEvent[]>(
-    `/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`,
-  )
+  return requestJson<AgentTraceEvent[]>(`/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`)
 }
 
 function agentTraceEventFromSse(rawEvent: SseEvent): AgentTraceEvent | null {
@@ -299,11 +310,7 @@ function agentTraceEventFromSse(rawEvent: SseEvent): AgentTraceEvent | null {
   const payload = parseSseJson(rawEvent)
   if (rawEvent.event === 'error') {
     const error = isRecord(payload.error) ? payload.error : payload
-    throw new Error(
-      typeof error.message === 'string'
-        ? error.message
-        : 'Agent 流式响应失败',
-    )
+    throw new Error(typeof error.message === 'string' ? error.message : 'Agent 流式响应失败')
   }
 
   if (!isRecord(payload)) {
@@ -334,6 +341,7 @@ function isAgentTraceEventType(value: string): value is AgentTraceEventType {
     'chat_completed',
     'tool_approval_requested',
     'tool_approval_decided',
+    'tool_started',
     'tool_completed',
     'tool_failed',
     'tool_execution_resolved',

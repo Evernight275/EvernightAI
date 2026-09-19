@@ -987,6 +987,15 @@ class AgentApplication(AgentInterfaceProtocol):
                     )
                     return
 
+                if decision is None or decision.allowed:
+                    yield self._add_trace(
+                        state,
+                        AgentTraceEvent(
+                            event_type=AgentTraceEventType.TOOL_STARTED,
+                            step_type=AgentStepType.TOOL,
+                            tool_call=call,
+                        ),
+                    )
                 tool_started = perf_counter()
                 try:
                     tool_result = await self._execute_tool_call(state, call)
@@ -1745,6 +1754,8 @@ class AgentApplication(AgentInterfaceProtocol):
                 else "unknown"
             )
             return f"Tool approval {status} for {tool_name}"
+        if event.event_type is AgentTraceEventType.TOOL_STARTED:
+            return f"Tool {self._event_tool_name(event)} started"
         if event.event_type is AgentTraceEventType.TOOL_COMPLETED:
             tool_name = self._event_tool_name(event)
             return f"Tool {tool_name} completed"
@@ -1934,6 +1945,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
         self._agent = AgentApplication(runtime)
+        self._stream_tasks: set[asyncio.Task[None]] = set()
         self._lifecycle = _agent_run_lifecycle(runtime)
 
     async def start(
@@ -2355,6 +2367,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 ),
                 principal_scope=principal_scope,
             )
+            events = self._keep_stream_running(events)
         return _AgentTraceStream(events)
 
     def resume_stream(
@@ -2384,7 +2397,44 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 ),
                 principal_scope=principal_scope,
             )
+            events = self._keep_stream_running(events)
         return _AgentTraceStream(events)
+
+    async def _keep_stream_running(
+        self,
+        events: AsyncIterator[AgentTraceEvent],
+    ) -> AsyncIterator[AgentTraceEvent]:
+        """Keep persisted execution alive when its SSE consumer disconnects."""
+        queue: asyncio.Queue[AgentTraceEvent | BaseException | None] = asyncio.Queue()
+        connected = True
+
+        async def produce() -> None:
+            try:
+                async for event in events:
+                    if connected:
+                        queue.put_nowait(event)
+            except (Exception, asyncio.CancelledError) as exc:
+                if connected:
+                    queue.put_nowait(exc)
+            finally:
+                if connected:
+                    queue.put_nowait(None)
+
+        task = asyncio.create_task(produce(), name="evernight-agent-stream")
+        self._stream_tasks.add(task)
+        task.add_done_callback(self._stream_tasks.discard)
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    return
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            connected = False
+            while not queue.empty():
+                queue.get_nowait()
 
     def get_state(
         self,

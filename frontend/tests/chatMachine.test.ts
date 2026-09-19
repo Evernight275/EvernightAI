@@ -1,11 +1,6 @@
 import { createActor, fromPromise, waitFor } from 'xstate'
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  AgentRunState,
-  ChatResponse,
-  Session,
-  ToolDefinition,
-} from '../src/api'
+import type { AgentRunState, ChatResponse, Session, ToolDefinition } from '../src/api'
 import type { ChatSubmission } from '../src/domain/chat'
 import type {
   ChatCancelInput,
@@ -23,7 +18,7 @@ describe('chatMachine', () => {
     const actor = actorWithServices(async ({ input }) => finishedRun(input, 'private answer'))
     actor.start()
     actor.send(sendEvent('private question'))
-    await waitFor(actor, state => state.matches('idle') && state.context.transcript.length === 2)
+    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 2)
     actor.send({ type: 'AUTH_CHANGED' })
     expect(actor.getSnapshot().matches('idle')).toBe(true)
     expect(actor.getSnapshot().context.transcript).toEqual([])
@@ -37,9 +32,10 @@ describe('chatMachine', () => {
 
     actor.start()
     actor.send(sendEvent('question'))
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.transcript.length === 2,
+    )
 
     expect(snapshot.context.transcript.map((entry) => [entry.role, entry.text])).toEqual([
       ['user', 'question'],
@@ -51,7 +47,9 @@ describe('chatMachine', () => {
 
   it('renders deltas before completion and replaces the partial response without duplication', async () => {
     let finish!: () => void
-    const gate = new Promise<void>((resolve) => { finish = resolve })
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
     const actor = actorWithServices(async ({ input }) => {
       input.onTrace?.({ event_type: 'chat_delta', text_delta: '你' })
       await gate
@@ -82,19 +80,29 @@ describe('chatMachine', () => {
     actor.send({ type: 'CANCEL' })
     await waitFor(actor, (state) => state.matches('canceled'))
     actor.send({ type: 'TRACE', event: { event_type: 'chat_delta', text_delta: 'late' } })
-    expect(actor.getSnapshot().context.transcript.at(-1)).toMatchObject({ text: 'partial answer', streaming: false })
+    expect(actor.getSnapshot().context.transcript.at(-1)).toMatchObject({
+      text: 'partial answer',
+      streaming: false,
+    })
     actor.stop()
   })
 
   it('clears the active session only after deletion succeeds and retries failures', async () => {
     let fail = true
-    const actor = createActor(chatMachine.provide({ actors: {
-      createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(async ({ input }) => ({ session: input.session, transcript: [] })),
-      deleteSession: fromPromise<string, ChatSessionInput>(async ({ input }) => {
-        if (fail) throw new Error('Delete unavailable')
-        return input.session.session_id
+    const actor = createActor(
+      chatMachine.provide({
+        actors: {
+          createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(async ({ input }) => ({
+            session: input.session,
+            transcript: [],
+          })),
+          deleteSession: fromPromise<string, ChatSessionInput>(async ({ input }) => {
+            if (fail) throw new Error('Delete unavailable')
+            return input.session.session_id
+          }),
+        },
       }),
-    } }))
+    )
     actor.start()
     actor.send({ type: 'CREATE_SESSION', session: session('delete-me', 'context-1') })
     await waitFor(actor, (state) => state.matches('idle'))
@@ -165,15 +173,17 @@ describe('chatMachine', () => {
       undefined,
       async ({ input }) => ({
         session: input.session,
-        transcript: [{
-          entryId: 'user-1',
-          role: 'user',
-          text: 'stored message',
-          content: {
+        transcript: [
+          {
+            entryId: 'user-1',
             role: 'user',
-            content: [{ type: 'text', text: 'stored message' }],
+            text: 'stored message',
+            content: {
+              role: 'user',
+              content: [{ type: 'text', text: 'stored message' }],
+            },
           },
-        }],
+        ],
       }),
     )
 
@@ -181,9 +191,10 @@ describe('chatMachine', () => {
     actor.send({ type: 'SELECT_SESSION', session: selected })
     await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
     actor.send(sendEvent('next message'))
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 3
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.transcript.length === 3,
+    )
 
     expect(snapshot.context.contextId).toBe('context-session-1')
     expect(snapshot.context.transcript[0]?.text).toBe('stored message')
@@ -211,9 +222,10 @@ describe('chatMachine', () => {
 
     actor.start()
     actor.send({ type: 'CREATE_SESSION', session: target })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.session?.session_id === 'session-new'
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.session?.session_id === 'session-new',
+    )
 
     expect(created).toEqual([target])
     expect(snapshot.context.contextId).toBe('context-new')
@@ -237,9 +249,7 @@ describe('chatMachine', () => {
     actor.send({ type: 'SELECT_SESSION', session: selected })
     await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
     actor.send({ type: 'CLEAR' })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && clears.length === 1
-    ))
+    const snapshot = await waitFor(actor, (state) => state.matches('idle') && clears.length === 1)
 
     expect(clears[0]).toMatchObject({
       contextId: 'context-session-1',
@@ -250,27 +260,33 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
-  it('retries a failed request without duplicating the user entry', async () => {
-    const sender = vi.fn()
-      .mockRejectedValueOnce(new Error('provider unavailable'))
-      .mockImplementationOnce(async ({ input }: { input: ChatRequestInput }) => (
-        finishedRun(input, 'recovered')
-      ))
-    const actor = actorWithServices(sender)
-
+  it('reads the original run after a lost connection without resubmitting', async () => {
+    const sender = vi.fn().mockRejectedValue(new Error('connection lost'))
+    const recover = vi.fn(async ({ input }: { input: { runId: string } }) => ({
+      ...finishedRun(
+        { contextId: 'ctx', submission: sendEvent('question').submission, tools: [] },
+        'recovered',
+      ),
+      run_id: input.runId,
+    }))
+    const actor = createActor(
+      chatMachine.provide({
+        actors: {
+          prepareContext: fromPromise<void, string>(async () => undefined),
+          streamChat: fromPromise(sender),
+          recoverChat: fromPromise(async (options) => recover(options)),
+        },
+      }),
+    )
     actor.start()
     actor.send(sendEvent('question'))
     await waitFor(actor, (state) => state.matches('failed'))
+    const originalId = actor.getSnapshot().context.runId
     actor.send({ type: 'RETRY' })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
-
-    expect(sender).toHaveBeenCalledTimes(2)
-    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual([
-      'user',
-      'assistant',
-    ])
+    const snapshot = await waitFor(actor, (state) => state.matches('idle'))
+    expect(sender).toHaveBeenCalledTimes(1)
+    expect(recover.mock.calls[0]?.[0].input.runId).toBe(originalId)
+    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user', 'assistant'])
     actor.stop()
   })
 
@@ -289,9 +305,10 @@ describe('chatMachine', () => {
     actor.send(sendEvent('question'))
     await waitFor(actor, (state) => state.matches('failed'))
     actor.send({ type: 'RETRY' })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.transcript.length === 2,
+    )
 
     expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-failed'])
     expect(snapshot.context.runId).toBe(retries[0]?.runId)
@@ -299,7 +316,7 @@ describe('chatMachine', () => {
     actor.stop()
   })
 
-  it('retries an unrecoverable paused run instead of requesting approval', async () => {
+  it('keeps an interrupted run paused without automatically executing tools again', async () => {
     const resumes: ChatResumeInput[] = []
     const retries: ChatRetryInput[] = []
     const actor = actorWithServices(
@@ -316,13 +333,10 @@ describe('chatMachine', () => {
 
     actor.start()
     actor.send(sendEvent('recover me'))
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
-
+    const snapshot = await waitFor(actor, (state) => state.matches('resumeRequired'))
     expect(resumes).toHaveLength(0)
-    expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-unrecoverable'])
-    expect(snapshot.context.transcript[1]?.text).toBe('recovered pause')
+    expect(retries).toHaveLength(0)
+    expect(snapshot.context.run?.run_id).toBe('run-unrecoverable')
     actor.stop()
   })
 
@@ -340,13 +354,14 @@ describe('chatMachine', () => {
     actor.send(sendEvent('use the tool'))
     await waitFor(actor, (state) => state.matches('approvalRequired'))
     actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.transcript.length === 3,
+    )
 
     expect(resumes).toHaveLength(1)
     expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'approved' })
-    expect(snapshot.context.transcript[1]?.text).toBe('tool complete')
+    expect(snapshot.context.transcript[2]?.text).toBe('tool complete')
     actor.stop()
   })
 
@@ -364,13 +379,14 @@ describe('chatMachine', () => {
     actor.send(sendEvent('do not use the tool'))
     await waitFor(actor, (state) => state.matches('approvalRequired'))
     actor.send({ type: 'DENY', approvalId: 'approval-1' })
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('idle') && state.context.transcript.length === 2
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('idle') && state.context.transcript.length === 3,
+    )
 
     expect(resumes).toHaveLength(1)
     expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'denied' })
-    expect(snapshot.context.transcript[1]?.text).toBe('denial handled')
+    expect(snapshot.context.transcript[2]?.text).toBe('denial handled')
     actor.stop()
   })
 
@@ -383,10 +399,7 @@ describe('chatMachine', () => {
       }
       return finishedResumedRun(input.run, 'resumed after retry')
     })
-    const actor = actorWithServices(
-      async ({ input }) => pausedRun(input),
-      resumer,
-    )
+    const actor = actorWithServices(async ({ input }) => pausedRun(input), resumer)
 
     actor.start()
     actor.send(sendEvent('approve and retry'))
@@ -396,10 +409,7 @@ describe('chatMachine', () => {
     actor.send({ type: 'RETRY' })
     await waitFor(actor, (state) => state.matches('idle'))
 
-    expect(statuses).toEqual([
-      { 'approval-1': 'approved' },
-      { 'approval-1': 'approved' },
-    ])
+    expect(statuses).toEqual([{ 'approval-1': 'approved' }, { 'approval-1': 'approved' }])
     actor.stop()
   })
 
@@ -453,9 +463,7 @@ describe('chatMachine', () => {
     const requests: ChatRequestInput[] = []
     const actor = actorWithServices(async ({ input }) => {
       requests.push(input)
-      return requests.length === 1
-        ? failedRun(input)
-        : finishedRun(input, 'new request')
+      return requests.length === 1 ? failedRun(input) : finishedRun(input, 'new request')
     })
 
     actor.start()
@@ -530,9 +538,10 @@ describe('chatMachine', () => {
 
     actor.start()
     actor.send(sendEvent('stream tool'))
-    const snapshot = await waitFor(actor, (state) => (
-      state.matches('streaming') && state.context.trace.length === 1
-    ))
+    const snapshot = await waitFor(
+      actor,
+      (state) => state.matches('streaming') && state.context.trace.length === 1,
+    )
 
     expect(snapshot.context.trace[0]?.event_type).toBe('tool_completed')
     actor.send({ type: 'CANCEL' })
@@ -560,46 +569,50 @@ describe('chatMachine', () => {
 })
 
 function actorWithServices(
-  sender: (
-    options: { input: ChatRequestInput; signal: AbortSignal },
-  ) => Promise<AgentRunState>,
-  resumer: (
-    options: { input: ChatResumeInput; signal: AbortSignal },
-  ) => Promise<AgentRunState> = async ({ input }) => input.run,
-  retryer: (
-    options: { input: ChatRetryInput; signal: AbortSignal },
-  ) => Promise<AgentRunState> = async ({ input }) => input.run,
-  clearer: (
-    _options: { input: ChatClearInput; signal: AbortSignal },
-  ) => Promise<void> = async () => undefined,
-  canceler: (
-    _options: { input: ChatCancelInput; signal: AbortSignal },
-  ) => Promise<AgentRunState | null> = async () => null,
-  sessionCreator: (
-    options: { input: ChatSessionInput; signal: AbortSignal },
-  ) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
+  sender: (options: { input: ChatRequestInput; signal: AbortSignal }) => Promise<AgentRunState>,
+  resumer: (options: {
+    input: ChatResumeInput
+    signal: AbortSignal
+  }) => Promise<AgentRunState> = async ({ input }) => input.run,
+  retryer: (options: {
+    input: ChatRetryInput
+    signal: AbortSignal
+  }) => Promise<AgentRunState> = async ({ input }) => input.run,
+  clearer: (_options: { input: ChatClearInput; signal: AbortSignal }) => Promise<void> = async () =>
+    undefined,
+  canceler: (_options: {
+    input: ChatCancelInput
+    signal: AbortSignal
+  }) => Promise<AgentRunState | null> = async () => null,
+  sessionCreator: (options: {
+    input: ChatSessionInput
+    signal: AbortSignal
+  }) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
     session: input.session,
     transcript: [],
   }),
-  sessionLoader: (
-    options: { input: ChatSessionInput; signal: AbortSignal },
-  ) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
+  sessionLoader: (options: {
+    input: ChatSessionInput
+    signal: AbortSignal
+  }) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
     session: input.session,
     transcript: [],
   }),
 ) {
-  return createActor(chatMachine.provide({
-    actors: {
-      prepareContext: fromPromise<void, string>(async () => undefined),
-      streamChat: fromPromise<AgentRunState, ChatRequestInput>(sender),
-      resumeChat: fromPromise<AgentRunState, ChatResumeInput>(resumer),
-      retryChat: fromPromise<AgentRunState, ChatRetryInput>(retryer),
-      clearChat: fromPromise<void, ChatClearInput>(clearer),
-      cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(canceler),
-      createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionCreator),
-      loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionLoader),
-    },
-  }))
+  return createActor(
+    chatMachine.provide({
+      actors: {
+        prepareContext: fromPromise<void, string>(async () => undefined),
+        streamChat: fromPromise<AgentRunState, ChatRequestInput>(sender),
+        resumeChat: fromPromise<AgentRunState, ChatResumeInput>(resumer),
+        retryChat: fromPromise<AgentRunState, ChatRetryInput>(retryer),
+        clearChat: fromPromise<void, ChatClearInput>(clearer),
+        cancelChat: fromPromise<AgentRunState | null, ChatCancelInput>(canceler),
+        createSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionCreator),
+        loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionLoader),
+      },
+    }),
+  )
 }
 
 function sendEvent(text: string) {
@@ -652,12 +665,14 @@ function pausedRun(input: ChatRequestInput): AgentRunState {
     request: agentRequest(input),
     status: 'paused',
     response: response(''),
-    pending_approval_requests: [{
-      approval_id: 'approval-1',
-      tool_call_id: 'call-1',
-      tool_name: 'read_file',
-      safety_level: 'sensitive',
-    }],
+    pending_approval_requests: [
+      {
+        approval_id: 'approval-1',
+        tool_call_id: 'call-1',
+        tool_name: 'read_file',
+        safety_level: 'sensitive',
+      },
+    ],
   }
 }
 
@@ -732,10 +747,12 @@ function agentRequest(input: ChatRequestInput) {
     provider_id: input.submission.providerId,
     context_id: input.contextId,
     model_id: input.submission.modelId,
-    messages: [{
-      role: 'user' as const,
-      content: [{ type: 'text', text: input.submission.text }],
-    }],
+    messages: [
+      {
+        role: 'user' as const,
+        content: [{ type: 'text', text: input.submission.text }],
+      },
+    ],
     tools: input.tools,
   }
 }

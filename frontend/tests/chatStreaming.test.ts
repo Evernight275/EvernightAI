@@ -131,3 +131,75 @@ it('retains identical prose separated by a tool round', () => {
   expect(entries).toHaveLength(3)
   expect(entries[1]?.toolActivity?.status).toBe('failed')
 })
+
+import { reconcileRunTranscript, userEntry } from '../src/domain/chat'
+import type { AgentRunState, AgentTraceEvent } from '../src/api'
+
+it('restores all five phases from persisted events without duplicating text or tools', () => {
+  const initial = [userEntry({ providerId: 'p', modelId: 'm', text: '检查' }, 0)]
+  const toolResponse = response('检查文件。')
+  toolResponse.message.tool_calls = [call]
+  const events: AgentTraceEvent[] = [
+    { sequence: 1, event_type: 'chat_delta', text_delta: '检查' },
+    { sequence: 2, event_type: 'chat_completed', response: toolResponse },
+    { sequence: 3, event_type: 'tool_approval_requested', tool_call: call },
+    {
+      sequence: 4,
+      event_type: 'tool_approval_decided',
+      tool_call: call,
+      metadata: { allowed: true },
+    },
+    { sequence: 5, event_type: 'tool_started', tool_call: call },
+    {
+      sequence: 6,
+      event_type: 'tool_failed',
+      tool_call: call,
+      error_type: 'FileNotFoundError',
+      error_message: 'missing README.md',
+    },
+  ]
+  let entries = initial
+  const phases = []
+  for (const event of events) {
+    entries = applyChatTrace(entries, event, 'run')
+    phases.push(entries.at(-1)?.toolActivity?.status)
+  }
+  expect(phases.slice(1)).toEqual(['pending', 'approval', 'pending', 'running', 'failed'])
+  const run: AgentRunState = {
+    run_id: 'run',
+    request: { provider_id: 'p', model_id: 'm', context_id: 'ctx' },
+    status: 'running',
+    trace: [...events, events[5]!],
+  }
+  const restored = reconcileRunTranscript(entries.slice(0, 2), run)
+  expect(restored.map((entry) => entry.text || entry.toolActivity?.name)).toEqual([
+    '检查',
+    '检查文件。',
+    'read_text_file',
+  ])
+  expect(restored.at(-1)?.toolActivity?.errorType).toBe('FileNotFoundError')
+  expect(reconcileRunTranscript(restored, run)).toEqual(restored)
+  expect(
+    reconcileRunTranscript(restored, { ...run, trace: events.slice(0, 5), status: 'canceled' }).at(
+      -1,
+    )?.toolActivity,
+  ).toMatchObject({ status: 'pending', notice: '运行已停止，结果尚未确认' })
+})
+
+it('recovers pending approval cards even if the connection dropped before their event', () => {
+  const run: AgentRunState = {
+    run_id: 'run',
+    request: { provider_id: 'p', model_id: 'm', context_id: 'ctx' },
+    status: 'paused',
+    pending_approval_requests: [
+      {
+        approval_id: 'approval',
+        tool_call_id: call.tool_call_id,
+        tool_name: 'read_text_file',
+        tool_call: call.tool_call,
+      },
+    ],
+  }
+  const restored = reconcileRunTranscript([], run)
+  expect(restored[0]?.toolActivity).toMatchObject({ status: 'approval', name: 'read_text_file' })
+})

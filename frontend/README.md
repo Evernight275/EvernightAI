@@ -59,14 +59,15 @@ Opening it is local presentation state, not an Agent state transition.
 On small screens the sidebar becomes a modal navigation panel, while the
 transcript remains scrollable and the composer stays at the viewport bottom.
 `ChatTranscript` delegates each visible user or assistant turn to `ChatMessage`;
-system and tool records remain outside the conversation view. `ChatSidebar`
+tool calls appear between assistant messages as `ChatInlineTool` cards, while
+system messages stay hidden. `ChatSidebar`
 creates, selects, and deletes persisted sessions and keeps the settings entry at the
 bottom of the layout. Its `chatMachine` owns session
 creation/loading/deletion, context history, agent runs, tool approval, retry,
 cancellation, and errors. Selecting a session loads its persisted Context;
 every later turn uses that Context and includes its `session_id` while calling
 `/agent-runs`. Chat transitions through `creatingSession`, `loadingSession`,
-`deletingSession`, `preparing`, `streaming`, `approvalRequired`,
+`deletingSession`, `preparing`, `streaming`, `recovering`, `approvalRequired`,
 `resumeRequired`, `resuming`, `retrying`, `canceling`, `clearing`, `canceled`,
 and `failed`. Each pending tool approval is decided separately after its call
 arguments and permissions are shown. Streaming trace events update tool
@@ -129,3 +130,22 @@ draft mounted. The standalone index entry renders the same settings panel.
 General, connection/authentication, and data-control sections expose working
 controls; resource details remain expandable. Escape and the close button
 return to chat. Mobile layouts use a horizontal category bar.
+
+### Tool progress
+
+Inline tool cards and run details share five phases: 准备、审批、执行中、完成、失败.
+Cards show a short result preview, expandable arguments and full output, and
+an error button that opens and focuses the corresponding failure details.
+Inline and footer approval controls share the same decisions; only the active
+run can accept approval actions.
+
+After an SSE disconnect, the chat reads the original run snapshot and keeps
+polling while it is running. Temporary network failures use increasing delays
+(up to 10 seconds); stopping, switching sessions, or changing identity aborts
+recovery. Snapshots restore interleaved text and tool progress without replaying
+the execution request. Paused runs require an explicit action. This recovery
+covers a connection loss while the chat remains open; reloading the page does
+not automatically reattach to an active run.
+
+`tests/toolProgress.browser.mjs` checks disconnect recovery, linked approvals,
+error focus and layout at desktop and mobile widths with a mocked backend.

@@ -37,6 +37,7 @@ class AgentTraceEventType(StrEnum):
     CHAT_COMPLETED = "chat_completed"
     TOOL_APPROVAL_REQUESTED = "tool_approval_requested"
     TOOL_APPROVAL_DECIDED = "tool_approval_decided"
+    TOOL_STARTED = "tool_started"
     TOOL_COMPLETED = "tool_completed"
     TOOL_FAILED = "tool_failed"
     TOOL_EXECUTION_RESOLVED = "tool_execution_resolved"

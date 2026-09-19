@@ -2597,7 +2597,7 @@ def test_http_websocket_resumes_agent_run_with_tool_approval() -> None:
                     },
                 }
             )
-            resumed_messages = [websocket.receive_json() for _ in range(4)]
+            resumed_messages = [websocket.receive_json() for _ in range(5)]
 
     assert [message["trace_event"]["event_type"] for message in start_messages] == [
         "run_started",
@@ -2607,6 +2607,7 @@ def test_http_websocket_resumes_agent_run_with_tool_approval() -> None:
     ]
     assert [message["trace_event"]["event_type"] for message in resumed_messages] == [
         "tool_approval_decided",
+        "tool_started",
         "tool_completed",
         "chat_completed",
         "run_stopped",

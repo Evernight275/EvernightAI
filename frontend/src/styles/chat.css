@@ -1769,3 +1769,64 @@ body,
     transition: none;
   }
 }
+
+.chat-tool-card {
+  min-width: 0;
+}
+.chat-tool-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 12px 8px 35px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.chat-tool-preview p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.chat-tool-preview button {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.chat-tool-card.is-error .chat-tool-preview,
+.chat-tool-error-location {
+  color: var(--color-danger);
+}
+.chat-tool-card > .chat-tool-approval {
+  margin: 8px 0 12px 20px;
+}
+.chat-tool-call-id {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.chat-connection-notice {
+  color: var(--color-muted);
+  text-align: center;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.chat-tool-spinner {
+  animation: chat-tool-spin 1.2s linear infinite;
+}
+@keyframes chat-tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-spinner {
+    animation: none;
+  }
+}
+@media (max-width: 640px) {
+  .chat-tool-preview {
+    padding-left: 12px;
+  }
+  .chat-tool-card > .chat-tool-approval {
+    margin-left: 0;
+  }
+}
