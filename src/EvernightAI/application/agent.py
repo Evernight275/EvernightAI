@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +16,7 @@ from EvernightAI.core.error.agent import (
     AgentStateError,
 )
 from EvernightAI.core.error.tool import ToolExecutionError
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
@@ -101,6 +102,36 @@ def _tool_error_payload(
 
 def _owner_scope(owner_id: str | None) -> PrincipalScope | None:
     return PrincipalScope(owner_id=owner_id) if owner_id is not None else None
+
+
+def _aggregate_run_usage(state: AgentRunState) -> ChatUsage | None:
+    usages = [
+        step.response.usage
+        for step in state.steps
+        if step.step_type is AgentStepType.CHAT and step.response is not None
+    ]
+    if not any(usage is not None for usage in usages):
+        return None
+
+    def total(select: Callable[[ChatUsage], int | None]) -> int | None:
+        values = [select(usage) if usage is not None else None for usage in usages]
+        if any(value is None for value in values):
+            return None
+        return sum(value for value in values if value is not None)
+
+    return ChatUsage(
+        prompt_tokens=total(lambda usage: usage.prompt_tokens),
+        completion_tokens=total(lambda usage: usage.completion_tokens),
+        total_tokens=total(lambda usage: usage.total_tokens),
+        cached_prompt_tokens=total(lambda usage: usage.cached_prompt_tokens),
+        cache_write_prompt_tokens=total(lambda usage: usage.cache_write_prompt_tokens),
+        metadata={
+            "calls": [
+                usage.model_dump(mode="json") if usage is not None else None
+                for usage in usages
+            ],
+        },
+    )
 
 
 def _require_request_scope(
@@ -475,6 +506,7 @@ def _restore_checkpoint_data(
             )
         )
         completed_tool_call_ids.add(event.tool_call.tool_call_id)
+    state.usage = _aggregate_run_usage(state)
 
 
 def recover_interrupted_agent_runs(
@@ -765,6 +797,7 @@ class AgentApplication(AgentInterfaceProtocol):
             raise AgentStateError("Agent run is not paused")
         if not self._is_recovery_eligible(state):
             raise AgentStateError("Agent run cannot resume safely; retry it instead")
+        state.usage = _aggregate_run_usage(state)
         if self._is_manual_pause(state):
             async for event in self._resume_manual_pause_events(state):
                 yield event
@@ -1173,6 +1206,7 @@ class AgentApplication(AgentInterfaceProtocol):
                 message=response.message,
             )
         )
+        state.usage = _aggregate_run_usage(state)
 
     def _completed_tool_call_ids(self, state: AgentRunState) -> set[str]:
         return {
@@ -1392,14 +1426,26 @@ class AgentApplication(AgentInterfaceProtocol):
         model_id = fallback_model_id
         finish_reason: str | None = None
         usage: ChatUsage | None = None
+        completed = False
 
         async for event in stream:
+            if event.event_type is ChatStreamEventType.ERROR:
+                raise ProviderResponseError(
+                    event.error_message or "Provider chat stream failed",
+                    detail=event.error_type,
+                )
+            if event.event_type in {
+                ChatStreamEventType.MESSAGE_COMPLETED,
+                ChatStreamEventType.DONE,
+            }:
+                completed = True
             if event.response_id is not None:
                 response_id = event.response_id
             if event.model_id is not None:
                 model_id = event.model_id
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
+                completed = True
             if event.usage is not None:
                 usage = merge_chat_usage(usage, event.usage)
 
@@ -1420,6 +1466,9 @@ class AgentApplication(AgentInterfaceProtocol):
                 and event.tool_call is not None
             ):
                 tool_calls.append(event.tool_call)
+
+        if not completed:
+            raise ProviderResponseError("Provider chat stream ended without completion")
 
         text = "".join(text_deltas)
         content = [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
@@ -1850,6 +1899,7 @@ class AgentApplication(AgentInterfaceProtocol):
 
         return AgentRunResult(
             response=state.response,
+            usage=_aggregate_run_usage(state),
             stop_reason=state.stop_reason,
             steps=list(state.steps),
             trace=list(state.trace),
@@ -1972,8 +2022,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         executor = self._runtime.agent_run_executor
         if executor is None:
             try:
-                return await self._agent._execute_prepared_agent_run(
-                    stored_request,
+                return await self._run_and_store(
+                    self._agent._run_agent_events(stored_request, state),
                     state,
                     principal_scope=principal_scope,
                 )
@@ -1987,8 +2037,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         try:
             return await executor.execute(
                 state.run_id,
-                lambda: self._agent._execute_prepared_agent_run(
-                    stored_request,
+                lambda: self._run_and_store(
+                    self._agent._run_agent_events(stored_request, state),
                     state,
                     principal_scope=principal_scope,
                 ),
@@ -2019,11 +2069,12 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
         executor = self._runtime.agent_run_executor
+        state = self.get_state(run_id, principal_scope=principal_scope)
         if executor is None:
             try:
-                return await self._agent.resume_agent_run(
-                    run_id,
-                    approvals,
+                return await self._run_and_store(
+                    self._agent._resume_agent_events(state, approvals),
+                    state,
                     principal_scope=principal_scope,
                 )
             except Exception as exc:
@@ -2033,13 +2084,12 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     principal_scope=principal_scope,
                 )
                 raise
-        state = self.get_state(run_id, principal_scope=principal_scope)
         try:
             return await executor.execute(
                 run_id,
-                lambda: self._agent.resume_agent_run(
-                    run_id,
-                    approvals,
+                lambda: self._run_and_store(
+                    self._agent._resume_agent_events(state, approvals),
+                    state,
                     principal_scope=principal_scope,
                 ),
                 timeout_seconds=state.request.timeout_seconds,
@@ -2655,6 +2705,22 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     principal_scope=principal_scope,
                 )
 
+    async def _run_and_store(
+        self,
+        events: AsyncIterator[AgentTraceEvent],
+        state: AgentRunState,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunState:
+        async with self._lifecycle.active_run():
+            async for _ in self._stream_and_store(
+                events,
+                state,
+                principal_scope=principal_scope,
+            ):
+                pass
+        return self.get_state(state.run_id, principal_scope=principal_scope)
+
     async def _start_stream_events(
         self,
         request: AgentRunRequest,
@@ -2683,17 +2749,6 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentTraceEvent | None:
-        if event.event_type not in {
-            AgentTraceEventType.RUN_STARTED,
-            AgentTraceEventType.CHAT_COMPLETED,
-            AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
-            AgentTraceEventType.TOOL_APPROVAL_DECIDED,
-            AgentTraceEventType.TOOL_COMPLETED,
-            AgentTraceEventType.TOOL_FAILED,
-            AgentTraceEventType.MEMORY_WRITTEN,
-        }:
-            return None
-
         stored = self._state_register().get_state(
             state.run_id,
             principal_scope=principal_scope,
@@ -2704,6 +2759,23 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             or not isinstance(runtime_metadata, dict)
             or runtime_metadata.get(AgentRunMetadata.PAUSE_REQUESTED_KEY) is not True
         ):
+            return None
+
+        if state.status is not AgentRunStatus.RUNNING:
+            return None
+        if event.event_type not in {
+            AgentTraceEventType.RUN_STARTED,
+            AgentTraceEventType.CHAT_COMPLETED,
+            AgentTraceEventType.TOOL_APPROVAL_REQUESTED,
+            AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+            AgentTraceEventType.TOOL_COMPLETED,
+            AgentTraceEventType.TOOL_FAILED,
+        }:
+            state.metadata = AgentRunMetadata.with_runtime(
+                state.metadata,
+                **{AgentRunMetadata.PAUSE_REQUESTED_KEY: True},
+                pause_reason=runtime_metadata.get("pause_reason"),
+            )
             return None
 
         checkpoint = event.event_type.value

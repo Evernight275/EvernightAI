@@ -1,5 +1,5 @@
 import { requestJson, requestSse, type SseEvent } from './client'
-import type { ChatResponse, ChatSkill, Content } from './content'
+import type { ChatResponse, ChatSkill, ChatUsage, Content } from './content'
 import type { MemoryQuery } from './memory'
 import type {
   ToolApprovalDecision,
@@ -104,6 +104,7 @@ export type AgentRunState = {
   request: AgentRunRequest
   status?: AgentRunStatus | string
   response?: ChatResponse | null
+  usage?: ChatUsage | null
   stop_reason?: AgentStopReason | string | null
   steps?: AgentStep[]
   trace?: AgentTraceEvent[]

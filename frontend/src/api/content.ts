@@ -46,6 +46,8 @@ export type ChatUsage = {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   total_tokens?: number | null
+  cached_prompt_tokens?: number | null
+  cache_write_prompt_tokens?: number | null
   metadata?: Record<string, unknown>
 }
 

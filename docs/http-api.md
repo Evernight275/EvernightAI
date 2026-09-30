@@ -290,6 +290,16 @@ values override the session defaults for that call.
 Use agent runs when a request needs trace records, tool rounds, approvals, or
 memory writing.
 
+Agent run snapshots expose `usage` aggregated across completed model calls,
+including calls before an approval or manual pause. `response.usage` remains
+the usage of the latest model response. Each token field is summed only when
+every completed call reports it; missing values remain `null`. Per-call usage,
+including raw provider metadata, is retained in `usage.metadata.calls`.
+Ordinary and streaming runs honor pause requests at the next safe checkpoint.
+Text deltas preserve a pending pause request without interrupting the model
+response halfway through. Provider error events and streams that end without a
+completion signal fail the run instead of committing a successful response.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/agent-runs \
   -H 'content-type: application/json' \

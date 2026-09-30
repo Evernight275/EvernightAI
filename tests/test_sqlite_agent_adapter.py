@@ -16,6 +16,7 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionStatus,
 )
 from EvernightAI.core.schema.content import (
+    ChatUsage,
     Content,
     ContentPart,
     ContentPartType,
@@ -70,6 +71,11 @@ def make_event(event_type: AgentTraceEventType) -> AgentTraceEvent:
 def test_sqlite_agent_state_register_persists_states(tmp_path: Path) -> None:
     database_path = make_database_path(tmp_path)
     state = make_state()
+    state.usage = ChatUsage(
+        prompt_tokens=30,
+        cached_prompt_tokens=0,
+        metadata={"calls": [{"metadata": {"raw": "preserved"}}, None]},
+    )
 
     register = SQLiteAgentRunStateRegister(database_path)
     register.save_state(state)

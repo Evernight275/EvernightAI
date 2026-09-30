@@ -14,6 +14,7 @@ from EvernightAI.application.agent import (
     _AgentRunLifecycle,
 )
 from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
@@ -130,6 +131,7 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
         )
     )
     response = result.response
+    assert result.usage is None
 
     context = await runtime.contexts.get("ctx-1")
     provider = await runtime.providers.get("provider-1")
@@ -3573,3 +3575,344 @@ async def test_disconnected_tool_stream_keeps_execution_and_controls(
         if event.event_type is AgentTraceEventType.TOOL_COMPLETED
     ]
     assert len(completed) == (1 if ending == "complete" else 0)
+
+
+class BlockingStreamingAnswerProvider(BlockingFinalAnswerProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        self.requests.append(request)
+        self.started.set()
+        await self.release.wait()
+        return EventStream(
+            [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA, text_delta="hel"
+                ),
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA, text_delta="lo"
+                ),
+                ChatStreamEvent(event_type=ChatStreamEventType.DONE),
+            ]
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream_events", [False, True])
+@pytest.mark.parametrize("stream_model", [False, True])
+@pytest.mark.parametrize("use_executor", [False, True])
+async def test_agent_pause_during_model_call_survives_snapshot_updates(
+    stream_events: bool, stream_model: bool, use_executor: bool
+) -> None:
+    from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
+
+    provider = BlockingStreamingAnswerProvider()
+    states = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=states,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        agent_run_executor=SingleProcessAgentRunExecutor(states)
+        if use_executor
+        else None,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("Hello")],
+        metadata={"run_id": "pause-during-chat", "stream": stream_model},
+    )
+
+    async def execute() -> AgentRunState:
+        if stream_events:
+            _ = [event async for event in app.start_stream(request)]
+            return app.get_state("pause-during-chat")
+        return await app.start(request)
+
+    task = asyncio.create_task(execute())
+    try:
+        await asyncio.wait_for(provider.started.wait(), 2)
+        await app.pause("pause-during-chat", reason="operator pause")
+    finally:
+        provider.release.set()
+        state = await asyncio.wait_for(task, 2)
+
+    assert state.status is AgentRunStatus.PAUSED
+    assert (
+        state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_reason"] == "operator pause"
+    )
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_requested"] is False
+    assert state.trace[-1].event_type is AgentTraceEventType.RUN_PAUSED
+    assert (await runtime.contexts.get("ctx-1")).messages == []
+    if stream_model:
+        assert [event.text_delta for event in state.trace if event.text_delta] == [
+            "hel",
+            "lo",
+        ]
+    resumed = await app.resume(state.run_id, [])
+    assert resumed.status is AgentRunStatus.FINISHED
+    assert len(provider.requests) == 1
+    context = await runtime.contexts.get("ctx-1")
+    assert len(context.messages) == 2
+    await app.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream_events", [False, True])
+async def test_agent_resume_honors_pause_during_followup_chat(
+    stream_events: bool,
+) -> None:
+    class BlockingFollowupProvider(ToolCallingProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            if self.requests:
+                self.started.set()
+                await self.release.wait()
+            return await super().chat(request)
+
+    provider = BlockingFollowupProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    calls: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        calls.append(arguments)
+        return {"result": 3}
+
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add",
+            parameters_schema={"type": "object"},
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    state = await app.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+    approvals = [
+        ToolApprovalDecision(
+            approval_id="tool-call-1:approval",
+            tool_call_id="tool-call-1",
+            status=ToolApprovalStatus.APPROVED,
+        )
+    ]
+
+    async def resume() -> AgentRunState:
+        if stream_events:
+            _ = [event async for event in app.resume_stream(state.run_id, approvals)]
+            return app.get_state(state.run_id)
+        return await app.resume(state.run_id, approvals)
+
+    task = asyncio.create_task(resume())
+    try:
+        await asyncio.wait_for(provider.started.wait(), 2)
+        await app.pause(state.run_id)
+    finally:
+        provider.release.set()
+        paused = await asyncio.wait_for(task, 2)
+    assert paused.status is AgentRunStatus.PAUSED
+    assert len(calls) == 1
+    finished = await app.resume(state.run_id, [])
+    assert finished.status is AgentRunStatus.FINISHED
+    assert len(calls) == 1
+    assert len(provider.requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["empty", "partial", "error", "error_after_done"])
+async def test_agent_rejects_model_stream_without_successful_completion(
+    failure: str,
+) -> None:
+    class FailedStreamProvider(FinalAnswerProvider):
+        async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+            events: list[ChatStreamEvent] = []
+            if failure != "empty":
+                events.append(
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_DELTA,
+                        text_delta="partial",
+                    )
+                )
+            if failure == "error_after_done":
+                events.append(ChatStreamEvent(event_type=ChatStreamEventType.DONE))
+            if failure.startswith("error"):
+                events.append(
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.ERROR,
+                        error_type="upstream_failure",
+                        error_message="Upstream failed",
+                    )
+                )
+            return EventStream(events)
+
+    runtime = make_runtime(
+        provider=FailedStreamProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    with pytest.raises(ProviderResponseError) as error:
+        _ = [
+            event
+            async for event in app.start_stream(
+                AgentRunRequest(
+                    provider_id="provider-1",
+                    context_id="ctx-1",
+                    model_id="model-1",
+                    messages=[make_message("Hello")],
+                    metadata={"run_id": "bad-stream", "stream": True},
+                )
+            )
+        ]
+    if failure.startswith("error"):
+        assert str(error.value) == "Upstream failed"
+        assert error.value.detail == "upstream_failure"
+    state = app.get_state("bad-stream")
+    assert state.status is AgentRunStatus.FAILED
+    assert state.response is None
+    assert not any(
+        e.event_type is AgentTraceEventType.CHAT_COMPLETED for e in state.trace
+    )
+    assert (await runtime.contexts.get("ctx-1")).messages == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("approval_pause", [False, True])
+@pytest.mark.parametrize("missing", ["none", "cache", "usage"])
+async def test_agent_aggregates_usage_across_tool_rounds_and_approval_resume(
+    stream: bool,
+    approval_pause: bool,
+    missing: str,
+) -> None:
+    class UsageProvider(ToolCallingProvider):
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            response = await super().chat(request)
+            round_number = len(self.requests)
+            usage = ChatUsage(
+                prompt_tokens=10 * round_number,
+                completion_tokens=round_number,
+                total_tokens=11 * round_number,
+                cached_prompt_tokens=0,
+                cache_write_prompt_tokens=3 * round_number,
+                metadata={"raw": {"round": round_number}},
+            )
+            if round_number == 2:
+                if missing == "cache":
+                    usage.cached_prompt_tokens = None
+                elif missing == "usage":
+                    return response
+            return response.model_copy(update={"usage": usage})
+
+        async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+            response = await self.chat(request)
+            events = [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_DELTA,
+                    text_delta=message_text(response.message),
+                )
+            ]
+            events.extend(
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.TOOL_CALL_COMPLETED,
+                    tool_call=call,
+                )
+                for call in response.message.tool_calls or []
+            )
+            events.extend(
+                [
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.USAGE, usage=response.usage
+                    ),
+                    ChatStreamEvent(event_type=ChatStreamEventType.DONE),
+                ]
+            )
+            return EventStream(events)
+
+    provider = UsageProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+
+    async def add(_arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add",
+            parameters_schema={"type": "object"},
+            safety_level=ToolSafetyLevel.SENSITIVE
+            if approval_pause
+            else ToolSafetyLevel.SAFE,
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    state = await app.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add")],
+            tools=runtime.tools.list_tools(),
+            metadata={"stream": stream},
+        )
+    )
+    if approval_pause:
+        assert state.status is AgentRunStatus.PAUSED
+        assert state.usage is not None and state.usage.prompt_tokens == 10
+        state = await app.resume(
+            state.run_id,
+            [
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.APPROVED,
+                )
+            ],
+        )
+    assert state.status is AgentRunStatus.FINISHED
+    assert state.usage is not None
+    assert state.usage.prompt_tokens == (None if missing == "usage" else 30)
+    assert state.usage.total_tokens == (None if missing == "usage" else 33)
+    assert state.usage.cached_prompt_tokens == (0 if missing == "none" else None)
+    assert state.usage.cache_write_prompt_tokens == (None if missing == "usage" else 9)
+    assert state.response is not None
+    assert (state.response.usage.prompt_tokens if state.response.usage else None) == (
+        None if missing == "usage" else 20
+    )
+    result = AgentApplication(runtime)._state_to_result(state)
+    assert result.usage == state.usage == app.get_state(state.run_id).usage
+    per_call = state.usage.metadata["calls"]
+    assert per_call[0]["metadata"] == {"raw": {"round": 1}}
+    if missing == "usage":
+        assert per_call[1] is None
+    else:
+        assert per_call[1]["metadata"] == {"raw": {"round": 2}}

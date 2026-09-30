@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
-from EvernightAI.core.schema.content import ChatResponse, ChatSkill, Content
+from EvernightAI.core.schema.content import ChatResponse, ChatSkill, ChatUsage, Content
 from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.trace import TraceEvent
 from EvernightAI.core.schema.tool import (
@@ -148,6 +148,7 @@ class AgentRunResult(EvernightAISchema):
     """Agent运行结果"""
 
     response: ChatResponse
+    usage: ChatUsage | None = None
     stop_reason: AgentStopReason = AgentStopReason.FINISHED
     steps: list[AgentStep] = Field(default_factory=list)
     trace: list["AgentTraceEvent"] = Field(default_factory=list)
@@ -180,6 +181,7 @@ class AgentRunState(EvernightAISchema):
     request: AgentRunRequest
     status: AgentRunStatus = AgentRunStatus.RUNNING
     response: ChatResponse | None = None
+    usage: ChatUsage | None = None
     stop_reason: AgentStopReason | None = None
     steps: list[AgentStep] = Field(default_factory=list)
     trace: list[AgentTraceEvent] = Field(default_factory=list)
