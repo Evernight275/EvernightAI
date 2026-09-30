@@ -104,7 +104,7 @@ def create_app_from_config(
             for provider in runtime.provider_config_store.list_configs()
         } if runtime.provider_config_store is not None else set()
         for provider in config.providers:
-            if provider.is_enabled and provider.provider_id not in stored_ids:
+            if provider.provider_id not in stored_ids:
                 await interface.providers.create_provider(provider)
 
     return create_http_app(

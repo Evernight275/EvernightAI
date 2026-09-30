@@ -64,11 +64,17 @@ export function useChatRequestForm(
     textarea.value.style.height = `${textarea.value.scrollHeight}px`
   }, { flush: 'post' })
 
+  const enabledProviders = computed(() => props.catalog.providers.filter((provider) => provider.is_enabled !== false))
+  const selectedProviderDisabled = computed(() => props.catalog.providers.some(
+    (provider) => provider.provider_id === providerId.value && provider.is_enabled === false,
+  ))
   const models = computed(() => props.catalog.modelGroups.find(
     (group) => group.provider.provider_id === providerId.value,
   )?.models || [])
 
-  const canSubmit = computed(() => canSubmitChat({
+  const canSubmit = computed(() => enabledProviders.value.some(
+    (provider) => provider.provider_id === providerId.value,
+  ) && canSubmitChat({
     busy: props.busy,
     sessionReady: props.sessionReady,
     providerId: providerId.value,
@@ -80,30 +86,39 @@ export function useChatRequestForm(
     () => props.catalog.providers,
     (providers) => {
       if (!providers.some((provider) => provider.provider_id === providerId.value)) {
-        providerId.value = providers[0]?.provider_id || ''
+        providerId.value = enabledProviders.value[0]?.provider_id || ''
       }
     },
     { immediate: true },
   )
 
-  watch(models, (availableModels) => {
-    if (!availableModels.some((model) => model.model_id === modelId.value)) {
+  watch([providerId, models], ([selectedProvider, availableModels], [previousProvider, previousModels]) => {
+    if (selectedProviderDisabled.value) return
+    const removedDeclaredModel = previousModels?.some((model) => model.model_id === modelId.value)
+      && !availableModels.some((model) => model.model_id === modelId.value)
+    if (selectedProvider !== previousProvider || !modelId.value || removedDeclaredModel) {
       modelId.value = availableModels[0]?.model_id || ''
     }
   }, { immediate: true, flush: 'sync' })
 
+  let appliedDefaults = ''
   watch(
     [
       () => props.defaultProviderId,
       () => props.defaultModelId,
+      () => props.sessionId,
       () => props.catalog.providers,
     ],
-    ([defaultProviderId, defaultModelId]) => {
-      if (!defaultProviderId || !props.catalog.providers.some(
+    ([defaultProviderId, defaultModelId, sessionId]) => {
+      if (!defaultProviderId) { appliedDefaults = ''; return }
+      if (!props.catalog.providers.some(
         (provider) => provider.provider_id === defaultProviderId,
       )) {
         return
       }
+      const defaults = JSON.stringify([sessionId, defaultProviderId, defaultModelId])
+      if (appliedDefaults === defaults) return
+      appliedDefaults = defaults
       providerId.value = defaultProviderId
       modelId.value = defaultModelId?.trim()
         || models.value[0]?.model_id
@@ -148,8 +163,9 @@ export function useChatRequestForm(
     models,
     text,
     canSubmit,
+    selectedProviderDisabled,
     providerDisabled: computed(() => (
-      props.busy || !props.sessionReady || props.catalog.providers.length === 0
+      props.busy || !props.sessionReady || enabledProviders.value.length === 0
     )),
     modelDisabled: computed(() => (
       props.busy

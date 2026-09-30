@@ -16,6 +16,7 @@ const {
   text,
   setTextarea,
   canSubmit,
+  selectedProviderDisabled,
   providerDisabled,
   messageDisabled,
   submitLabel,
@@ -39,6 +40,7 @@ const {
       </div>
     </details>
     <p v-if="optionsError" role="alert">{{ optionsError }}</p>
+    <p v-if="selectedProviderDisabled" role="status">当前模型服务已停用，请启用该服务或选择其他模型。</p>
     <h2 class="sr-only">发送消息</h2>
     <form @submit.prevent="submit">
       <div class="chat-composer-message">

@@ -112,6 +112,42 @@ keeps the existing provider available. In-flight calls and streams finish using
 their original instance; subsequent calls use the updated configuration.
 The web settings page exposes this flow under model service management.
 
+### Enable Or Disable A Provider
+
+Use the same update endpoint and `providers:update` permission:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/providers/main \
+  -H 'content-type: application/json' \
+  -d '{"is_enabled": false}'
+```
+
+Set `is_enabled` to `true` to enable it again. Repeating the current enabled state
+alone leaves the instance untouched. Disabled providers remain in `GET /providers`
+and can be inspected, edited, and deleted. Model and capability queries use their
+local declarations without contacting the upstream service.
+
+Disabling blocks new model calls with `ProviderDisabledError` (HTTP `409` for
+ordinary chat requests; an SSE error event for streaming chat). Existing calls and
+streams may finish before their instance closes. A multi-round agent run is
+checked again at its next model call.
+Disabling a provider does not cancel an agent run or its tools.
+
+Creating or editing disabled configurations does not construct an adapter or
+resolve credentials. Enabling resolves credentials and creates the adapter
+through the provider factory; a failure keeps the configuration disabled. This
+does not verify that the remote service will accept a subsequent request.
+
+Persisted disabled configurations are restored as manageable records at startup,
+even if their secret references cannot currently resolve. Their saved state takes
+precedence over configuration-file defaults. Runtime-only raw-key configurations
+remain subject to the persistence rules above.
+
+In web settings, each service has an enable/disable action. Chat model selection
+offers enabled services only. A conversation whose selected service is disabled
+keeps its history and draft, shows a notice, and requires re-enabling that service
+or explicitly choosing another model before sending.
+
 ## One-Off Chat
 
 Use `/chat` when you do not want stored history.

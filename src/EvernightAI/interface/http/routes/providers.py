@@ -22,10 +22,11 @@ router = APIRouter(prefix="/providers", tags=["providers"])
     response_model=ProviderInfo,
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
-    summary="Register a provider",
+    summary="Register a provider configuration",
     description=(
-        "Create a runtime provider instance. Use the returned `provider_id` in "
-        "chat, session, and agent requests."
+        "Register provider configuration and create an instance if enabled. "
+        "Disabled configurations remain manageable without resolving credentials. "
+        "Use an enabled provider's `provider_id` in chat, session, and agent requests."
     ),
     operation_id="create_provider",
 )
@@ -73,7 +74,9 @@ async def get_provider_config(
         "credentials are retained; null clears the specified credential. A new "
         "API key or secret reference replaces the other credential source. Model "
         "and metadata maps replace their entire current values. Active calls "
-        "finish on the previous instance. Raw API keys remain runtime-only."
+        "finish on the previous instance. Setting is_enabled=false blocks new "
+        "model calls and retains the configuration; enabling builds an instance "
+        "before publishing the change. Raw API keys remain runtime-only."
     ),
     operation_id="update_provider",
 )
@@ -92,7 +95,8 @@ async def update_provider(
         "Ask the provider instance for models. By default this returns locally "
         "declared models. If the provider was configured with `discover_models`, "
         "the instance also asks the upstream models endpoint and falls back to "
-        "declared models when discovery is unavailable."
+        "declared models when discovery is unavailable. Disabled providers return "
+        "only locally declared models without contacting the upstream service."
     ),
     operation_id="list_provider_models",
 )

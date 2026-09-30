@@ -35,6 +35,7 @@ from EvernightAI.core.error.provider import (
     ProviderCapabilityUnsupportedError,
     ProviderConfigurationError,
     ProviderConflictError,
+    ProviderDisabledError,
     ProviderNotFoundError,
 )
 
@@ -47,13 +48,13 @@ class _ProviderSlot:
     generation: int
     instance: ProviderInstanceProtocol
     info: ProviderInfo
-    config: ProviderConfig
     active_calls: int = 0
     retired: bool = False
     close_started: bool = False
     call_total: int = 0
     error_total: int = 0
     idle: Event = field(default_factory=Event)
+    closed: Event = field(default_factory=Event)
 
     def __post_init__(self) -> None:
         self.idle.set()
@@ -171,7 +172,9 @@ class ProviderManager(ProviderManageProtocol):
         self._factory = factory
         self._config_store = config_store
         self._secret_resolver = secret_resolver
+        self._configs: dict[str, ProviderConfig] = {}
         self._slots: dict[str, _ProviderSlot] = {}
+        self._retired_slots: dict[tuple[str, int], _ProviderSlot] = {}
         self._locks: dict[str, Lock] = {}
         self._generations: dict[str, int] = {}
         self._call_totals: dict[str, int] = {}
@@ -179,11 +182,11 @@ class ProviderManager(ProviderManageProtocol):
 
     async def create(
         self, provider: ProviderConfig, *, replace_existing: bool = True,
-    ) -> ProviderInstanceProtocol:
+    ) -> ProviderInstanceProtocol | None:
         lock = self._lock_for(provider.provider_id)
         async with lock:
             previous = self._slots.get(provider.provider_id)
-            if previous is not None and not replace_existing:
+            if provider.provider_id in self._configs and not replace_existing:
                 raise ProviderConflictError(f"The provider {provider.provider_id} already exists")
             instance = await self._replace_provider(provider, previous)
         if previous is not None:
@@ -195,34 +198,38 @@ class ProviderManager(ProviderManageProtocol):
 
     async def update(
         self, provider_id: str, update: ProviderConfigUpdate,
-    ) -> ProviderInstanceProtocol:
+    ) -> ProviderInstanceProtocol | None:
         async with self._lock_for(provider_id):
-            previous = self._get_slot(provider_id)
+            config = self._get_config(provider_id)
+            previous = self._slots.get(provider_id)
             changes = update.model_dump(exclude_unset=True)
-            if not changes:
-                return previous.instance
+            if not changes or changes == {"is_enabled": config.is_enabled}:
+                return previous.instance if previous is not None else None
             if update.api_key is not None:
                 changes["api_key_secret_ref"] = None
             elif update.api_key_secret_ref is not None:
                 changes["api_key"] = None
             provider = ProviderConfig.model_validate({
-                **previous.config.model_dump(), **changes,
+                **config.model_dump(), **changes,
             })
             instance = await self._replace_provider(
                 provider, previous, remove_stale_config=True,
             )
-        await self._close_if_idle(
-            previous, message="Failed to close replaced provider instance",
-        )
+        if previous is not None:
+            await self._close_if_idle(
+                previous, message="Failed to close replaced provider instance",
+            )
         return instance
 
     async def _replace_provider(
         self, provider: ProviderConfig, previous: _ProviderSlot | None,
         *, remove_stale_config: bool = False,
-    ) -> ProviderInstanceProtocol:
+    ) -> ProviderInstanceProtocol | None:
         provider = provider.model_copy(deep=True)
-        resolved = self._resolve_secret(provider.model_copy(deep=True))
-        instance = await self._factory.create(resolved)
+        instance = None
+        if provider.is_enabled:
+            resolved = self._resolve_secret(provider.model_copy(deep=True))
+            instance = await self._factory.create(resolved)
         try:
             info = self._provider_info(provider)
             if self._config_store is not None:
@@ -235,29 +242,34 @@ class ProviderManager(ProviderManageProtocol):
                 else:
                     self._config_store.save(provider.model_copy(update={"api_key": None}))
         except Exception:
-            await self._close_unpublished_instance(
-                provider.provider_id, instance,
-                message="Failed to close provider instance after create failure",
-            )
+            if instance is not None:
+                await self._close_unpublished_instance(
+                    provider.provider_id, instance,
+                    message="Failed to close provider instance after create failure",
+                )
             raise
-        generation = self._generations.get(provider.provider_id, 0) + 1
-        self._generations[provider.provider_id] = generation
-        self._slots[provider.provider_id] = _ProviderSlot(
-            provider_id=provider.provider_id, generation=generation,
-            instance=instance, info=info, config=provider,
-        )
+        self._configs[provider.provider_id] = provider
+        if instance is None:
+            self._slots.pop(provider.provider_id, None)
+        else:
+            generation = self._generations.get(provider.provider_id, 0) + 1
+            self._generations[provider.provider_id] = generation
+            self._slots[provider.provider_id] = _ProviderSlot(
+                provider_id=provider.provider_id, generation=generation,
+                instance=instance, info=info,
+            )
         if previous is not None:
-            previous.retired = True
+            self._retire_slot(previous)
         return instance
 
     async def get(self, provider_id: str) -> ProviderInstanceProtocol:
         return self._get_slot(provider_id).instance
 
     async def get_info(self, provider_id: str) -> ProviderInfo:
-        return self._get_slot(provider_id).info
+        return self._provider_info(self._get_config(provider_id))
 
     async def get_config(self, provider_id: str) -> ProviderConfigView:
-        config = self._get_slot(provider_id).config
+        config = self._get_config(provider_id)
         return ProviderConfigView.model_validate({
             **config.model_dump(exclude={"api_key"}),
             "has_api_key": bool(config.api_key or config.api_key_secret_ref),
@@ -267,9 +279,12 @@ class ProviderManager(ProviderManageProtocol):
         return [slot.instance for slot in self._slots.values()]
 
     async def list_infos(self) -> list[ProviderInfo]:
-        return [slot.info for slot in self._slots.values()]
+        return [self._provider_info(config) for config in self._configs.values()]
 
     async def list_models(self, provider_id: str) -> list[ProviderModelConfig]:
+        config = self._get_config(provider_id)
+        if not config.is_enabled:
+            return [model.model_copy(deep=True) for model in config.model.values()]
         slot = await self._acquire_slot(provider_id)
         try:
             return await slot.instance.list_models()
@@ -277,6 +292,12 @@ class ProviderManager(ProviderManageProtocol):
             await self._release_slot(slot)
 
     async def get_model(self, provider_id: str, model_id: str) -> ProviderModelConfig:
+        config = self._get_config(provider_id)
+        if not config.is_enabled:
+            for model in config.model.values():
+                if model.model_id == model_id:
+                    return model.model_copy(deep=True)
+            raise ProviderNotFoundError(f"The model {model_id} is not found")
         slot = await self._acquire_slot(provider_id)
         try:
             return await slot.instance.get_model(model_id)
@@ -286,6 +307,9 @@ class ProviderManager(ProviderManageProtocol):
     async def supports(
         self, provider_id: str, capability: ProviderModelCapability
     ) -> bool:
+        config = self._get_config(provider_id)
+        if not config.is_enabled:
+            return any(capability in model.capabilities for model in config.model.values())
         slot = await self._acquire_slot(provider_id)
         try:
             return await slot.instance.supports(capability)
@@ -340,35 +364,38 @@ class ProviderManager(ProviderManageProtocol):
     async def delete(self, provider_id: str) -> None:
         lock = self._lock_for(provider_id)
         async with lock:
+            self._get_config(provider_id)
             slot = self._slots.get(provider_id)
-            if slot is None:
-                raise ProviderNotFoundError(f"The provider {provider_id} is not found")
             if self._config_store is not None:
                 try:
                     self._config_store.delete(provider_id)
                 except ProviderNotFoundError:
                     pass
             self._slots.pop(provider_id, None)
-            slot.retired = True
-        await self._close_when_idle(
-            slot,
-            message="Failed to close deleted provider instance",
-        )
+            self._configs.pop(provider_id)
+            if slot is not None:
+                self._retire_slot(slot)
+        if slot is not None:
+            await self._close_when_idle(
+                slot,
+                message="Failed to close deleted provider instance",
+            )
 
     async def restore(self) -> list[str]:
         if self._config_store is None:
             return []
         restored: list[str] = []
-        for config in self._config_store.list_configs(enabled_only=True):
+        for config in self._config_store.list_configs():
             await self.create(config)
             restored.append(config.provider_id)
         return restored
 
     async def close(self) -> None:
-        slots = list(self._slots.values())
+        slots = [*self._slots.values(), *self._retired_slots.values()]
         self._slots.clear()
+        self._configs.clear()
         for slot in slots:
-            slot.retired = True
+            self._retire_slot(slot)
         for slot in slots:
             await self._close_when_idle(
                 slot,
@@ -484,18 +511,25 @@ class ProviderManager(ProviderManageProtocol):
             self._locks[provider_id] = lock
         return lock
 
-    def _get_slot(self, provider_id: str) -> _ProviderSlot:
-        slot = self._slots.get(provider_id)
-        if slot is None:
+    def _get_config(self, provider_id: str) -> ProviderConfig:
+        config = self._configs.get(provider_id)
+        if config is None:
             raise ProviderNotFoundError(f"The provider {provider_id} is not found")
-        return slot
+        return config
+
+    def _get_slot(self, provider_id: str) -> _ProviderSlot:
+        if not self._get_config(provider_id).is_enabled:
+            raise ProviderDisabledError(f"The provider {provider_id} is disabled")
+        return self._slots[provider_id]
+
+    def _retire_slot(self, slot: _ProviderSlot) -> None:
+        slot.retired = True
+        self._retired_slots[(slot.provider_id, slot.generation)] = slot
 
     async def _acquire_slot(self, provider_id: str) -> _ProviderSlot:
         lock = self._lock_for(provider_id)
         async with lock:
-            slot = self._slots.get(provider_id)
-            if slot is None:
-                raise ProviderNotFoundError(f"The provider {provider_id} is not found")
+            slot = self._get_slot(provider_id)
             slot.active_calls += 1
             slot.idle.clear()
             return slot
@@ -506,7 +540,7 @@ class ProviderManager(ProviderManageProtocol):
             slot.active_calls -= 1
             if slot.active_calls == 0:
                 slot.idle.set()
-        await self._close_when_idle(
+        await self._close_if_idle(
             slot,
             message="Failed to close retired provider instance",
         )
@@ -517,10 +551,11 @@ class ProviderManager(ProviderManageProtocol):
         await self._close_when_idle(slot, message=message)
 
     async def _close_when_idle(self, slot: _ProviderSlot, *, message: str) -> None:
-        if not slot.retired or slot.close_started:
+        if not slot.retired:
             return
         await slot.idle.wait()
         if slot.close_started:
+            await slot.closed.wait()
             return
         slot.close_started = True
         try:
@@ -535,6 +570,9 @@ class ProviderManager(ProviderManageProtocol):
                 },
                 exc_info=True,
             )
+        finally:
+            slot.closed.set()
+            self._retired_slots.pop((slot.provider_id, slot.generation), None)
 
     async def _close_unpublished_instance(
         self,

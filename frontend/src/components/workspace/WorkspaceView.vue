@@ -59,7 +59,7 @@ function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
         <template v-else-if="activeSection === 'connections'">
           <ApiKeySettings />
           <ProviderSettings :key="authGeneration" :catalog="context.workspace.providerCatalog" @changed="refresh" />
-          <div class="settings-row"><div><h3>可用模型</h3><p>{{ context.workspace.providerCatalog.providers.length }} 个服务 · {{ context.workspace.providerCatalog.modelGroups.reduce((count, group) => count + group.models.length, 0) }} 个模型</p></div>
+          <div class="settings-row"><div><h3>可用模型</h3><p>{{ context.workspace.providerCatalog.providers.filter(provider => provider.is_enabled !== false).length }} 个服务 · {{ context.workspace.providerCatalog.modelGroups.filter(group => group.provider.is_enabled !== false).reduce((count, group) => count + group.models.length, 0) }} 个模型</p></div>
             <button type="button" :disabled="state === 'loading'" @click="refresh">刷新</button></div>
           <details class="settings-resource-details" v-if="context.workspace.loadedAt"><summary>查看工作区资源</summary><WorkspaceContents :workspace="context.workspace" /></details>
         </template>

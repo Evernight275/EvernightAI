@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Pencil, Plus, Save, X } from '@lucide/vue'
-import { createProvider, deleteProvider, getProviderConfig, updateProvider, type ProviderConfigView, type ProviderConfigUpdate, type ProviderType, type ProviderModelCapability, type ProviderModelConfig } from '../../api/providers'
+import { createProvider, deleteProvider, getProviderConfig, updateProvider, type ProviderInfo, type ProviderConfigView, type ProviderConfigUpdate, type ProviderType, type ProviderModelCapability, type ProviderModelConfig } from '../../api/providers'
 import type { ProviderCatalog } from '../../domain/workspace'
 const props = defineProps<{ catalog: ProviderCatalog }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -94,6 +94,19 @@ async function remove() {
   catch (cause) { error.value = cause instanceof Error ? cause.message : '删除失败' }
   finally { busy.value = false }
 }
+
+async function toggleEnabled(provider: ProviderInfo) {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  const enabled = provider.is_enabled === false
+  try {
+    await updateProvider(provider.provider_id, { is_enabled: enabled })
+    if (editing.value?.provider_id === provider.provider_id) editing.value.is_enabled = enabled
+    feedback.value = enabled ? '模型服务已启用' : '模型服务已停用'
+    emit('changed')
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '服务状态更新失败' }
+  finally { busy.value = false }
+}
 </script>
 
 <template>
@@ -103,6 +116,7 @@ async function remove() {
         <p>{{ catalog.modelGroups.find(group => group.provider.provider_id === provider.provider_id)?.models.map(model => model.model_id).join('、') || '未声明模型' }}</p></div>
       <div class="settings-inline-actions">
         <button class="provider-icon-button" type="button" :disabled="busy" :aria-label="`编辑服务 ${provider.name}`" :title="`编辑服务 ${provider.name}`" @click="edit(provider.provider_id)"><Pencil :size="16" /></button>
+        <button type="button" :disabled="busy" :aria-label="`${provider.is_enabled === false ? '启用' : '停用'}服务 ${provider.name}`" @click="toggleEnabled(provider)">{{ provider.is_enabled === false ? '启用服务' : '停用服务' }}</button>
         <button type="button" :disabled="busy" @click="pendingDelete = provider.provider_id">删除服务</button>
       </div>
     </div>

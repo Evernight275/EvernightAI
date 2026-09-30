@@ -8,6 +8,7 @@ from EvernightAI.core.error.base import (
     RequestError,
     RequestTimeoutError,
     ResponseError,
+    StateError,
     UnsupportedError,
 )
 
@@ -20,6 +21,12 @@ class ProviderError(EvernightAIError):
 
 class ProviderUnavailableError(ProviderError):
     """提供商不可用错误"""
+
+    pass
+
+
+class ProviderDisabledError(ProviderError, StateError):
+    """The provider configuration exists but calls are disabled."""
 
     pass
 

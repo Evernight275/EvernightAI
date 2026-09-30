@@ -40,7 +40,7 @@ export function useChatView() {
     workspaceNotice: computed(() =>
       prerequisiteNotice(
         String(workspaceSnapshot.value.value),
-        workspaceSnapshot.value.context.workspace.providerCatalog.providers.length,
+        workspaceSnapshot.value.context.workspace.providerCatalog.providers.filter((provider) => provider.is_enabled !== false).length,
       ),
     ),
     workspaceIssues: computed(() => workspaceSnapshot.value.context.issues),

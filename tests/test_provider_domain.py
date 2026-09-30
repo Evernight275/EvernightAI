@@ -8,6 +8,9 @@ import pytest
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.error.provider import (
     ProviderCapabilityUnsupportedError,
+    ProviderConfigurationError,
+    ProviderConflictError,
+    ProviderDisabledError,
     ProviderNotFoundError,
 )
 from EvernightAI.core.protocol.provider import (
@@ -104,6 +107,211 @@ def make_config(provider_id: str = "provider-1") -> ProviderConfig:
         name="OpenAI",
         type=ProviderType.OPENAI,
     )
+
+
+@pytest.mark.asyncio
+async def test_disabled_provider_can_be_managed_without_factory_or_secret_resolution() -> None:
+    store = FakeProviderConfigStore()
+    manager = ProviderManager(ProviderFactory(), config_store=store)
+    config = make_config().model_copy(update={
+        "is_enabled": False, "api_key_secret_ref": "env:MISSING_KEY", "discover_models": True,
+        "model": {"alias": ProviderModelConfig(
+            model_id="model-1", capabilities=[ProviderModelCapability.CHAT],
+        )},
+    })
+    assert await manager.create(config) is None
+    assert await manager.list_instances() == []
+    assert not (await manager.get_info("provider-1")).is_enabled
+    assert len(await manager.list_infos()) == 1
+    with pytest.raises(ProviderConflictError):
+        await manager.create(config, replace_existing=False)
+
+    await manager.update("provider-1", ProviderConfigUpdate(name="Edited while disabled"))
+    assert (await manager.get_config("provider-1")).name == "Edited while disabled"
+    assert store.get("provider-1").name == "Edited while disabled"
+    assert (await manager.list_models("provider-1"))[0].model_id == "model-1"
+    assert (await manager.get_model("provider-1", "model-1")).model_id == "model-1"
+    assert await manager.supports("provider-1", ProviderModelCapability.CHAT)
+    with pytest.raises(ProviderNotFoundError):
+        await manager.get_model("provider-1", "missing")
+    request = ChatRequest(model_id="undeclared", messages=[])
+    with pytest.raises(ProviderDisabledError):
+        await manager.get("provider-1")
+    with pytest.raises(ProviderDisabledError):
+        await manager.chat("provider-1", request)
+    with pytest.raises(ProviderDisabledError):
+        await manager.chat_stream("provider-1", request)
+    with pytest.raises(ProviderConfigurationError):
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
+    assert not (await manager.get_info("provider-1")).is_enabled
+    assert not store.get("provider-1").is_enabled
+
+    store.fail_deletes = True
+    with pytest.raises(RuntimeError, match="config delete failed"):
+        await manager.delete("provider-1")
+    assert len(await manager.list_infos()) == 1
+    store.fail_deletes = False
+    await manager.delete("provider-1")
+    assert await manager.list_infos() == []
+    assert store.list_configs() == []
+    await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["builder", "persistence"])
+async def test_enable_failure_preserves_disabled_config_and_can_retry(failure: str) -> None:
+    candidate = FakeProvider()
+    fail_build = failure == "builder"
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        if fail_build:
+            raise RuntimeError("build failed")
+        return candidate
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory, config_store=store)
+    await manager.create(make_config().model_copy(update={"is_enabled": False}))
+    store.fail_saves = failure == "persistence"
+    with pytest.raises(RuntimeError):
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True, name="Not saved"))
+    assert await manager.list_instances() == []
+    assert not (await manager.get_config("provider-1")).is_enabled
+    assert store.get("provider-1").name == "OpenAI"
+    assert not store.get("provider-1").is_enabled
+    if failure == "persistence":
+        assert candidate.closed
+
+    fail_build = False
+    store.fail_saves = False
+    candidate = FakeProvider()
+    assert await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)) is candidate
+    assert store.get("provider-1").is_enabled
+    assert await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)) is candidate
+    assert not candidate.closed
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_disable_save_failure_keeps_provider_callable() -> None:
+    instance = FakeProvider()
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instance
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory, config_store=store)
+    await manager.create(make_config())
+    store.fail_saves = True
+    with pytest.raises(RuntimeError, match="config save failed"):
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
+    assert await manager.get("provider-1") is instance
+    assert store.get("provider-1").is_enabled
+    assert not instance.closed
+    assert (await manager.chat("provider-1", ChatRequest(model_id="model-1", messages=[]))).model_id == "model-1"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_enable_and_edit_preserve_latest_config() -> None:
+    started, release = asyncio.Event(), asyncio.Event()
+    built: list[FakeProvider] = []
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        started.set()
+        await release.wait()
+        instance = FakeProvider()
+        built.append(instance)
+        return instance
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory, config_store=store)
+    await manager.create(make_config().model_copy(update={"is_enabled": False}))
+    enabling = asyncio.create_task(manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)))
+    await started.wait()
+    assert not (await manager.get_info("provider-1")).is_enabled
+    disabling = asyncio.create_task(manager.update("provider-1", ProviderConfigUpdate(is_enabled=False, name="Edited")))
+    release.set()
+    await asyncio.gather(enabling, disabling)
+    assert not (await manager.get_config("provider-1")).is_enabled
+    assert store.get("provider-1").name == "Edited"
+    assert not store.get("provider-1").is_enabled
+    assert len(built) == 1 and built[0].closed
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_waits_for_calls_on_a_disabled_provider() -> None:
+    started = {name: asyncio.Event() for name in ("first", "last")}
+    release = {name: asyncio.Event() for name in started}
+    close_started, close_release = asyncio.Event(), asyncio.Event()
+
+    class BlockingProvider(FakeProvider):
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            started[request.model_id].set()
+            await release[request.model_id].wait()
+            return await super().chat(request)
+
+        async def close(self) -> None:
+            close_started.set()
+            await close_release.wait()
+            await super().close()
+
+    instance = BlockingProvider()
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instance
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory)
+    await manager.create(make_config())
+    calls = {name: asyncio.create_task(manager.chat("provider-1", ChatRequest(model_id=name, messages=[]))) for name in started}
+    await asyncio.gather(*(event.wait() for event in started.values()))
+    await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
+    release["first"].set()
+    assert (await asyncio.wait_for(calls["first"], timeout=1)).model_id == "first"
+    assert not instance.closed
+    closing = asyncio.create_task(manager.close())
+    await asyncio.sleep(0)
+    assert not closing.done()
+    release["last"].set()
+    await close_started.wait()
+    await asyncio.sleep(0)
+    assert not closing.done()
+    close_release.set()
+    await asyncio.wait_for(asyncio.gather(calls["last"], closing), timeout=1)
+    assert instance.closed
+    assert await manager.list_infos() == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_survives_disable_edit_and_reenable_without_persistence() -> None:
+    built: list[ProviderConfig] = []
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        built.append(config)
+        return FakeProvider()
+
+    store = FakeProviderConfigStore()
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory, config_store=store)
+    await manager.create(make_config().model_copy(update={"api_key": "runtime-only"}))
+    await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
+    await manager.update("provider-1", ProviderConfigUpdate(base_url="https://edited.example/v1"))
+    assert len(built) == 1
+    await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
+    assert len(built) == 2
+    assert built[-1].api_key == "runtime-only"
+    assert built[-1].base_url == "https://edited.example/v1"
+    assert store.list_configs() == []
+    await manager.close()
 
 
 @pytest.mark.asyncio
@@ -282,7 +490,8 @@ async def test_concurrent_updates_merge_against_latest_configuration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_does_not_close_active_model_stream() -> None:
+@pytest.mark.parametrize("disable", [False, True])
+async def test_update_does_not_close_active_model_stream(disable: bool) -> None:
     release = asyncio.Event()
 
     class BlockingStream:
@@ -312,8 +521,12 @@ async def test_update_does_not_close_active_model_stream() -> None:
     stream = await manager.chat_stream("provider-1", ChatRequest(model_id="model-1", messages=[]))
     iterator = stream.__aiter__()
     assert (await anext(iterator)).text_delta == "old"
-    await manager.update("provider-1", ProviderConfigUpdate(name="New"))
+    await asyncio.wait_for(manager.update("provider-1", ProviderConfigUpdate(name="New", is_enabled=not disable)), timeout=1)
     assert not previous.closed
+    if disable:
+        with pytest.raises(ProviderDisabledError):
+            await manager.chat_stream("provider-1", ChatRequest(model_id="model-1", messages=[]))
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
     assert await manager.get("provider-1") is replacement
     release.set()
     assert [event.event_type async for event in iterator] == [ChatStreamEventType.DONE]
@@ -412,7 +625,7 @@ async def test_manager_keeps_replacement_when_previous_close_fails(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("operation", ["create", "update", "disable"])
 async def test_manager_keeps_in_flight_call_on_replaced_generation(operation: str) -> None:
     class BlockingProvider(FakeProvider):
         def __init__(self) -> None:
@@ -442,13 +655,18 @@ async def test_manager_keeps_in_flight_call_on_replaced_generation(operation: st
     await previous.started.wait()
 
     created = (
-        await manager.update("provider-1", ProviderConfigUpdate(name="New"))
-        if operation == "update"
+        await manager.update("provider-1", ProviderConfigUpdate(name="New", is_enabled=operation != "disable"))
+        if operation != "create"
         else await manager.create(make_config().model_copy(update={"name": "New"}))
     )
 
-    assert created is replacement
-    assert await manager.get("provider-1") is replacement
+    if operation == "disable":
+        assert created is None
+        with pytest.raises(ProviderDisabledError):
+            await manager.chat("provider-1", request)
+    else:
+        assert created is replacement
+        assert await manager.get("provider-1") is replacement
     assert previous.closed is False
 
     previous.release.set()

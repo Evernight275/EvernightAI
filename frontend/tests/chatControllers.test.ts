@@ -10,10 +10,24 @@ import {
 } from '../src/components/chat/chatRequestStatus'
 import { toolActivities } from '../src/components/chat/chatToolActivity'
 import { isChatRunCancelable, isChatSubmissionBlocked } from '../src/components/chat/chatView'
-import { sidebarItems } from '../src/components/chat/chatSidebar'
+import { createChatSessionDraft, sidebarItems } from '../src/components/chat/chatSidebar'
 import { transcriptFromMessages } from '../src/domain/chat'
 
 describe('chat component controllers', () => {
+  it('chooses an enabled provider for new sessions', () => {
+    const disabled = { provider_id: 'off', name: 'Off', type: 'openai' as const, is_enabled: false }
+    const enabled = { provider_id: 'on', name: 'On', type: 'openai' as const }
+    const catalog = {
+      providers: [disabled, enabled],
+      modelGroups: [
+        { provider: disabled, models: [{ model_id: 'off-model' }] },
+        { provider: enabled, models: [{ model_id: 'on-model' }] },
+      ],
+    }
+    expect(createChatSessionDraft(catalog)).toMatchObject({ provider_id: 'on', model_id: 'on-model' })
+    expect(createChatSessionDraft({ ...catalog, providers: [disabled] })).toMatchObject({ provider_id: null, model_id: null })
+  })
+
   it('derives chat header and message presentation outside Vue', () => {
     expect(chatHeaderTitle(null)).toBe('EvernightAI')
     expect(

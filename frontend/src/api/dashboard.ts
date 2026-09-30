@@ -65,7 +65,9 @@ async function fetchProviderModelGroups(
   const results = await Promise.allSettled(
     providers.map(async (provider) => ({
       provider,
-      models: await listProviderModels(provider.provider_id, signal),
+      models: provider.is_enabled === false
+        ? Object.values(provider.model || {})
+        : await listProviderModels(provider.provider_id, signal),
     })),
   )
 

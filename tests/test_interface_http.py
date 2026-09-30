@@ -1338,6 +1338,31 @@ def test_http_app_orchestrates_chat_skills() -> None:
     assert provider.last_request.skills is None
 
 
+def test_http_disabled_provider_remains_manageable_and_rejects_chat() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    with TestClient(app) as client:
+        config = {"provider_id": "provider-1", "name": "Disabled", "type": "openai", "is_enabled": False}
+        assert client.post("/providers", json=config).status_code == 201
+        assert client.get("/providers").json()[0]["is_enabled"] is False
+        assert client.post("/providers", json=config).status_code == 409
+        request = {"provider_id": "provider-1", "request": {"model_id": "model-1", "messages": []}}
+        blocked = client.post("/chat", json=request)
+        assert blocked.status_code == 409
+        assert blocked.json()["error"]["type"] == "ProviderDisabledError"
+        stream = client.post("/chat/stream", json=request)
+        assert stream.status_code == 200
+        assert "ProviderDisabledError" in stream.text
+        assert "event: chat.error" in stream.text
+        assert client.get("/providers/provider-1/config").status_code == 200
+        enabled = client.patch("/providers/provider-1", json={"is_enabled": True})
+        assert enabled.status_code == 200 and enabled.json()["is_enabled"] is True
+        assert client.post("/chat", json=request).status_code == 200
+        assert client.patch("/providers/provider-1", json={"is_enabled": False}).status_code == 200
+        assert client.post("/chat", json=request).status_code == 409
+        assert client.post("/providers/provider-1/delete").status_code == 204
+        assert client.get("/providers").json() == []
+
+
 def test_http_provider_partial_update_preserves_secrets_and_model_options() -> None:
     app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
     with TestClient(app) as client:

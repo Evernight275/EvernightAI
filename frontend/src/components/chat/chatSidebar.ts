@@ -124,7 +124,7 @@ export function sidebarItems(
 }
 
 export function createChatSessionDraft(catalog: ProviderCatalog): Session {
-  const provider = catalog.providers[0]
+  const provider = catalog.providers.find((item) => item.is_enabled !== false)
   const model = catalog.modelGroups.find(
     (group) => group.provider.provider_id === provider?.provider_id,
   )?.models[0]

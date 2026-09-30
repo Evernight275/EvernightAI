@@ -15,7 +15,7 @@ const open = ref(false)
 const search = ref('')
 const close = (): void => { open.value = false }
 const { setDialog, onCancel, onBackdropClick, onKeydown } = useDialog(() => open.value, close)
-const groups = computed(() => props.catalog.modelGroups.map((group) => ({
+const groups = computed(() => props.catalog.modelGroups.filter((group) => group.provider.is_enabled !== false).map((group) => ({
   ...group,
   models: group.models.filter((model) => `${group.provider.name} ${model.model_id}`
     .toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())),
