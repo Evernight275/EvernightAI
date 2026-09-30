@@ -99,8 +99,12 @@ def create_app_from_config(
     runtime = interface.runtime
 
     async def register_configured_providers() -> None:
+        stored_ids = {
+            provider.provider_id
+            for provider in runtime.provider_config_store.list_configs()
+        } if runtime.provider_config_store is not None else set()
         for provider in config.providers:
-            if provider.is_enabled:
+            if provider.is_enabled and provider.provider_id not in stored_ids:
                 await interface.providers.create_provider(provider)
 
     return create_http_app(

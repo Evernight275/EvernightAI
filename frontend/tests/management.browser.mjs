@@ -14,6 +14,9 @@ try {
     let providers = []
     let memories = []
     let failCreate = true
+    let failConfigLoad = true
+    let failUpdate = true
+    let providerConfig = null
     let session = { session_id: 'session-1', context_id: 'ctx-1', title: '原始标题', provider_id: 'test', model_id: 'model-a', metadata: { preserve: true } }
     const run = { run_id: 'run-1', request: { provider_id: 'test', model_id: 'model-a', context_id: 'ctx-1' }, status: 'paused', pending_approval_requests: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file', permissions: ['write'], tool_call: { path: 'example.txt' } }] }
     page.on('pageerror', error => errors.push(error.message))
@@ -35,9 +38,29 @@ try {
       if (path === '/health' || path === '/ready') return json({ status: 'ready' })
       if (path === '/providers' && method === 'POST') {
         if (failCreate) { failCreate = false; return route.fulfill({ status: 503, json: { error: { message: '服务暂时不可用' } } }) }
-        const { api_key, ...info } = data; providers.push(info); return json(info)
+        const { api_key, ...info } = data
+        info.model = {
+          'alias-a': { model_id: 'model-a', timeout: 'PT45S', capabilities: ['chat'], metadata: { option: 'keep-a' } },
+          'alias-b': { model_id: 'model-b', timeout: 'PT2M', capabilities: ['chat', 'tool_call'], metadata: { option: 'keep-b' } },
+        }
+        info.metadata = { preserve: true }
+        providerConfig = { ...info, has_api_key: !!api_key, api_key_secret_ref: null }
+        providers.push(info); return json(info)
       }
       if (path === '/providers') return json(providers)
+      if (path === '/providers/test/config') {
+        if (failConfigLoad) { failConfigLoad = false; return route.fulfill({ status: 503, json: { error: { message: '配置读取失败' } } }) }
+        return json(providerConfig)
+      }
+      if (path === '/providers/test' && method === 'PATCH') {
+        if (failUpdate) { failUpdate = false; return route.fulfill({ status: 503, json: { error: { message: '更新暂时不可用' } } }) }
+        const { api_key, ...changes } = data
+        Object.assign(providerConfig, changes)
+        if ('api_key' in data) providerConfig.has_api_key = !!api_key
+        const { has_api_key, api_key_secret_ref, ...info } = providerConfig
+        providers = [info]
+        return json(info)
+      }
       if (path.endsWith('/models')) return json([{ model_id: 'model-a' }])
       if (path === '/providers/test/delete') { providers = []; return route.fulfill({ status: 204 }) }
       if (path === '/memories' && method === 'POST') { memories.push(data); return json(data) }
@@ -83,6 +106,68 @@ try {
     await page.getByText('模型服务已添加', { exact: true }).waitFor()
     await page.screenshot({ path: `${screenshots}/${width}-provider-management.png` })
     assert.equal(await page.getByLabel('服务密钥', { exact: true }).inputValue(), '')
+    await page.getByRole('button', { name: '编辑服务 测试服务', exact: true }).click()
+    await page.getByRole('alert').filter({ hasText: '配置读取失败' }).waitFor()
+    assert.equal(calls.filter(call => call.method === 'PATCH').length, 0)
+    await page.getByRole('button', { name: '编辑服务 测试服务', exact: true }).click()
+    await page.getByText('编辑模型服务', { exact: true }).waitFor()
+    assert.ok(await page.getByLabel('服务标识', { exact: true }).evaluate(el => el.readOnly))
+    assert.equal(await page.getByLabel('模型 1 ID', { exact: true }).inputValue(), 'model-a')
+    assert.ok(await page.getByLabel('模型 2 工具调用', { exact: true }).isChecked())
+    await page.getByLabel('服务名称', { exact: true }).fill('更新后的服务')
+    await page.getByLabel('服务地址', { exact: true }).fill('https://changed.example/v1')
+    await page.getByLabel('服务名称', { exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `${screenshots}/${width}-provider-edit.png` })
+    await page.getByLabel('模型 1 ID', { exact: true }).scrollIntoViewIfNeeded()
+    assert.ok(await page.locator('.settings-shell').evaluate(el => el.scrollWidth <= el.clientWidth))
+    await page.screenshot({ path: `${screenshots}/${width}-provider-model-edit.png` })
+    await page.getByRole('button', { name: '保存服务', exact: true }).click()
+    await page.getByRole('alert').filter({ hasText: '更新暂时不可用' }).waitFor()
+    assert.equal(await page.getByLabel('服务名称', { exact: true }).inputValue(), '更新后的服务')
+    await page.getByRole('button', { name: '保存服务', exact: true }).click()
+    await page.getByText('模型服务已更新', { exact: true }).waitFor()
+    const update = calls.find(call => call.method === 'PATCH').data
+    assert.ok(!('api_key' in update) && !('api_key_secret_ref' in update))
+    assert.deepEqual(update.model, {
+      'alias-a': { model_id: 'model-a', timeout: 'PT45S', capabilities: ['chat'], metadata: { option: 'keep-a' } },
+      'alias-b': { model_id: 'model-b', timeout: 'PT2M', capabilities: ['chat', 'tool_call'], metadata: { option: 'keep-b' } },
+    })
+    assert.deepEqual(providerConfig.metadata, { preserve: true })
+    assert.equal(calls.filter(call => call.path.endsWith('/delete')).length, 0)
+    await page.getByRole('button', { name: '编辑服务 更新后的服务', exact: true }).click()
+    await page.getByLabel('服务名称', { exact: true }).fill('未保存的服务')
+    await page.getByRole('button', { name: '取消编辑', exact: true }).click()
+    assert.equal(calls.filter(call => call.method === 'PATCH').length, 2)
+    await page.getByRole('button', { name: '编辑服务 更新后的服务', exact: true }).click()
+    await page.getByLabel('凭据变更').selectOption('key')
+    assert.equal(await page.getByLabel('新的服务密钥', { exact: true }).inputValue(), '')
+    await page.getByLabel('新的服务密钥', { exact: true }).fill('replacement-test-key')
+    await page.getByRole('button', { name: '保存服务', exact: true }).click()
+    await page.getByText('模型服务已更新', { exact: true }).waitFor()
+    assert.equal(calls.filter(call => call.method === 'PATCH').at(-1).data.api_key, 'replacement-test-key')
+    assert.ok(!(await page.locator('body').innerText()).includes('replacement-test-key'))
+    await page.getByRole('button', { name: '编辑服务 更新后的服务', exact: true }).click()
+    await page.getByLabel('凭据变更').selectOption('reference')
+    await page.getByLabel('密钥引用', { exact: true }).fill('env:NEW_PROVIDER_KEY')
+    await page.getByLabel('模型 1 工具调用', { exact: true }).check()
+    await page.getByRole('button', { name: '添加模型', exact: true }).click()
+    await page.getByLabel('模型 3 ID', { exact: true }).fill('model-c')
+    await page.getByRole('button', { name: '移除模型 2', exact: true }).click()
+    await page.getByRole('button', { name: '保存服务', exact: true }).click()
+    await page.getByText('模型服务已更新', { exact: true }).waitFor()
+    const referenceUpdate = calls.filter(call => call.method === 'PATCH').at(-1).data
+    assert.equal(referenceUpdate.api_key_secret_ref, 'env:NEW_PROVIDER_KEY')
+    assert.ok(!('api_key' in referenceUpdate))
+    assert.deepEqual(referenceUpdate.model['alias-a'].capabilities, ['chat', 'tool_call'])
+    assert.equal(referenceUpdate.model['model-c'].model_id, 'model-c')
+    assert.ok(!('alias-b' in referenceUpdate.model))
+    await page.getByRole('button', { name: '编辑服务 更新后的服务', exact: true }).click()
+    await page.getByLabel('凭据变更').selectOption('clear')
+    await page.getByRole('button', { name: '保存服务', exact: true }).click()
+    await page.getByText('模型服务已更新', { exact: true }).waitFor()
+    const clearedUpdate = calls.filter(call => call.method === 'PATCH').at(-1).data
+    assert.equal(clearedUpdate.api_key, null)
+    assert.equal(clearedUpdate.api_key_secret_ref, null)
     await page.getByRole('button', { name: '记忆管理', exact: true }).click()
     await page.getByLabel('记忆内容', { exact: true }).fill('喜欢简洁回复')
     await page.getByRole('button', { name: '保存记忆', exact: true }).click()

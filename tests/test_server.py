@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -5,6 +6,7 @@ from EvernightAI.bootstrap.http import create_app as create_http_app
 from EvernightAI.bootstrap.http import create_app_from_config
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.auth import AuthRequiredError
+from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
@@ -50,6 +52,38 @@ def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
     )
 
     assert_http_app(app)
+
+
+@pytest.mark.asyncio
+async def test_provider_update_survives_restart_and_configured_provider_defaults(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PROVIDER_UPDATE_TEST_KEY", "test-only-key")
+    config = EvernightConfig(
+        runtime=RuntimeConfig(database_path=(tmp_path / "runtime.sqlite3").as_posix()),
+        providers=[ProviderConfig(
+            provider_id="provider-1", name="Configured default", type=ProviderType.OPENAI,
+            api_key_secret_ref="env:PROVIDER_UPDATE_TEST_KEY",
+        )],
+    )
+    app = create_app_from_config(config)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assert (await client.get("/providers/provider-1/config")).json()["name"] == "Configured default"
+            response = await client.patch("/providers/provider-1", json={
+                "name": "Updated", "base_url": "https://changed.example/v1",
+                "model": {"alias": {"model_id": "new-model", "timeout": 60, "capabilities": ["chat", "tool_call"]}},
+            })
+            assert response.status_code == 200
+    restarted = create_app_from_config(config)
+    async with restarted.router.lifespan_context(restarted):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(restarted), base_url="http://test") as client:
+            saved = (await client.get("/providers/provider-1/config")).json()
+            assert saved["name"] == "Updated"
+            assert saved["base_url"] == "https://changed.example/v1"
+            assert saved["model"]["alias"]["model_id"] == "new-model"
+            assert saved["model"]["alias"]["timeout"] == "PT1M"
+            assert saved["api_key_secret_ref"] == "env:PROVIDER_UPDATE_TEST_KEY"
+            assert saved["has_api_key"] is True
+            assert "test-only-key" not in str(saved)
 
 
 def test_http_bootstrap_can_enable_env_api_key_auth(tmp_path, monkeypatch) -> None:

@@ -1338,6 +1338,66 @@ def test_http_app_orchestrates_chat_skills() -> None:
     assert provider.last_request.skills is None
 
 
+def test_http_provider_partial_update_preserves_secrets_and_model_options() -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    with TestClient(app) as client:
+        created = client.post("/providers", json={
+            "provider_id": "provider-1", "name": "Old", "type": "openai",
+            "api_key": "private-key", "base_url": "https://old.example/v1",
+            "metadata": {"tag": "keep"}, "model": {
+                "alias": {"model_id": "model-1", "timeout": 90, "capabilities": ["chat"], "metadata": {"option": "keep"}},
+            },
+        })
+        assert created.status_code == 201
+        response = client.patch("/providers/provider-1", json={"name": "New", "discover_models": True})
+        assert response.status_code == 200
+        assert response.json()["provider_id"] == "provider-1"
+        assert response.json()["name"] == "New"
+        view = client.get("/providers/provider-1/config")
+        assert view.status_code == 200
+        body = view.json()
+        assert "private-key" not in view.text
+        assert "api_key" not in body
+        assert body["has_api_key"] is True
+        assert body["base_url"] == "https://old.example/v1"
+        assert body["discover_models"] is True
+        assert body["model"]["alias"]["timeout"] == "PT1M30S"
+        assert body["model"]["alias"]["metadata"] == {"option": "keep"}
+        assert body["metadata"] == {"tag": "keep"}
+        duplicate = client.post("/providers", json={
+            "provider_id": "provider-1", "name": "Overwrite", "type": "openai",
+        })
+        assert duplicate.status_code == 409
+        assert client.get("/providers/provider-1/config").json()["name"] == "New"
+        cleared = client.patch("/providers/provider-1", json={
+            "base_url": None, "api_key": None, "api_key_secret_ref": None, "model": {},
+        })
+        assert cleared.status_code == 200
+        cleared_body = client.get("/providers/provider-1/config").json()
+        assert cleared_body["base_url"] is None
+        assert cleared_body["has_api_key"] is False
+        assert cleared_body["model"] == {}
+        assert client.patch("/providers/missing", json={"name": "New"}).status_code == 404
+        assert client.get("/providers/missing/config").status_code == 404
+
+
+@pytest.mark.parametrize("invalid", [
+    {"provider_id": "renamed"}, {"name": None}, {"type": None},
+    {"model": None}, {"metadata": None}, {"discover_models": None},
+    {"api_key": ""}, {"api_key": "private-key", "api_key_secret_ref": "env:KEY"},
+])
+def test_http_provider_invalid_update_preserves_existing_config_without_echoing_secrets(
+    invalid: dict[str, object],
+) -> None:
+    app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
+    with TestClient(app) as client:
+        client.post("/providers", json={"provider_id": "provider-1", "name": "Old", "type": "openai"})
+        response = client.patch("/providers/provider-1", json=invalid)
+        assert response.status_code == 400
+        assert "private-key" not in response.text
+        assert client.get("/providers/provider-1/config").json()["name"] == "Old"
+
+
 def test_http_app_exposes_provider_management_routes() -> None:
     interface = create_interface(make_runtime(provider=FakeProvider()))
     app = create_http_app(interface, close_on_shutdown=False)

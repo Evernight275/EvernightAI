@@ -32,6 +32,23 @@ export type ProviderConfig = {
 
 export type ProviderInfo = Pick<ProviderConfig, 'provider_id' | 'name' | 'type' | 'is_enabled' | 'model' | 'metadata'>
 
+export type ProviderConfigView = ProviderInfo & Pick<ProviderConfig, 'base_url' | 'discover_models' | 'api_key_secret_ref'> & {
+  has_api_key: boolean
+}
+
+export type ProviderConfigUpdate = Partial<Omit<ProviderConfig, 'provider_id'>>
+
+export function getProviderConfig(providerId: string): Promise<ProviderConfigView> {
+  return requestJson<ProviderConfigView>(`/providers/${encodeURIComponent(providerId)}/config`)
+}
+
+export function updateProvider(providerId: string, update: ProviderConfigUpdate): Promise<ProviderInfo> {
+  return requestJson<ProviderInfo>(`/providers/${encodeURIComponent(providerId)}`, {
+    method: 'PATCH',
+    body: update,
+  })
+}
+
 export function createProvider(config: ProviderConfig): Promise<ProviderInfo> {
   return requestJson<ProviderInfo>('/providers', {
     method: 'POST',

@@ -52,6 +52,8 @@ from EvernightAI.core.schema.data_analysis import (
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -503,6 +505,16 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
     async def list_providers(self) -> list[ProviderInfo]:
         self._require("providers", "list")
         return await self._inner.list_providers()
+
+    async def get_provider_config(self, provider_id: str) -> ProviderConfigView:
+        self._require("providers", "get_config", provider_id)
+        return await self._inner.get_provider_config(provider_id)
+
+    async def update_provider(
+        self, provider_id: str, update: ProviderConfigUpdate,
+    ) -> ProviderInfo:
+        self._require("providers", "update", provider_id)
+        return await self._inner.update_provider(provider_id, update)
 
     async def list_provider_models(
         self,

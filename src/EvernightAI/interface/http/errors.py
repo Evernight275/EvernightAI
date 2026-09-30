@@ -59,17 +59,23 @@ async def handle_evernight_error(
 
 
 async def handle_request_validation_error(
-    _request: Request,
+    request: Request,
     exc: Exception,
 ) -> JSONResponse:
     error = cast(RequestValidationError, exc)
+    details = error.errors()
+    if request.url.path == "/providers" or request.url.path.startswith("/providers/"):
+        details = [
+            {key: item[key] for key in ("type", "loc", "msg") if key in item}
+            for item in details
+        ]
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content={
             "error": {
                 "type": "ValidationError",
                 "message": "Invalid request",
-                "detail": jsonable_encoder(error.errors()),
+                "detail": jsonable_encoder(details),
             }
         },
     )

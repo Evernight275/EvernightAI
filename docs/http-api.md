@@ -66,6 +66,52 @@ adapter supports it. If discovery is unavailable, the runtime falls back to the
 models declared locally in configuration. Chat requests may still use a model id
 that is not declared locally.
 
+Creating an existing provider id returns `409`. Use the update endpoint to
+change its configuration.
+
+## Update A Provider
+
+Read the editable configuration with `GET /providers/main/config`. The response
+includes `base_url`, `discover_models`, `api_key_secret_ref`, declared models,
+and `has_api_key`, but never the raw API key. This endpoint requires
+`providers:get_config` when authorization is enabled.
+
+Apply a partial update:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/providers/main \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "Updated provider",
+    "base_url": "https://your-provider.example/v1",
+    "discover_models": false
+  }'
+```
+
+The endpoint requires `providers:update` and returns `ProviderInfo`. The provider
+id cannot change. Omitted fields retain their current values; supplying `model`
+or `metadata` replaces that entire mapping. Preserve model dictionary aliases,
+timeouts, capabilities, and metadata when editing a model map. An empty patch
+leaves the current instance untouched. Missing providers return `404` and invalid
+patches return `400`.
+
+Omit both credential fields to retain credentials. Set `api_key` to replace the
+runtime key and clear its previous secret reference, or set `api_key_secret_ref`
+to replace the reference and resolve its key. Do not supply both non-null values.
+Set both fields to `null` to clear credentials; `base_url: null` restores the
+adapter's default address. Other fields cannot be explicitly null.
+
+Raw keys remain runtime-only. Configurations using a secret reference, such as
+`env:PROVIDER_API_KEY`, persist when a configuration store is configured. Switching
+to a raw-key-only configuration removes the previous stored configuration, so
+that runtime update does not survive restart. Persisted configurations take
+precedence over configuration-file defaults at startup.
+
+Updates build and persist a replacement before publishing it. A failed update
+keeps the existing provider available. In-flight calls and streams finish using
+their original instance; subsequent calls use the updated configuration.
+The web settings page exposes this flow under model service management.
+
 ## One-Off Chat
 
 Use `/chat` when you do not want stored history.

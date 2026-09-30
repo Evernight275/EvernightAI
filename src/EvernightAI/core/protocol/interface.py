@@ -33,6 +33,8 @@ from EvernightAI.core.schema.data_analysis import (
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -200,6 +202,12 @@ class ChatInterfaceProtocol(InterfaceProtocol):
 
 class ProviderInterfaceProtocol(InterfaceProtocol):
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...
+
+    async def get_provider_config(self, provider_id: str) -> ProviderConfigView: ...
+
+    async def update_provider(
+        self, provider_id: str, update: ProviderConfigUpdate,
+    ) -> ProviderInfo: ...
 
     async def list_providers(self) -> list[ProviderInfo]: ...
 

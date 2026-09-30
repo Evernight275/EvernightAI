@@ -11,6 +11,8 @@ from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
     ProviderInfo,
     ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderModelCapability,
     ProviderModelConfig,
     ProviderType,
@@ -100,11 +102,19 @@ class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
     提供商管理协议
     """
 
-    async def create(self, provider: ProviderConfig) -> ProviderInstanceProtocol: ...
+    async def create(
+        self, provider: ProviderConfig, *, replace_existing: bool = True,
+    ) -> ProviderInstanceProtocol: ...
 
     async def get(self, provider_id: str) -> ProviderInstanceProtocol: ...
 
     async def get_info(self, provider_id: str) -> ProviderInfo: ...
+
+    async def get_config(self, provider_id: str) -> ProviderConfigView: ...
+
+    async def update(
+        self, provider_id: str, update: ProviderConfigUpdate,
+    ) -> ProviderInstanceProtocol: ...
 
     async def list_instances(self) -> list[ProviderInstanceProtocol]: ...
 

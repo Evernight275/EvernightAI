@@ -2,7 +2,7 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, model_validator
 
 from EvernightAI.core.schema.base import EvernightAISchema
 
@@ -60,3 +60,37 @@ class ProviderInfo(EvernightAISchema):
     is_enabled: bool = True
     model: dict[str, ProviderModelConfig] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderConfigView(ProviderInfo):
+    """Editable configuration without the raw API key."""
+
+    discover_models: bool = False
+    base_url: str | None = None
+    api_key_secret_ref: str | None = None
+    has_api_key: bool = False
+
+
+class ProviderConfigUpdate(EvernightAISchema):
+    """Partial update; omitted fields retain their current values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    type: ProviderType | None = None
+    is_enabled: bool | None = None
+    discover_models: bool | None = None
+    api_key: str | None = Field(default=None, min_length=1)
+    api_key_secret_ref: str | None = Field(default=None, min_length=1)
+    base_url: str | None = None
+    model: dict[str, ProviderModelConfig] | None = None
+    metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self) -> "ProviderConfigUpdate":
+        for name in self.model_fields_set - {"api_key", "api_key_secret_ref", "base_url"}:
+            if getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        if self.api_key is not None and self.api_key_secret_ref is not None:
+            raise ValueError("Specify either api_key or api_key_secret_ref")
+        return self

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Body, Response, status
 
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -47,6 +49,38 @@ async def create_provider(
 )
 async def list_providers(interface: InterfaceDependency) -> list[ProviderInfo]:
     return await interface.providers.list_providers()
+
+
+@router.get(
+    "/{provider_id}/config",
+    response_model=ProviderConfigView,
+    summary="Get editable provider configuration without the API key",
+    operation_id="get_provider_config",
+)
+async def get_provider_config(
+    provider_id: str, interface: InterfaceDependency,
+) -> ProviderConfigView:
+    return await interface.providers.get_provider_config(provider_id)
+
+
+@router.patch(
+    "/{provider_id}",
+    response_model=ProviderInfo,
+    response_model_exclude_none=True,
+    summary="Update provider configuration",
+    description=(
+        "Update only supplied fields while preserving the provider ID. Omitted "
+        "credentials are retained; null clears the specified credential. A new "
+        "API key or secret reference replaces the other credential source. Model "
+        "and metadata maps replace their entire current values. Active calls "
+        "finish on the previous instance. Raw API keys remain runtime-only."
+    ),
+    operation_id="update_provider",
+)
+async def update_provider(
+    provider_id: str, update: ProviderConfigUpdate, interface: InterfaceDependency,
+) -> ProviderInfo:
+    return await interface.providers.update_provider(provider_id, update)
 
 
 @router.get(

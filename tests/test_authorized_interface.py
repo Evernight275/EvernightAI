@@ -55,6 +55,7 @@ from EvernightAI.core.schema.data_analysis import (
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.core.schema.provider import (
+    ProviderConfigUpdate,
     ProviderModelCapability,
 )
 from EvernightAI.core.schema.session import (
@@ -156,6 +157,22 @@ def test_authorized_interface_preserves_runtime_and_close_delegation() -> None:
     )
 
     assert interface.runtime is runtime
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["get_provider_config", "update_provider"])
+async def test_provider_config_access_requires_its_own_permission(method: str) -> None:
+    inner = FakeProviderInterface()
+    interface = AuthorizedProviderInterface(
+        cast(ProviderInterfaceProtocol, inner), Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="user-1", permissions=["providers:list", "providers:create"]),
+    )
+    with pytest.raises(AuthPermissionDeniedError):
+        if method == "update_provider":
+            await interface.update_provider("provider-1", ProviderConfigUpdate(name="New"))
+        else:
+            await interface.get_provider_config("provider-1")
+    assert inner.calls == []
 
 
 def make_message(text: str) -> Content:
@@ -303,6 +320,8 @@ async def test_authorized_chat_interface_requires_expected_permission(
             "provider-1",
         ),
         ("list_providers", (), "providers", "list", None),
+        ("get_provider_config", ("provider-1",), "providers", "get_config", "provider-1"),
+        ("update_provider", ("provider-1", ProviderConfigUpdate(name="New")), "providers", "update", "provider-1"),
         (
             "list_provider_models",
             ("provider-1",),
@@ -800,6 +819,14 @@ class FakeProviderInterface:
 
     async def list_providers(self) -> str:
         self.calls.append("list_providers")
+        return "delegated"
+
+    async def get_provider_config(self, provider_id: str) -> str:
+        self.calls.append("get_provider_config")
+        return "delegated"
+
+    async def update_provider(self, provider_id: str, update: ProviderConfigUpdate) -> str:
+        self.calls.append("update_provider")
         return "delegated"
 
     async def list_provider_models(self, provider_id: str) -> str:

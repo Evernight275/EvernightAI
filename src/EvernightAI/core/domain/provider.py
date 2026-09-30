@@ -24,6 +24,8 @@ from EvernightAI.core.schema.stream import ChatStreamEvent
 
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -32,6 +34,7 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.core.error.provider import (
     ProviderCapabilityUnsupportedError,
     ProviderConfigurationError,
+    ProviderConflictError,
     ProviderNotFoundError,
 )
 
@@ -44,6 +47,7 @@ class _ProviderSlot:
     generation: int
     instance: ProviderInstanceProtocol
     info: ProviderInfo
+    config: ProviderConfig
     active_calls: int = 0
     retired: bool = False
     close_started: bool = False
@@ -173,40 +177,15 @@ class ProviderManager(ProviderManageProtocol):
         self._call_totals: dict[str, int] = {}
         self._error_totals: dict[str, int] = {}
 
-    async def create(self, provider: ProviderConfig) -> ProviderInstanceProtocol:
+    async def create(
+        self, provider: ProviderConfig, *, replace_existing: bool = True,
+    ) -> ProviderInstanceProtocol:
         lock = self._lock_for(provider.provider_id)
-        previous: _ProviderSlot | None = None
         async with lock:
-            resolved = self._resolve_secret(provider)
-            instance = await self._factory.create(resolved)
-            try:
-                info = self._provider_info(provider)
-                if self._config_store is not None and not (
-                    provider.api_key is not None and provider.api_key_secret_ref is None
-                ):
-                    self._config_store.save(
-                        provider.model_copy(update={"api_key": None})
-                    )
-            except Exception:
-                await self._close_unpublished_instance(
-                    provider.provider_id,
-                    instance,
-                    message="Failed to close provider instance after create failure",
-                )
-                raise
-
-            generation = self._generations.get(provider.provider_id, 0) + 1
-            self._generations[provider.provider_id] = generation
             previous = self._slots.get(provider.provider_id)
-            self._slots[provider.provider_id] = _ProviderSlot(
-                provider_id=provider.provider_id,
-                generation=generation,
-                instance=instance,
-                info=info,
-            )
-            if previous is not None:
-                previous.retired = True
-
+            if previous is not None and not replace_existing:
+                raise ProviderConflictError(f"The provider {provider.provider_id} already exists")
+            instance = await self._replace_provider(provider, previous)
         if previous is not None:
             await self._close_if_idle(
                 previous,
@@ -214,11 +193,75 @@ class ProviderManager(ProviderManageProtocol):
             )
         return instance
 
+    async def update(
+        self, provider_id: str, update: ProviderConfigUpdate,
+    ) -> ProviderInstanceProtocol:
+        async with self._lock_for(provider_id):
+            previous = self._get_slot(provider_id)
+            changes = update.model_dump(exclude_unset=True)
+            if not changes:
+                return previous.instance
+            if update.api_key is not None:
+                changes["api_key_secret_ref"] = None
+            elif update.api_key_secret_ref is not None:
+                changes["api_key"] = None
+            provider = ProviderConfig.model_validate({
+                **previous.config.model_dump(), **changes,
+            })
+            instance = await self._replace_provider(
+                provider, previous, remove_stale_config=True,
+            )
+        await self._close_if_idle(
+            previous, message="Failed to close replaced provider instance",
+        )
+        return instance
+
+    async def _replace_provider(
+        self, provider: ProviderConfig, previous: _ProviderSlot | None,
+        *, remove_stale_config: bool = False,
+    ) -> ProviderInstanceProtocol:
+        provider = provider.model_copy(deep=True)
+        resolved = self._resolve_secret(provider.model_copy(deep=True))
+        instance = await self._factory.create(resolved)
+        try:
+            info = self._provider_info(provider)
+            if self._config_store is not None:
+                if provider.api_key is not None and provider.api_key_secret_ref is None:
+                    if remove_stale_config:
+                        try:
+                            self._config_store.delete(provider.provider_id)
+                        except ProviderNotFoundError:
+                            pass
+                else:
+                    self._config_store.save(provider.model_copy(update={"api_key": None}))
+        except Exception:
+            await self._close_unpublished_instance(
+                provider.provider_id, instance,
+                message="Failed to close provider instance after create failure",
+            )
+            raise
+        generation = self._generations.get(provider.provider_id, 0) + 1
+        self._generations[provider.provider_id] = generation
+        self._slots[provider.provider_id] = _ProviderSlot(
+            provider_id=provider.provider_id, generation=generation,
+            instance=instance, info=info, config=provider,
+        )
+        if previous is not None:
+            previous.retired = True
+        return instance
+
     async def get(self, provider_id: str) -> ProviderInstanceProtocol:
         return self._get_slot(provider_id).instance
 
     async def get_info(self, provider_id: str) -> ProviderInfo:
         return self._get_slot(provider_id).info
+
+    async def get_config(self, provider_id: str) -> ProviderConfigView:
+        config = self._get_slot(provider_id).config
+        return ProviderConfigView.model_validate({
+            **config.model_dump(exclude={"api_key"}),
+            "has_api_key": bool(config.api_key or config.api_key_secret_ref),
+        })
 
     async def list_instances(self) -> list[ProviderInstanceProtocol]:
         return [slot.instance for slot in self._slots.values()]
@@ -432,7 +475,7 @@ class ProviderManager(ProviderManageProtocol):
             is_enabled=provider.is_enabled,
             model=provider.model,
             metadata=dict(provider.metadata),
-        )
+        ).model_copy(deep=True)
 
     def _lock_for(self, provider_id: str) -> Lock:
         lock = self._locks.get(provider_id)

@@ -2,6 +2,8 @@ from EvernightAI.core.protocol.interface import ProviderInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -13,11 +15,20 @@ class ProviderApplication(ProviderInterfaceProtocol):
         self._runtime = runtime
 
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo:
-        await self._runtime.providers.create(config)
+        await self._runtime.providers.create(config, replace_existing=False)
         return await self._runtime.providers.get_info(config.provider_id)
 
     async def list_providers(self) -> list[ProviderInfo]:
         return await self._runtime.providers.list_infos()
+
+    async def get_provider_config(self, provider_id: str) -> ProviderConfigView:
+        return await self._runtime.providers.get_config(provider_id)
+
+    async def update_provider(
+        self, provider_id: str, update: ProviderConfigUpdate,
+    ) -> ProviderInfo:
+        await self._runtime.providers.update(provider_id, update)
+        return await self._runtime.providers.get_info(provider_id)
 
     async def list_provider_models(
         self,
