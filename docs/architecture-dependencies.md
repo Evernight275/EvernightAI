@@ -1,7 +1,28 @@
 # EvernightAI Dependency Architecture
 
-This document records the package dependency shape observed from Python imports
-under `src/EvernightAI`.
+EvernightAI combines a layered Python backend with a Vue frontend. This document
+describes source dependencies, concrete assembly, and runtime responsibilities.
+The [architecture diagrams](architecture-diagrams.md) show request, permission,
+deployment, frontend, and Agent lifecycle relationships.
+
+## Project Responsibilities
+
+| Location | Responsibility |
+| --- | --- |
+| `src/EvernightAI/core` | Domain managers and strategies, protocols, schemas, and errors |
+| `src/EvernightAI/application` | Chat, Agent, session, provider, skill, and data-analysis use cases |
+| `src/EvernightAI/infra` | Provider, SQLite, tool, MCP, and sandbox adapters and registrations |
+| `src/EvernightAI/interface` | HTTP and CLI transport, validation, authentication, and error mapping |
+| `src/EvernightAI/bootstrap` | Concrete runtime, service, authorization, and HTTP app assembly |
+| `src/EvernightAI/entrypoint` | Process startup and command dispatch |
+| `frontend/src` | API transport, domain transformations, runtime coordination, XState machines, and Vue components |
+| `tests` / `frontend/tests` | Backend behavior and architecture checks; frontend unit and browser checks |
+
+`core` includes executable domain behavior such as provider management, tool
+authorization, memory selection, and context strategies. Application services
+coordinate these roles through core protocols. Agent execution and recovery are
+application concerns; their concrete task executor and persistent stores are
+infra concerns.
 
 ## Layer Import Graph
 
@@ -72,6 +93,7 @@ flowchart TD
         MemoryManager["MemoryManager"]
         SessionManager["SessionManager"]
         SkillManager["SkillManager"]
+        DataManager["DataAnalysisManager"]
         InterfaceDomain["EvernightInterface"]
     end
 
@@ -80,7 +102,7 @@ flowchart TD
         AgentApp["AgentApplication"]
         AgentRuns["AgentRunApplication"]
         ProviderApp["ProviderApplication"]
-        ToolApp["ToolApplication"]
+        DataApp["DataAnalysisApplication"]
         SessionApp["SessionApplication"]
         SkillApp["SkillApplication"]
     end
@@ -116,6 +138,7 @@ flowchart TD
     RuntimeKernel --> MemoryManager
     RuntimeKernel --> SessionManager
     RuntimeKernel --> SkillManager
+    RuntimeKernel --> DataManager
 
     BootRuntime --> ProviderRegs
     BootRuntime --> ToolRegs
@@ -128,7 +151,7 @@ flowchart TD
     BootInterface --> AgentApp
     BootInterface --> AgentRuns
     BootInterface --> ProviderApp
-    BootInterface --> ToolApp
+    BootInterface --> DataApp
     BootInterface --> SessionApp
     BootInterface --> SkillApp
 
@@ -136,13 +159,33 @@ flowchart TD
     InterfaceDomain --> AgentApp
     InterfaceDomain --> AgentRuns
     InterfaceDomain --> ProviderApp
-    InterfaceDomain --> ToolApp
+    InterfaceDomain --> DataApp
+    InterfaceDomain -- "tools = runtime.tools" --> ToolManager
     InterfaceDomain --> SessionApp
     InterfaceDomain --> SkillApp
 
     HTTPApp --> InterfaceDomain
     CLICommands --> InterfaceDomain
 ```
+
+The assembly entry points are:
+
+- [`bootstrap.config`](../src/EvernightAI/bootstrap/config.py): converts
+  `EvernightConfig` into a runtime/interface and configures MCP sources, data
+  sources, sandbox selection, and strategies.
+- [`bootstrap.runtime`](../src/EvernightAI/bootstrap/runtime.py): creates domain
+  managers, registers provider builders and tools, and supplies concrete stores.
+  SQLite assembly runs migrations and reconciles interrupted Agent runs before
+  creating the single-process Agent executor.
+- [`bootstrap.interface`](../src/EvernightAI/bootstrap/interface.py): binds
+  application services into `EvernightInterface`. Its tool role is the existing
+  `runtime.tools` object implementing `ToolInterfaceProtocol`.
+- [`bootstrap.http`](../src/EvernightAI/bootstrap/http.py): supplies the assembled
+  interface, authentication devices, and lifecycle handlers to the HTTP app.
+
+`RuntimeKernel.initialize()` restores persisted provider configurations and loads
+configured tool sources. Interface shutdown drains Agent runs and closes the
+runtime's sources, providers, stores, and sandbox.
 
 ## Runtime Request Paths
 
@@ -153,7 +196,7 @@ sequenceDiagram
     participant Caller as HTTP / CLI caller
     participant Interface as EvernightInterfaceProtocol
     participant ChatApp as ChatApplication
-    participant Runtime as RuntimeKernel
+    participant Composer as ChatRequestComposer
     participant Memory as MemoryManager / MemoryStrategy
     participant Context as ContextStrategy
     participant Providers as ProviderManager
@@ -162,12 +205,14 @@ sequenceDiagram
 
     Caller->>Interface: chat / chat_with_context
     Interface->>ChatApp: application request
-    ChatApp->>Runtime: load context and runtime roles
-    ChatApp->>Memory: select scoped memories
-    Memory-->>ChatApp: selected memories + diagnostics
-    ChatApp->>Context: compose final ChatRequest
-    Context-->>ChatApp: messages + strategy metadata
-    Runtime->>Providers: get provider instance
+    ChatApp->>Composer: compose context-based request
+    Composer->>Memory: select scoped memories
+    Memory-->>Composer: selected memories + diagnostics
+    Composer->>Context: compose context request
+    Context-->>Composer: messages + strategy metadata
+    Composer->>Composer: attach cache intent and render skills
+    Composer-->>ChatApp: final ChatRequest
+    ChatApp->>Providers: chat / chat_stream
     Providers->>Adapter: chat / chat_stream
     Adapter->>Provider: provider API call
     Provider-->>Adapter: provider response
@@ -176,6 +221,12 @@ sequenceDiagram
     ChatApp-->>Interface: application result
     Interface-->>Caller: transport response
 ```
+
+This path describes context-based chat. Direct `chat` accepts a `ChatRequest`
+without loading a stored context. Provider creation goes through
+`ProviderFactory`; adapters receive the requested model ID even if it has no
+local model declaration. OpenAI-compatible calls do not require remote `/models`
+discovery.
 
 ### Memory And Context Path
 
@@ -193,7 +244,8 @@ flowchart TD
     Basic --> Summary["Summarize optional"]
     Summary --> Trim["Message trim optional"]
     Trim --> Budget["Token budget optional"]
-    Budget --> Final["Final ChatRequest"]
+    Budget --> Skills["Render and prepend requested skill messages"]
+    Skills --> Final["Final ChatRequest"]
     Final --> Preview["Compose preview"]
     Final --> Provider["Provider call"]
 
@@ -205,6 +257,9 @@ flowchart TD
 Memory remains durable data and context remains the per-call attention window.
 Core defines schemas and strategies; application owns the composition policy;
 bootstrap wires concrete strategy chains from configuration.
+`ChatRequestComposer` applies context strategies before rendering and prepending
+skill messages. The configured context token budget therefore covers the
+context-strategy output, not the skill messages added afterward.
 
 ### Tool Path
 
@@ -212,16 +267,103 @@ bootstrap wires concrete strategy chains from configuration.
 flowchart LR
     Model["provider tool call"] --> AgentApp["AgentApplication"]
     AgentApp --> ToolManager["ToolManager"]
-    ToolManager --> Policy["ToolSafetyPolicy"]
-    Policy --> Executor["registered tool executor"]
+    ToolManager --> Policy["Preflight + ToolSafetyPolicy"]
+    Policy -- "allowed" --> Executor["registered tool executor"]
+    Policy -- "requires undecided approval" --> Pause["Agent pauses with pending calls"]
+    Pause -- "resume with decision" --> AgentApp
     Executor --> Adapter["infra tool adapter"]
     Runtime["RuntimeKernel initialize"] --> Source["ToolSourceProtocol"]
     Source --> McpAdapter["MCP Session<br/>Streamable HTTP / SSE / stdio"]
     McpAdapter --> Remote["remote or local MCP server"]
-    Source -- "atomic refresh snapshot" --> Executor
+    Source -- "atomic refresh snapshot" --> Register["ToolRegister"]
+    ToolManager -- "resolves executor" --> Register
+    Register --> Executor
     Adapter --> Result["ToolCallResult"]
     Result --> AgentApp
 ```
+
+## Persistent Agent Runs
+
+[`AgentApplication`](../src/EvernightAI/application/agent.py) drives the model/tool
+loop. `AgentRunApplication` exposes persistent start, resume, pause, cancel,
+retry, state, trace, and tool-execution operations through the same interface
+boundary used by HTTP and CLI.
+
+| Role | Data or behavior |
+| --- | --- |
+| `AgentRunState` | Request, latest response, steps, remaining rounds, pending tools/approvals, and recovery metadata |
+| `AgentTraceEvent` | Observable timeline, including text deltas, approvals, tool results, and control events |
+| `ToolExecutionAttempt` | Execution status, replay policy, stable idempotency key, result, and operator resolution |
+| `AgentRunExecutorProtocol` | Execution ownership, timeout, cancellation, and stream execution |
+
+SQLite assembly uses `SingleProcessAgentRunExecutor` with persisted leases and
+heartbeats. Startup recovery skips runs with an active lease; interrupted runs
+are paused and unfinished started tools become `UNKNOWN`. Checkpoints and tool
+replay policies determine whether the original run can resume. Unknown
+non-replayable executions require operator resolution or an explicit run retry.
+Retry allocates a new run ID, records its source, and clears previous approvals.
+
+Agent streams carry core trace events; HTTP encodes them as SSE. Model text
+streaming is selected by request metadata `stream = true`. With an executor
+configured, a background producer keeps persisted execution running after the
+stream consumer disconnects. Manual pause is observed at checkpoints in the
+stream persistence path. Context transcript writes occur at the tool-loop's
+completion/failure paths, while approval pauses retain progress in run state.
+
+## Authorization And Ownership
+
+HTTP authentication resolves a `Principal` from an API key, configured OAuth
+bearer token, or JWT. Bootstrap supplies the factory for an
+`AuthorizedEvernightInterface`; HTTP dependencies obtain that wrapper per
+request. CLI assembly can bind the configured principal to the same boundary.
+The wrapper checks operation permissions and passes `PrincipalScope` into
+resource access. Domain managers and stores enforce resource ownership.
+
+Tool execution has its own preflight and safety checks, with approval decisions
+bound to tool calls. Concrete adapters enforce target restrictions, and configured
+process tools use the assembled sandbox. Interface authorization, tool approval,
+and process isolation have separate responsibilities.
+
+## Frontend Architecture
+
+The Vue 3 / TypeScript / Vite frontend has workspace (`index.html`) and chat
+(`chat.html`) entries. Its main responsibilities are:
+
+| Directory | Responsibility |
+| --- | --- |
+| `api` | Shared JSON, SSE, and WebSocket transport, credentials, and API errors |
+| `domain` | Workspace resource concepts and chat transcript/event transformations |
+| `runtime` | API operation coordination, stream recovery, cancellation, and authentication changes |
+| `state` | XState workspace and chat lifecycle machines |
+| `components` | Views, interaction controls, and local presentation state |
+
+The workspace machine exposes loading, ready, degraded, unauthorized, and
+offline states. The chat machine manages session selection, Agent streaming,
+approval, recovery, retry, and cancellation. Chat operations use persisted
+`/agent-runs` and associated session/context APIs. Components subscribe to actors
+and send lifecycle events; runtime functions execute the associated operations.
+Authentication changes reset active chat/workspace state through the shared
+workspace runtime.
+
+In development, Vite proxies backend API requests and WebSocket traffic. In a
+configured deployment, FastAPI can serve `frontend/dist` alongside the API.
+See the [frontend guide](../frontend/README.md) for state and component details.
+
+## Source Map And Verification
+
+- [Runtime roles](../src/EvernightAI/core/domain/runtime.py) and
+  [interface contracts](../src/EvernightAI/core/protocol/interface.py).
+- [Request composition](../src/EvernightAI/application/chat_request.py) and
+  [Agent coordination](../src/EvernightAI/application/agent.py).
+- [Architecture rules](../tests/test_architecture_rules.py) enforce import and
+  composition boundaries.
+- [Agent behavior tests](../tests/test_application_agent.py) check tool loops,
+  approval side effects, checkpoint recovery, retry, and disconnected streams.
+- [SQLite Agent tests](../tests/test_sqlite_agent_adapter.py) and
+  [runtime foundation tests](../tests/test_sqlite_runtime_foundation.py) check
+  persistence, leases, ownership, and startup recovery.
+- Frontend state/runtime tests and browser checks are described in the
+  [frontend guide](../frontend/README.md).
 
 ## Dependency Rules Captured By Tests
 

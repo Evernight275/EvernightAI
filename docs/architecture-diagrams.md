@@ -1,7 +1,9 @@
 # EvernightAI Architecture Diagrams
 
-This document contains six focused diagrams. Each diagram answers one question
+This document contains eight focused diagrams. Each diagram answers one question
 and uses labeled arrows so the dependency or runtime relationship is explicit.
+See [dependency architecture](architecture-dependencies.md) for layer
+responsibilities, assembly entry points, and source/test links.
 
 ## 1. Source Dependency
 
@@ -78,13 +80,22 @@ flowchart TD
 
     subgraph StateSide["runtime state side"]
         ContextManager["ContextManager"]
-        ContextStrategy["ContextOrganizer<br/>BasicContextStrategy"]
+        ContextStrategy["ContextOrganizer + context strategies<br/>basic / optional summary, trim, token budget"]
         MemoryManager["MemoryManager"]
         MemoryStrategy["BasicMemoryStrategy<br/>BasicMemoryWriteStrategy"]
         SessionManager["SessionManager"]
-        AgentStores["Agent run state + trace registers"]
-        SQLiteStores["SQLite adapters<br/>context / memory / session / agent"]
+        AgentStores["Agent state + trace + tool execution registers"]
+        AgentExecutor["SingleProcessAgentRunExecutor<br/>lease / heartbeat / timeout / cancel"]
+        ProviderStore["ProviderConfigStore"]
+        SQLiteStores["SQLite adapters<br/>context / memory / session / agent / providers"]
     end
+
+    subgraph DataSide["data analysis side"]
+        DataManager["DataAnalysisManager + register"]
+        DataSources["SQLite runtime and configured data sources"]
+    end
+
+    Sandbox["SandboxExecuteProtocol<br/>subprocess / bubblewrap"]
 
     Config -- "tool/provider/db options" --> RuntimeFactory
     RuntimeFactory -- "delegates concrete assembly" --> SQLiteRuntime
@@ -106,6 +117,9 @@ flowchart TD
     ToolManager -- "uses" --> ToolRegister
     ToolManager -- "checks" --> ToolPolicy
     Runtime -- "owns" --> ToolManager
+    RuntimeFactory -- "selects" --> Sandbox
+    SQLiteRuntime -- "supplies to process tools" --> Sandbox
+    Runtime -- "owns" --> Sandbox
 
     SQLiteRuntime -- "registers builtin skills" --> EchoSkill
     EchoSkill --> SkillRegister
@@ -118,16 +132,29 @@ flowchart TD
     SQLiteStores -- "back" --> MemoryManager
     SQLiteStores -- "back" --> SessionManager
     SQLiteStores -- "back" --> AgentStores
+    SQLiteStores -- "back" --> ProviderStore
+    SQLiteRuntime -- "recovers interrupted runs and creates" --> AgentExecutor
+    AgentExecutor -- "leases and heartbeats" --> AgentStores
+    SQLiteRuntime -- "registers runtime sources" --> DataSources
+    RuntimeFactory -- "registers configured sources" --> DataSources
+    DataSources -- "definitions + statistics executors" --> DataManager
+    Runtime -- "owns" --> DataManager
     Runtime -- "owns" --> ContextManager
     Runtime -- "owns" --> ContextStrategy
     Runtime -- "owns" --> MemoryManager
     Runtime -- "owns" --> MemoryStrategy
     Runtime -- "owns" --> SessionManager
     Runtime -- "owns" --> AgentStores
+    Runtime -- "owns" --> AgentExecutor
+    Runtime -- "owns" --> ProviderStore
 ```
 
 Key point: registrations provide builders/executors into core registries; the
 runtime owns the resulting managers and strategies.
+`bootstrap.interface` binds application services to these roles. The interface's
+tool role is `runtime.tools`; data analysis uses `DataAnalysisApplication`.
+Runtime initialization restores providers and loads MCP sources. SQLite Agent
+storage and its executor are supplied when Agent storage is enabled.
 
 ## 3. Request Call Chain
 
@@ -139,9 +166,11 @@ sequenceDiagram
     participant Route as HTTP route / CLI command
     participant Auth as Optional AuthorizedEvernightInterface
     participant Interface as EvernightInterface
+    participant Runs as AgentRunApplication
     participant App as ChatApplication / AgentApplication
+    participant Composer as ChatRequestComposer
     participant Runtime as RuntimeKernel
-    participant Stores as Context/Memory/Session stores
+    participant Stores as Context/Memory/Agent stores
     participant Skills as SkillManager
     participant Providers as ProviderManager
     participant Adapter as Provider adapter
@@ -150,36 +179,75 @@ sequenceDiagram
     participant ToolAdapter as Tool adapter
 
     Client->>Route: request payload / CLI args
-    Route->>Auth: call interface protocol
-    Auth->>Auth: permission check if auth enabled
-    Auth->>Interface: forward allowed call
-    Interface->>App: invoke application use case
-
-    App->>Runtime: access managers
-    App->>Stores: load context/session/memory
-    App->>Skills: render requested skills into prompt messages
-    App->>Providers: resolve provider instance
-    Providers->>Adapter: chat or chat_stream
-    Adapter->>LLM: provider-specific API call
-    LLM-->>Adapter: provider-specific response
-    Adapter-->>Providers: normalized core response/events
-
-    opt model emits tool call
-        App->>Tools: execute ToolCall
-        Tools->>Tools: policy + approval check
-        Tools->>ToolAdapter: execute dict arguments
-        ToolAdapter-->>Tools: dict result
-        Tools-->>App: ToolCallResult
+    alt authentication enabled
+        Route->>Auth: call interface protocol
+        Auth->>Auth: check permission and bind PrincipalScope
+        Auth->>Interface: forward scoped call
+    else authentication disabled
+        Route->>Interface: call interface protocol
+    end
+    alt persisted Agent request
+        Interface->>Runs: start / start_stream
+        Runs->>Stores: create run state
+        Runs->>App: drive Agent loop via configured executor
+    else context-based chat request
+        Interface->>App: chat_with_context / chat_stream_with_context
     end
 
-    App->>Stores: persist updated context/memory/session/agent trace
-    App-->>Interface: core result schema
+    App->>Runtime: access managers
+    loop model round (Agent can perform multiple rounds)
+        App->>Composer: compose context-based request
+        Composer->>Stores: load scoped context and memory
+        Composer->>Runtime: apply context strategy and cache intent
+        Composer->>Skills: render and prepend skill messages
+        Composer-->>App: final ChatRequest
+        App->>Providers: chat or chat_stream
+        Providers->>Adapter: call provider instance
+        Adapter->>LLM: provider-specific API call
+        LLM-->>Adapter: provider-specific response
+        Adapter-->>Providers: normalized core response/events
+        Providers-->>App: ChatResponse / ChatStreamEvent
+
+        opt Agent response contains tools and rounds remain
+            App->>Tools: authorize ToolCall
+            Tools-->>App: preflight + safety decision
+            alt approval required and undecided
+                App-->>Runs: pending calls and RUN_PAUSED
+                Runs->>Stores: persist paused state and trace
+            else execution can proceed or record rejection
+                App->>Tools: execute ToolCall (authorize again)
+                alt execution allowed
+                    Tools->>ToolAdapter: execute dict arguments
+                    ToolAdapter-->>Tools: dict result
+                    Tools-->>App: ToolCallResult
+                else policy rejects execution
+                    Tools-->>App: tool policy error
+                end
+                App->>App: add tool result/error message
+            end
+        end
+    end
+
+    App->>Stores: persist data appropriate to the use case
+    alt persisted Agent request
+        App-->>Runs: state / trace events
+        Runs->>Stores: persist run state and trace
+        Runs-->>Interface: AgentRunState / AgentTraceEvent
+    else context-based chat request
+        App-->>Interface: ChatResponse / ChatStreamEvent
+    end
     Interface-->>Route: result
     Route-->>Client: HTTP response / CLI output
 ```
 
 Key point: HTTP and CLI translate transport details into interface calls; the
 application layer coordinates the use case through runtime managers.
+The model-round participant groups shared `ChatApplication` and
+`AgentApplication` work; `AgentRunApplication` manages persisted Agent execution.
+Approval pauses return before the next round. Direct chat can use an incoming
+`ChatRequest` without stored-context composition. Agent context transcripts are
+committed at loop completion/failure, while persistent state and trace are saved
+as execution progresses.
 
 ## 4. Data Flow
 
@@ -194,7 +262,7 @@ flowchart TD
     ContextStore["context store<br/>SQLite or in-memory register"]
     MemoryStore["memory store<br/>SQLite or in-memory register"]
     SessionStore["session store<br/>SQLite or in-memory register"]
-    AgentStore["agent state + trace store<br/>SQLite register"]
+    AgentStore["agent state + trace + tool execution stores<br/>SQLite registers"]
 
     ScopePolicy["scope policy<br/>context -> session -> user -> global"]
     MemorySelection["memory selection<br/>lexical match + filters + dedupe"]
@@ -202,12 +270,14 @@ flowchart TD
     ContextWindow["context window<br/>protected + elastic lanes"]
     Preview["compose preview<br/>no provider call"]
     SkillMessages["skill-rendered prompt messages"]
+    FinalRequest["final ChatRequest<br/>context output + prepended skill messages + cache intent"]
     ToolDefinitions["registered tool definitions"]
 
     ContextStrategy["context strategy chain<br/>basic -> summarize -> trim -> token budget"]
     ProviderPayload["provider adapter payload"]
     ProviderResponse["provider response"]
     CoreResult["core result schema<br/>ChatResponse / AgentRunResult / stream events"]
+    ToolExecution["Agent loop + ToolManager<br/>authorize and execute"]
     ToolResults["ToolCallResult"]
     MemoryGovernance["memory write governance<br/>fingerprint + provenance + create/replace/merge"]
 
@@ -223,20 +293,22 @@ flowchart TD
     MemorySelection -- "ids + reasons + scores" --> MemoryMessage
     MemoryMessage --> ContextWindow
     RequestSchema -- "skill declarations" --> SkillMessages
-    SkillMessages --> ContextWindow
     RequestSchema -- "tool declarations" --> ToolDefinitions
 
     ContextWindow --> ContextStrategy
-    ContextStrategy -- "final messages + diagnostics" --> ProviderPayload
-    ContextStrategy -- "final ChatRequest" --> Preview
-    ToolDefinitions -- "available tools" --> ProviderPayload
+    ContextStrategy -- "context messages + diagnostics" --> FinalRequest
+    SkillMessages -- "prepended after context strategies" --> FinalRequest
+    ToolDefinitions -- "available tools" --> FinalRequest
+    FinalRequest -- "no provider call" --> Preview
+    FinalRequest -- "translated by adapter" --> ProviderPayload
     ProviderPayload --> ProviderResponse
     ProviderResponse -- "mapped by adapter" --> CoreResult
 
-    ProviderResponse -- "tool calls" --> ToolResults
+    CoreResult -- "normalized tool calls" --> ToolExecution
+    ToolExecution -- "result / error message" --> ToolResults
     ToolResults -- "fed back into agent loop" --> ContextWindow
 
-    CoreResult -- "append response / traces" --> ContextStore
+    CoreResult -- "commit transcript messages" --> ContextStore
     CoreResult -- "candidate memories" --> MemoryGovernance
     MemoryGovernance --> MemoryStore
     CoreResult -- "update session result" --> SessionStore
@@ -245,10 +317,13 @@ flowchart TD
 
 Key point: context and memory are separate. Memory selects durable information
 with observable reasons and scores; context organizes the model-visible window.
-The application layer explicitly composes selected memory into the protected
-system area before context strategies trim, summarize, or budget the final
-request. Compose preview stops at the final `ChatRequest` and never calls a
-provider.
+`ChatRequestComposer` supplies selected memory to the context strategy, which
+organizes it into the protected system area before optional summary, trimming,
+or token budgeting. Skill messages are rendered and prepended after that chain;
+the configured context budget does not cover these later messages. Compose
+preview stops at the final `ChatRequest` and never calls a provider. Session
+updates occur in session use cases; Agent trace events go to the Agent trace
+store rather than the context message history.
 
 ## 5. Permission Boundary
 
@@ -259,19 +334,23 @@ flowchart TD
     HTTPClient["HTTP client"]
     CLIUser["CLI user"]
 
-    HTTPAuth["interface.http.auth<br/>API key / OAuth JWT"]
+    HTTPAuth["interface.http.auth<br/>API key / configured OAuth bearer / JWT"]
     CLIAuth["interface.cli.auth<br/>config principal / env key"]
     Principal["Principal<br/>roles + permissions"]
     Authorizer["core.domain.auth<br/>Authorizer + PermissionAuthPolicy"]
     AuthorizedInterface["AuthorizedEvernightInterface"]
+    Scope["PrincipalScope<br/>resource ownership"]
+    Stores["Domain managers + stores"]
     Interface["EvernightInterface"]
 
     App["Application service"]
     ToolCall["ToolCall"]
     ToolDefinition["ToolDefinition<br/>permissions + safety level"]
     ToolPolicy["BasicToolSafetyPolicy"]
+    ToolManager["ToolManager<br/>preflight + execution authorization"]
     Approval["ToolApprovalDecision<br/>or metadata.approved"]
     Executor["Tool executor"]
+    Sandbox["Configured process sandbox"]
 
     SafeTarget["safe/read target"]
     SensitiveTarget["sensitive target<br/>write / process / network / database / external_api"]
@@ -284,24 +363,32 @@ flowchart TD
     Principal --> Authorizer
     Authorizer -- "allows interface permission" --> AuthorizedInterface
     AuthorizedInterface --> Interface
+    AuthorizedInterface -- "binds" --> Scope
+    Scope -- "passed into resource access" --> Stores
     Interface --> App
+    App -- "scoped reads/writes" --> Stores
 
     App -- "model requested tool" --> ToolCall
-    ToolCall --> ToolDefinition
-    ToolDefinition --> ToolPolicy
+    ToolCall --> ToolManager
+    ToolDefinition --> ToolManager
+    ToolManager --> ToolPolicy
 
-    ToolPolicy -- "safe permission" --> Executor
+    ToolPolicy -- "allowed decision" --> ToolManager
     ToolPolicy -- "requires approval" --> Approval
-    Approval -- "approved" --> Executor
+    Approval -- "resume with decision; checks run again" --> ToolManager
+    ToolManager -- "allowed execution" --> Executor
     ToolPolicy -. "rejects" .-> BlockedTarget
 
     Executor --> SafeTarget
     Executor --> SensitiveTarget
+    Executor -- "process tools use" --> Sandbox
 ```
 
 Key point: interface authorization controls who may call EvernightAI operations;
 tool safety controls whether a specific tool execution may touch sensitive
 targets.
+Concrete adapters also constrain paths, commands, network targets, and output.
+Tool approval does not override a blocked permission or failed preflight check.
 
 ## 6. Deployment Relationship
 
@@ -318,18 +405,24 @@ flowchart TD
         CLIProcess["evernight<br/>CLI process"]
         HTTPProcess["evernight-http / uvicorn<br/>HTTP process"]
         StaticUI["frontend/dist<br/>optional static UI"]
-        Runtime["RuntimeKernel<br/>in process"]
+        CLIRuntime["CLI RuntimeKernel<br/>in CLI process"]
+        HTTPRuntime["HTTP RuntimeKernel<br/>in HTTP process"]
+        Vite["Vite dev server<br/>development only"]
         SQLite["runtime SQLite database<br/>.evernight/runtime.sqlite3 or configured path"]
         FSRoot["configured filesystem root"]
         GitRepo["configured git repository"]
         ProjectRoots["configured project directories"]
+        ShellCommands["allowlisted local commands<br/>subprocess / sandbox"]
+        StdioMcp["local MCP server<br/>stdio child process"]
     end
 
     subgraph External["external systems"]
         Providers["LLM provider APIs<br/>OpenAI-compatible / Responses / Gemini / Anthropic"]
         WebTargets["web targets<br/>HTTP request / scrape / download"]
-        ShellCommands["allowlisted local commands"]
+        RemoteMcp["remote MCP servers<br/>Streamable HTTP / SSE"]
     end
+
+    Browser["browser<br/>Vue application"]
 
     Operator -- "writes" --> Config
     Operator -- "exports" --> Env
@@ -338,20 +431,124 @@ flowchart TD
     Env -- "read by" --> CLIProcess
     Env -- "read by" --> HTTPProcess
 
-    CLIProcess -- "creates interface/runtime" --> Runtime
-    HTTPProcess -- "create_app factory" --> Runtime
+    CLIProcess -- "bootstrap creates interface/runtime" --> CLIRuntime
+    HTTPProcess -- "bootstrap creates app/interface/runtime" --> HTTPRuntime
     HTTPProcess -- "serves if configured" --> StaticUI
+    StaticUI -- "loads application assets" --> Browser
+    Vite -- "serves assets in development" --> Browser
+    Browser -- "JSON / SSE / WebSocket in deployment" --> HTTPProcess
+    Browser -- "proxied API / WebSocket in development" --> Vite
+    Vite -- "API / WebSocket proxy" --> HTTPProcess
 
-    Runtime -- "persists" --> SQLite
-    Runtime -- "provider adapters call" --> Providers
-    Runtime -- "web tools call" --> WebTargets
-    Runtime -- "filesystem tools constrain access to" --> FSRoot
-    Runtime -- "filesystem tools select named roots" --> ProjectRoots
-    Runtime -- "git tools constrain access to" --> GitRepo
-    Runtime -- "project task tool runs allowlisted commands in" --> ProjectRoots
-    Runtime -- "shell tool runs allowlisted commands" --> ShellCommands
+    CLIRuntime -- "persists" --> SQLite
+    HTTPRuntime -- "persists" --> SQLite
+    CLIRuntime -- "provider adapters call" --> Providers
+    HTTPRuntime -- "provider adapters call" --> Providers
+    CLIRuntime -- "uses configured adapters" --> Targets["configured tool targets"]
+    HTTPRuntime -- "uses configured adapters" --> Targets
+    Targets -- "web tools call" --> WebTargets
+    Targets -- "filesystem tools constrain access to" --> FSRoot
+    Targets -- "filesystem tools select named roots" --> ProjectRoots
+    Targets -- "git tools constrain access to" --> GitRepo
+    Targets -- "project task commands run in" --> ProjectRoots
+    Targets -- "shell tools execute" --> ShellCommands
+    Targets -- "MCP stdio launches" --> StdioMcp
+    Targets -- "MCP clients call" --> RemoteMcp
 ```
 
-Key point: EvernightAI has no separate worker process in the current design.
+Key point: EvernightAI has no separate Agent worker service in the current design.
 HTTP and CLI each assemble an in-process runtime from config; SQLite and
 external provider/tool targets sit outside the runtime boundary.
+The two runtimes are separate objects and may share the configured SQLite path.
+Agent tasks run inside their owning process using `SingleProcessAgentRunExecutor`;
+leases and heartbeats are persisted in SQLite. Enabled tools can launch command
+or MCP subprocesses. The Vue application runs in the browser; Vite supplies
+development assets and proxies API traffic, while deployed static assets can be
+served by the HTTP app.
+
+## 7. Frontend State And Transport
+
+Question: how do browser views, lifecycle machines, API operations, and backend
+events work together?
+
+```mermaid
+flowchart TD
+    Entries["main.ts / chat.ts<br/>workspace and chat entries"]
+    WorkspaceRuntime["workspaceRuntime<br/>startup + authentication changes"]
+    WorkspaceMachine["workspaceMachine<br/>loading / ready / degraded / unauthorized / offline"]
+    ChatMachine["chatMachine<br/>sessions / streaming / approval / recovery / retry / cancel"]
+    Views["Vue components<br/>chat / workspace / settings"]
+    ChatRuntime["chatRuntime<br/>API operations + disconnect recovery"]
+    WorkspaceDomain["domain/workspace<br/>load resource catalogs"]
+    ChatDomain["domain/chat<br/>transcript + trace transformations"]
+    API["api modules + shared client<br/>JSON / SSE / WebSocket / credentials / errors"]
+    Backend["HTTP backend<br/>sessions / contexts / agent-runs / resource APIs"]
+
+    Entries -- "mounts" --> Views
+    Entries -- "starts" --> WorkspaceRuntime
+    WorkspaceRuntime -- "starts / resets on auth change" --> WorkspaceMachine
+    WorkspaceRuntime -- "auth change" --> ChatMachine
+    Views -- "lifecycle events" --> WorkspaceMachine
+    Views -- "lifecycle events" --> ChatMachine
+    WorkspaceMachine -- "snapshots" --> Views
+    ChatMachine -- "snapshots" --> Views
+    WorkspaceMachine -- "invokes loading" --> WorkspaceDomain
+    WorkspaceDomain -- "requests" --> API
+    ChatMachine -- "invokes operations" --> ChatRuntime
+    ChatRuntime -- "requests / consumes traces" --> API
+    ChatRuntime -- "reconciles snapshots" --> ChatDomain
+    ChatMachine -- "applies trace events" --> ChatDomain
+    API -- "transport requests" --> Backend
+    Backend -- "responses / trace events / snapshots" --> API
+```
+
+Components own local presentation state such as dialogs and navigation. XState
+actors own workspace/chat lifecycles. Chat uses persisted Agent runs, and stream
+recovery reads the original run snapshot without submitting the execution again.
+Authentication changes cancel/reset active frontend work and reload the workspace.
+
+## 8. Persistent Agent Lifecycle
+
+Question: how does one Agent run pause, resume, stop, or become a new retry run?
+
+```mermaid
+flowchart TD
+    Start["start / start_stream"] --> Running["RUNNING<br/>compose request and call model"]
+    Running -- "tool calls and rounds remain" --> Authorize["tool preflight + safety check"]
+    Authorize -- "undecided approval required" --> ApprovalPause["PAUSED<br/>pending calls and approval request"]
+    ApprovalPause -- "resume with decisions" --> Authorize
+    Authorize -- "allowed" --> Execute["execute tool<br/>persist attempt + result"]
+    Execute -- "tool message; consume a round" --> Running
+    Execute -- "error; recover_tool_errors true" --> Running
+    Authorize -- "rejected; recover_tool_errors true" --> Running
+    Execute -- "error; recover_tool_errors false" --> Failed["FAILED"]
+    Authorize -- "rejected; recover_tool_errors false" --> Failed
+    Running -- "no remaining tool calls" --> Finished["FINISHED"]
+    Running -- "tool calls but rounds exhausted / fatal error" --> Failed
+
+    Running -- "manual pause at stream checkpoint" --> CheckpointPause["PAUSED<br/>checkpoint and recovery metadata"]
+    Execute -- "interruption / expired lease" --> CheckpointPause
+    Running -- "timeout / restart / shutdown reconciliation" --> CheckpointPause
+    CheckpointPause -- "resume if checkpoint and replay policy allow" --> Running
+    CheckpointPause -- "unknown non-replayable execution" --> Resolution["operator resolution<br/>confirm completed / explicitly retry tool"]
+    Resolution -- "resume when unresolved outcomes are cleared" --> Running
+
+    Running -- "cancel" --> Canceled["CANCELED"]
+    Execute -- "cancel" --> Canceled
+    ApprovalPause -- "cancel" --> Canceled
+    CheckpointPause -- "cancel" --> Canceled
+    Failed -- "retry" --> NewRun["new run ID<br/>retry_of + retry_attempt<br/>previous approvals cleared"]
+    Canceled -- "retry" --> NewRun
+    CheckpointPause -- "retry if unrecoverable" --> NewRun
+    NewRun --> Start
+```
+
+This diagram summarizes control outcomes; tool calls in each round execute
+sequentially. A resumed run continues its saved checkpoint and remaining calls.
+Tool execution records preserve completed results, replay policies, and stable
+idempotency keys. Interrupted `STARTED` attempts become `UNKNOWN`; unknown
+non-replayable operations require resolution before safe resumption. Context
+transcripts commit at loop completion/failure, and memory writes follow the
+configured memory-write strategy. With an executor configured, disconnecting an
+SSE consumer leaves the background run active until it stops, pauses, is canceled,
+or times out.
