@@ -34,6 +34,11 @@ from EvernightAI.core.domain.tool import (
 )
 from EvernightAI.core.error.auth import AuthPermissionDeniedError, AuthRequiredError
 from EvernightAI.core.error.provider import (
+    ProviderAuthorizationError,
+    ProviderError,
+    ProviderNotFoundError,
+    ProviderRateLimitError,
+    ProviderRequestTimeoutError,
     ProviderRequestError,
     ProviderUnavailableError,
 )
@@ -79,6 +84,7 @@ from EvernightAI.core.schema.data_analysis import (
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
+    ProviderTestRequest,
     ProviderModelCapability,
     ProviderModelConfig,
     ProviderType,
@@ -3681,6 +3687,123 @@ class FakeProvider(ProviderInstanceProtocol):
 
     async def close(self) -> None:
         pass
+
+
+class ConnectionTestProvider(FakeProvider):
+    def __init__(self, error: ProviderError | None = None, *, block: bool = False) -> None:
+        super().__init__()
+        self.error = error
+        self.block = block
+        self.calls = 0
+        self.cancelled = False
+
+    async def list_models(self) -> list[ProviderModelConfig]:
+        raise AssertionError("Connection tests must not discover models")
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.calls += 1
+        self.last_request = request
+        if self.block:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.cancelled = True
+        if self.error:
+            raise self.error
+        return ChatResponse(
+            model_id="actual-model", message=make_message("private reply"),
+            metadata={"private": "secret-value"},
+        )
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_http_provider_connection_uses_fixed_request_without_discovery(declared: bool) -> None:
+    provider = ConnectionTestProvider()
+    app = create_http_app(create_interface(make_runtime(provider=provider)))
+    with TestClient(app) as client:
+        assert client.post("/providers", json={
+            "provider_id": "probe", "name": "Probe", "type": "openai",
+            "model": {"alias": {"model_id": "custom"}} if declared else {},
+        }).status_code == 201
+        for _ in range(2):
+            response = client.post("/providers/probe/test", json={"model_id": " custom "})
+            assert response.status_code == 200
+            body = response.json()
+            assert body == {
+                "provider_id": "probe", "model_id": "custom", "success": True,
+                "response_model_id": "actual-model", "elapsed_ms": body["elapsed_ms"],
+            }
+            assert body["elapsed_ms"] >= 0
+        assert client.get("/contexts").json() == []
+        assert client.get("/memories").json() == []
+    assert provider.calls == 2
+    assert provider.last_request == ChatRequest(
+        model_id="custom", messages=[make_message("Reply with OK.")],
+    )
+
+
+@pytest.mark.parametrize("error_class", [
+    ProviderAuthorizationError, ProviderNotFoundError, ProviderRateLimitError,
+    ProviderRequestTimeoutError, ProviderUnavailableError, ProviderRequestError, ProviderError,
+])
+def test_http_provider_connection_sanitizes_upstream_errors(error_class: type[ProviderError]) -> None:
+    provider = ConnectionTestProvider(error_class("secret-value", detail="key=secret-value"))
+    with TestClient(create_http_app(create_interface(make_runtime(provider=provider)))) as client:
+        client.post("/providers", json={"provider_id": "probe", "name": "Probe", "type": "openai"})
+        response = client.post("/providers/probe/test", json={"model_id": "custom"})
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["error_type"] == error_class.__name__
+    assert response.json()["error_message"]
+    assert "secret-value" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_provider_connection_timeout_releases_active_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("EvernightAI.application.provider.PROVIDER_TEST_TIMEOUT_SECONDS", 0.01)
+    provider = ConnectionTestProvider(block=True)
+    runtime = make_runtime(provider=provider)
+    interface = create_interface(runtime)
+    await interface.providers.create_provider(ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI))
+    result = await interface.providers.test_provider("probe", ProviderTestRequest(model_id="custom"))
+    assert result.success is False
+    assert result.error_type == "ProviderRequestTimeoutError"
+    assert provider.cancelled
+    await asyncio.wait_for(runtime.providers.delete("probe"), timeout=1)
+    await runtime.close()
+
+
+def test_http_provider_connection_rejects_invalid_requests_and_disabled_provider() -> None:
+    provider = ConnectionTestProvider()
+    with TestClient(create_http_app(create_interface(make_runtime(provider=provider)))) as client:
+        client.post("/providers", json={"provider_id": "probe", "name": "Probe", "type": "openai", "is_enabled": False})
+        for body in [{"model_id": " "}, {"model_id": "x", "prompt": "custom"}, {"model_id": "x", "api_key": "key"}]:
+            assert client.post("/providers/probe/test", json=body).status_code == 400
+        assert client.post("/providers/probe/test", json={"model_id": "x"}).status_code == 409
+        assert client.post("/providers/missing/test", json={"model_id": "x"}).status_code == 404
+    assert provider.calls == 0
+
+
+@pytest.mark.parametrize("permissions, expected", [
+    (["providers:test"], 200),
+    (["providers:update", "providers:list", "providers:create", "chat:chat"], 403),
+])
+def test_http_provider_connection_requires_separate_permission(permissions: list[str], expected: int) -> None:
+    runtime = make_runtime(provider=ConnectionTestProvider())
+    asyncio.run(runtime.providers.create(ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI)))
+    app = create_http_app(
+        create_interface(runtime),
+        auth_device=ApiKeyHttpAuthDevice([HttpApiKeyCredential(
+            api_key="local-key", principal=Principal(principal_id="user", permissions=permissions),
+        )]),
+        authorized_interface_factory=lambda interface, principal: AuthorizedEvernightInterface(
+            interface, Authorizer(PermissionAuthPolicy()), principal,
+        ),
+    )
+    with TestClient(app) as client:
+        assert client.post("/providers/probe/test", json={"model_id": "x"}).status_code == 401
+        response = client.post("/providers/probe/test", json={"model_id": "x"}, headers={"authorization": "Bearer local-key"})
+        assert response.status_code == expected
 
 
 class SlowProvider(FakeProvider):

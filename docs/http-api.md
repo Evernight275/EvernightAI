@@ -148,6 +148,34 @@ offers enabled services only. A conversation whose selected service is disabled
 keeps its history and draft, shows a notice, and requires re-enabling that service
 or explicitly choosing another model before sending.
 
+## Test A Provider Connection
+
+`POST /providers/{provider_id}/test` requires the separate `providers:test`
+permission and tests the currently saved provider configuration:
+
+```json
+{"model_id": "your-model-id"}
+```
+
+The model ID can be undeclared. This endpoint does not discover remote models.
+It makes one ordinary chat call with the fixed prompt `Reply with OK.` and a
+30-second timeout. It may incur provider charges; the short prompt is not a hard
+output-token limit. It does not create sessions, compose context, select memories,
+or execute tools. Normal provider telemetry and provider-default prompt caching
+still apply; test responses are not reused.
+
+A completed test returns HTTP `200` with `provider_id`, requested `model_id`,
+`success`, and `elapsed_ms` (including model generation time). Success additionally
+reports `response_model_id`. Upstream failures return `success: false` with
+`error_type` and a sanitized `error_message`; upstream credential failures do not
+invalidate the caller's local login. Model output, raw upstream errors, and usage
+metadata are not returned.
+
+Local authentication/permission failures retain HTTP `401`/`403`; missing and
+disabled providers are rejected before the test with `404`/`409`. Invalid bodies
+return `400`. Only `model_id` is accepted, so prompts, credentials, and unsaved
+configuration cannot be supplied through this endpoint.
+
 ## One-Off Chat
 
 Use `/chat` when you do not want stored history.

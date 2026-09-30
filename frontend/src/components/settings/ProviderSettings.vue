@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import ProviderConnectionTest from './ProviderConnectionTest.vue'
 import { Pencil, Plus, Save, X } from '@lucide/vue'
 import { createProvider, deleteProvider, getProviderConfig, updateProvider, type ProviderInfo, type ProviderConfigView, type ProviderConfigUpdate, type ProviderType, type ProviderModelCapability, type ProviderModelConfig } from '../../api/providers'
 import type { ProviderCatalog } from '../../domain/workspace'
@@ -23,6 +24,8 @@ const credentialMode = ref<'keep' | 'key' | 'reference' | 'clear'>('keep')
 const secretRef = ref('')
 const editorOpen = ref(false)
 const modelEntries = ref<{ key: string; config: ProviderModelConfig }[]>([])
+const testProviderId = ref('')
+const testProvider = computed(() => props.catalog.providers.find(provider => provider.provider_id === testProviderId.value))
 
 function reset() {
   editing.value = null; name.value = ''; providerId.value = ''; baseUrl.value = ''; apiKey.value = ''; modelIds.value = ''
@@ -83,7 +86,7 @@ async function save() {
       })
       feedback.value = '模型服务已添加'
     }
-    reset(); editorOpen.value = false; emit('changed')
+    reset(); editorOpen.value = false; testProviderId.value = ''; emit('changed')
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '保存失败' }
   finally { busy.value = false }
 }
@@ -117,9 +120,13 @@ async function toggleEnabled(provider: ProviderInfo) {
       <div class="settings-inline-actions">
         <button class="provider-icon-button" type="button" :disabled="busy" :aria-label="`编辑服务 ${provider.name}`" :title="`编辑服务 ${provider.name}`" @click="edit(provider.provider_id)"><Pencil :size="16" /></button>
         <button type="button" :disabled="busy" :aria-label="`${provider.is_enabled === false ? '启用' : '停用'}服务 ${provider.name}`" @click="toggleEnabled(provider)">{{ provider.is_enabled === false ? '启用服务' : '停用服务' }}</button>
+        <button type="button" :disabled="busy || provider.is_enabled === false" :aria-label="`测试连接 ${provider.name}`" @click="testProviderId = provider.provider_id">测试连接</button>
         <button type="button" :disabled="busy" @click="pendingDelete = provider.provider_id">删除服务</button>
       </div>
     </div>
+    <ProviderConnectionTest v-if="testProvider" :key="testProvider.provider_id" :provider="testProvider" :disabled="busy"
+      :models="catalog.modelGroups.find(group => group.provider.provider_id === testProviderId)?.models || []"
+      @busy="busy = $event" @close="testProviderId = ''" />
     <div v-if="pendingDelete" class="settings-confirm" role="group" aria-label="删除模型服务确认">
       <p>删除服务 {{ pendingDelete }}？使用此服务的会话将无法继续调用它。</p>
       <button type="button" :disabled="busy" @click="pendingDelete = null">取消</button>

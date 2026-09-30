@@ -38,6 +38,22 @@ export type ProviderConfigView = ProviderInfo & Pick<ProviderConfig, 'base_url' 
 
 export type ProviderConfigUpdate = Partial<Omit<ProviderConfig, 'provider_id'>>
 
+export type ProviderTestResult = {
+  provider_id: string
+  model_id: string
+  success: boolean
+  elapsed_ms: number
+  response_model_id?: string | null
+  error_type?: string | null
+  error_message?: string | null
+}
+
+export function testProvider(providerId: string, modelId: string, signal?: AbortSignal): Promise<ProviderTestResult> {
+  return requestJson<ProviderTestResult>(`/providers/${encodeURIComponent(providerId)}/test`, {
+    method: 'POST', body: { model_id: modelId }, signal,
+  })
+}
+
 export function getProviderConfig(providerId: string): Promise<ProviderConfigView> {
   return requestJson<ProviderConfigView>(`/providers/${encodeURIComponent(providerId)}/config`)
 }

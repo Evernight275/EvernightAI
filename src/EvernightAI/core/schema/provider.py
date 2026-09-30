@@ -2,7 +2,7 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from EvernightAI.core.schema.base import EvernightAISchema
 
@@ -94,3 +94,26 @@ class ProviderConfigUpdate(EvernightAISchema):
         if self.api_key is not None and self.api_key_secret_ref is not None:
             raise ValueError("Specify either api_key or api_key_secret_ref")
         return self
+
+
+class ProviderTestRequest(EvernightAISchema):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("model_id cannot be blank")
+        return value.strip()
+
+
+class ProviderTestResult(EvernightAISchema):
+    provider_id: str
+    model_id: str
+    success: bool
+    elapsed_ms: float = Field(ge=0)
+    response_model_id: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None

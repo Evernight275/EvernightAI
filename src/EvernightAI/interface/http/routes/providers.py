@@ -6,6 +6,8 @@ from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
     ProviderConfigView,
+    ProviderTestRequest,
+    ProviderTestResult,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -84,6 +86,26 @@ async def update_provider(
     provider_id: str, update: ProviderConfigUpdate, interface: InterfaceDependency,
 ) -> ProviderInfo:
     return await interface.providers.update_provider(provider_id, update)
+
+
+@router.post(
+    "/{provider_id}/test",
+    response_model=ProviderTestResult,
+    response_model_exclude_none=True,
+    summary="Test a saved provider with a short model request",
+    description=(
+        "Requires providers:test. Sends a fixed chat message using saved configuration "
+        "with a 30-second time limit. The model need not be predeclared. May incur "
+        "provider charges. Does not create sessions, context, memories, or tool calls. "
+        "Upstream failures return success=false with a safe diagnostic; local missing, "
+        "disabled, and authorization errors use normal HTTP errors."
+    ),
+    operation_id="test_provider_connection",
+)
+async def test_provider_connection(
+    provider_id: str, request: ProviderTestRequest, interface: InterfaceDependency,
+) -> ProviderTestResult:
+    return await interface.providers.test_provider(provider_id, request)
 
 
 @router.get(

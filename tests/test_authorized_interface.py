@@ -56,6 +56,7 @@ from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.core.schema.provider import (
     ProviderConfigUpdate,
+    ProviderTestRequest,
     ProviderModelCapability,
 )
 from EvernightAI.core.schema.session import (
@@ -320,6 +321,7 @@ async def test_authorized_chat_interface_requires_expected_permission(
             "provider-1",
         ),
         ("list_providers", (), "providers", "list", None),
+        ("test_provider", ("provider-1", ProviderTestRequest(model_id="custom")), "providers", "test", "provider-1"),
         ("get_provider_config", ("provider-1",), "providers", "get_config", "provider-1"),
         ("update_provider", ("provider-1", ProviderConfigUpdate(name="New")), "providers", "update", "provider-1"),
         (
@@ -819,6 +821,10 @@ class FakeProviderInterface:
 
     async def list_providers(self) -> str:
         self.calls.append("list_providers")
+        return "delegated"
+
+    async def test_provider(self, provider_id: str, request: ProviderTestRequest) -> str:
+        self.calls.append("test_provider")
         return "delegated"
 
     async def get_provider_config(self, provider_id: str) -> str:

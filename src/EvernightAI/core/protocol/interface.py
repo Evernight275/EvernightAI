@@ -35,6 +35,8 @@ from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
     ProviderConfigUpdate,
     ProviderConfigView,
+    ProviderTestRequest,
+    ProviderTestResult,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -201,6 +203,10 @@ class ChatInterfaceProtocol(InterfaceProtocol):
 
 
 class ProviderInterfaceProtocol(InterfaceProtocol):
+    async def test_provider(
+        self, provider_id: str, request: ProviderTestRequest,
+    ) -> ProviderTestResult: ...
+
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...
 
     async def get_provider_config(self, provider_id: str) -> ProviderConfigView: ...

@@ -54,6 +54,8 @@ from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
     ProviderConfigView,
+    ProviderTestRequest,
+    ProviderTestResult,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
@@ -505,6 +507,12 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
     async def list_providers(self) -> list[ProviderInfo]:
         self._require("providers", "list")
         return await self._inner.list_providers()
+
+    async def test_provider(
+        self, provider_id: str, request: ProviderTestRequest,
+    ) -> ProviderTestResult:
+        self._require("providers", "test", provider_id)
+        return await self._inner.test_provider(provider_id, request)
 
     async def get_provider_config(self, provider_id: str) -> ProviderConfigView:
         self._require("providers", "get_config", provider_id)
