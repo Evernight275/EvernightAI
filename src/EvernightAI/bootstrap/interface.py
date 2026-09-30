@@ -16,14 +16,15 @@ from EvernightAI.core.schema.auth import Principal
 
 
 def create_interface(runtime: RuntimeProtocol) -> EvernightInterface:
+    agent = AgentApplication(runtime)
     return EvernightInterface(
         runtime=runtime,
         chat=ChatApplication(runtime),
         providers=ProviderApplication(runtime),
         tools=cast(ToolInterfaceProtocol, runtime.tools),
         data_analysis=DataAnalysisApplication(runtime),
-        agent=AgentApplication(runtime),
-        agent_runs=AgentRunApplication(runtime),
+        agent=agent,
+        agent_runs=AgentRunApplication(runtime, agent=agent),
         skills=SkillApplication(runtime),
         sessions=SessionApplication(runtime),
     )

@@ -12,6 +12,8 @@ from EvernightAI.application.agent import (
     AgentRunApplication,
     AgentRunMetadata,
     _AgentRunLifecycle,
+    inspect_agent_run_checkpoint,
+    recover_interrupted_agent_runs,
 )
 from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.error.provider import ProviderResponseError
@@ -96,6 +98,403 @@ from tests.fakes.agent import (
     InMemoryToolExecutionRegister,
 )
 from tests.fakes.streams import EmptyStream, EventStream
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entrypoint", ["managed", "stream", "legacy"])
+@pytest.mark.parametrize("failure", ["context", "memory"])
+async def test_persistent_agent_finalization_failure_is_saved_as_failed(
+    entrypoint: str,
+    failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = make_runtime(
+        provider=FinalAnswerProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    append = runtime.contexts.append
+    count = 0
+
+    async def fail_append(*args, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 2:
+            raise OSError("context write failed")
+        return await append(*args, **kwargs)
+
+    async def fail_memory(*args, **kwargs):
+        raise OSError("memory write failed")
+
+    if failure == "context":
+        monkeypatch.setattr(runtime.contexts, "append", fail_append)
+    else:
+        monkeypatch.setattr(runtime.memories, "create", fail_memory)
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("Hello")],
+        write_memory=True,
+        metadata={"run_id": "finalization-failure"},
+    )
+    app = AgentRunApplication(runtime)
+    with pytest.raises(OSError, match=f"{failure} write failed"):
+        if entrypoint == "stream":
+            _ = [event async for event in app.start_stream(request)]
+        elif entrypoint == "legacy":
+            await AgentApplication(runtime).start_agent_run(request)
+        else:
+            await app.start(request)
+    state = app.get_state("finalization-failure")
+    assert state.status is AgentRunStatus.FAILED
+    assert state.stop_reason is None
+    assert state.trace[-1].event_type is AgentTraceEventType.RUN_STOPPED
+    assert state.trace[-1].error_message == f"{failure} write failed"
+    assert state.response is not None
+    assert len((await runtime.contexts.get("ctx-1")).messages) == (
+        1 if failure == "context" else 2
+    )
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("equal_responses", [False, True])
+def test_checkpoint_reconciles_newer_chat_once_in_order(
+    legacy: bool,
+    equal_responses: bool,
+) -> None:
+    first = make_response("first").model_copy(
+        update={"usage": ChatUsage(total_tokens=10)}
+    )
+    second = (
+        first
+        if equal_responses
+        else make_response("second").model_copy(
+            update={"usage": ChatUsage(total_tokens=20)},
+        )
+    )
+    event = AgentTraceEvent(
+        event_type=AgentTraceEventType.CHAT_COMPLETED,
+        response=first,
+        sequence=1,
+        event_id="first",
+    )
+    state = AgentRunState(
+        run_id="recover",
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            max_tool_rounds=2,
+        ),
+        response=first,
+        remaining_tool_rounds=2,
+        steps=[AgentStep(step_type=AgentStepType.CHAT, response=first)],
+        trace=[] if legacy else [event],
+        applied_trace_sequence=None if legacy else 1,
+    )
+    events = [
+        event,
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.CHAT_COMPLETED,
+            response=second,
+            sequence=2,
+            event_id="second",
+        ),
+    ]
+    assert inspect_agent_run_checkpoint(state, events).eligible
+    assert state.response == second
+    assert [step.response for step in state.steps] == [first, second]
+    assert state.remaining_tool_rounds == 1
+    assert state.tool_rounds_used == 1
+    assert state.usage is not None
+    assert state.usage.total_tokens == (20 if equal_responses else 30)
+    assert inspect_agent_run_checkpoint(state, events).eligible
+    assert len(state.steps) == 2
+    assert state.remaining_tool_rounds == 1
+
+
+def test_checkpoint_rejects_pruned_unapplied_trace() -> None:
+    state = AgentRunState(
+        run_id="gap",
+        applied_trace_sequence=1,
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+    )
+    checkpoint = inspect_agent_run_checkpoint(
+        state,
+        [
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.CHAT_COMPLETED,
+                response=make_response("answer"),
+                sequence=3,
+            )
+        ],
+    )
+    assert not checkpoint.eligible
+    assert checkpoint.name == "incomplete_trace"
+    assert state.response is None
+
+
+def test_checkpoint_rejects_trace_sequence_reuse_after_clear() -> None:
+    saved = AgentTraceEvent(
+        event_type=AgentTraceEventType.CHAT_COMPLETED,
+        sequence=1,
+        event_id="saved",
+        response=make_response("old"),
+    )
+    state = AgentRunState(
+        run_id="cleared-trace",
+        applied_trace_sequence=1,
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+        response=saved.response,
+        trace=[saved],
+    )
+    checkpoint = inspect_agent_run_checkpoint(
+        state,
+        [
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.CHAT_COMPLETED,
+                sequence=1,
+                event_id="reused",
+                response=make_response("new"),
+            )
+        ],
+    )
+    assert not checkpoint.eligible
+    assert checkpoint.name == "incomplete_trace"
+    assert state.response == saved.response
+
+
+@pytest.mark.parametrize("delta_saved", [False, True])
+def test_checkpoint_restores_ordered_tool_round_without_double_decrement(
+    delta_saved: bool,
+) -> None:
+    call = ToolCall(tool_call_id="call", tool_call={"name": "add", "arguments": {}})
+    first = ChatResponse(
+        model_id="model-1",
+        message=Content(role=MessageRole.ASSISTANT, tool_calls=[call]),
+        usage=ChatUsage(total_tokens=10),
+    )
+    second = make_response("answer").model_copy(
+        update={"usage": ChatUsage(total_tokens=20)}
+    )
+    state = AgentRunState(
+        run_id="round",
+        applied_trace_sequence=2 if delta_saved else 1,
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            max_tool_rounds=2,
+        ),
+        response=first,
+        remaining_tool_rounds=1 if delta_saved else 2,
+        steps=[AgentStep(step_type=AgentStepType.CHAT, response=first)],
+    )
+    tool_event = AgentTraceEvent(
+        event_type=AgentTraceEventType.TOOL_COMPLETED,
+        sequence=2,
+        event_id="tool",
+        tool_call=call,
+        message=make_message("3", role=MessageRole.TOOL),
+    )
+    if delta_saved:
+        state.steps.append(
+            AgentStep(
+                step_type=AgentStepType.TOOL,
+                trace_event_id="tool",
+                tool_call=call,
+                message=tool_event.message,
+            )
+        )
+    events = [
+        tool_event,
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.CHAT_COMPLETED,
+            sequence=3,
+            event_id="chat",
+            response=second,
+            metadata={"remaining_tool_rounds": 1},
+        ),
+    ]
+    assert inspect_agent_run_checkpoint(state, events).eligible
+    assert [step.step_type for step in state.steps] == [
+        AgentStepType.CHAT,
+        AgentStepType.TOOL,
+        AgentStepType.CHAT,
+    ]
+    assert state.remaining_tool_rounds == 1
+    assert state.tool_rounds_used == 1
+    assert state.usage is not None and state.usage.total_tokens == 30
+    assert inspect_agent_run_checkpoint(state, events).eligible
+    assert len(state.steps) == 3
+
+
+def test_startup_recovery_honors_terminal_trace_ahead_of_snapshot() -> None:
+    states = InMemoryAgentRunStateRegister()
+    traces = InMemoryAgentTraceRegister()
+    state = AgentRunState(
+        run_id="finished-tail",
+        applied_trace_sequence=0,
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+    )
+    states.create_state(state)
+    traces.append_event(
+        state.run_id,
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.CHAT_COMPLETED,
+            response=make_response("answer"),
+        ),
+    )
+    traces.append_event(
+        state.run_id,
+        AgentTraceEvent(
+            event_type=AgentTraceEventType.RUN_STOPPED,
+            metadata={"reason": "finished"},
+        ),
+    )
+    assert recover_interrupted_agent_runs(states, traces) == 1
+    restored = states.get_state(state.run_id)
+    assert restored.status is AgentRunStatus.FINISHED
+    assert restored.stop_reason is AgentStopReason.FINISHED
+    assert restored.response == make_response("answer")
+    assert restored.applied_trace_sequence == 2
+    assert [event.event_type for event in traces.list_events(state.run_id)] == [
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+    assert recover_interrupted_agent_runs(states, traces) == 0
+
+
+def test_checkpoint_rejects_ambiguous_legacy_response_in_pruned_trace() -> None:
+    response = make_response("same answer")
+    state = AgentRunState(
+        run_id="legacy-pruned",
+        response=response,
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+        ),
+        steps=[AgentStep(step_type=AgentStepType.CHAT, response=response)],
+    )
+    checkpoint = inspect_agent_run_checkpoint(
+        state,
+        [
+            AgentTraceEvent(
+                event_type=AgentTraceEventType.CHAT_COMPLETED,
+                response=response,
+                sequence=10,
+            )
+        ],
+    )
+    assert not checkpoint.eligible
+    assert len(state.steps) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_persistent_entrypoint_uses_executor_timeout() -> None:
+    from EvernightAI.core.error.agent import AgentRunTimeoutError
+    from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
+
+    states = InMemoryAgentRunStateRegister()
+    provider = BlockingFinalAnswerProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=states,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        agent_run_executor=SingleProcessAgentRunExecutor(states),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentApplication(runtime)
+    with pytest.raises(AgentRunTimeoutError):
+        await app.start_agent_run(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                timeout_seconds=0.02,
+                metadata={"run_id": "legacy-timeout"},
+            )
+        )
+    assert provider.started.is_set()
+    state = states.get_state("legacy-timeout")
+    assert state.status is AgentRunStatus.PAUSED
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_source"] == "timeout"
+    assert states.get_execution_lease(state.run_id) is None
+    await app.close()
+
+
+@pytest.mark.asyncio
+async def test_recovered_approval_checkpoint_consumes_supplied_approval_once() -> None:
+    states = InMemoryAgentRunStateRegister()
+    traces = InMemoryAgentTraceRegister()
+    runtime = make_runtime(
+        provider=ToolCallingProvider(),
+        agent_state_register=states,
+        agent_trace_register=traces,
+    )
+    calls: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        calls.append(arguments)
+        return {"result": 3}
+
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add",
+            parameters_schema={"type": "object"},
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentRunApplication(runtime)
+    paused = await app.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+    paused.status = AgentRunStatus.RUNNING
+    states.save_state(paused)
+    assert recover_interrupted_agent_runs(states, traces) == 1
+    assert calls == []
+    finished = await AgentApplication(runtime).resume_agent_run(
+        paused.run_id,
+        [
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            ),
+        ],
+    )
+    assert finished.status is AgentRunStatus.FINISHED
+    assert len(calls) == 1
+    assert (await runtime.contexts.get("ctx-1")).messages[
+        -1
+    ].role is MessageRole.ASSISTANT
 
 
 @pytest.mark.asyncio

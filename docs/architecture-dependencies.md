@@ -284,10 +284,24 @@ flowchart LR
 
 ## Persistent Agent Runs
 
-[`AgentApplication`](../src/EvernightAI/application/agent.py) drives the model/tool
-loop. `AgentRunApplication` exposes persistent start, resume, pause, cancel,
-retry, state, trace, and tool-execution operations through the same interface
-boundary used by HTTP and CLI.
+[`agent.py`](../src/EvernightAI/application/agent.py) preserves the public service
+imports. Its persistent start/resume methods delegate to `AgentRunApplication`,
+so executor ownership, timeout, failure reporting and pause controls share the
+same path as HTTP and CLI.
+
+| Module | Responsibility |
+| --- | --- |
+| `agent_execution.py` | Model/tool loop, approvals, transcript and memory writes |
+| `agent_runs.py` | Persistent execution, executor, streaming and operator controls |
+| `agent_recovery.py` | Snapshot reconciliation, checkpoint safety and startup recovery |
+| `agent_lifecycle.py` | Shared shutdown boundary and active-run tracking |
+| `agent_state.py` | Typed control view, legacy metadata compatibility and usage aggregation |
+
+`AgentRunControl` distinguishes approval resumption from checkpoint resumption.
+The persisted `manual_pause` field remains a compatibility encoding for the
+latter, including timeout, shutdown and operator resolution; it does not identify
+the pause source. `recoverable`, `pause_requested`, `checkpoint` and `source`
+are read through the typed control view.
 
 | Role | Data or behavior |
 | --- | --- |
@@ -303,12 +317,26 @@ replay policies determine whether the original run can resume. Unknown
 non-replayable executions require operator resolution or an explicit run retry.
 Retry allocates a new run ID, records its source, and clears previous approvals.
 
+The snapshot remains authoritative. `applied_trace_sequence` identifies the
+persisted trace already represented in it; recovery reconciles only a contiguous
+tail, preserving chat/tool order, remaining rounds and per-call usage. Step event
+IDs prevent duplicate application. Legacy snapshots use their saved trace or
+ordered steps to locate the boundary. Missing retained events or an unalignable
+legacy snapshot block resumption. Trace alone cannot establish that context or
+memory writes committed. A snapshot with finalization steps blocks resumption
+because those writes may have partially completed. A completed `RUN_STOPPED`
+tail restores the terminal state directly rather than pausing and replaying it.
+
 Agent streams carry core trace events; HTTP encodes them as SSE. Model text
 streaming is selected by request metadata `stream = true`. With an executor
 configured, a background producer keeps persisted execution running after the
 stream consumer disconnects. Manual pause is observed at checkpoints in the
 stream persistence path. Context transcript writes occur at the tool-loop's
 completion/failure paths, while approval pauses retain progress in run state.
+Terminal status is assigned only after transcript and memory writes complete;
+write failures are persisted as `FAILED` with their error details. Context appends
+are not transactional across the entire transcript, so a failure may leave
+partially written context.
 
 ## Authorization And Ownership
 

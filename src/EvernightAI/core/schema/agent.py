@@ -135,6 +135,7 @@ class AgentStep(EvernightAISchema):
     """Agent运行步骤"""
 
     step_type: AgentStepType
+    trace_event_id: str | None = None
     response: ChatResponse | None = None
     message: Content | None = None
     tool_call: ToolCall | None = None
@@ -159,7 +160,8 @@ class AgentTraceEvent(TraceEvent[AgentTraceEventType]):
     """Agent运行追踪事件。
 
     这是通用TraceEvent在agent领域里的强类型事件；它记录可观察时间线，
-    不承担AgentRunState的恢复快照职责。
+    AgentRunState是恢复快照；持久化顺序号用于补齐快照之后的已完成步骤，
+    trace不替代完整快照，也不证明外部写入已经提交。
     """
 
     event_type: AgentTraceEventType
@@ -185,6 +187,7 @@ class AgentRunState(EvernightAISchema):
     stop_reason: AgentStopReason | None = None
     steps: list[AgentStep] = Field(default_factory=list)
     trace: list[AgentTraceEvent] = Field(default_factory=list)
+    applied_trace_sequence: int | None = Field(default=None, ge=0)
     remaining_tool_rounds: int = 0
     tool_rounds_used: int = 0
     pending_tool_calls: list[ToolCall] = Field(default_factory=list)

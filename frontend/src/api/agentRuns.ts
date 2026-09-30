@@ -73,6 +73,7 @@ export type AgentRunRequest = {
 
 export type AgentStep = {
   step_type: AgentStepType
+  trace_event_id?: string | null
   response?: ChatResponse | null
   message?: Content | null
   tool_call?: ToolCall | null
@@ -108,6 +109,7 @@ export type AgentRunState = {
   stop_reason?: AgentStopReason | string | null
   steps?: AgentStep[]
   trace?: AgentTraceEvent[]
+  applied_trace_sequence?: number | null
   remaining_tool_rounds?: number
   tool_rounds_used?: number
   pending_tool_calls?: ToolCall[]
