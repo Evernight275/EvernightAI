@@ -303,8 +303,10 @@ async def test_manager_delegates_chat_to_provider_instance() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("cleanup", ["delete", "close"])
 async def test_manager_rejects_images_for_declared_text_only_model(
     stream: bool,
+    cleanup: str,
 ) -> None:
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
         return FakeProvider()
@@ -312,7 +314,7 @@ async def test_manager_rejects_images_for_declared_text_only_model(
     factory = ProviderFactory()
     factory.register(ProviderType.OPENAI, build_provider)
     manager = ProviderManager(factory)
-    await manager.create(
+    instance = await manager.create(
         ProviderConfig(
             provider_id="provider-1",
             name="OpenAI",
@@ -348,6 +350,13 @@ async def test_manager_rejects_images_for_declared_text_only_model(
             await manager.chat_stream("provider-1", request)
         else:
             await manager.chat("provider-1", request)
+
+    if cleanup == "delete":
+        await asyncio.wait_for(manager.delete("provider-1"), timeout=1)
+    else:
+        await asyncio.wait_for(manager.close(), timeout=1)
+    assert cast(FakeProvider, instance).closed is True
+    assert await manager.list_instances() == []
 
 
 @pytest.mark.asyncio

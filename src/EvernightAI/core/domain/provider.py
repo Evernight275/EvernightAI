@@ -251,9 +251,9 @@ class ProviderManager(ProviderManageProtocol):
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         slot = await self._acquire_slot(provider_id)
-        self._validate_request_capabilities(slot.info, request)
         started = perf_counter()
         try:
+            self._validate_request_capabilities(slot.info, request)
             response = await slot.instance.chat(request)
         except Exception as exc:
             self._record_call(
@@ -273,9 +273,9 @@ class ProviderManager(ProviderManageProtocol):
         self, provider_id: str, request: ChatRequest
     ) -> ChatStreamProtocol:
         slot = await self._acquire_slot(provider_id)
-        self._validate_request_capabilities(slot.info, request)
         started = perf_counter()
         try:
+            self._validate_request_capabilities(slot.info, request)
             stream = await slot.instance.chat_stream(request)
         except Exception as exc:
             self._record_call(
