@@ -12,8 +12,49 @@ import type {
   ChatSessionSnapshot,
 } from '../src/runtime/chatRuntime'
 import { chatMachine } from '../src/state/chatMachine'
+import { ApiError } from '../src/api/client'
 
 describe('chatMachine', () => {
+  it('blocks resume and approvals after a catalog revision change, retaining earlier choices', async () => {
+    const resume = vi.fn()
+    const actor = actorWithServices(async ({ input }) => pausedRun(input), resume)
+    actor.start()
+    const run = pausedRunWithTwoApprovals({ contextId: 'ctx', submission: submission('input'), tools: [] })
+    run.request.skills = [{ skill_name: 'style' }]; run.skill_revisions = { style: 'v1' }
+    actor.send({ type: 'SKILL_CATALOG', skills: [{ name: 'style', description: 'Style', revision: 'v1' }] })
+    actor.send({ type: 'OPEN_RUN', run, session: null, transcript: [], choices: {} })
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
+    actor.send({ type: 'SKILL_CATALOG', skills: [{ name: 'style', description: 'Style', revision: 'v2' }] })
+    actor.send({ type: 'DENY', approvalId: 'approval-2' })
+    actor.send({ type: 'RESUME' })
+    expect(actor.getSnapshot().value).toBe('approvalRequired')
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
+    expect(resume).not.toHaveBeenCalled()
+    actor.stop()
+  })
+
+  it('latches a resume conflict and retains choices when cancellation fails', async () => {
+    const resume = vi.fn(async () => { throw new ApiError('Changed', {
+      status: 409, errorType: 'SkillConflictError', detail: { reason: 'revision_changed', skill_names: ['style'] }, path: '', requestId: null,
+    }) })
+    const actor = actorWithServices(async ({ input }) => pausedRun(input), resume, undefined, undefined,
+      async () => { throw new Error('Cancel unavailable') })
+    actor.start(); actor.send(sendEvent('input'))
+    await waitFor(actor, state => state.matches('approvalRequired'))
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
+    await waitFor(actor, state => state.matches('failed'))
+    actor.send({ type: 'RETRY' }); actor.send({ type: 'RESUME' })
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
+    expect(actor.getSnapshot().context.skillIssues[0]?.names).toEqual(['style'])
+    actor.send({ type: 'CANCEL' })
+    await waitFor(actor, state => state.matches('failed') && state.context.error instanceof Error && state.context.error.message === 'Cancel unavailable')
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
+    expect(actor.getSnapshot().context.run?.status).toBe('paused')
+    actor.send({ type: 'RETRY' })
+    expect(resume).toHaveBeenCalledTimes(1)
+    actor.stop()
+  })
   it('clears the old transcript on an identity change without deleting server data', async () => {
     const actor = actorWithServices(async ({ input }) => finishedRun(input, 'private answer'))
     actor.start()

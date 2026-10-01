@@ -1,4 +1,4 @@
-import { requestJson, requestSse, type SseEvent } from './client'
+import { ApiError, requestJson, requestSse, type SseEvent } from './client'
 import type { ChatResponse, ChatSkill, ChatUsage, Content } from './content'
 import type { MemoryQuery } from './memory'
 import type {
@@ -97,6 +97,7 @@ export type AgentTraceEvent = {
   approval_decision?: ToolApprovalDecision | null
   error_type?: string | null
   error_message?: string | null
+  payload?: Record<string, unknown> | null
   metadata?: Record<string, unknown>
 }
 
@@ -314,7 +315,12 @@ function agentTraceEventFromSse(rawEvent: SseEvent): AgentTraceEvent | null {
   const payload = parseSseJson(rawEvent)
   if (rawEvent.event === 'error') {
     const error = isRecord(payload.error) ? payload.error : payload
-    throw new Error(typeof error.message === 'string' ? error.message : 'Agent 流式响应失败')
+    const errorType = typeof error.type === 'string' ? error.type : null
+    const status = errorType === 'SkillNotFoundError' ? 404
+      : ['SkillConflictError', 'SkillDisabledError'].includes(errorType || '') ? 409 : 200
+    throw new ApiError(typeof error.message === 'string' ? error.message : 'Agent 流式响应失败', {
+      status, path: 'agent-stream', requestId: null, errorType, detail: error.detail,
+    })
   }
 
   if (!isRecord(payload)) {

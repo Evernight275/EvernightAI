@@ -4,6 +4,7 @@ import type { ChatApprovalItem } from './chatRequestStatus'
 
 defineProps<{
   approval: ChatApprovalItem
+  disabled?: boolean
 }>()
 
 defineEmits<{
@@ -33,7 +34,7 @@ defineEmits<{
       <button
         class="button-primary"
         type="button"
-        :disabled="approval.decided"
+        :disabled="approval.decided || disabled"
         @click="$emit('approve', approval.approval_id)"
       >
         <Check :size="16" aria-hidden="true" />
@@ -42,7 +43,7 @@ defineEmits<{
       <button
         class="button-danger"
         type="button"
-        :disabled="approval.decided"
+        :disabled="approval.decided || disabled"
         @click="$emit('deny', approval.approval_id)"
       >
         <X :size="16" aria-hidden="true" />

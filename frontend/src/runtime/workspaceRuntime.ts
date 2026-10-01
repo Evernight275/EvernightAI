@@ -2,11 +2,16 @@ import { workspaceActor } from '../state/workspaceMachine'
 import { chatActor } from '../state/chatMachine'
 import { ref } from 'vue'
 import { clearWorkingDirectory } from './workingDirectory'
+import { clearRunEditorStorage } from './runEditor'
 
 export const authGeneration = ref(0)
 
 export function startWorkspaceRuntime(): () => void {
   const notifyAuthChanged = () => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('run'); url.searchParams.delete('edit')
+    window.history.replaceState(null, '', url)
+    clearRunEditorStorage()
     clearWorkingDirectory()
     chatActor.send({ type: 'AUTH_CHANGED' })
     workspaceActor.send({ type: 'AUTH_CHANGED' })

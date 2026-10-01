@@ -1,4 +1,6 @@
 import { ApiError } from '../api/client'
+import { skillErrorIssues } from '../domain/runSkills'
+import { editableRunOptions } from './runEditor'
 import {
   cancelAgentRun,
   createSession,
@@ -276,7 +278,12 @@ async function streamAndReadRun(
     await stream()
   } catch (error) {
     signal.throwIfAborted()
-    if (!canReconnect(error)) throw error
+    if (!canReconnect(error)) {
+      if (skillErrorIssues(error, null).length) {
+        try { observer.onSnapshot?.(await getAgentRun(runId, signal)) } catch { /* Preserve the conflict if state lookup fails. */ }
+      }
+      throw error
+    }
     observer.onConnection?.('reconnecting')
   }
   return recoverChatRun(runId, signal, observer)
@@ -351,24 +358,27 @@ async function cancelCurrentChatRun(input: ChatSessionInput, signal: AbortSignal
 }
 
 function agentRunRequest(input: ChatRequestInput, metadata: Record<string, unknown> = {}) {
+  const options = editableRunOptions(input.submission.runOptions || {})
   return {
     provider_id: input.submission.providerId,
     context_id: input.contextId,
     model_id: input.submission.modelId,
     skills: input.submission.skills,
     working_directory: input.submission.workingDirectory,
-    messages: [
+    messages: input.submission.messages || [
       {
         role: 'user' as const,
         content: [{ type: 'text', text: input.submission.text }],
       },
     ],
-    tools: input.tools,
-    max_tool_rounds: chatMaxToolRounds,
-    recover_tool_errors: true,
-    write_memory: false,
+    tools: options.tools === undefined ? input.tools : options.tools,
+    memory_query: options.memory_query,
+    max_tool_rounds: options.max_tool_rounds ?? chatMaxToolRounds,
+    recover_tool_errors: options.recover_tool_errors ?? true,
+    write_memory: options.write_memory ?? false,
+    tool_approvals: [],
     pause_on_approval: true,
-    metadata,
+    metadata: { ...options.metadata, ...metadata },
   }
 }
 

@@ -8,6 +8,8 @@ export type ChatRequestStatusProps = {
   workspaceNotice?: string | null
   pendingApprovals: ToolApprovalRequest[]
   approvalStatuses: ApprovalStatuses
+  skillConflict?: boolean
+  retryBlocked?: boolean
 }
 
 export type ChatRequestStatusEmits = {
@@ -34,14 +36,15 @@ export function useChatRequestStatus(props: ChatRequestStatusProps): {
     ),
     errorMessage: computed(() => formatChatError(props.error)),
     approvalItems: computed(() =>
-      props.state === 'approvalRequired'
+      ['approvalRequired', 'failed'].includes(props.state)
         ? props.pendingApprovals.map((approval) =>
             approvalItem(approval, props.approvalStatuses[approval.approval_id]),
           )
         : [],
     ),
-    canRetry: computed(() => props.state === 'failed'),
-    canResume: computed(() => props.state === 'resumeRequired'),
+    canRetry: computed(() => props.state === 'failed' && !props.skillConflict && !props.retryBlocked),
+    canResume: computed(() => (props.state === 'resumeRequired'
+      || (props.state === 'approvalRequired' && props.pendingApprovals.every(item => props.approvalStatuses[item.approval_id]))) && !props.skillConflict),
   }
 }
 

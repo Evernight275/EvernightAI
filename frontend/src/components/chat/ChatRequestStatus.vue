@@ -44,6 +44,7 @@ const {
           v-for="approval in approvalItems"
           :key="approval.approval_id"
           :approval="approval"
+          :disabled="skillConflict || state !== 'approvalRequired'"
           @approve="$emit('approve', $event)"
           @deny="$emit('deny', $event)"
         />

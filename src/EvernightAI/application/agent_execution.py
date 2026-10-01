@@ -9,7 +9,7 @@ from EvernightAI.core.error.agent import (
 )
 from EvernightAI.core.error.tool import ToolExecutionError
 from EvernightAI.core.error.provider import ProviderResponseError
-from EvernightAI.core.error.skill import SkillConflictError, SkillDisabledError
+from EvernightAI.core.error.skill import SkillConflictError, SkillDisabledError, SkillNotFoundError
 from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
@@ -1357,13 +1357,24 @@ class AgentExecutionApplication:
         if not names and not state.skill_revisions:
             return
         if state.skill_revisions is None or names.keys() != state.skill_revisions.keys():
-            raise SkillConflictError("Agent skill versions are unavailable; start a new run")
+            raise SkillConflictError("Agent skill versions are unavailable; start a new run", detail=json.dumps({
+                "reason": "revision_unavailable", "skill_names": list(names),
+            }))
         for name in names:
-            definition = self._runtime.skills.get_skill(name)
+            try:
+                definition = self._runtime.skills.get_skill(name)
+            except SkillNotFoundError as exc:
+                raise SkillNotFoundError(str(exc), detail=json.dumps({
+                    "reason": "deleted", "skill_names": [name],
+                }), cause=exc) from exc
             if not definition.is_enabled:
-                raise SkillDisabledError(f"The skill {name} is disabled")
+                raise SkillDisabledError(f"The skill {name} is disabled", detail=json.dumps({
+                    "reason": "disabled", "skill_names": [name],
+                }))
             if definition.revision != state.skill_revisions[name]:
-                raise SkillConflictError(f"The skill {name} changed during the agent run; start a new run")
+                raise SkillConflictError(f"The skill {name} changed during the agent run; start a new run", detail=json.dumps({
+                    "reason": "revision_changed", "skill_names": [name],
+                }))
 
     def _new_run_state(self, request: AgentRunRequest) -> AgentRunState:
         run_id = AgentRunMetadata.run_id(request.metadata)

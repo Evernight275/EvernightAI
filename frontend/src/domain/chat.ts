@@ -1,5 +1,6 @@
 import type {
   AgentRunState,
+  AgentRunRequest,
   AgentTraceEvent,
   ChatResponse,
   Content,
@@ -13,6 +14,8 @@ export type ChatSubmission = {
   text: string
   skills?: ChatSkill[]
   workingDirectory?: string
+  messages?: Content[]
+  runOptions?: Partial<AgentRunRequest>
 }
 
 export type ChatTranscriptEntry = {

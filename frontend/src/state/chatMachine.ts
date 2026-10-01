@@ -1,6 +1,7 @@
 import { ApiError } from '../api/client'
+import { canRetryRun, runSkillIssues, skillErrorIssues, runFailureError, type RunSkillIssue } from '../domain/runSkills'
 import { assign, createActor, fromPromise, setup } from 'xstate'
-import type { AgentRunState, AgentTraceEvent, Session, ToolDefinition } from '../api'
+import type { AgentRunState, AgentTraceEvent, Session, SkillDefinition, ToolDefinition } from '../api'
 import {
   applyChatTrace,
   reconcileRunTranscript,
@@ -53,9 +54,13 @@ export type ChatMachineContext = {
   approvalStatuses: ApprovalStatuses
   error: unknown
   connection: ChatConnectionState
+  skills: SkillDefinition[] | null
+  skillIssues: RunSkillIssue[]
 }
 
 export type ChatMachineEvent =
+  | { type: 'SKILL_CATALOG'; skills: SkillDefinition[] | null }
+  | { type: 'OPEN_RUN'; run: AgentRunState; session: Session | null; transcript: ChatTranscriptEntry[]; choices: ApprovalStatuses }
   | { type: 'SNAPSHOT'; run: AgentRunState }
   | { type: 'CONNECTION'; runId: string; connection: ChatConnectionState }
   | { type: 'AUTH_CHANGED' }
@@ -89,6 +94,8 @@ const emptyContext = (): ChatMachineContext => ({
   approvalStatuses: {},
   connection: 'live' as const,
   error: null,
+  skills: null,
+  skillIssues: [],
 })
 
 const sessionLoadedContext = {
@@ -107,6 +114,7 @@ const sessionLoadedContext = {
   approvalStatuses: {},
   connection: 'live' as const,
   error: null,
+  skillIssues: [],
 }
 
 export const chatMachine = setup({
@@ -159,6 +167,21 @@ export const chatMachine = setup({
   initial: 'idle',
   context: emptyContext,
   on: {
+    SKILL_CATALOG: { actions: assign({
+      skills: ({ event }) => event.skills,
+      skillIssues: ({ context, event }) => context.skillIssues.length ? context.skillIssues : runSkillIssues(context.run, event.skills),
+    }) },
+    OPEN_RUN: {
+      target: '.evaluatingRun',
+      actions: assign({
+        run: ({ event }) => event.run, runId: ({ event }) => event.run.run_id,
+        contextId: ({ event }) => event.run.request.context_id, contextReady: true,
+        session: ({ event }) => event.session, transcript: ({ event }) => event.transcript,
+        trace: ({ event }) => event.run.trace || [], pending: null, error: null,
+        approvalStatuses: ({ event }) => event.choices,
+        skillIssues: ({ context, event }) => runSkillIssues(event.run, context.skills),
+      }),
+    },
     SNAPSHOT: {
       guard: ({ context, event }) => context.runId === event.run.run_id,
       actions: assign({
@@ -272,6 +295,7 @@ export const chatMachine = setup({
             trace: [],
             run: null,
             approvalStatuses: {},
+            skillIssues: [],
             error: null,
           }),
         },
@@ -351,6 +375,7 @@ export const chatMachine = setup({
           target: 'failed',
           actions: assign({
             error: ({ event }) => event.error,
+            skillIssues: ({ context, event }) => skillErrorIssues(event.error, context.run),
           }),
         },
       },
@@ -372,6 +397,7 @@ export const chatMachine = setup({
           context.transcript.map((entry) => ({ ...entry, streaming: false })),
       }),
       on: {
+        RESUME: { guard: ({ context }) => !hasSkillConflict(context) && Boolean(context.run?.pending_approval_requests?.every(item => context.approvalStatuses[item.approval_id])), target: 'resuming' },
         APPROVE: [
           {
             guard: ({ context, event }) => completesApprovals(context, event),
@@ -415,6 +441,7 @@ export const chatMachine = setup({
       }),
       on: {
         RESUME: {
+          guard: ({ context }) => !hasSkillConflict(context),
           target: 'resuming',
           actions: assign({ approvalStatuses: {} }),
         },
@@ -446,6 +473,7 @@ export const chatMachine = setup({
           target: 'failed',
           actions: assign({
             error: ({ event }) => event.error,
+            skillIssues: ({ context, event }) => skillErrorIssues(event.error, context.run),
           }),
         },
       },
@@ -526,7 +554,7 @@ export const chatMachine = setup({
           }),
         },
         onError: {
-          target: 'canceled',
+          target: 'failed',
           actions: assign({
             error: ({ event }) => event.error,
           }),
@@ -557,6 +585,7 @@ export const chatMachine = setup({
               pending: null,
               run: null,
               approvalStatuses: {},
+              skillIssues: [],
               error: null,
             }),
           },
@@ -591,6 +620,7 @@ export const chatMachine = setup({
             trace: [],
             run: null,
             approvalStatuses: {},
+            skillIssues: [],
             error: null,
           }),
         },
@@ -635,6 +665,8 @@ export const chatMachine = setup({
         connection: 'live',
       }),
       always: [
+        { guard: ({ context }) => context.run?.status === 'running', target: 'recovering' },
+        { guard: ({ context }) => context.run?.status === 'canceled', target: 'canceled' },
         {
           guard: ({ context }) => isApprovalPause(context.run),
           target: 'approvalRequired',
@@ -685,6 +717,7 @@ export const chatMachine = setup({
           { target: 'canceled' },
         ],
         RETRY: [
+          { guard: ({ context }) => hasSkillConflict(context) },
           {
             guard: ({ context }) =>
               Boolean(context.runId) && (!context.run || context.run.status === 'running'),
@@ -707,13 +740,14 @@ export const chatMachine = setup({
             target: 'resuming',
           },
           {
-            guard: ({ context }) => context.run !== null,
+            guard: ({ context }) => canRetryRun(context.run),
             target: 'retrying',
             actions: assign({
               runId: () => createChatRunId(),
               trace: [],
             }),
           },
+          { guard: ({ context }) => context.run !== null },
           {
             guard: ({ context }) => !context.contextReady,
             target: 'preparing',
@@ -738,6 +772,7 @@ export const chatMachine = setup({
             sessionOperation: null,
             requestedSession: null,
             approvalStatuses: {},
+            skillIssues: [],
             error: null,
           }),
         },
@@ -752,6 +787,8 @@ export const chatMachine = setup({
 export const chatActor = createActor(chatMachine)
 
 function agentRunError(run: AgentRunState): Error {
+  const error = runFailureError(run)
+  if (error) return error
   if (run.stop_reason === 'tool_rounds_exhausted') {
     return new Error(
       `Agent run exhausted ${run.tool_rounds_used ?? 'all'} tool rounds before finishing`,
@@ -802,6 +839,7 @@ function isManualPause(run: AgentRunState | null): boolean {
 type ApprovalDecisionEvent = Extract<ChatMachineEvent, { type: 'APPROVE' | 'DENY' }>
 
 function isPendingApproval(context: ChatMachineContext, approvalId: string): boolean {
+  if (hasSkillConflict(context)) return false
   return Boolean(
     context.run?.pending_approval_requests?.some((request) => request.approval_id === approvalId),
   )
@@ -825,6 +863,11 @@ function completesApprovals(context: ChatMachineContext, event: ApprovalDecision
   return Boolean(
     context.run?.pending_approval_requests?.every((request) => statuses[request.approval_id]),
   )
+}
+
+function hasSkillConflict(context: ChatMachineContext): boolean {
+  return context.skillIssues.length > 0 || skillErrorIssues(context.error, context.run).length > 0
+    || runSkillIssues(context.run, context.skills).length > 0
 }
 
 function hasPotentiallyActiveRun(context: ChatMachineContext): boolean {

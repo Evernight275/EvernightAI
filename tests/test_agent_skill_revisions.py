@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -216,8 +217,12 @@ async def test_unchanged_skill_resumes_without_repeating_completed_tools(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["update", "disable", "delete", "recreate"])
 @pytest.mark.parametrize("streaming", [False, True])
-async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execution(change: str, streaming: bool) -> None:
-    runtime = create_test_runtime(None)
+@pytest.mark.parametrize("restart", [False, True])
+async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execution(
+    change: str, streaming: bool, restart: bool, tmp_path: Path,
+) -> None:
+    database = tmp_path / "runtime.sqlite3" if restart else None
+    runtime = create_test_runtime(database)
     provider = RecordingProvider(["add"])
     executed: list[str] = []
     app = await assemble(runtime, provider, executed, lambda: mutate(runtime, change))
@@ -226,8 +231,18 @@ async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execu
     with pytest.raises(mutation_error(change)):
         await app.start(request(runtime, streaming))
     state, = app.list_states()
+    if restart:
+        await app.close()
+        await runtime.close()
+        runtime = create_test_runtime(database)
+        app = await assemble(runtime, provider, executed)
+        state = app.get_state(state.run_id)
     assert state.status is AgentRunStatus.FAILED
     assert state.trace[-1].error_type == mutation_error(change).__name__
+    expected_detail = {"reason": {"disable": "disabled", "delete": "deleted"}.get(change, "revision_changed"), "skill_names": ["style"]}
+    assert state.trace[-1].payload is not None
+    assert json.loads(state.trace[-1].payload["error_detail"]) == expected_detail
+    assert json.loads(state.metadata["agent_runtime"]["failure_detail"]) == expected_detail
     assert any(step.step_type is AgentStepType.TOOL for step in state.steps)
     assert executed == ["add"] and len(provider.requests) == 1
     assert app.list_tool_executions(state.run_id)[0].status is ToolExecutionStatus.COMPLETED
@@ -345,7 +360,8 @@ async def test_legacy_skill_run_cannot_silently_adopt_current_version() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_skill_conflict_keeps_paused_run_inspectable() -> None:
+@pytest.mark.parametrize("change", ["update", "disable", "delete", "legacy"])
+async def test_http_skill_conflict_keeps_paused_run_inspectable(change: str) -> None:
     runtime = create_test_runtime(None)
     provider = RecordingProvider()
     executed: list[str] = []
@@ -354,18 +370,30 @@ async def test_http_skill_conflict_keeps_paused_run_inspectable() -> None:
     await runtime.contexts.create(Context(context_id="ctx"))
     state = await app.start(request(runtime))
     with TestClient(create_http_app(create_interface(runtime))) as client:
-        updated = client.patch("/skills/style", json={"prompt": "Changed $tone"})
-        assert updated.status_code == 200
-        assert state.skill_revisions is not None
-        assert updated.json()["revision"] != state.skill_revisions["style"]
+        if change == "legacy":
+            state.skill_revisions = None
+            assert runtime.agent_state_register is not None
+            runtime.agent_state_register.save_state(state)
+        else:
+            mutate(runtime, change)
+        error_type = mutation_error(change).__name__
+        expected_detail = {"reason": {"update": "revision_changed", "disable": "disabled", "delete": "deleted", "legacy": "revision_unavailable"}[change], "skill_names": ["style"]}
         response = client.post(f"/agent-runs/{state.run_id}/resume", json={
             "approvals": [approval.model_dump(mode="json") for approval in approvals()],
         })
-        assert response.status_code == 409
-        assert response.json()["error"]["type"] == "SkillConflictError"
+        assert response.status_code == (404 if change == "delete" else 409)
+        assert response.json()["error"]["type"] == error_type
+        assert json.loads(response.json()["error"]["detail"]) == expected_detail
+        streamed = client.post(f"/agent-runs/{state.run_id}/resume/stream", json={
+            "approvals": [approval.model_dump(mode="json") for approval in approvals()],
+        })
+        assert streamed.status_code == 200
+        error_event, = [json.loads(line[6:])["error"] for line in streamed.text.splitlines() if line.startswith("data: ")]
+        assert error_event["type"] == error_type
+        assert json.loads(error_event["detail"]) == expected_detail
         stored = client.get(f"/agent-runs/{state.run_id}").json()
         assert stored["status"] == "paused"
-        assert stored["skill_revisions"] == state.skill_revisions
+        assert stored.get("skill_revisions") == state.skill_revisions
         assert stored["pending_tool_calls"]
         assert stored["request"]["tool_approvals"] == []
     assert executed == ["add"] and len(provider.requests) == 1

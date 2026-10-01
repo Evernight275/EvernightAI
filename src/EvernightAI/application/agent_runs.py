@@ -8,6 +8,7 @@ from EvernightAI.core.error.agent import (
     AgentRunTimeoutError,
     AgentStateError,
 )
+from EvernightAI.core.error.skill import SkillConflictError, SkillDisabledError, SkillNotFoundError
 from EvernightAI.core.protocol.interface import (
     AgentRunInterfaceProtocol,
 )
@@ -982,12 +983,14 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         if state.status is not AgentRunStatus.RUNNING:
             return
 
+        detail = error.detail if isinstance(error, (SkillConflictError, SkillDisabledError, SkillNotFoundError)) else None
         event = self._agent._add_trace(
             state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_STOPPED,
                 error_type=error.__class__.__name__,
                 error_message=str(error),
+                payload={"error_detail": detail} if detail is not None else None,
                 metadata={"reason": "failed"},
             ),
         )
@@ -1001,6 +1004,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             state.metadata,
             failure_type=error.__class__.__name__,
             failure_message=str(error),
+            failure_detail=detail,
         )
         self._state_register().save_state(
             state,

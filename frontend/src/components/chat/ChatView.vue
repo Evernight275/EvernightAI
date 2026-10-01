@@ -4,6 +4,7 @@ import ChatRequestForm from './ChatRequestForm.vue'
 import ChatRequestStatus from './ChatRequestStatus.vue'
 import ChatRunDetails from './ChatRunDetails.vue'
 import ChatTranscript from './ChatTranscript.vue'
+import RunSkillConflict from '../skills/RunSkillConflict.vue'
 import { useChatView } from './chatView'
 
 defineEmits<{ navigation: [] }>()
@@ -38,6 +39,8 @@ const {
   approve,
   deny,
   resume,
+  skillIssues, editing, editRun, editRequest, contextId,
+  authGeneration,
 } = useChatView()
 </script>
 
@@ -58,7 +61,7 @@ const {
           :run-id="runId"
           :pending-approvals="pendingApprovals"
           :approval-statuses="approvalStatuses"
-          :can-approve="chatState === 'approvalRequired'"
+          :can-approve="chatState === 'approvalRequired' && !skillIssues.length"
           @approve="approve"
           @deny="deny"
         />
@@ -84,12 +87,15 @@ const {
               : '连接已恢复，正在同步运行进度…'
           }}
         </p>
+        <RunSkillConflict :issues="skillIssues" :run="run" :busy="editing" @edit="editRun" />
         <ChatRequestStatus
           :state="chatState"
           :error="error"
           :workspace-notice="workspaceNotice"
           :pending-approvals="pendingApprovals"
           :approval-statuses="approvalStatuses"
+          :skill-conflict="skillIssues.length > 0"
+          :retry-blocked="run?.status === 'finished'"
           @retry="retry"
           @resume="resume"
           @approve="approve"
@@ -97,9 +103,10 @@ const {
           @details="openDetails"
         />
         <ChatRequestForm
+          :key="authGeneration"
           :catalog="providerCatalog"
           :skills="skills"
-          :context-id="session?.context_id"
+          :context-id="contextId"
           :session-id="session?.session_id"
           :tools="toolCatalog"
           :busy="busy"
@@ -108,6 +115,7 @@ const {
           :session-ready="true"
           :default-provider-id="session?.provider_id"
           :default-model-id="session?.model_id"
+          :edit-request="editRequest"
           @submit="send"
           @cancel="cancel"
         />

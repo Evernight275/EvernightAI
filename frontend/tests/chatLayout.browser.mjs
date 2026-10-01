@@ -69,6 +69,8 @@ try {
         return json(created)
       }
       if (path === '/sessions') return json([session])
+      if (path === '/sessions/layout-test') return json(session)
+      if (path.startsWith('/sessions/')) return json(createdSessions.find(item => item.session_id === path.split('/')[2]) || session)
       if (path === '/contexts/layout-context')
         return json({
           context_id: session.context_id,
@@ -307,6 +309,8 @@ try {
       await page.waitForFunction(() => !document.querySelector('.chat-sidebar-dialog').open)
     }
     await page.reload()
+    await page.locator('.chat-approval-group').waitFor()
+    await page.goto(`${base}/chat.html`)
     await page.waitForFunction(() => !document.querySelector('#chat-message').disabled)
     await page.locator('#chat-message').fill('直接开始一段新对话。')
     await page.getByRole('button', { name: '发送', exact: true }).click()

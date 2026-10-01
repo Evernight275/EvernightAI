@@ -7,6 +7,7 @@ import {
   deleteChatSession,
   loadChatSession,
   retryChatRun,
+  resumeChatRunStream,
   streamChatRun,
   type ChatRequestInput,
 } from '../src/runtime/chatRuntime'
@@ -73,6 +74,36 @@ describe('chat runtime', () => {
         status: 'denied',
       },
     ])
+  })
+
+  it('preserves Skill SSE errors and updates state without re-entering approval', async () => {
+    const run = { ...finishedRun(), status: 'paused' }
+    const detail = JSON.stringify({ reason: 'revision_unavailable', skill_names: ['style'] })
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(`event: error\ndata: ${JSON.stringify({ error: { type: 'SkillConflictError', message: 'Conflict', detail } })}\n\n`, {
+      headers: { 'content-type': 'text/event-stream' },
+    })).mockResolvedValueOnce(new Response(JSON.stringify(run)))
+    vi.stubGlobal('fetch', fetcher)
+    const onSnapshot = vi.fn()
+    await expect(resumeChatRunStream({ run, approvalStatuses: {}, onSnapshot }, new AbortController().signal))
+      .rejects.toMatchObject({ errorType: 'SkillConflictError', status: 409, detail })
+    expect(onSnapshot).toHaveBeenCalledWith(run)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends edited messages/options with a fresh run id and empty approvals', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response('data: [DONE]\n\n'))
+      .mockResolvedValueOnce(new Response(JSON.stringify(finishedRun())))
+    vi.stubGlobal('fetch', fetcher)
+    const messages = [{ role: 'user' as const, content: [{ type: 'text', text: 'edited' }], metadata: { keep: true } }]
+    await streamChatRun({ ...requestInput(), runId: 'fresh', submission: {
+      ...requestInput().submission, messages, runOptions: { tools: [], max_tool_rounds: 2,
+        metadata: { run_id: 'old', retry_of: 'old', session_id: 'old', agent_runtime: {}, custom: true } },
+    } }, new AbortController().signal)
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1].body))).toMatchObject({
+      messages, tools: [], max_tool_rounds: 2, tool_approvals: [], pause_on_approval: true,
+      metadata: { run_id: 'fresh', custom: true },
+    })
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1].body)).metadata).not.toHaveProperty('retry_of')
   })
 
   it('only permits an empty decision set when no approval is pending', () => {

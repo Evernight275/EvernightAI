@@ -12,6 +12,7 @@ import {
 const props = defineProps<ChatRequestFormProps>()
 const emit = defineEmits<ChatRequestFormEmits>()
 const {
+  skillList, inputJson, optionsJson, draftNotice,
   selectedSkill, skillVariables, optionsError, preview, previewing, previewContext,
   availableSkills, currentSkill, missingSkillTools, skillUnavailable,
   providerId,
@@ -34,7 +35,8 @@ const {
       <summary>技能与上下文</summary>
       <div class="settings-form">
         <label>模型 ID<input v-model="modelId" :disabled="busy" placeholder="可直接输入服务支持的模型 ID" /></label>
-        <label v-if="skills?.length">本轮技能<select v-model="selectedSkill" :disabled="busy"><option value="">不使用技能</option><option v-if="selectedSkill && !availableSkills.some(skill => skill.name === selectedSkill)" :value="selectedSkill" disabled>{{ selectedSkill }}（不可用）</option><option v-for="skill in availableSkills" :key="skill.name" :value="skill.name">{{ skill.name }} — {{ skill.description }}</option></select></label>
+        <label v-if="skillList !== null">本轮技能（JSON）<textarea v-model="skillList" :disabled="busy" rows="4" /></label>
+        <label v-else-if="skills?.length || selectedSkill">本轮技能<select v-model="selectedSkill" :disabled="busy"><option value="">不使用技能</option><option v-if="selectedSkill && !availableSkills.some(skill => skill.name === selectedSkill)" :value="selectedSkill" disabled>{{ selectedSkill }}（不可用）</option><option v-for="skill in availableSkills" :key="skill.name" :value="skill.name">{{ skill.name }} — {{ skill.description }}</option></select></label>
         <template v-if="currentSkill">
           <p class="settings-help">能力：{{ currentSkill.capabilities?.join('、') || '无' }} · 必需工具：{{ currentSkill.required_tools?.join('、') || '无' }}</p>
           <p v-if="skillUnavailable" role="alert">{{ missingSkillTools.length ? `缺少必需工具：${missingSkillTools.join('、')}` : '当前技能已停用或不支持 Agent' }}</p>
@@ -42,17 +44,19 @@ const {
           <SkillPreview :skill="currentSkill" :variables="skillVariables" :disabled="busy || skillUnavailable" />
         </template>
         <details v-if="selectedSkill"><summary>查看技能参数说明</summary><pre>{{ JSON.stringify(skills?.find(skill => skill.name === selectedSkill)?.input_schema, null, 2) }}</pre></details>
+        <label v-if="optionsJson !== null">运行参数（JSON）<textarea v-model="optionsJson" :disabled="busy" rows="4" /></label>
         <button v-if="contextId" type="button" :disabled="busy || previewing || !modelId" @click="previewContext">{{ previewing ? '正在预览…' : '预览上下文' }}</button>
         <p v-else class="settings-help">创建会话后可预览上下文。</p>
         <pre v-if="preview" aria-label="上下文预览">{{ preview }}</pre>
       </div>
     </details>
     <p v-if="optionsError" role="alert">{{ optionsError }}</p>
+    <p v-if="draftNotice" role="status">{{ draftNotice }}</p>
     <p v-if="selectedProviderDisabled" role="status">当前模型服务已停用，请启用该服务或选择其他模型。</p>
     <h2 class="sr-only">发送消息</h2>
     <form @submit.prevent="submit">
       <div class="chat-composer-message">
-        <label class="sr-only" for="chat-message">消息</label>
+        <label class="sr-only" for="chat-message">{{ inputJson ? '输入消息（JSON）' : '消息' }}</label>
         <textarea
           id="chat-message"
           :ref="setTextarea"
