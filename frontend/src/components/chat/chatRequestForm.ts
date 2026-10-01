@@ -1,9 +1,10 @@
 import { workingDirectory } from '../../runtime/workingDirectory'
-import { computed, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { ChatSubmission } from '../../domain/chat'
 import type { ProviderCatalog } from '../../domain/workspace'
 import { formatChatState } from './chatRequestStatus'
 import { composeContextPreview, type SkillDefinition, type ToolDefinition } from '../../api'
+import { parseSkillVariables } from '../../domain/skillParameters'
 
 export type ChatRequestFormProps = {
   skills?: SkillDefinition[]
@@ -41,21 +42,35 @@ export function useChatRequestForm(
   const optionsError = ref('')
   const preview = ref('')
   const previewing = ref(false)
+  let previewGeneration = 0
+  const availableSkills = computed(() => (props.skills || []).filter(skill => skill.is_enabled !== false && skill.capabilities?.includes('agent')))
+  const currentSkill = computed(() => props.skills?.find(skill => skill.name === selectedSkill.value))
+  const missingSkillTools = computed(() => (currentSkill.value?.required_tools || []).filter(name => !props.tools?.some(tool => tool.name === name)))
+  const skillUnavailable = computed(() => !!selectedSkill.value && (!availableSkills.value.some(skill => skill.name === selectedSkill.value) || missingSkillTools.value.length > 0))
+  watch(selectedSkill, () => { skillVariables.value = '{}'; preview.value = ''; optionsError.value = '' })
+  watch(skillVariables, () => { preview.value = ''; optionsError.value = '' })
+  watch([selectedSkill, skillVariables, modelId, text, () => props.contextId, () => props.skills, () => props.tools], () => {
+    previewGeneration++; preview.value = ''; previewing.value = false
+  })
+  onUnmounted(() => previewGeneration++)
   function currentSkills() {
     if (!selectedSkill.value) return undefined
-    const variables: unknown = JSON.parse(skillVariables.value)
-    if (!variables || typeof variables !== 'object' || Array.isArray(variables)) throw new Error('技能参数必须是 JSON 对象')
-    return [{ skill_name: selectedSkill.value, variables: variables as Record<string, unknown> }]
+    if (skillUnavailable.value) throw new Error('当前技能不可用或缺少必需工具')
+    return [{ skill_name: selectedSkill.value, variables: parseSkillVariables(skillVariables.value) }]
   }
   async function previewContext() {
     if (!props.contextId || previewing.value) return
+    const current = ++previewGeneration
     previewing.value = true; optionsError.value = ''; preview.value = ''
-    try { preview.value = JSON.stringify(await composeContextPreview(props.contextId, {
+    try {
+      const response = await composeContextPreview(props.contextId, {
       model_id: modelId.value, messages: [{ role: 'user', content: [{ type: 'text', text: text.value.trim() }] }],
       skills: currentSkills(), tools: props.tools,
       metadata: props.sessionId ? { session_id: props.sessionId } : {},
-    }), null, 2) } catch (cause) { optionsError.value = cause instanceof Error ? cause.message : '预览失败' }
-    finally { previewing.value = false }
+      })
+      if (current === previewGeneration) preview.value = JSON.stringify(response, null, 2)
+    } catch (cause) { if (current === previewGeneration) optionsError.value = cause instanceof Error ? cause.message : '预览失败' }
+    finally { if (current === previewGeneration) previewing.value = false }
   }
   const textarea = ref<HTMLTextAreaElement | null>(null)
   watch([text, textarea], () => {
@@ -74,7 +89,7 @@ export function useChatRequestForm(
 
   const canSubmit = computed(() => enabledProviders.value.some(
     (provider) => provider.provider_id === providerId.value,
-  ) && canSubmitChat({
+  ) && !skillUnavailable.value && canSubmitChat({
     busy: props.busy,
     sessionReady: props.sessionReady,
     providerId: providerId.value,
@@ -154,6 +169,7 @@ export function useChatRequestForm(
   }
 
   return {
+    availableSkills, currentSkill, missingSkillTools, skillUnavailable,
     selectedSkill, skillVariables, optionsError, preview, previewing, previewContext,
     setTextarea(element: Element | ComponentPublicInstance | null): void {
       textarea.value = element as HTMLTextAreaElement | null

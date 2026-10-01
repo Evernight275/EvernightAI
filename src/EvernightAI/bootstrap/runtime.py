@@ -58,7 +58,9 @@ from EvernightAI.core.protocol.session import (
     SessionManageProtocol,
     SessionRegisterProtocol,
 )
-from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
+from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol, SkillTemplateStoreProtocol
+from EvernightAI.infra.adapters.skill.template import create_template_renderer
+from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
 from EvernightAI.core.protocol.tool import (
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
@@ -159,8 +161,9 @@ def create_skill_register() -> SkillRegister:
 
 def create_skill_manager(
     register: SkillRegisterProtocol | None = None,
+    template_store: SkillTemplateStoreProtocol | None = None,
 ) -> SkillManager:
-    return SkillManager(register or create_skill_register())
+    return SkillManager(register or create_skill_register(), template_factory=create_template_renderer, template_store=template_store)
 
 
 def register_builtin_skills(register: SkillRegisterProtocol) -> None:
@@ -536,6 +539,7 @@ def create_sqlite_runtime(
         memory_register=create_sqlite_memory_register(database_path),
         session_register=create_sqlite_session_register(database_path),
         provider_config_store=create_sqlite_provider_config_store(database_path),
+        skill_template_store=SQLiteSkillTemplateStore(database_path),
         data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
@@ -564,6 +568,7 @@ def _create_runtime(
     memory_register: MemoryRegisterProtocol,
     session_register: SessionRegisterProtocol,
     provider_config_store: ProviderConfigStoreProtocol | None = None,
+    skill_template_store: SkillTemplateStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
     data_analysis: DataAnalysisManageProtocol | None = None,
     sessions: SessionManageProtocol | None = None,
@@ -597,7 +602,7 @@ def _create_runtime(
     tools = ToolManager(tool_register, tool_safety_policy)
     skill_register = skill_register or create_skill_register()
     register_builtin_skills(skill_register)
-    skills = skills or create_skill_manager(skill_register)
+    skills = skills or create_skill_manager(skill_register, skill_template_store)
     contexts = ContextManager(context_register)
     context_organizer = create_context_organizer()
     context_strategy = create_context_strategy(

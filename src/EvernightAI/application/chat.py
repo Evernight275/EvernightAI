@@ -19,7 +19,7 @@ from EvernightAI.core.schema.memory import (
     MemoryQuery,
     MemorySelection,
 )
-from EvernightAI.core.schema.skill import SkillCapability
+from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.application.chat_request import ChatRequestComposer
@@ -190,7 +190,7 @@ class ChatApplication(ChatInterfaceProtocol):
         metadata: dict[str, object] | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest:
-        return await self._request_composer.compose(
+        request = await self._request_composer.compose(
             context_id,
             model_id=model_id,
             messages=messages,
@@ -200,6 +200,12 @@ class ChatApplication(ChatInterfaceProtocol):
             metadata=metadata,
             principal_scope=principal_scope,
         )
+        for index, skill in enumerate(request.skills or []):
+            self._runtime.skills.validate_input(SkillRenderRequest(
+                render_id=skill.render_id or f"{skill.skill_name}-{index}",
+                skill_name=skill.skill_name, variables=skill.variables, metadata=skill.metadata,
+            ))
+        return request
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         request = await compose_skill_prompted_chat_request(

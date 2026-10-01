@@ -261,6 +261,104 @@ Example:
 }
 ```
 
+## Skill Validation
+
+`POST /skills/{skill_name}/render` validates `variables` against the registered
+skill's optional `input_schema` before invoking its renderer. Direct Chat,
+context Chat, Agent, and streaming calls use the same validation before calling
+the model. Missing schemas impose no additional variable constraints.
+
+The default schema dialect is Draft 2020-12. An explicit supported `$schema`
+selects that draft. Validation does not convert types, insert `default` values,
+or fetch external references. Local `$ref` definitions are supported. `format`
+remains an annotation; no format checker is enabled.
+
+Invalid variables return `SkillInputError` (HTTP `400`), whose string `detail`
+contains a JSON object describing the first violation. For example:
+
+```json
+{
+  "path": ["variables", "items", 0, "count"],
+  "schema_path": ["properties", "items", "items", "properties", "count", "type"],
+  "constraint": "type"
+}
+```
+
+The diagnostic reports the parameter and schema location without echoing the
+parameter value. A `required` violation points at the object containing the
+missing property. Malformed schemas, unsupported drafts, and unresolved
+references are `SkillConfigurationError`; malformed schemas are rejected during
+registration before replacing an existing skill.
+
+Renderers may raise `SkillInputError` for additional input rules; its type and
+detail are preserved. Unexpected renderer exceptions and returned results whose
+skill name or render ID do not match the request are `SkillRenderError` (HTTP
+`502`). `output_schema` remains a declaration. Chat and Agent require every
+`required_tools` name to appear in the request's available tool definitions
+before the model call; they do not add tools or grant permissions automatically.
+
+`POST /contexts/{context_id}/compose-preview` also validates skill variables. It
+keeps the skill declarations in its returned request, without executing renderers
+or calling a provider. Capability checks still occur when the request is used by
+Chat or Agent; a context preview does not choose between these execution modes.
+
+## Skill Templates
+
+The skill management endpoints are:
+
+| Method and path | Permission | Behavior |
+| --- | --- | --- |
+| `POST /skills` | `skills:create` | Create a template, HTTP 201 |
+| `GET /skills/{name}/template` | `skills:get_template` | Read/export the template |
+| `PATCH /skills/{name}` | `skills:update` | Edit or enable/disable a template |
+| `DELETE /skills/{name}` | `skills:delete` | Delete a template, HTTP 204 |
+
+Example creation/import payload:
+
+```json
+{
+  "name": "style",
+  "description": "Choose a response style",
+  "prompt": "Use $tone style.",
+  "is_enabled": true,
+  "capabilities": ["chat", "agent"],
+  "input_schema": {
+    "type": "object",
+    "properties": {"tone": {"type": "string", "enum": ["calm", "concise"]}},
+    "required": ["tone"]
+  },
+  "required_tools": []
+}
+```
+
+Templates produce a single system message. `$name` and `${name}` substitute
+top-level variables; `$$` produces a literal dollar. Strings are inserted
+literally, and other JSON values are serialized as JSON. Replacement text is not
+interpreted again, and no code, file access, or model calls occur while rendering.
+Missing placeholders produce `SkillInputError`. Invalid placeholder syntax is a
+configuration error and cannot replace a working template.
+
+Names are stable identifiers: start with an ASCII letter, followed by letters,
+digits, `_`, `.`, or `-`, up to 128 characters. PATCH cannot rename a skill and
+rejects unknown fields. Omitted fields are retained; `input_schema` and
+`output_schema` may be explicitly cleared with null. Duplicate names, including
+collisions with built-ins, return HTTP 409. Built-in callable skills are read-only
+through these routes (HTTP 400).
+
+Definitions include `is_enabled` and `is_template`. Disabled skills stay visible
+to management but render/call attempts return `SkillDisabledError` (HTTP 409).
+The SQLite bootstrap persists changes before publishing them to the runtime and
+restores templates, including disabled ones, at startup. A storage failure leaves
+the previous configuration active. Plain in-memory runtimes retain templates only
+for their lifetime.
+
+The settings page imports JSON into its editor and saves only after explicit
+submission. Exports use the same format. Common scalar parameters use form
+controls; complex schemas keep the JSON editor. Model calls perform full server
+validation. The chat selector includes only enabled Agent-capable skills and
+shows required tools. Skill preview renders the saved skill without calling a
+model; changing parameters or saved configuration clears previous results.
+
 ## Context Chat
 
 Create a context when the server should store conversation history.

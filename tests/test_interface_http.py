@@ -1257,6 +1257,9 @@ def test_http_app_exposes_skill_routes() -> None:
             "/skills/summarize/render",
             json={"variables": {"text": "default"}},
         )
+        invalid_render_response = client.post(
+            "/skills/summarize/render", json={"variables": {"text": 3}},
+        )
         missing_response = client.get("/skills/missing")
 
     assert skills_response.status_code == 200
@@ -1273,6 +1276,9 @@ def test_http_app_exposes_skill_routes() -> None:
     assert rendered["messages"][0]["content"][0]["text"] == "hello"
     assert rendered["metadata"] == {"source": "fake"}
     assert default_render_response.status_code == 200
+    assert invalid_render_response.status_code == 400
+    assert_error_response(invalid_render_response.json(), "SkillInputError")
+    assert json.loads(invalid_render_response.json()["error"]["detail"])["path"] == ["variables", "text"]
     assert default_render_response.json()["render_id"] == "summarize-0"
     assert (
         default_render_response.json()["messages"][0]["content"][0]["text"] == "default"
@@ -3484,6 +3490,33 @@ def test_http_app_previews_composed_context_without_calling_provider() -> None:
     assert body["prompt_cache"]["scope"] == "context"
     assert len(body["prompt_cache"]["scope_id"]) == 64
     assert "ctx-1" not in body["prompt_cache"]["scope_id"]
+
+
+def test_http_context_preview_validates_skill_variables_without_rendering() -> None:
+    async def unexpected(_request: SkillRenderRequest) -> RenderedSkill:
+        pytest.fail("Context previews must not execute skill renderers")
+
+    provider = FakeProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.skill_register.register(SkillDefinition(
+        name="parameters", description="Agent skill", capabilities=[SkillCapability.AGENT],
+        input_schema={"type": "object", "properties": {"count": {"type": "integer"}}},
+    ), unexpected)
+    with TestClient(create_http_app(create_interface(runtime))) as client:
+        client.post("/contexts", json={"context_id": "ctx-1"})
+        invalid = client.post("/contexts/ctx-1/compose-preview", json={
+            "model_id": "model-1", "skills": [{"skill_name": "parameters", "variables": {"count": "private-input"}}],
+        })
+        valid = client.post("/contexts/ctx-1/compose-preview", json={
+            "model_id": "model-1", "skills": [{"skill_name": "parameters", "variables": {"count": 3}}],
+        })
+        assert client.get("/contexts/ctx-1").json()["messages"] == []
+    assert invalid.status_code == 400
+    assert_error_response(invalid.json(), "SkillInputError")
+    assert "private-input" not in invalid.text
+    assert valid.status_code == 200
+    assert valid.json()["skills"][0]["variables"] == {"count": 3}
+    assert provider.last_request is None
 
 
 def test_http_app_searches_and_toggles_memories() -> None:

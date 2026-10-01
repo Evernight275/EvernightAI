@@ -102,7 +102,8 @@ async def append_context(
     summary="Preview a composed model request",
     description=(
         "Compose the context, current messages, tools, skills, and selected "
-        "memories into the final model-visible request without calling a provider."
+        "memories into a request without calling a provider. Skill variables are "
+        "validated against input_schema; skill declarations are kept without executing renderers."
     ),
     operation_id="compose_context_preview",
 )

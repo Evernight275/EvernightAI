@@ -53,6 +53,8 @@ from EvernightAI.core.schema.skill import (
     SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
+    SkillTemplateConfig,
+    SkillTemplateUpdate,
 )
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
@@ -427,6 +429,11 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
 
 
 class SkillInterfaceProtocol(InterfaceProtocol):
+    def create_skill(self, config: SkillTemplateConfig) -> SkillDefinition: ...
+    def get_skill_template(self, skill_name: str) -> SkillTemplateConfig: ...
+    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition: ...
+    def delete_skill(self, skill_name: str) -> None: ...
+
     def list_skills(self) -> list[SkillDefinition]: ...
 
     def get_skill(self, skill_name: str) -> SkillDefinition: ...

@@ -285,6 +285,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "openai" },
     { name = "pydantic" },
@@ -294,6 +295,7 @@ dependencies = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+    { name = "referencing" },
     { name = "ruff" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -302,6 +304,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "mcp", specifier = ">=1.0,<2" },
     { name = "openai" },
     { name = "pydantic" },
@@ -311,6 +314,7 @@ requires-dist = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+    { name = "referencing", specifier = ">=0.37,<1" },
     { name = "ruff" },
     { name = "uvicorn", extras = ["standard"] },
 ]

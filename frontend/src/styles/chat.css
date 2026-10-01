@@ -960,6 +960,8 @@ body,
   cursor: pointer;
   color: var(--color-muted);
 }
+.chat-advanced[open] { max-height: min(44dvh, 420px); }
+.chat-view--empty:has(.chat-advanced[open]) .chat-welcome { display: none; }
 .chat-advanced pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1129,6 +1131,7 @@ body,
     min-height: 0;
     max-height: calc(100dvh - 116px);
     overflow-y: auto;
+    overflow-wrap: anywhere;
   }
   .chat-view--empty .chat-view-footer {
     margin-bottom: 0;

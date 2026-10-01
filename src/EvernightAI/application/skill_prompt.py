@@ -1,6 +1,8 @@
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.error.skill import SkillInputError
 from EvernightAI.core.schema.content import ChatRequest, ChatSkill, Content
+from EvernightAI.core.schema.tool import ToolDefinition
+from EvernightAI.core.error.skill import SkillDisabledError
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
     SkillCapability,
@@ -12,11 +14,19 @@ async def render_chat_skill_messages(
     runtime: RuntimeProtocol,
     skills: list[ChatSkill] | None,
     capability: SkillCapability,
+    tools: list[ToolDefinition] | None = None,
 ) -> tuple[list[Content], list[RenderedSkill]]:
     rendered_skills: list[RenderedSkill] = []
     messages: list[Content] = []
 
     for index, skill in enumerate(skills or []):
+        definition = runtime.skills.get_skill(skill.skill_name)
+        if not definition.is_enabled:
+            raise SkillDisabledError(f"The skill {skill.skill_name} is disabled")
+        available_tools = {tool.name for tool in tools or []}
+        missing = [name for name in definition.required_tools if name not in available_tools]
+        if missing:
+            raise SkillInputError(f"The skill {skill.skill_name} requires tools: {', '.join(missing)}")
         if not runtime.skills.supports(skill.skill_name, capability):
             raise SkillInputError(
                 f"The skill {skill.skill_name} does not support {capability.value}"
@@ -45,6 +55,7 @@ async def compose_skill_prompted_chat_request(
         runtime,
         request.skills,
         capability,
+        request.tools,
     )
     if not rendered_skills:
         return request

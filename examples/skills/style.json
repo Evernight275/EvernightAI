@@ -1,0 +1,17 @@
+{
+  "name": "response-style",
+  "description": "Choose response tone and language",
+  "prompt": "Use $tone style. Respond in $language.",
+  "is_enabled": true,
+  "capabilities": ["chat", "agent"],
+  "required_tools": [],
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "tone": {"type": "string", "enum": ["concise", "careful", "formal"]},
+      "language": {"type": "string", "minLength": 1}
+    },
+    "required": ["tone", "language"]
+  }
+}

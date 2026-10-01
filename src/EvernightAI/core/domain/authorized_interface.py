@@ -71,6 +71,8 @@ from EvernightAI.core.schema.skill import (
     RenderedSkill,
     SkillCapability,
     SkillDefinition,
+    SkillTemplateConfig,
+    SkillTemplateUpdate,
     SkillRenderRequest,
 )
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
@@ -990,6 +992,22 @@ class AuthorizedSkillInterface(SkillInterfaceProtocol):
     def list_skills(self) -> list[SkillDefinition]:
         self._require("skills", "list")
         return self._inner.list_skills()
+
+    def create_skill(self, config: SkillTemplateConfig) -> SkillDefinition:
+        self._require("skills", "create", config.name)
+        return self._inner.create_skill(config)
+
+    def get_skill_template(self, skill_name: str) -> SkillTemplateConfig:
+        self._require("skills", "get_template", skill_name)
+        return self._inner.get_skill_template(skill_name)
+
+    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition:
+        self._require("skills", "update", skill_name)
+        return self._inner.update_skill(skill_name, update)
+
+    def delete_skill(self, skill_name: str) -> None:
+        self._require("skills", "delete", skill_name)
+        self._inner.delete_skill(skill_name)
 
     def get_skill(self, skill_name: str) -> SkillDefinition:
         self._require("skills", "get", skill_name)

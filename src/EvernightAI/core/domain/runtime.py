@@ -246,6 +246,7 @@ class RuntimeKernel(RuntimeProtocol):
         loaded_sources: list[ToolSourceProtocol] = []
         try:
             await self._providers.restore()
+            self._skills.restore()
             for source in self._tool_sources:
                 await source.load(self._tool_register)
                 loaded_sources.append(source)
@@ -267,6 +268,7 @@ class RuntimeKernel(RuntimeProtocol):
 
     def _persistent_resources(self) -> list[Any]:
         return [
+            self._skills,
             self._provider_config_store,
             self._context_register,
             self._data_analysis_register,

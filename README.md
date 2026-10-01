@@ -153,6 +153,25 @@ Chat and agent requests may declare skills. Application orchestration renders
 those declarations into prompt messages before the provider call and keeps the
 rendered messages out of stored context history.
 
+`SkillManager` validates variables against each skill's optional `input_schema`
+before rendering. Schemas use JSON Schema Draft 2020-12 by default, or a supported
+draft declared with `$schema`. Validation does not coerce types or insert defaults.
+Input failures retain `SkillInputError` and report parameter paths without echoing
+values. Invalid schemas or unresolved references are `SkillConfigurationError`;
+schema validation never fetches remote references. Context previews perform the
+same input validation while retaining unrendered skill declarations. Renderers
+must return a `RenderedSkill` with the requested skill name and render ID.
+
+Settings now includes skill management and a schema-based parameter editor.
+Custom prompt templates can be created, edited, enabled, disabled, deleted, and
+imported/exported as JSON. The SQLite runtime persists templates and restores
+them on initialization. Built-in callable skills remain read-only through the
+management API. Templates use Python's literal `string.Template` syntax (`$name`
+or `${name}`, with `$$` for a dollar); parameter text is never evaluated as code.
+An importable example is in `examples/skills/style.json`.
+Chat and Agent check `required_tools` against the tools explicitly supplied for
+that request, without automatically granting or executing tools.
+
 ## Remote MCP Tools
 
 EvernightAI can consume remote MCP servers over Streamable HTTP. Remote tools

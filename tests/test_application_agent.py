@@ -17,6 +17,7 @@ from EvernightAI.application.agent import (
 )
 from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.error.provider import ProviderResponseError
+from EvernightAI.core.error.skill import SkillInputError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
@@ -632,6 +633,25 @@ async def test_agent_renders_skills_for_each_chat_round() -> None:
     assert message_text(context.messages[0]) == "What is 1 + 2?"
     assert "tool_call_result" in message_text(context.messages[2])
     assert message_text(context.messages[3]) == "The result is 3"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_agent_rejects_invalid_skill_before_provider(streaming: bool) -> None:
+    provider = ToolCallingProvider()
+    runtime = make_runtime(provider=provider)
+    register_style_skill(runtime)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentApplication(runtime) if streaming else NoStreamingResponseAgentApplication(runtime)
+    with pytest.raises(SkillInputError, match="violates type"):
+        await app.run_agent(AgentRunRequest(
+            provider_id="provider-1", context_id="ctx-1", model_id="model-1",
+            messages=[make_message("Current request")],
+            skills=[ChatSkill(skill_name="style", variables={"tone": 3})],
+        ))
+    assert provider.requests == []
+    assert (await runtime.contexts.get("ctx-1")).messages == []
 
 
 @pytest.mark.asyncio
@@ -3461,6 +3481,10 @@ def register_style_skill(runtime: RuntimeKernel) -> None:
         SkillDefinition(
             name="style",
             description="Render style instructions",
+            input_schema={
+                "type": "object", "properties": {"tone": {"type": "string"}},
+                "required": ["tone"],
+            },
             capabilities=[SkillCapability.AGENT],
         ),
         render_style,

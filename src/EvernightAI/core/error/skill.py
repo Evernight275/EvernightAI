@@ -1,5 +1,6 @@
 from EvernightAI.core.error.base import (
     ConfigurationError,
+    ConflictError,
     EvernightAIError,
     NotFoundError,
     RequestError,
@@ -62,4 +63,12 @@ class SkillStateError(SkillError, StateError):
     技能状态错误
     """
 
+    pass
+
+
+class SkillConflictError(SkillError, ConflictError):
+    pass
+
+
+class SkillDisabledError(SkillStateError):
     pass

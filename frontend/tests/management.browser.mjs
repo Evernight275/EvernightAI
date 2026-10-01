@@ -78,7 +78,7 @@ try {
       if (path === '/sessions/session-1') { if (method === 'PUT') session = data; return json(session) }
       if (path === '/contexts/ctx-1/compose-preview') return json({ ...data, metadata: { ...data.metadata, preview: true } })
       if (path === '/contexts/ctx-1') return json({ context_id: 'ctx-1', messages: [] })
-      if (path === '/skills') return json([{ name: 'echo', description: '回显技能', input_schema: { type: 'object', properties: { text: { type: 'string' } } } }])
+      if (path === '/skills') return json([{ name: 'echo', description: '回显技能', capabilities: ['agent'], input_schema: { type: 'object', properties: { text: { type: 'string' } } } }])
       if (path === '/data-analysis/sources') return json([{ source_id: 'runtime', name: '运行统计' }])
       if (path === '/data-analysis/sources/runtime') return json({ source_id: 'runtime', name: '运行统计' })
       if (path.endsWith('/fields')) return json([{ field_id: 'status', name: '状态', field_type: 'string' }])
@@ -224,6 +224,7 @@ try {
     assert.deepEqual(session.metadata, { preserve: true })
     await page.getByText('技能与上下文', { exact: true }).click()
     await page.getByLabel('本轮技能').selectOption('echo')
+    await page.getByRole('button', { name: 'JSON', exact: true }).click()
     await page.getByLabel('技能参数（JSON）').fill('{"text":"hello"}')
     await page.locator('#chat-message').fill('你好')
     await page.getByRole('button', { name: '预览上下文', exact: true }).click()

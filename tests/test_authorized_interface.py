@@ -65,6 +65,8 @@ from EvernightAI.core.schema.session import (
     SessionChatRequest,
 )
 from EvernightAI.core.schema.skill import (
+    SkillTemplateConfig,
+    SkillTemplateUpdate,
     SkillCapability,
     SkillRenderRequest,
 )
@@ -507,6 +509,10 @@ async def test_authorized_agent_run_interface_requires_expected_permission(
     ("method_name", "args", "expected_resource", "expected_action", "expected_id"),
     [
         ("list_skills", (), "skills", "list", None),
+        ("create_skill", (SkillTemplateConfig(name="skill-1", description="Template", prompt="Hello"),), "skills", "create", "skill-1"),
+        ("get_skill_template", ("skill-1",), "skills", "get_template", "skill-1"),
+        ("update_skill", ("skill-1", SkillTemplateUpdate(is_enabled=False)), "skills", "update", "skill-1"),
+        ("delete_skill", ("skill-1",), "skills", "delete", "skill-1"),
         ("get_skill", ("skill-1",), "skills", "get", "skill-1"),
         (
             "skill_supports",
@@ -1062,6 +1068,22 @@ class FakeSkillInterface:
 
     def list_skills(self) -> str:
         self.calls.append("list_skills")
+        return "delegated"
+
+    def create_skill(self, config: SkillTemplateConfig) -> str:
+        self.calls.append("create_skill")
+        return "delegated"
+
+    def get_skill_template(self, skill_name: str) -> str:
+        self.calls.append("get_skill_template")
+        return "delegated"
+
+    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> str:
+        self.calls.append("update_skill")
+        return "delegated"
+
+    def delete_skill(self, skill_name: str) -> str:
+        self.calls.append("delete_skill")
         return "delegated"
 
     def get_skill(self, skill_name: str) -> str:

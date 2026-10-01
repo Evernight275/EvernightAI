@@ -8,6 +8,8 @@ dependencies = [
     "fastapi",
     "httpx",
     "pydantic",
+    "jsonschema>=4.26,<5",
+    "referencing>=0.37,<1",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",

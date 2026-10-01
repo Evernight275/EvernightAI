@@ -433,6 +433,10 @@ def _add_agent_tool_execution_table(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_skill_templates(connection: sqlite3.Connection) -> None:
+    connection.execute("CREATE TABLE IF NOT EXISTS skill_templates (name TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
@@ -440,4 +444,5 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(
         4, "add agent tool execution table", _add_agent_tool_execution_table
     ),
+    SQLiteMigration(5, "add skill templates", _add_skill_templates),
 )

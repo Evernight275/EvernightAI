@@ -6,6 +6,8 @@ export type SkillCapability = 'chat' | 'tool_use' | 'memory' | 'context' | 'agen
 export type SkillDefinition = {
   name: string
   description: string
+  is_enabled?: boolean
+  is_template?: boolean
   input_schema?: Record<string, unknown> | null
   output_schema?: Record<string, unknown> | null
   capabilities?: SkillCapability[]
@@ -24,6 +26,22 @@ export type RenderedSkill = {
   skill_name: string
   messages?: Content[]
   metadata?: Record<string, unknown>
+}
+
+export type SkillTemplateConfig = SkillDefinition & { prompt: string }
+export type SkillTemplateUpdate = Partial<Omit<SkillTemplateConfig, 'name' | 'is_template'>>
+
+export function createSkill(config: SkillTemplateConfig): Promise<SkillDefinition> {
+  return requestJson('/skills', { method: 'POST', body: config })
+}
+export function getSkillTemplate(name: string): Promise<SkillTemplateConfig> {
+  return requestJson(`/skills/${encodeURIComponent(name)}/template`)
+}
+export function updateSkill(name: string, update: SkillTemplateUpdate): Promise<SkillDefinition> {
+  return requestJson(`/skills/${encodeURIComponent(name)}`, { method: 'PATCH', body: update })
+}
+export function deleteSkill(name: string): Promise<void> {
+  return requestJson(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
 
 export function listSkills(signal?: AbortSignal): Promise<SkillDefinition[]> {

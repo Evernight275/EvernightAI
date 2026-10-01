@@ -12,6 +12,7 @@ import MemorySettings from '../settings/MemorySettings.vue'
 import ResourceSettings from '../settings/ResourceSettings.vue'
 import RunSettings from '../settings/RunSettings.vue'
 import DataSettings from '../settings/DataSettings.vue'
+import SkillSettings from '../settings/SkillSettings.vue'
 
 defineProps<{ embedded?: boolean; active?: boolean }>()
 defineEmits<{ close: [] }>()
@@ -26,6 +27,7 @@ const sections = [
   { id: 'connections', label: '连接与认证', icon: Server },
   { id: 'privacy', label: '数据控制', icon: KeyRound },
   { id: 'memories', label: '记忆管理', icon: SlidersHorizontal },
+  { id: 'skills', label: '技能管理', icon: SlidersHorizontal },
   { id: 'resources', label: '工作区资源', icon: Server },
   { id: 'runs', label: '运行管理', icon: SlidersHorizontal },
   { id: 'data', label: '数据分析', icon: SlidersHorizontal },
@@ -64,6 +66,7 @@ function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
           <details class="settings-resource-details" v-if="context.workspace.loadedAt"><summary>查看工作区资源</summary><WorkspaceContents :workspace="context.workspace" /></details>
         </template>
         <MemorySettings :key="authGeneration" v-else-if="activeSection === 'memories'" @changed="refresh" />
+        <SkillSettings :key="authGeneration" v-else-if="activeSection === 'skills'" :skills="context.workspace.capabilityCatalog.skills" :tools="context.workspace.capabilityCatalog.tools" @changed="refresh" />
         <ResourceSettings :key="authGeneration" v-else-if="activeSection === 'resources'" @changed="refresh" />
         <RunSettings :key="authGeneration" v-else-if="activeSection === 'runs'" :active="active !== false" @changed="refresh" />
         <DataSettings :key="authGeneration" v-else-if="activeSection === 'data'" />

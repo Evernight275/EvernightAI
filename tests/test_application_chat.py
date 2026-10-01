@@ -534,6 +534,52 @@ async def test_chat_application_keeps_rendered_skills_out_of_context() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entrypoint", ["preview", "chat", "chat_stream", "chat_with_context", "chat_stream_with_context"])
+async def test_chat_application_rejects_invalid_skill_before_provider(entrypoint: str) -> None:
+    runtime = make_runtime()
+    app = ChatApplication(runtime)
+    register_style_skill(runtime)
+    await runtime.providers.create(make_config())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    skills = [ChatSkill(skill_name="style", variables={"tone": 3})]
+    with pytest.raises(SkillInputError, match="violates type"):
+        if entrypoint == "preview":
+            await app.organize_chat_request("ctx-1", model_id="model-1", skills=skills)
+        elif entrypoint in {"chat", "chat_stream"}:
+            await getattr(app, entrypoint)("provider-1", ChatRequest(
+                model_id="model-1", messages=[make_message("Current request")], skills=skills,
+            ))
+        else:
+            await getattr(app, entrypoint)(
+                "provider-1", "ctx-1", model_id="model-1",
+                messages=[make_message("Current request")], skills=skills,
+            )
+    provider = await runtime.providers.get("provider-1")
+    assert isinstance(provider, FakeProvider)
+    assert provider.last_request is None
+    assert (await runtime.contexts.get("ctx-1")).messages == []
+
+
+@pytest.mark.asyncio
+async def test_context_preview_validates_skill_without_rendering_or_rewriting_declarations() -> None:
+    async def unexpected(_request: SkillRenderRequest) -> RenderedSkill:
+        pytest.fail("Context preview must not execute renderers")
+
+    runtime = make_runtime()
+    runtime.skill_register.register(SkillDefinition(
+        name="preview", description="Agent skill", capabilities=[SkillCapability.AGENT],
+        input_schema={"type": "object", "properties": {"value": {"type": "integer"}}},
+    ), unexpected)
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    skills = [ChatSkill(skill_name="preview", variables={"value": 3})]
+    request = await ChatApplication(runtime).organize_chat_request(
+        "ctx-1", model_id="model-1", messages=[make_message("Current request")], skills=skills,
+    )
+    assert request.skills == skills
+    assert request.messages == [make_message("Current request")]
+
+
+@pytest.mark.asyncio
 async def test_chat_application_rejects_unsupported_skill_capability() -> None:
     runtime = make_runtime()
     app = ChatApplication(runtime)
@@ -608,6 +654,10 @@ def register_style_skill(
         SkillDefinition(
             name="style",
             description="Render style instructions",
+            input_schema={
+                "type": "object", "properties": {"tone": {"type": "string"}},
+                "required": ["tone"],
+            },
             capabilities=[capability],
         ),
         render_style,
