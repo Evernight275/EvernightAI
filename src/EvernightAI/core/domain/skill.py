@@ -170,6 +170,11 @@ class SkillManager(SkillManageProtocol):
                     f"The skill {skill.name} input schema contains an unresolved reference",
                     cause=exc,
                 ) from exc
+            except RecursionError as exc:
+                raise SkillConfigurationError(
+                    f"The skill {skill.name} input schema exceeds the supported validation depth",
+                    cause=exc,
+                ) from exc
             if error is not None:
                 path = ["variables", *error.absolute_path]
                 raise SkillInputError(

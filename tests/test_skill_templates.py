@@ -148,6 +148,21 @@ def test_skill_http_management_and_builtin_protection() -> None:
         assert client.get("/skills/style").status_code == 404
 
 
+@pytest.mark.parametrize("entrypoint", ["render", "compose-preview"])
+def test_skill_http_returns_configuration_error_for_nonterminating_schema(entrypoint: str) -> None:
+    with TestClient(create_http_app(create_interface(create_runtime()))) as client:
+        assert client.post("/skills", json=template(prompt="Literal", input_schema={"$ref": "#"}).model_dump(mode="json")).status_code == 201
+        if entrypoint == "render":
+            response = client.post("/skills/style/render", json={"variables": {}})
+        else:
+            assert client.post("/contexts", json={"context_id": "probe"}).status_code == 201
+            response = client.post("/contexts/probe/compose-preview", json={
+                "model_id": "model", "skills": [{"skill_name": "style"}],
+            })
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "SkillConfigurationError"
+
+
 @pytest.mark.parametrize("action", ["create", "get_template", "update", "delete"])
 @pytest.mark.asyncio
 async def test_skill_management_has_separate_permissions(action: str) -> None:

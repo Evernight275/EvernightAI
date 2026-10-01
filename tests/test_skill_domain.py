@@ -302,6 +302,54 @@ async def test_skill_manager_rejects_unresolvable_references_without_network(
         await SkillManager(register).render(SkillRenderRequest(render_id="probe", skill_name="ref"))
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema", [
+    {"$ref": "#"},
+    {"$defs": {"a": {"$ref": "#/$defs/b"}, "b": {"$ref": "#/$defs/a"}}, "$ref": "#/$defs/a"},
+])
+@pytest.mark.parametrize("entrypoint", ["validate_input", "render"])
+async def test_skill_manager_translates_nonterminating_schema_recursion(
+    schema: dict[str, object], entrypoint: str,
+) -> None:
+    async def unexpected(_request: SkillRenderRequest) -> RenderedSkill:
+        pytest.fail("Recursive validation failure must not reach the renderer")
+
+    register = SkillRegister()
+    register.register(SkillDefinition(name="recursive", description="Recursive schema", input_schema=schema), unexpected)
+    manager = SkillManager(register)
+    request = SkillRenderRequest(render_id="probe", skill_name="recursive")
+    with pytest.raises(SkillConfigurationError, match="validation depth") as caught:
+        if entrypoint == "validate_input":
+            manager.validate_input(request)
+        else:
+            await manager.render(request)
+    assert isinstance(caught.value.cause, RecursionError)
+
+
+@pytest.mark.asyncio
+async def test_skill_manager_accepts_terminating_recursive_schema() -> None:
+    async def renderer(request: SkillRenderRequest) -> RenderedSkill:
+        return RenderedSkill(render_id=request.render_id, skill_name=request.skill_name)
+
+    register = SkillRegister()
+    register.register(SkillDefinition(
+        name="tree", description="Recursive tree",
+        input_schema={
+            "type": "object", "properties": {
+                "value": {"type": "integer"}, "children": {"type": "array", "items": {"$ref": "#"}},
+            },
+            "required": ["value"],
+        },
+    ), renderer)
+    manager = SkillManager(register)
+    request = SkillRenderRequest(render_id="probe", skill_name="tree", variables={
+        "value": 1, "children": [{"value": 2, "children": [{"value": 3}]}],
+    })
+    assert (await manager.render(request)).render_id == "probe"
+    with pytest.raises(SkillInputError):
+        await manager.render(request.model_copy(update={"variables": {"value": 1, "children": [{"value": "bad"}]}}))
+
+
 def test_skill_register_unregisters_skill() -> None:
     async def summarize(request: SkillRenderRequest) -> RenderedSkill:
         return RenderedSkill(
