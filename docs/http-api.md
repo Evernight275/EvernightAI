@@ -352,6 +352,13 @@ restores templates, including disabled ones, at startup. A storage failure leave
 the previous configuration active. Plain in-memory runtimes retain templates only
 for their lifetime.
 
+Template definitions/configurations also return an opaque `revision`, generated
+by the server. Actual updates change it; empty or equivalent updates retain it.
+PATCH cannot set `revision`. POST assigns a fresh revision even when an imported
+configuration contains one. Deleting and recreating the same name also creates
+a new revision. Existing stored templates without revisions are upgraded on
+restore, and their assigned revisions remain stable across restarts.
+
 The settings page imports JSON into its editor and saves only after explicit
 submission. Exports use the same format. Common scalar parameters use form
 controls; complex schemas keep the JSON editor. Model calls perform full server
@@ -830,6 +837,22 @@ curl -X POST http://127.0.0.1:8000/agent-runs/run-1/resume \
     ]
   }'
 ```
+
+Agent state exposes `skill_revisions`, captured when execution starts. Resuming
+requires each selected skill to exist, remain enabled, and match that revision.
+A changed/recreated template returns `SkillConflictError` (HTTP 409), a disabled
+skill returns `SkillDisabledError` (HTTP 409), and a deleted skill returns
+`SkillNotFoundError` (HTTP 404). Rejected resumes leave the paused snapshot,
+pending approvals, completed tools, and context unchanged. Cancel the old run
+and start a new one to use updated configuration; new runs require fresh
+approval decisions for sensitive actions.
+
+The same checks run before each tool execution and model dispatch, including
+streaming. Changes during an active run stop its next action and record a failed
+state with its trace and completed tool executions; the unfinished transcript is
+not appended to context. A call already in flight may complete. Legacy paused
+runs with skills but no recorded revisions are rejected with HTTP 409; runs
+without skills remain resumable.
 
 Retry a failed, canceled, or unrecoverable paused run as SSE with a
 caller-known new run id:

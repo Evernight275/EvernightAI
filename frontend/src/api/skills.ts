@@ -8,6 +8,7 @@ export type SkillDefinition = {
   description: string
   is_enabled?: boolean
   is_template?: boolean
+  revision?: string | null
   input_schema?: Record<string, unknown> | null
   output_schema?: Record<string, unknown> | null
   capabilities?: SkillCapability[]
@@ -29,7 +30,7 @@ export type RenderedSkill = {
 }
 
 export type SkillTemplateConfig = SkillDefinition & { prompt: string }
-export type SkillTemplateUpdate = Partial<Omit<SkillTemplateConfig, 'name' | 'is_template'>>
+export type SkillTemplateUpdate = Partial<Omit<SkillTemplateConfig, 'name' | 'is_template' | 'revision'>>
 
 export function createSkill(config: SkillTemplateConfig): Promise<SkillDefinition> {
   return requestJson('/skills', { method: 'POST', body: config })

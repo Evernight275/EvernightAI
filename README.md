@@ -172,6 +172,23 @@ An importable example is in `examples/skills/style.json`.
 Chat and Agent check `required_tools` against the tools explicitly supplied for
 that request, without automatically granting or executing tools.
 
+Custom skill templates expose a server-generated `revision`. Actual configuration
+changes receive a new revision; no-op updates retain it. Revisions survive SQLite
+restarts, and imports or deletion followed by recreation receive fresh revisions.
+Agent runs record their selected skill revisions in `skill_revisions` when
+execution starts. Before resuming, executing a tool, or dispatching another model
+call, the agent checks that those skills still exist, remain enabled, and have
+the same revisions. A change raises `SkillConflictError`; disabled and missing
+skills retain their own error types. A rejected resume keeps the run paused with
+its approvals and completed executions intact. A conflict during execution marks
+the managed run failed and preserves its trace and tool ledger without committing
+its unfinished transcript to context. Calls already in flight are not canceled
+by template changes. Version checks do not reuse rendered prompts or bypass tool
+safety, approvals, ownership, memory selection, or context composition.
+Legacy templates receive a persisted revision on restore. Legacy paused runs
+with skill declarations but no recorded revisions must be canceled and started
+again; they cannot silently adopt the current template configuration.
+
 ## Remote MCP Tools
 
 EvernightAI can consume remote MCP servers over Streamable HTTP. Remote tools

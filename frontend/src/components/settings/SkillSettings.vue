@@ -45,7 +45,7 @@ async function save() {
     if (!inputSchema || typeof inputSchema !== 'object' || Array.isArray(inputSchema)) throw new Error('参数 schema 必须是 JSON 对象')
     const config = { ...editor.value, name: editor.value.name.trim(), description: editor.value.description.trim(),
       input_schema: inputSchema as Record<string, unknown>, required_tools: [...new Set(toolsText.value.split(',').map(name => name.trim()).filter(Boolean))] }
-    if (editing.value) { const { name, is_template, ...update } = config; await updateSkill(name, update) }
+    if (editing.value) { const { name, is_template, revision, ...update } = config; await updateSkill(name, update) }
     else await createSkill(config)
     editor.value = null; previewSkill.value = null; feedback.value = '技能已保存'; emit('changed')
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '技能保存失败' }

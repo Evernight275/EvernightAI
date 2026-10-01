@@ -188,6 +188,7 @@ class AgentRunState(EvernightAISchema):
     steps: list[AgentStep] = Field(default_factory=list)
     trace: list[AgentTraceEvent] = Field(default_factory=list)
     applied_trace_sequence: int | None = Field(default=None, ge=0)
+    skill_revisions: dict[str, str | None] | None = None
     remaining_tool_rounds: int = 0
     tool_rounds_used: int = 0
     pending_tool_calls: list[ToolCall] = Field(default_factory=list)

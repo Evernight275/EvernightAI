@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
@@ -103,6 +104,7 @@ class SkillManager(SkillManageProtocol):
             raise SkillConflictError(f"The skill {config.name} already exists")
         config = config.model_copy(deep=True)
         config.is_template = True
+        config.revision = uuid4().hex
         definition, renderer = self._build_template(config)
         if self._template_store is not None:
             self._template_store.save(config)
@@ -121,6 +123,8 @@ class SkillManager(SkillManageProtocol):
         config = SkillTemplateConfig.model_validate({
             **current.model_dump(), **update.model_dump(exclude_unset=True),
         })
+        if config != current:
+            config.revision = uuid4().hex
         definition, renderer = self._build_template(config)
         if self._template_store is not None:
             self._template_store.save(config)
@@ -141,7 +145,13 @@ class SkillManager(SkillManageProtocol):
         for config in self._template_store.list_configs():
             if self._register.has(config.name) and config.name not in self._templates:
                 raise SkillConflictError(f"The stored skill {config.name} conflicts with a registered skill")
+            config = config.model_copy(deep=True)
+            needs_revision = config.revision is None
+            if needs_revision:
+                config.revision = uuid4().hex
             definition, renderer = self._build_template(config)
+            if needs_revision:
+                self._template_store.save(config)
             self._register.register(definition, renderer)
             self._templates[config.name] = config.model_copy(deep=True)
 

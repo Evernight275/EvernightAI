@@ -27,6 +27,7 @@ class SkillDefinition(EvernightAISchema):
     description: str
     is_enabled: bool = True
     is_template: bool = False
+    revision: str | None = Field(default=None, min_length=1)
     input_schema: dict[str, Any] | None = None
     output_schema: dict[str, Any] | None = None
     capabilities: list[SkillCapability] = Field(default_factory=list)

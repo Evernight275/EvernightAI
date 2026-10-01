@@ -17,6 +17,7 @@ from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest, S
 from EvernightAI.core.schema.tool import ToolDefinition
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.infra.adapters.skill.template import create_template_renderer
+from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
 from EvernightAI.interface.http.app import create_http_app
 
 
@@ -109,6 +110,7 @@ def test_failed_persistence_does_not_publish_create_update_or_delete() -> None:
     assert manager.list_skills() == []
     store.fail = False
     manager.create_template(template())
+    revision = manager.get_template("style").revision
     store.fail = True
     with pytest.raises(RuntimeError):
         manager.update_template("style", SkillTemplateUpdate(is_enabled=False))
@@ -116,6 +118,42 @@ def test_failed_persistence_does_not_publish_create_update_or_delete() -> None:
         manager.delete_template("style")
     assert manager.get_skill("style").is_enabled
     assert manager.get_template("style").is_enabled
+    assert manager.get_template("style").revision == revision
+
+
+def test_template_revisions_are_server_owned_and_change_only_with_config() -> None:
+    manager = SkillManager(SkillRegister(), template_factory=create_template_renderer)
+    created = manager.create_template(template(revision="client-version"))
+    assert created.revision is not None and created.revision != "client-version"
+    assert manager.update_template("style", SkillTemplateUpdate()).revision == created.revision
+    assert manager.update_template("style", SkillTemplateUpdate(description=created.description)).revision == created.revision
+    updated = manager.update_template("style", SkillTemplateUpdate(description="Updated description"))
+    assert updated.revision != created.revision
+    assert manager.get_template("style").revision == updated.revision
+    with pytest.raises(SkillConfigurationError):
+        manager.update_template("style", SkillTemplateUpdate(prompt="${broken"))
+    assert manager.get_template("style").revision == updated.revision
+    manager.delete_template("style")
+    recreated = manager.create_template(template(revision=created.revision))
+    assert recreated.revision not in {created.revision, updated.revision}
+
+
+@pytest.mark.asyncio
+async def test_legacy_template_gets_a_stable_persisted_revision(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.sqlite3"
+    store = SQLiteSkillTemplateStore(database)
+    store.save(template(is_template=True))
+    store.close()
+    runtime = create_sqlite_runtime(database)
+    await runtime.initialize()
+    revision = runtime.skills.get_template("style").revision
+    assert revision is not None
+    await runtime.close()
+    reopened = create_sqlite_runtime(database)
+    await reopened.initialize()
+    assert reopened.skills.get_template("style").revision == revision
+    assert reopened.skills.get_skill("style").revision == revision
+    await reopened.close()
 
 
 @pytest.mark.asyncio

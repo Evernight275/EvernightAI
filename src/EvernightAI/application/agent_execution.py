@@ -9,6 +9,7 @@ from EvernightAI.core.error.agent import (
 )
 from EvernightAI.core.error.tool import ToolExecutionError
 from EvernightAI.core.error.provider import ProviderResponseError
+from EvernightAI.core.error.skill import SkillConflictError, SkillDisabledError
 from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
@@ -184,6 +185,10 @@ class AgentExecutionApplication:
         request: AgentRunRequest,
         state: AgentRunState,
     ) -> AsyncIterator[AgentTraceEvent]:
+        state.skill_revisions = {
+            skill.skill_name: self._runtime.skills.get_skill(skill.skill_name).revision
+            for skill in request.skills or []
+        }
         start_step = AgentStep(
             step_type=AgentStepType.START,
             metadata={
@@ -254,6 +259,7 @@ class AgentExecutionApplication:
             raise AgentStateError("Agent run is not paused")
         if not self._is_recovery_eligible(state):
             raise AgentStateError("Agent run cannot resume safely; retry it instead")
+        self._check_skill_revisions(state)
         state.usage = _aggregate_run_usage(state)
         if AgentRunControl.from_state(state).resume_mode is AgentResumeMode.CHECKPOINT:
             state.request = state.request.model_copy(
@@ -434,6 +440,7 @@ class AgentExecutionApplication:
             has_tool_runtime = True
             state.remaining_tool_rounds = remaining_rounds
             for index, raw_call in enumerate(current_tool_calls):
+                self._check_skill_revisions(state)
                 call = self._apply_tool_approval(
                     raw_call,
                     approvals.get(raw_call.tool_call_id),
@@ -484,6 +491,7 @@ class AgentExecutionApplication:
                         ),
                     )
                 tool_started = perf_counter()
+                self._check_skill_revisions(state)
                 try:
                     tool_result = await self._execute_tool_call(state, call)
                     self._log_tool_execution(
@@ -793,6 +801,7 @@ class AgentExecutionApplication:
         self,
         provider_id: str,
         context_id: str,
+        state: AgentRunState,
         *,
         model_id: str,
         messages: list[Content],
@@ -813,6 +822,7 @@ class AgentExecutionApplication:
             principal_scope=principal_scope,
             skill_capability=SkillCapability.AGENT,
         )
+        self._check_skill_revisions(state)
         return await self._runtime.providers.chat(provider_id, request)
 
     async def _chat_events(
@@ -828,10 +838,12 @@ class AgentExecutionApplication:
         tools: list[ToolDefinition] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> AsyncIterator[AgentTraceEvent]:
+        self._check_skill_revisions(state)
         if not self._should_stream_chat(metadata):
             response = await self._chat(
                 provider_id,
                 context_id,
+                state,
                 model_id=model_id,
                 messages=messages,
                 memory_query=memory_query,
@@ -861,6 +873,7 @@ class AgentExecutionApplication:
             metadata=metadata,
             principal_scope=_owner_scope(state.owner_id),
         )
+        self._check_skill_revisions(state)
         stream = await self._runtime.providers.chat_stream(provider_id, request)
         response = None
         async for event in self._stream_chat_events(stream, request.model_id, state):
@@ -1338,6 +1351,19 @@ class AgentExecutionApplication:
                 "error_type": error.__class__.__name__ if error else None,
             },
         )
+
+    def _check_skill_revisions(self, state: AgentRunState) -> None:
+        names = dict.fromkeys(skill.skill_name for skill in state.request.skills or [])
+        if not names and not state.skill_revisions:
+            return
+        if state.skill_revisions is None or names.keys() != state.skill_revisions.keys():
+            raise SkillConflictError("Agent skill versions are unavailable; start a new run")
+        for name in names:
+            definition = self._runtime.skills.get_skill(name)
+            if not definition.is_enabled:
+                raise SkillDisabledError(f"The skill {name} is disabled")
+            if definition.revision != state.skill_revisions[name]:
+                raise SkillConflictError(f"The skill {name} changed during the agent run; start a new run")
 
     def _new_run_state(self, request: AgentRunRequest) -> AgentRunState:
         run_id = AgentRunMetadata.run_id(request.metadata)

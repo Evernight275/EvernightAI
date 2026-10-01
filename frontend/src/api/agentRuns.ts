@@ -110,6 +110,7 @@ export type AgentRunState = {
   steps?: AgentStep[]
   trace?: AgentTraceEvent[]
   applied_trace_sequence?: number | null
+  skill_revisions?: Record<string, string | null> | null
   remaining_tool_rounds?: number
   tool_rounds_used?: number
   pending_tool_calls?: ToolCall[]

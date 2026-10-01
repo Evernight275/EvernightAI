@@ -45,8 +45,8 @@ try {
       if (path === '/skills' && method === 'POST') {
         if (failSave) { failSave = false; return route.fulfill({ status: 503, json: { error: { message: '技能保存暂时失败' } } }) }
         if (templates.has(data.name)) return route.fulfill({ status: 409, json: { error: { message: '技能已存在' } } })
-        templates.set(data.name, data)
-        const { prompt, ...definition } = data
+        templates.set(data.name, { ...data, revision: 'server-revision' })
+        const { prompt, ...definition } = templates.get(data.name)
         skills.push({ ...definition, is_template: true })
         return route.fulfill({ status: 201, json: skills.at(-1) })
       }
@@ -104,6 +104,7 @@ try {
     await page.getByLabel('技能描述', { exact: true }).fill('已编辑技能')
     await page.getByRole('button', { name: '保存技能', exact: true }).click()
     await page.getByText('已编辑技能', { exact: true }).waitFor()
+    assert.equal('revision' in calls.filter(call => call.path === '/skills/style' && call.method === 'PATCH').at(-1).data, false)
     const download = page.waitForEvent('download')
     await page.getByRole('button', { name: '导出技能 style', exact: true }).click()
     assert.equal((await download).suggestedFilename(), 'style.json')
