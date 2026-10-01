@@ -1,7 +1,8 @@
 # EvernightAI
 
 EvernightAI is a small layered runtime for chat providers, skills, tools,
-context, memory, and agent runs.
+context, memory, and agent runs. Image generation through OpenAI-compatible
+providers is available at `/images.html`; see [Image Generation](docs/image-generation.md).
 
 The main runtime loop is:
 

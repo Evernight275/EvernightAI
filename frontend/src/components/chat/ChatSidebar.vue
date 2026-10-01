@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import WorkingDirectoryPicker from './WorkingDirectoryPicker.vue'
 import { authGeneration } from '../../runtime/workspaceRuntime'
-import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, UserRound } from '@lucide/vue'
+import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, UserRound, ImagePlus } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useDialog } from '../common/dialog'
 import type { ChatSidebarItem } from './chatSidebar'
@@ -52,6 +52,7 @@ async function confirmDelete(): Promise<void> {
           <SquarePen :size="18" aria-hidden="true" />
           新建会话
         </button>
+        <a class="chat-sidebar-new" href="/images.html"><ImagePlus :size="18" aria-hidden="true" />图像生成</a>
         <WorkingDirectoryPicker :key="authGeneration" />
         <label class="chat-sidebar-search">
           <Search :size="17" aria-hidden="true" />

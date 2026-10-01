@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
+from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
 from EvernightAI.core.protocol.interface import (
@@ -509,6 +510,26 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
     async def list_providers(self) -> list[ProviderInfo]:
         self._require("providers", "list")
         return await self._inner.list_providers()
+
+    async def generate_images(
+        self, provider_id: str, request: ImageGenerationRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse:
+        self._require("images", "generate", provider_id)
+        return await self._inner.generate_images(provider_id, request, principal_scope=PrincipalScope.for_principal(self._principal))
+
+    def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
+                           principal_scope: PrincipalScope | None = None) -> ImageHistoryPage:
+        self._require("images", "list")
+        return self._inner.list_image_records(limit=limit, cursor=cursor, principal_scope=PrincipalScope.for_principal(self._principal))
+
+    def get_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> ImageGenerationRecord:
+        self._require("images", "get", record_id)
+        return self._inner.get_image_record(record_id, principal_scope=PrincipalScope.for_principal(self._principal))
+
+    def delete_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> None:
+        self._require("images", "delete", record_id)
+        self._inner.delete_image_record(record_id, principal_scope=PrincipalScope.for_principal(self._principal))
 
     async def test_provider(
         self, provider_id: str, request: ProviderTestRequest,

@@ -18,6 +18,13 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from collections.abc import Awaitable, Callable
+from typing import Protocol, runtime_checkable
+from EvernightAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
+
+
+@runtime_checkable
+class ImageGenerationProviderProtocol(Protocol):
+    async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse: ...
 
 
 class ProviderProtocol(EvernightAIProtocol):
@@ -131,6 +138,10 @@ class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
     ) -> bool: ...
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
+
+    async def generate_images(
+        self, provider_id: str, request: ImageGenerationRequest,
+    ) -> ImageGenerationResponse: ...
 
     async def chat_stream(
         self, provider_id: str, request: ChatRequest

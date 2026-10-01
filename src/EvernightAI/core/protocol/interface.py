@@ -21,6 +21,7 @@ from EvernightAI.core.schema.content import (
     Content,
 )
 from EvernightAI.core.schema.context import Context
+from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 from EvernightAI.core.schema.data_analysis import (
     DataAnalysisRequest,
     DataAnalysisResult,
@@ -205,6 +206,18 @@ class ChatInterfaceProtocol(InterfaceProtocol):
 
 
 class ProviderInterfaceProtocol(InterfaceProtocol):
+    async def generate_images(
+        self, provider_id: str, request: ImageGenerationRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse: ...
+
+    def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
+                           principal_scope: PrincipalScope | None = None) -> ImageHistoryPage: ...
+
+    def get_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> ImageGenerationRecord: ...
+
+    def delete_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> None: ...
+
     async def test_provider(
         self, provider_id: str, request: ProviderTestRequest,
     ) -> ProviderTestResult: ...

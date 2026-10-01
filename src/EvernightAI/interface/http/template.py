@@ -83,6 +83,7 @@ OPENAPI_TAGS = [
         "description": "Register provider instances and inspect declared models.",
     },
     {"name": "chat", "description": "Direct chat calls and context-aware chat calls."},
+    {"name": "images", "description": "Generate images through enabled image providers."},
     {
         "name": "contexts",
         "description": "Persist model-visible conversation messages.",

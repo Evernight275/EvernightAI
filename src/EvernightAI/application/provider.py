@@ -1,4 +1,6 @@
 import asyncio
+from EvernightAI.application.image import ImageApplication
+from EvernightAI.core.schema.auth import PrincipalScope
 from time import perf_counter
 
 from EvernightAI.core.error.provider import (
@@ -14,6 +16,7 @@ from EvernightAI.core.error.provider import (
 from EvernightAI.core.schema.content import ChatRequest, Content, ContentPart, ContentPartType, MessageRole
 from EvernightAI.core.protocol.interface import ProviderInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
@@ -32,6 +35,22 @@ PROVIDER_TEST_TIMEOUT_SECONDS = 30.0
 class ProviderApplication(ProviderInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
+
+    async def generate_images(
+        self, provider_id: str, request: ImageGenerationRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse:
+        return await ImageApplication(self._runtime).generate(provider_id, request, principal_scope=principal_scope)
+
+    def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
+                           principal_scope: PrincipalScope | None = None) -> ImageHistoryPage:
+        return ImageApplication(self._runtime).list_records(limit=limit, cursor=cursor, principal_scope=principal_scope)
+
+    def get_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> ImageGenerationRecord:
+        return ImageApplication(self._runtime).get_record(record_id, principal_scope=principal_scope)
+
+    def delete_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> None:
+        ImageApplication(self._runtime).delete_record(record_id, principal_scope=principal_scope)
 
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo:
         await self._runtime.providers.create(config, replace_existing=False)

@@ -31,6 +31,7 @@ from EvernightAI.interface.http.routes.data_analysis import (
     router as data_analysis_router,
 )
 from EvernightAI.interface.http.routes.health import router as health_router
+from EvernightAI.interface.http.routes.images import router as images_router
 from EvernightAI.interface.http.routes.logs import router as logs_router
 from EvernightAI.interface.http.routes.memories import router as memories_router
 from EvernightAI.interface.http.routes.providers import router as providers_router
@@ -106,6 +107,7 @@ def create_http_app(
     app.include_router(skills_router)
     app.include_router(tools_router)
     app.include_router(chat_router)
+    app.include_router(images_router)
     app.include_router(agent_runs_router)
     app.include_router(websocket_router)
     if static_files_path is not None:
@@ -158,6 +160,8 @@ def _add_request_context_middleware(app: FastAPI) -> None:
             )
             if response is not None:
                 response.headers[REQUEST_ID_HEADER] = request_id
+                if request.url.path.startswith("/images/"):
+                    response.headers["Cache-Control"] = "no-store"
 
 
 def _resource_ids(path: str) -> tuple[str | None, str | None]:

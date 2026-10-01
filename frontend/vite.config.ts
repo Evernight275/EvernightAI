@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
     plugins: [vue()],
     build: {
       rollupOptions: {
-        input: ['index.html', 'chat.html'],
+        input: ['index.html', 'chat.html', 'images.html'],
       },
     },
     server: {
@@ -37,6 +37,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         }])),
         '^/chat(?:$|/)': {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+        '^/images(?:$|/)': {
           target: apiTarget,
           changeOrigin: true,
         },

@@ -1,4 +1,6 @@
 import inspect
+from EvernightAI.core.domain.image import ImageGenerationStore
+from EvernightAI.core.protocol.image import ImageArchiveProtocol, ImageGenerationStoreProtocol
 from typing import Any
 
 from EvernightAI.core.protocol.agent import (
@@ -57,6 +59,8 @@ class RuntimeKernel(RuntimeProtocol):
         provider_factory: ProviderFactoryProtocol,
         providers: ProviderManageProtocol,
         provider_config_store: ProviderConfigStoreProtocol | None = None,
+        image_records: ImageGenerationStoreProtocol | None = None,
+        image_archive: ImageArchiveProtocol | None = None,
         tool_register: ToolRegisterProtocol,
         tools: ToolManageProtocol,
         tool_safety_policy: ToolSafetyPolicyProtocol,
@@ -86,6 +90,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._provider_factory = provider_factory
         self._providers = providers
         self._provider_config_store = provider_config_store
+        self._image_records = image_records or ImageGenerationStore()
+        self._image_archive = image_archive
         self._initialized = False
         self._initialization_error: Exception | None = None
         self._tool_register = tool_register
@@ -115,6 +121,14 @@ class RuntimeKernel(RuntimeProtocol):
         self._agent_run_executor = agent_run_executor
         self._agent_trace_register = agent_trace_register
         self._tool_execution_register = tool_execution_register
+
+    @property
+    def image_records(self) -> ImageGenerationStoreProtocol:
+        return self._image_records
+
+    @property
+    def image_archive(self) -> ImageArchiveProtocol | None:
+        return self._image_archive
 
     @property
     def provider_factory(self) -> ProviderFactoryProtocol:
@@ -269,6 +283,7 @@ class RuntimeKernel(RuntimeProtocol):
     def _persistent_resources(self) -> list[Any]:
         return [
             self._skills,
+            self._image_records,
             self._provider_config_store,
             self._context_register,
             self._data_analysis_register,

@@ -39,6 +39,7 @@ addopts = [
     "-ra",
 ]
 markers = [
+    "real_images: tests that call a real image generation provider (may incur charges)",
     "real_openai: tests that call a real OpenAI-compatible provider",
     "real_openai_responses: tests that call a real OpenAI Responses provider",
     "real_gemini: tests that call a real Gemini provider",

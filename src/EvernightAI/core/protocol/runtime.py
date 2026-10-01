@@ -1,4 +1,5 @@
 from EvernightAI.core.protocol.base import EvernightAIProtocol
+from EvernightAI.core.protocol.image import ImageArchiveProtocol, ImageGenerationStoreProtocol
 from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,
@@ -45,6 +46,12 @@ class RuntimeProtocol(EvernightAIProtocol):
     """
     运行时协议
     """
+
+    @property
+    def image_records(self) -> ImageGenerationStoreProtocol: ...
+
+    @property
+    def image_archive(self) -> ImageArchiveProtocol | None: ...
 
     @property
     def provider_factory(self) -> ProviderFactoryProtocol: ...

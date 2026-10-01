@@ -38,6 +38,9 @@ from EvernightAI.core.protocol.agent import (
     ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
+from EvernightAI.core.protocol.image import ImageGenerationStoreProtocol
+from EvernightAI.infra.adapters.images.archive import PublicImageArchive
+from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
@@ -540,6 +543,7 @@ def create_sqlite_runtime(
         session_register=create_sqlite_session_register(database_path),
         provider_config_store=create_sqlite_provider_config_store(database_path),
         skill_template_store=SQLiteSkillTemplateStore(database_path),
+        image_records=SQLiteImageGenerationStore(database_path),
         data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
@@ -569,6 +573,7 @@ def _create_runtime(
     session_register: SessionRegisterProtocol,
     provider_config_store: ProviderConfigStoreProtocol | None = None,
     skill_template_store: SkillTemplateStoreProtocol | None = None,
+    image_records: ImageGenerationStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
     data_analysis: DataAnalysisManageProtocol | None = None,
     sessions: SessionManageProtocol | None = None,
@@ -635,6 +640,8 @@ def _create_runtime(
         provider_factory=provider_factory,
         providers=providers,
         provider_config_store=provider_config_store,
+        image_records=image_records,
+        image_archive=PublicImageArchive(),
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,

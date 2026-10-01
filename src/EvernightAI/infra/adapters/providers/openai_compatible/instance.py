@@ -7,6 +7,11 @@ from openai.types.chat import ChatCompletionChunk
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
+from EvernightAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.infra.adapters.providers.openai_compatible.images import (
+    from_openai_images,
+    image_generation_params,
+)
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderModelCapability,
@@ -47,6 +52,21 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
     @property
     def is_closed(self) -> bool:
         return self._closed
+
+    async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        params = image_generation_params(request)
+        model = next(
+            (model for model in self._models.values() if model.model_id == request.model_id),
+            None,
+        )
+        params["timeout"] = request.timeout_seconds or (
+            model.timeout.total_seconds() if model else 180.0
+        )
+        try:
+            response = await self._client.with_options(max_retries=0).images.generate(**params)
+        except OpenAIError as error:
+            raise_openai_compatible_error(error)
+        return from_openai_images(response, request)
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)

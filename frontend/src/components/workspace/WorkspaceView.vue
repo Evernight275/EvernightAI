@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef } from 'vue'
-import { X, KeyRound, Server, SlidersHorizontal } from '@lucide/vue'
+import { X, KeyRound, Server, SlidersHorizontal, ImagePlus } from '@lucide/vue'
 import { authGeneration } from '../../runtime/workspaceRuntime'
 import { workspaceActor } from '../../state/workspaceMachine'
 import ApiKeySettings from '../settings/ApiKeySettings.vue'
@@ -44,6 +44,7 @@ function refresh(): void { workspaceActor.send({ type: 'REFRESH' }) }
         <a v-else class="settings-close" href="/chat.html" aria-label="返回聊天"><X :size="20" aria-hidden="true" /></a>
       </header>
       <nav class="settings-nav" aria-label="设置分类">
+        <a href="/images.html"><ImagePlus :size="18" aria-hidden="true" /><span>图像生成</span></a>
         <button v-for="section in sections" :key="section.id" type="button"
           :aria-current="activeSection === section.id ? 'page' : undefined" @click="activeSection = section.id">
           <component :is="section.icon" :size="18" aria-hidden="true" /><span>{{ section.label }}</span>

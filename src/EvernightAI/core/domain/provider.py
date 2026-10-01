@@ -12,8 +12,10 @@ from EvernightAI.core.protocol.provider import (
     ProviderBuilderProtocol,
     ProviderConfigStoreProtocol,
     ProviderSecretResolverProtocol,
+    ImageGenerationProviderProtocol,
 )
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
+from EvernightAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -316,6 +318,44 @@ class ProviderManager(ProviderManageProtocol):
         finally:
             await self._release_slot(slot)
 
+    async def generate_images(
+        self, provider_id: str, request: ImageGenerationRequest,
+    ) -> ImageGenerationResponse:
+        slot = await self._acquire_slot(provider_id)
+        started = perf_counter()
+        usage = None
+        try:
+            model = next(
+                (model for model in slot.info.model.values() if model.model_id == request.model_id),
+                None,
+            )
+            if (
+                model is not None and model.capabilities
+                and ProviderModelCapability.IMAGE_GENERATION not in model.capabilities
+            ):
+                raise ProviderCapabilityUnsupportedError(
+                    f"The model {request.model_id} does not support image generation"
+                )
+            if not isinstance(slot.instance, ImageGenerationProviderProtocol):
+                raise ProviderCapabilityUnsupportedError(
+                    f"The provider {provider_id} does not support image generation"
+                )
+            response = await slot.instance.generate_images(request)
+            if response.usage is not None:
+                usage = ChatUsage(
+                    prompt_tokens=response.usage.input_tokens,
+                    completion_tokens=response.usage.output_tokens,
+                    total_tokens=response.usage.total_tokens,
+                )
+        except BaseException as exc:
+            self._record_call(slot, request, started=started, error=exc)
+            raise
+        else:
+            self._record_call(slot, request, started=started, usage=usage)
+            return response
+        finally:
+            await self._release_slot(slot)
+
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
         slot = await self._acquire_slot(provider_id)
         started = perf_counter()
@@ -447,7 +487,7 @@ class ProviderManager(ProviderManageProtocol):
     def _record_call(
         self,
         slot: _ProviderSlot,
-        request: ChatRequest,
+        request: ChatRequest | ImageGenerationRequest,
         *,
         started: float,
         response: ChatResponse | None = None,
