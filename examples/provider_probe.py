@@ -1,13 +1,11 @@
 """Probe configured providers without changing the application's database."""
 
 import argparse
-import ast
 import asyncio
 import json
-import random
+import math
 from pathlib import Path
 from time import perf_counter
-from types import SimpleNamespace
 from typing import Any
 
 from EvernightAI.bootstrap.interface import create_interface
@@ -22,7 +20,11 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.provider import ProviderConfig, ProviderModelCapability
+from EvernightAI.core.schema.provider import (
+    ProviderConfig,
+    ProviderModelCapability,
+    ProviderModelConfig,
+)
 from EvernightAI.core.schema.stream import ChatStreamEventType
 from EvernightAI.interface.cli.config import load_config
 
@@ -64,19 +66,23 @@ async def probe_call(
                 async for event in stream:
                     if event.event_type is ChatStreamEventType.ERROR:
                         result["error_type"] = event.error_type or "StreamError"
-                        break
                     if event.event_type is ChatStreamEventType.MESSAGE_DELTA:
                         text += event.text_delta or ""
                     if event.event_type is ChatStreamEventType.DONE:
                         done = True
                 result["done"] = done
-                result["success"] = done and bool(text.strip())
+                result["success"] = done and bool(text.strip()) and "error_type" not in result
+                if not result["success"] and "error_type" not in result:
+                    result["error_type"] = "EmptyOutput" if done else "IncompleteStream"
             else:
                 response = await interface.chat.chat(provider_id, request)
                 text = "".join(part.text or "" for part in response.message.content or [])
                 result["success"] = bool(text.strip())
+                if not result["success"]:
+                    result["error_type"] = "EmptyOutput"
     except ProviderUnavailableError as error:
-        result.update(success=False, skipped=True, error_type=error.error_type)
+        result.update(success=False, skipped=True, error_type=error.error_type,
+                      reason="Provider unavailable; success path not verified")
     except EvernightAIError as error:
         result.update(success=False, error_type=error.error_type)
         result["upstream_status"] = getattr(error.cause, "status_code", None)
@@ -86,7 +92,7 @@ async def probe_call(
         result.update(success=False, error_type=type(error).__name__)
     result["request_unchanged"] = before == request.model_dump(mode="json")
     if not result["request_unchanged"]:
-        result.update(success=False, error_type="RequestMutation")
+        result.update(success=False, skipped=False, error_type="RequestMutation")
     result["output_chars"] = len(text)
     result["elapsed_ms"] = round((perf_counter() - started) * 1000, 1)
     emit(result)
@@ -105,7 +111,10 @@ async def probe_provider(
             candidate = config.model_copy(deep=True)
             # Disable discovery so undeclared requests cannot depend on /models.
             candidate.discover_models = False
-            if not declared:
+            if declared:
+                if not any(model.model_id == model_id for model in candidate.model.values()):
+                    candidate.model[model_id] = ProviderModelConfig(model_id=model_id)
+            else:
                 candidate.model = {}
             await interface.providers.create_provider(candidate)
             results.extend(await asyncio.gather(*(
@@ -126,80 +135,12 @@ async def probe_provider(
     return results
 
 
-async def probe_pasted_retry(source_path: Path) -> list[dict[str, Any]]:
-    """Execute only the pasted retry methods with local fake dependencies."""
-    tree = ast.parse(source_path.read_text(encoding="utf-8-sig"))
-    original = next(node for node in tree.body if isinstance(node, ast.ClassDef)
-                    and node.name == "ProviderOpenAIOfficial")
-    methods = [node for node in original.body if isinstance(node, ast.AsyncFunctionDef)
-               and node.name in {"text_chat", "text_chat_stream"}]
-    if len(methods) != 2:
-        raise ValueError("Expected both retry methods in the pasted source")
-    body: list[ast.stmt] = [
-        ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
-        ast.ClassDef(name=original.name, bases=[], keywords=[], body=methods,
-                     decorator_list=[], type_params=[]),
-    ]
-    extracted = ast.Module(body=body, type_ignores=[])
-    namespace: dict[str, Any] = {
-        "random": random,
-        "logger": SimpleNamespace(error=lambda *args: None),
-    }
-    exec(compile(ast.fix_missing_locations(extracted), str(source_path), "exec"), namespace)
-    provider = namespace[original.name]()
-    provider.api_keys = ["local-fake-key"]
-    provider.client = SimpleNamespace(api_key=None)
-    calls = 0
-    output: list[str] = []
-
-    async def prepare(*args, **kwargs):
-        return {}, []
-
-    async def query(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls < 10:
-            raise RuntimeError("local-retryable-error")
-        return "OK"
-
-    async def query_stream(*args, **kwargs):
-        yield await query()
-
-    async def handle(error, payload, contexts, tools, key, keys, *args, **kwargs):
-        return False, key, keys, payload, contexts, tools, False
-
-    provider._prepare_chat_payload = prepare
-    provider._query = query
-    provider._query_stream = query_stream
-    provider._handle_api_error = handle
-    results = []
-    for streaming in (False, True):
-        calls = 0
-        output = []
-        error_type = None
-        try:
-            if streaming:
-                async for part in provider.text_chat_stream():
-                    output.append(part)
-            else:
-                output.append(await provider.text_chat())
-        except Exception as error:
-            error_type = type(error).__name__
-        result = {"implementation": "pasted_retry_methods",
-                  "case": "last_attempt_success_stream" if streaming else "last_attempt_success_chat",
-                  "calls": calls, "last_call_succeeded": calls == 10,
-                  "delivered_output": bool(output), "error_type": error_type,
-                  "bug_reproduced": calls == 10 and error_type is not None}
-        emit(result)
-        results.append(result)
-    return results
-
-
 async def run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     results: list[dict[str, Any]] = []
-    if args.comparison_source:
-        results.extend(await probe_pasted_retry(args.comparison_source))
+    unknown = set(args.provider or []) - {p.provider_id for p in config.providers}
+    if unknown:
+        raise ValueError("Unknown provider ID: " + ", ".join(sorted(unknown)))
     providers = [p for p in config.providers if not args.provider or p.provider_id in args.provider]
     if not providers:
         raise ValueError("No matching configured providers")
@@ -216,29 +157,41 @@ async def run(args: argparse.Namespace) -> int:
         emit({"provider": provider.provider_id, "type": provider.type.value,
               "model": model_id, "starting": True})
         results.extend(await probe_provider(provider, model_id, args.timeout))
-    report = {"config": str(args.config.resolve()), "results": results}
+    passed = sum(r.get("success") is True and not r.get("skipped") for r in results)
+    skipped = sum(bool(r.get("skipped")) for r in results)
+    failed = len(results) - passed - skipped
+    summary = {"finished": True, "passed_cases": passed,
+               "failed_cases": failed, "skipped_cases": skipped}
+    report = {"config": str(args.config.resolve()), "results": results, "summary": summary}
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-    failures = [r for r in results if r.get("success") is False and not r.get("skipped")]
-    emit({"finished": True, "failed_cases": len(failures)})
-    return int(bool(failures))
+    emit(summary)
+    if failed:
+        return 1
+    return 2 if skipped or not passed else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
-    parser.add_argument("--provider", action="append")
-    parser.add_argument("--model")
-    parser.add_argument("--timeout", type=float, default=45)
-    parser.add_argument("--report", type=Path)
-    parser.add_argument("--comparison-source", type=Path)
+    parser.add_argument("--provider", action="append", help="Provider ID; repeat to select several")
+    parser.add_argument("--model", help="Override the model for a single --provider")
+    parser.add_argument("--timeout", type=float, default=45, help="Total seconds per call (default: 45)")
+    parser.add_argument("--report", type=Path, help="Save a JSON report without credentials or response text")
     args = parser.parse_args()
-    if args.timeout <= 0:
-        parser.error("--timeout must be positive")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be finite and positive")
+    if args.model is not None:
+        if len(set(args.provider or [])) != 1 or not args.model.strip():
+            parser.error("--model requires exactly one --provider and a nonblank model ID")
+        args.model = args.model.strip()
     try:
         return asyncio.run(run(args))
-    except (EvernightAIError, ValueError, OSError) as error:
+    except ValueError as error:
+        emit({"failed": True, "error_type": type(error).__name__, "reason": str(error)})
+        return 1
+    except (EvernightAIError, OSError) as error:
         emit({"failed": True, "error_type": type(error).__name__})
         return 1
 
