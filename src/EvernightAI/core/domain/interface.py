@@ -1,8 +1,8 @@
+from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
-    DataAnalysisInterfaceProtocol,
     EvernightInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
@@ -19,7 +19,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         chat: ChatInterfaceProtocol,
         providers: ProviderInterfaceProtocol,
         tools: ToolInterfaceProtocol,
-        data_analysis: DataAnalysisInterfaceProtocol,
+        data_analysis: DataAnalysisManageProtocol,
         agent: AgentInterfaceProtocol,
         agent_runs: AgentRunInterfaceProtocol,
         skills: SkillInterfaceProtocol,
@@ -52,7 +52,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         return self._tools
 
     @property
-    def data_analysis(self) -> DataAnalysisInterfaceProtocol:
+    def data_analysis(self) -> DataAnalysisManageProtocol:
         return self._data_analysis
 
     @property

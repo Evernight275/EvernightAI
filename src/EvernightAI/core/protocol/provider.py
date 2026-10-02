@@ -1,11 +1,3 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    FactoryProtocol,
-    InstanceProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-)
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.provider import (
@@ -27,13 +19,7 @@ class ImageGenerationProviderProtocol(Protocol):
     async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse: ...
 
 
-class ProviderProtocol(EvernightAIProtocol):
-    """
-    提供商协议
-    """
-
-
-class ProviderInstanceProtocol(ProviderProtocol, InstanceProtocol):
+class ProviderInstanceProtocol(Protocol):
     """
     提供商实例协议
     """
@@ -68,7 +54,7 @@ ProviderBuilderProtocol = Callable[
 ]
 
 
-class ProviderRegisterProtocol(ProviderProtocol, RegisterProtocol):
+class ProviderRegisterProtocol(Protocol):
     """
     提供商注册协议
     """
@@ -82,7 +68,7 @@ class ProviderRegisterProtocol(ProviderProtocol, RegisterProtocol):
     def has(self, provider_id: str) -> bool: ...
 
 
-class ProviderConfigStoreProtocol(ProviderProtocol, RegisterProtocol):
+class ProviderConfigStoreProtocol(Protocol):
     """可恢复的脱敏Provider配置存储。"""
 
     def save(self, provider: ProviderConfig) -> None: ...
@@ -94,17 +80,11 @@ class ProviderConfigStoreProtocol(ProviderProtocol, RegisterProtocol):
     def delete(self, provider_id: str) -> None: ...
 
 
-class ProviderSecretResolverProtocol(ProviderProtocol, ResponsibilityProtocol):
+class ProviderSecretResolverProtocol(Protocol):
     def resolve(self, secret_ref: str) -> str: ...
 
 
-class ProviderResponsibilityProtocol(ProviderProtocol, ResponsibilityProtocol):
-    """
-    提供商职责协议
-    """
-
-
-class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
+class ProviderManageProtocol(Protocol):
     """
     提供商管理协议
     """
@@ -154,7 +134,7 @@ class ProviderManageProtocol(ProviderProtocol, ManageProtocol):
     async def restore(self) -> list[str]: ...
 
 
-class ProviderFactoryProtocol(ProviderProtocol, FactoryProtocol, RegisterProtocol):
+class ProviderFactoryProtocol(Protocol):
     """
     提供商工厂协议
     """

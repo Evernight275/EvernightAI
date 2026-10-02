@@ -1,4 +1,5 @@
-from EvernightAI.core.protocol.base import EvernightAIProtocol
+from typing import Protocol
+
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.image import (
     ImageGenerationRecord,
@@ -8,7 +9,7 @@ from EvernightAI.core.schema.image import (
 )
 
 
-class ImageGenerationStoreProtocol(EvernightAIProtocol):
+class ImageGenerationStoreProtocol(Protocol):
     def save(self, record: ImageGenerationRecord) -> None: ...
 
     def update(self, record: ImageGenerationRecord) -> None: ...
@@ -30,7 +31,7 @@ class ImageGenerationStoreProtocol(EvernightAIProtocol):
     ) -> None: ...
 
 
-class ImageArchiveProtocol(EvernightAIProtocol):
+class ImageArchiveProtocol(Protocol):
     async def archive(
         self, response: ImageGenerationResponse
     ) -> ImageGenerationResponse: ...

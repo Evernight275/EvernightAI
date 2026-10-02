@@ -1,16 +1,9 @@
-from EvernightAI.core.protocol.base import EvernightAIProtocol, RegisterProtocol
+from typing import Protocol
+
 from EvernightAI.core.schema.log import Log, LogLevel
 
 
-class LogProtocol(EvernightAIProtocol):
-    """
-    日志协议
-    """
-
-    ...
-
-
-class LogRegisterProtocol(LogProtocol, RegisterProtocol):
+class LogRegisterProtocol(Protocol):
     """
     跨接口运行日志注册协议
     """

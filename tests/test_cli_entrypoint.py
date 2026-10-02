@@ -4,7 +4,6 @@ from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.cli import main as package_main
 from EvernightAI.core.error.provider import ProviderUnavailableError
-from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
@@ -569,8 +568,8 @@ class FailingProviderCommand:
     async def create_provider(
         self,
         _config: ProviderConfig,
-    ) -> ProviderInstanceProtocol:
-        return FailingProvider()
+    ) -> None:
+        pass
 
 
 class FailingChatCommand:
@@ -580,10 +579,6 @@ class FailingChatCommand:
         _request: ChatRequest,
     ) -> ChatResponse:
         raise ProviderUnavailableError("provider chat failed")
-
-
-class FailingProvider(ProviderInstanceProtocol):
-    pass
 
 
 class FakeOperationsInterface:

@@ -1,21 +1,10 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-)
+from typing import Protocol
+
 from EvernightAI.core.schema.session import Session, SessionStatus
 from EvernightAI.core.schema.auth import PrincipalScope
 
 
-class SessionProtocol(EvernightAIProtocol):
-    """
-    会话协议
-    """
-
-    ...
-
-
-class SessionRegisterProtocol(SessionProtocol, RegisterProtocol):
+class SessionRegisterProtocol(Protocol):
     """
     会话注册协议
     """
@@ -61,7 +50,7 @@ class SessionRegisterProtocol(SessionProtocol, RegisterProtocol):
     ) -> list[Session]: ...
 
 
-class SessionManageProtocol(SessionProtocol, ManageProtocol):
+class SessionManageProtocol(Protocol):
     """
     会话管理协议
     """

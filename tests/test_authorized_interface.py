@@ -19,11 +19,11 @@ from EvernightAI.core.domain.authorized_interface import (
 )
 from EvernightAI.core.error.auth import AuthPermissionDeniedError
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
+from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
-    DataAnalysisInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
     SkillInterfaceProtocol,
@@ -121,7 +121,7 @@ async def test_authorized_interface_delegates_when_permission_is_allowed() -> No
         Context(context_id="ctx-1", messages=[])
     )
     tools = interface.tools.list_tools()
-    data_sources = interface.data_analysis.list_data_sources()
+    data_sources = interface.data_analysis.list_sources()
 
     assert provider.provider_id == "provider-1"
     assert context.context_id == "ctx-1"
@@ -509,20 +509,20 @@ async def test_authorized_agent_run_interface_requires_expected_permission(
     ("method_name", "args", "expected_resource", "expected_action", "expected_id"),
     [
         ("list_skills", (), "skills", "list", None),
-        ("create_skill", (SkillTemplateConfig(name="skill-1", description="Template", prompt="Hello"),), "skills", "create", "skill-1"),
-        ("get_skill_template", ("skill-1",), "skills", "get_template", "skill-1"),
-        ("update_skill", ("skill-1", SkillTemplateUpdate(is_enabled=False)), "skills", "update", "skill-1"),
-        ("delete_skill", ("skill-1",), "skills", "delete", "skill-1"),
+        ("create_template", (SkillTemplateConfig(name="skill-1", description="Template", prompt="Hello"),), "skills", "create", "skill-1"),
+        ("get_template", ("skill-1",), "skills", "get_template", "skill-1"),
+        ("update_template", ("skill-1", SkillTemplateUpdate(is_enabled=False)), "skills", "update", "skill-1"),
+        ("delete_template", ("skill-1",), "skills", "delete", "skill-1"),
         ("get_skill", ("skill-1",), "skills", "get", "skill-1"),
         (
-            "skill_supports",
+            "supports",
             ("skill-1", SkillCapability.CHAT),
             "skills",
             "supports",
             "skill-1",
         ),
         (
-            "render_skill",
+            "render",
             (SkillRenderRequest(render_id="render-1", skill_name="skill-1"),),
             "skills",
             "render",
@@ -642,18 +642,18 @@ def test_authorized_tool_interface_requires_expected_permission() -> None:
 @pytest.mark.parametrize(
     ("method_name", "args", "expected_action", "expected_id"),
     [
-        ("list_data_sources", (), "list", None),
-        ("get_data_source", ("orders",), "get", "orders"),
-        ("list_data_fields", ("orders",), "list_fields", "orders"),
-        ("list_data_metrics", ("orders",), "list_metrics", "orders"),
+        ("list_sources", (), "list", None),
+        ("get_source", ("orders",), "get", "orders"),
+        ("list_fields", ("orders",), "list_fields", "orders"),
+        ("list_metrics", ("orders",), "list_metrics", "orders"),
         (
-            "run_statistics",
+            "statistics",
             (DataStatisticsRequest(source_id="orders", metrics=["order_count"]),),
             "statistics",
             "orders",
         ),
         (
-            "analyze_data",
+            "analyze",
             (DataAnalysisRequest(source_id="orders"),),
             "analyze",
             "orders",
@@ -670,7 +670,7 @@ async def test_authorized_data_analysis_interface_requires_expected_permission(
     authorizer = RecordingAuthorizer()
     inner = FakeDataAnalysisInterface()
     interface = AuthorizedDataAnalysisInterface(
-        cast(DataAnalysisInterfaceProtocol, inner),
+        cast(DataAnalysisManageProtocol, inner),
         cast(AuthorizerProtocol, authorizer),
         Principal(principal_id="user-1"),
     )
@@ -875,34 +875,34 @@ class FakeDataAnalysisInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def list_data_sources(self) -> list[DataSourceDefinition]:
-        self.calls.append("list_data_sources")
+    def list_sources(self) -> list[DataSourceDefinition]:
+        self.calls.append("list_sources")
         return []
 
-    def get_data_source(self, source_id: str) -> DataSourceDefinition:
-        self.calls.append("get_data_source")
+    def get_source(self, source_id: str) -> DataSourceDefinition:
+        self.calls.append("get_source")
         return DataSourceDefinition(source_id=source_id, name=source_id)
 
-    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]:
-        self.calls.append("list_data_fields")
+    def list_fields(self, source_id: str) -> list[DataFieldDefinition]:
+        self.calls.append("list_fields")
         return []
 
-    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]:
-        self.calls.append("list_data_metrics")
+    def list_metrics(self, source_id: str) -> list[DataMetricDefinition]:
+        self.calls.append("list_metrics")
         return []
 
-    async def run_statistics(
+    async def statistics(
         self,
         request: DataStatisticsRequest,
     ) -> DataStatisticsResult:
-        self.calls.append("run_statistics")
+        self.calls.append("statistics")
         return DataStatisticsResult(source_id=request.source_id)
 
-    async def analyze_data(
+    async def analyze(
         self,
         request: DataAnalysisRequest,
     ) -> DataAnalysisResult:
-        self.calls.append("analyze_data")
+        self.calls.append("analyze")
         return DataAnalysisResult(source_id=request.source_id)
 
 
@@ -1070,36 +1070,36 @@ class FakeSkillInterface:
         self.calls.append("list_skills")
         return "delegated"
 
-    def create_skill(self, config: SkillTemplateConfig) -> str:
-        self.calls.append("create_skill")
+    def create_template(self, config: SkillTemplateConfig) -> str:
+        self.calls.append("create_template")
         return "delegated"
 
-    def get_skill_template(self, skill_name: str) -> str:
-        self.calls.append("get_skill_template")
+    def get_template(self, skill_name: str) -> str:
+        self.calls.append("get_template")
         return "delegated"
 
-    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> str:
-        self.calls.append("update_skill")
+    def update_template(self, skill_name: str, update: SkillTemplateUpdate) -> str:
+        self.calls.append("update_template")
         return "delegated"
 
-    def delete_skill(self, skill_name: str) -> str:
-        self.calls.append("delete_skill")
+    def delete_template(self, skill_name: str) -> str:
+        self.calls.append("delete_template")
         return "delegated"
 
     def get_skill(self, skill_name: str) -> str:
         self.calls.append("get_skill")
         return "delegated"
 
-    def skill_supports(
+    def supports(
         self,
         skill_name: str,
         capability: SkillCapability,
     ) -> str:
-        self.calls.append("skill_supports")
+        self.calls.append("supports")
         return "delegated"
 
-    async def render_skill(self, request: SkillRenderRequest) -> str:
-        self.calls.append("render_skill")
+    async def render(self, request: SkillRenderRequest) -> str:
+        self.calls.append("render")
         return "delegated"
 
 

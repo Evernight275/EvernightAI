@@ -152,7 +152,9 @@ flowchart TD
 Key point: registrations provide builders/executors into core registries; the
 runtime owns the resulting managers and strategies.
 `bootstrap.interface` binds application services to these roles. The interface's
-tool role is `runtime.tools`; data analysis uses `DataAnalysisApplication`.
+tool, skill, and data-analysis roles use `runtime.tools`, `runtime.skills`, and
+`runtime.data_analysis` directly. Their authorization wrappers check permissions
+before calling those managers.
 Runtime initialization restores providers and loads MCP sources. SQLite Agent
 storage and its executor are supplied when Agent storage is enabled.
 

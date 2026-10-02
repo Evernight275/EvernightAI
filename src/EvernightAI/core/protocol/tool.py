@@ -1,9 +1,3 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-    ManageProtocol,
-)
 from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolCallResult,
@@ -12,7 +6,7 @@ from EvernightAI.core.schema.tool import (
 )
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 ToolExecutorProtocol = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 ToolPreflightPolicy = Callable[
@@ -28,23 +22,7 @@ class ToolRegistration:
     preflight_policy: ToolPreflightPolicy | None = None
 
 
-class ToolProtocol(EvernightAIProtocol):
-    """
-    工具协议
-    """
-
-    ...
-
-
-class ToolExecuteProtocol(ToolProtocol, ResponsibilityProtocol):
-    """
-    工具执行协议
-    """
-
-    async def execute(self, call: ToolCall) -> ToolCallResult: ...
-
-
-class ToolSafetyPolicyProtocol(ToolProtocol, ResponsibilityProtocol):
+class ToolSafetyPolicyProtocol(Protocol):
     """
     工具安全策略协议
     """
@@ -56,7 +34,7 @@ class ToolSafetyPolicyProtocol(ToolProtocol, ResponsibilityProtocol):
     ) -> ToolSafetyDecision: ...
 
 
-class ToolManageProtocol(ToolProtocol, ManageProtocol):
+class ToolManageProtocol(Protocol):
     """
     工具管理协议
     """
@@ -68,7 +46,7 @@ class ToolManageProtocol(ToolProtocol, ManageProtocol):
     async def execute(self, call: ToolCall) -> ToolCallResult: ...
 
 
-class ToolRegisterProtocol(ToolProtocol, RegisterProtocol):
+class ToolRegisterProtocol(Protocol):
     """
     工具注册协议
     """
@@ -102,7 +80,7 @@ class ToolRegisterProtocol(ToolProtocol, RegisterProtocol):
     def list_tools(self) -> list[ToolDefinition]: ...
 
 
-class ToolSourceProtocol(ToolProtocol, ResponsibilityProtocol):
+class ToolSourceProtocol(Protocol):
     """Load tools from an external source into a runtime register."""
 
     async def load(self, register: ToolRegisterProtocol) -> None: ...

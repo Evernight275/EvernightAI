@@ -1,16 +1,9 @@
-from EvernightAI.core.protocol.base import EvernightAIProtocol, RegisterProtocol
+from typing import Protocol
+
 from EvernightAI.core.schema.trace import TraceEvent
 
 
-class TraceProtocol(EvernightAIProtocol):
-    """
-    追踪协议
-    """
-
-    ...
-
-
-class TraceRegisterProtocol(TraceProtocol, RegisterProtocol):
+class TraceRegisterProtocol(Protocol):
     """
     跨领域语义追踪事件注册协议
     """

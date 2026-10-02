@@ -12,6 +12,10 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> provider adapter
 
 ## 架构
 
+目录职责、启动链路、功能定位和阅读顺序见 [项目结构](docs/project-structure.md)。
+详细依赖与关系图见 [架构依赖说明](docs/architecture-dependencies.md) 和
+[架构图](docs/architecture-diagrams.md)。
+
 EvernightAI 的接口层刻意保持很薄。HTTP 和 CLI 不负责组装 runtime，不认识
 SQLite、provider builder 或具体 infra adapter；它们只接收已经组装好的
 interface/runtime，把外部请求翻译成 core schema，再调用协议边界。
@@ -44,12 +48,11 @@ flowchart TD
     InterfaceBoundary --> ChatApp["ChatApplication"]
     InterfaceBoundary --> AgentApp["AgentApplication"]
     InterfaceBoundary --> AgentRuns["AgentRunApplication"]
-    InterfaceBoundary --> SkillApp["SkillApplication"]
+    InterfaceBoundary --> Skills
 
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
-    SkillApp --> Runtime
     BootRuntime --> Runtime
 
     Runtime --> Providers["ProviderManager + ProviderFactory"]
@@ -101,7 +104,6 @@ flowchart TD
         ChatApp
         AgentApp
         AgentRuns
-        SkillApp
     end
 
     subgraph Infra["infra"]
@@ -128,8 +130,8 @@ entrypoint -> bootstrap + interface command/process startup
 
 - `bootstrap.runtime` 组装 `RuntimeKernel`、skill/tool managers、
   provider/tool registrations 和具体 storage registers
-- `bootstrap.interface` 把 runtime 包成 application services 和
-  `EvernightInterface`，包括 `SkillApplication`
+- `bootstrap.interface` 把 application services 和 runtime 已有的 tool、
+  skill、data-analysis managers 绑定到 `EvernightInterface`
 - `bootstrap.config` 把 `EvernightConfig` 转成已经装配好的 runtime 或 interface
 - `bootstrap.http` 把已经装配好的 interface 转成 FastAPI app
 

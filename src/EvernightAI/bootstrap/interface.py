@@ -1,16 +1,11 @@
-from typing import cast
-
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
-from EvernightAI.application.data_analysis import DataAnalysisApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
-from EvernightAI.application.skill import SkillApplication
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
-from EvernightAI.core.protocol.interface import ToolInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.auth import Principal
 
@@ -21,11 +16,11 @@ def create_interface(runtime: RuntimeProtocol) -> EvernightInterface:
         runtime=runtime,
         chat=ChatApplication(runtime),
         providers=ProviderApplication(runtime),
-        tools=cast(ToolInterfaceProtocol, runtime.tools),
-        data_analysis=DataAnalysisApplication(runtime),
+        tools=runtime.tools,
+        data_analysis=runtime.data_analysis,
         agent=agent,
         agent_runs=AgentRunApplication(runtime, agent=agent),
-        skills=SkillApplication(runtime),
+        skills=runtime.skills,
         sessions=SessionApplication(runtime),
     )
 

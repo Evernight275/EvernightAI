@@ -1,11 +1,6 @@
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-)
 from EvernightAI.core.schema.data_analysis import (
     DataAnalysisRequest,
     DataAnalysisResult,
@@ -23,48 +18,7 @@ DataStatisticsExecutorProtocol = Callable[
 DataAnalyzerProtocol = Callable[[DataAnalysisRequest], Awaitable[DataAnalysisResult]]
 
 
-class DataAnalysisProtocol(EvernightAIProtocol):
-    """
-    数据统计分析协议
-    """
-
-    ...
-
-
-class DataCatalogProtocol(DataAnalysisProtocol, ResponsibilityProtocol):
-    """
-    数据目录协议
-    """
-
-    def list_sources(self) -> list[DataSourceDefinition]: ...
-
-    def get_source(self, source_id: str) -> DataSourceDefinition: ...
-
-    def list_fields(self, source_id: str) -> list[DataFieldDefinition]: ...
-
-    def list_metrics(self, source_id: str) -> list[DataMetricDefinition]: ...
-
-
-class DataStatisticsProtocol(DataAnalysisProtocol, ResponsibilityProtocol):
-    """
-    数据统计协议
-    """
-
-    async def statistics(
-        self,
-        request: DataStatisticsRequest,
-    ) -> DataStatisticsResult: ...
-
-
-class DataAnalyzeProtocol(DataAnalysisProtocol, ResponsibilityProtocol):
-    """
-    数据分析协议
-    """
-
-    async def analyze(self, request: DataAnalysisRequest) -> DataAnalysisResult: ...
-
-
-class DataAnalysisManageProtocol(DataAnalysisProtocol, ManageProtocol):
+class DataAnalysisManageProtocol(Protocol):
     """
     数据统计分析管理协议
     """
@@ -85,7 +39,7 @@ class DataAnalysisManageProtocol(DataAnalysisProtocol, ManageProtocol):
     async def analyze(self, request: DataAnalysisRequest) -> DataAnalysisResult: ...
 
 
-class DataAnalysisRegisterProtocol(DataAnalysisProtocol, RegisterProtocol):
+class DataAnalysisRegisterProtocol(Protocol):
     """
     数据统计分析注册协议
     """

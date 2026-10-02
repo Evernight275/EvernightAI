@@ -1,4 +1,6 @@
-from EvernightAI.core.protocol.base import EvernightAIProtocol
+from typing import Protocol
+
+from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
     AgentTraceStreamProtocol,
@@ -22,15 +24,6 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
-from EvernightAI.core.schema.data_analysis import (
-    DataAnalysisRequest,
-    DataAnalysisResult,
-    DataFieldDefinition,
-    DataMetricDefinition,
-    DataSourceDefinition,
-    DataStatisticsRequest,
-    DataStatisticsResult,
-)
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
@@ -60,10 +53,7 @@ from EvernightAI.core.schema.skill import (
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
 
-class InterfaceProtocol(EvernightAIProtocol): ...
-
-
-class ChatInterfaceProtocol(InterfaceProtocol):
+class ChatInterfaceProtocol(Protocol):
     async def create_context(
         self,
         context: Context,
@@ -205,7 +195,7 @@ class ChatInterfaceProtocol(InterfaceProtocol):
     ) -> ChatStreamProtocol: ...
 
 
-class ProviderInterfaceProtocol(InterfaceProtocol):
+class ProviderInterfaceProtocol(Protocol):
     async def generate_images(
         self, provider_id: str, request: ImageGenerationRequest,
         *, principal_scope: PrincipalScope | None = None,
@@ -252,31 +242,11 @@ class ProviderInterfaceProtocol(InterfaceProtocol):
     async def delete_provider(self, provider_id: str) -> None: ...
 
 
-class ToolInterfaceProtocol(InterfaceProtocol):
+class ToolInterfaceProtocol(Protocol):
     def list_tools(self) -> list[ToolDefinition]: ...
 
 
-class DataAnalysisInterfaceProtocol(InterfaceProtocol):
-    def list_data_sources(self) -> list[DataSourceDefinition]: ...
-
-    def get_data_source(self, source_id: str) -> DataSourceDefinition: ...
-
-    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]: ...
-
-    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]: ...
-
-    async def run_statistics(
-        self,
-        request: DataStatisticsRequest,
-    ) -> DataStatisticsResult: ...
-
-    async def analyze_data(
-        self,
-        request: DataAnalysisRequest,
-    ) -> DataAnalysisResult: ...
-
-
-class AgentInterfaceProtocol(InterfaceProtocol):
+class AgentInterfaceProtocol(Protocol):
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResult: ...
 
     async def run_agent_until_pause(
@@ -329,7 +299,7 @@ class AgentInterfaceProtocol(InterfaceProtocol):
     ) -> ChatResponse: ...
 
 
-class AgentRunInterfaceProtocol(InterfaceProtocol):
+class AgentRunInterfaceProtocol(Protocol):
     async def start(
         self,
         request: AgentRunRequest,
@@ -441,22 +411,22 @@ class AgentRunInterfaceProtocol(InterfaceProtocol):
     async def close(self) -> None: ...
 
 
-class SkillInterfaceProtocol(InterfaceProtocol):
-    def create_skill(self, config: SkillTemplateConfig) -> SkillDefinition: ...
-    def get_skill_template(self, skill_name: str) -> SkillTemplateConfig: ...
-    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition: ...
-    def delete_skill(self, skill_name: str) -> None: ...
+class SkillInterfaceProtocol(Protocol):
+    def create_template(self, config: SkillTemplateConfig) -> SkillDefinition: ...
+    def get_template(self, skill_name: str) -> SkillTemplateConfig: ...
+    def update_template(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition: ...
+    def delete_template(self, skill_name: str) -> None: ...
 
     def list_skills(self) -> list[SkillDefinition]: ...
 
     def get_skill(self, skill_name: str) -> SkillDefinition: ...
 
-    def skill_supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
+    def supports(self, skill_name: str, capability: SkillCapability) -> bool: ...
 
-    async def render_skill(self, request: SkillRenderRequest) -> RenderedSkill: ...
+    async def render(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
-class SessionInterfaceProtocol(InterfaceProtocol):
+class SessionInterfaceProtocol(Protocol):
     async def create_session(
         self,
         session: Session,
@@ -521,7 +491,7 @@ class SessionInterfaceProtocol(InterfaceProtocol):
     ) -> AgentRunState: ...
 
 
-class EvernightInterfaceProtocol(InterfaceProtocol):
+class EvernightInterfaceProtocol(Protocol):
     @property
     def runtime(self) -> RuntimeProtocol: ...
 
@@ -541,7 +511,7 @@ class EvernightInterfaceProtocol(InterfaceProtocol):
     def tools(self) -> ToolInterfaceProtocol: ...
 
     @property
-    def data_analysis(self) -> DataAnalysisInterfaceProtocol: ...
+    def data_analysis(self) -> DataAnalysisManageProtocol: ...
 
     @property
     def skills(self) -> SkillInterfaceProtocol: ...

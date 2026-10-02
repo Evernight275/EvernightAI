@@ -13,6 +13,11 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
 
 ## Architecture
 
+For a directory and feature navigation guide, see the
+[project structure guide (Chinese)](docs/project-structure.md).
+Detailed relationships are in the [dependency architecture](docs/architecture-dependencies.md)
+and [architecture diagrams](docs/architecture-diagrams.md).
+
 EvernightAI keeps external interfaces very thin. HTTP and CLI code receive an
 already assembled interface/runtime and translate transport requests into core
 schemas. Application code coordinates use cases through protocols. Infra code
@@ -45,12 +50,11 @@ flowchart TD
     InterfaceBoundary --> ChatApp["ChatApplication"]
     InterfaceBoundary --> AgentApp["AgentApplication"]
     InterfaceBoundary --> AgentRuns["AgentRunApplication"]
-    InterfaceBoundary --> SkillApp["SkillApplication"]
+    InterfaceBoundary --> Skills
 
     ChatApp --> Runtime["RuntimeKernel"]
     AgentApp --> Runtime
     AgentRuns --> Runtime
-    SkillApp --> Runtime
     BootRuntime --> Runtime
 
     Runtime --> Providers["ProviderManager + ProviderFactory"]
@@ -102,7 +106,6 @@ flowchart TD
         ChatApp
         AgentApp
         AgentRuns
-        SkillApp
     end
 
     subgraph Infra["infra"]
@@ -129,8 +132,8 @@ Bootstrap has four explicit assembly points:
 
 - `bootstrap.runtime` assembles `RuntimeKernel`, skill/tool managers,
   provider/tool registrations, and concrete storage registers.
-- `bootstrap.interface` wraps a runtime with application services and
-  `EvernightInterface`, including `SkillApplication`.
+- `bootstrap.interface` binds application services and existing runtime tool,
+  skill, and data-analysis managers into `EvernightInterface`.
 - `bootstrap.config` turns an `EvernightConfig` into an assembled runtime or
   interface.
 - `bootstrap.http` turns an assembled interface into a FastAPI app.

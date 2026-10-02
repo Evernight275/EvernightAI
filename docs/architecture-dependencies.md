@@ -4,13 +4,15 @@ EvernightAI combines a layered Python backend with a Vue frontend. This document
 describes source dependencies, concrete assembly, and runtime responsibilities.
 The [architecture diagrams](architecture-diagrams.md) show request, permission,
 deployment, frontend, and Agent lifecycle relationships.
+The [project structure guide (Chinese)](project-structure.md) maps directories,
+startup paths, feature locations, and a suggested reading order.
 
 ## Project Responsibilities
 
 | Location | Responsibility |
 | --- | --- |
 | `src/EvernightAI/core` | Domain managers and strategies, protocols, schemas, and errors |
-| `src/EvernightAI/application` | Chat, Agent, session, provider, skill, and data-analysis use cases |
+| `src/EvernightAI/application` | Chat, Agent, session, provider, and image use cases; request and memory composition |
 | `src/EvernightAI/infra` | Provider, SQLite, tool, MCP, and sandbox adapters and registrations |
 | `src/EvernightAI/interface` | HTTP and CLI transport, validation, authentication, and error mapping |
 | `src/EvernightAI/bootstrap` | Concrete runtime, service, authorization, and HTTP app assembly |
@@ -102,9 +104,7 @@ flowchart TD
         AgentApp["AgentApplication"]
         AgentRuns["AgentRunApplication"]
         ProviderApp["ProviderApplication"]
-        DataApp["DataAnalysisApplication"]
         SessionApp["SessionApplication"]
-        SkillApp["SkillApplication"]
     end
 
     subgraph Infra["infra"]
@@ -151,18 +151,16 @@ flowchart TD
     BootInterface --> AgentApp
     BootInterface --> AgentRuns
     BootInterface --> ProviderApp
-    BootInterface --> DataApp
     BootInterface --> SessionApp
-    BootInterface --> SkillApp
 
     InterfaceDomain --> ChatApp
     InterfaceDomain --> AgentApp
     InterfaceDomain --> AgentRuns
     InterfaceDomain --> ProviderApp
-    InterfaceDomain --> DataApp
+    InterfaceDomain -- "data_analysis = runtime.data_analysis" --> DataManager
     InterfaceDomain -- "tools = runtime.tools" --> ToolManager
     InterfaceDomain --> SessionApp
-    InterfaceDomain --> SkillApp
+    InterfaceDomain -- "skills = runtime.skills" --> SkillManager
 
     HTTPApp --> InterfaceDomain
     CLICommands --> InterfaceDomain
@@ -179,9 +177,17 @@ The assembly entry points are:
   creating the single-process Agent executor.
 - [`bootstrap.interface`](../src/EvernightAI/bootstrap/interface.py): binds
   application services into `EvernightInterface`. Its tool role is the existing
-  `runtime.tools` object implementing `ToolInterfaceProtocol`.
+  `runtime.tools` object implementing `ToolInterfaceProtocol`. Skill and
+  data-analysis roles also use their existing runtime managers directly.
 - [`bootstrap.http`](../src/EvernightAI/bootstrap/http.py): supplies the assembled
   interface, authentication devices, and lifecycle handlers to the HTTP app.
+
+Skill and data-analysis operations use the managers' method names at the
+interface boundary. Data analysis reuses `DataAnalysisManageProtocol`;
+`SkillInterfaceProtocol` exposes template management, queries, and rendering
+without exposing runtime restoration. Authorization wrappers enforce the same
+permission actions before delegation. HTTP paths and operation IDs and CLI
+commands retain their transport-specific names.
 
 `RuntimeKernel.initialize()` restores persisted provider configurations and loads
 configured tool sources. Interface shutdown drains Agent runs and closes the
@@ -354,8 +360,9 @@ and process isolation have separate responsibilities.
 
 ## Frontend Architecture
 
-The Vue 3 / TypeScript / Vite frontend has workspace (`index.html`) and chat
-(`chat.html`) entries. Its main responsibilities are:
+The Vue 3 / TypeScript / Vite frontend has workspace (`index.html`), chat
+(`chat.html`), and image generation (`images.html`) entries. Its main
+responsibilities are:
 
 | Directory | Responsibility |
 | --- | --- |
@@ -372,6 +379,12 @@ approval, recovery, retry, and cancellation. Chat operations use persisted
 and send lifecycle events; runtime functions execute the associated operations.
 Authentication changes reset active chat/workspace state through the shared
 workspace runtime.
+
+The image entry also starts the shared workspace runtime. Image generation and
+history components call the image APIs directly and maintain local request state.
+Backend image routes use the provider interface role; `ProviderApplication`
+delegates generation and history operations to `ImageApplication`, which uses
+runtime providers, image storage, and archival adapters.
 
 In development, Vite proxies backend API requests and WebSocket traffic. In a
 configured deployment, FastAPI can serve `frontend/dist` alongside the API.

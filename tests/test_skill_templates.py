@@ -210,11 +210,11 @@ async def test_skill_management_has_separate_permissions(action: str) -> None:
                                          Principal(principal_id="user", permissions=["skills:list", "skills:get", "skills:render"]))
     with pytest.raises(AuthPermissionDeniedError):
         if action == "create":
-            interface.create_skill(template(name="another"))
+            interface.create_template(template(name="another"))
         elif action == "get_template":
-            interface.get_skill_template("style")
+            interface.get_template("style")
         elif action == "update":
-            interface.update_skill("style", SkillTemplateUpdate(is_enabled=False))
+            interface.update_template("style", SkillTemplateUpdate(is_enabled=False))
         else:
-            interface.delete_skill("style")
+            interface.delete_template("style")
     await runtime.close()

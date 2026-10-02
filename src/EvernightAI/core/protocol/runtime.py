@@ -1,4 +1,5 @@
-from EvernightAI.core.protocol.base import EvernightAIProtocol
+from typing import Protocol
+
 from EvernightAI.core.protocol.image import ImageArchiveProtocol, ImageGenerationStoreProtocol
 from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
@@ -42,7 +43,7 @@ from EvernightAI.core.protocol.tool import (
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 
 
-class RuntimeProtocol(EvernightAIProtocol):
+class RuntimeProtocol(Protocol):
     """
     运行时协议
     """

@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Protocol
 
-from EvernightAI.core.protocol.base import EvernightAIProtocol, RegisterProtocol
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.schema.agent import (
     AgentRunLease,
@@ -12,19 +12,11 @@ from EvernightAI.core.schema.agent import (
 from EvernightAI.core.schema.auth import PrincipalScope
 
 
-class AgentProtocol(EvernightAIProtocol):
-    """
-    Agent协议
-    """
-
-    ...
-
-
 AgentRunOperation = Callable[[], Awaitable[AgentRunState]]
 AgentRunStreamOperation = Callable[[], AsyncIterator[AgentTraceEvent]]
 
 
-class AgentRunExecutorProtocol(AgentProtocol):
+class AgentRunExecutorProtocol(Protocol):
     async def execute(
         self,
         run_id: str,
@@ -46,7 +38,7 @@ class AgentRunExecutorProtocol(AgentProtocol):
     async def close(self) -> None: ...
 
 
-class AgentRunStateRegisterProtocol(AgentProtocol, RegisterProtocol):
+class AgentRunStateRegisterProtocol(Protocol):
     """
     Agent运行状态注册协议
     """
@@ -162,7 +154,7 @@ class AgentRunStateRegisterProtocol(AgentProtocol, RegisterProtocol):
     ) -> None: ...
 
 
-class AgentTraceRegisterProtocol(AgentProtocol, RegisterProtocol):
+class AgentTraceRegisterProtocol(Protocol):
     """
     Agent追踪事件注册协议
     """
@@ -187,7 +179,7 @@ class AgentTraceRegisterProtocol(AgentProtocol, RegisterProtocol):
     ) -> int: ...
 
 
-class ToolExecutionRegisterProtocol(AgentProtocol, RegisterProtocol):
+class ToolExecutionRegisterProtocol(Protocol):
     def create_attempt(
         self,
         attempt: ToolExecutionAttempt,
