@@ -1,16 +1,14 @@
 from typing import AsyncIterable, Protocol
 
-from EvernightAI.core.protocol.base import EvernightAIProtocol
 from EvernightAI.core.schema.agent import AgentTraceEvent
 from EvernightAI.core.schema.stream import ChatStreamEvent, SSEEvent, WebSocketMessage
 
 
-class SSEProtocol(EvernightAIProtocol, AsyncIterable[SSEEvent], Protocol):
+class SSEProtocol(AsyncIterable[SSEEvent], Protocol):
     """SSE协议"""
 
 
 class ChatStreamProtocol(
-    EvernightAIProtocol,
     AsyncIterable[ChatStreamEvent],
     Protocol,
 ):
@@ -18,14 +16,13 @@ class ChatStreamProtocol(
 
 
 class AgentTraceStreamProtocol(
-    EvernightAIProtocol,
     AsyncIterable[AgentTraceEvent],
     Protocol,
 ):
     """Agent追踪事件流协议"""
 
 
-class WebSocketProtocol(EvernightAIProtocol, Protocol):
+class WebSocketProtocol(Protocol):
     """WebSocket双向消息协议"""
 
     async def receive(self) -> WebSocketMessage:

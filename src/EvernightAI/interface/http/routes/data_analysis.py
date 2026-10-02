@@ -31,7 +31,7 @@ router = APIRouter(prefix="/data-analysis", tags=["data-analysis"])
 async def list_data_sources(
     interface: InterfaceDependency,
 ) -> list[DataSourceDefinition]:
-    return interface.data_analysis.list_data_sources()
+    return interface.data_analysis.list_sources()
 
 
 @router.get(
@@ -45,7 +45,7 @@ async def get_data_source(
     source_id: str,
     interface: InterfaceDependency,
 ) -> DataSourceDefinition:
-    return interface.data_analysis.get_data_source(source_id)
+    return interface.data_analysis.get_source(source_id)
 
 
 @router.get(
@@ -59,7 +59,7 @@ async def list_data_fields(
     source_id: str,
     interface: InterfaceDependency,
 ) -> list[DataFieldDefinition]:
-    return interface.data_analysis.list_data_fields(source_id)
+    return interface.data_analysis.list_fields(source_id)
 
 
 @router.get(
@@ -73,7 +73,7 @@ async def list_data_metrics(
     source_id: str,
     interface: InterfaceDependency,
 ) -> list[DataMetricDefinition]:
-    return interface.data_analysis.list_data_metrics(source_id)
+    return interface.data_analysis.list_metrics(source_id)
 
 
 @router.post(
@@ -90,7 +90,7 @@ async def run_data_statistics(
     ],
     interface: InterfaceDependency,
 ) -> DataStatisticsResult:
-    return await interface.data_analysis.run_statistics(request)
+    return await interface.data_analysis.statistics(request)
 
 
 @router.post(
@@ -107,4 +107,4 @@ async def analyze_data(
     ],
     interface: InterfaceDependency,
 ) -> DataAnalysisResult:
-    return await interface.data_analysis.analyze_data(request)
+    return await interface.data_analysis.analyze(request)

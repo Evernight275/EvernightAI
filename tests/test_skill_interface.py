@@ -1,6 +1,6 @@
 import pytest
 
-from EvernightAI.application.skill import SkillApplication
+from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.schema.content import (
     Content,
@@ -17,7 +17,7 @@ from EvernightAI.core.schema.skill import (
 
 
 @pytest.mark.asyncio
-async def test_skill_application_lists_and_executes_runtime_skills() -> None:
+async def test_skill_interface_lists_and_renders_runtime_skills() -> None:
     async def summarize(request: SkillRenderRequest) -> RenderedSkill:
         return RenderedSkill(
             render_id=request.render_id,
@@ -34,9 +34,9 @@ async def test_skill_application_lists_and_executes_runtime_skills() -> None:
         ),
         summarize,
     )
-    application = SkillApplication(runtime)
+    skills = create_interface(runtime).skills
 
-    rendered = await application.render_skill(
+    rendered = await skills.render(
         SkillRenderRequest(
             render_id="skill-render-1",
             skill_name="summarize",
@@ -44,12 +44,12 @@ async def test_skill_application_lists_and_executes_runtime_skills() -> None:
         )
     )
 
-    assert [skill.name for skill in application.list_skills()] == [
+    assert [skill.name for skill in skills.list_skills()] == [
         "echo",
         "summarize",
     ]
-    assert application.get_skill("summarize").name == "summarize"
-    assert application.skill_supports("summarize", SkillCapability.CHAT) is True
+    assert skills.get_skill("summarize").name == "summarize"
+    assert skills.supports("summarize", SkillCapability.CHAT) is True
     assert rendered.messages == [make_system_message("hello")]
 
 

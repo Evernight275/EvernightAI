@@ -3,11 +3,11 @@ from typing import TypeVar
 from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
+from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
     ChatInterfaceProtocol,
-    DataAnalysisInterfaceProtocol,
     EvernightInterfaceProtocol,
     ProviderInterfaceProtocol,
     SessionInterfaceProtocol,
@@ -184,7 +184,7 @@ class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
         return self._tools
 
     @property
-    def data_analysis(self) -> DataAnalysisInterfaceProtocol:
+    def data_analysis(self) -> DataAnalysisManageProtocol:
         return self._data_analysis
 
     @property
@@ -605,10 +605,10 @@ class AuthorizedToolInterface(ToolInterfaceProtocol):
         return self._inner.list_tools()
 
 
-class AuthorizedDataAnalysisInterface(DataAnalysisInterfaceProtocol):
+class AuthorizedDataAnalysisInterface(DataAnalysisManageProtocol):
     def __init__(
         self,
-        inner: DataAnalysisInterfaceProtocol,
+        inner: DataAnalysisManageProtocol,
         authorizer: AuthorizerProtocol,
         principal: Principal,
     ) -> None:
@@ -616,35 +616,35 @@ class AuthorizedDataAnalysisInterface(DataAnalysisInterfaceProtocol):
         self._authorizer = authorizer
         self._principal = principal
 
-    def list_data_sources(self) -> list[DataSourceDefinition]:
+    def list_sources(self) -> list[DataSourceDefinition]:
         self._require("data-analysis", "list")
-        return self._inner.list_data_sources()
+        return self._inner.list_sources()
 
-    def get_data_source(self, source_id: str) -> DataSourceDefinition:
+    def get_source(self, source_id: str) -> DataSourceDefinition:
         self._require("data-analysis", "get", source_id)
-        return self._inner.get_data_source(source_id)
+        return self._inner.get_source(source_id)
 
-    def list_data_fields(self, source_id: str) -> list[DataFieldDefinition]:
+    def list_fields(self, source_id: str) -> list[DataFieldDefinition]:
         self._require("data-analysis", "list_fields", source_id)
-        return self._inner.list_data_fields(source_id)
+        return self._inner.list_fields(source_id)
 
-    def list_data_metrics(self, source_id: str) -> list[DataMetricDefinition]:
+    def list_metrics(self, source_id: str) -> list[DataMetricDefinition]:
         self._require("data-analysis", "list_metrics", source_id)
-        return self._inner.list_data_metrics(source_id)
+        return self._inner.list_metrics(source_id)
 
-    async def run_statistics(
+    async def statistics(
         self,
         request: DataStatisticsRequest,
     ) -> DataStatisticsResult:
         self._require("data-analysis", "statistics", request.source_id)
-        return await self._inner.run_statistics(request)
+        return await self._inner.statistics(request)
 
-    async def analyze_data(
+    async def analyze(
         self,
         request: DataAnalysisRequest,
     ) -> DataAnalysisResult:
         self._require("data-analysis", "analyze", request.source_id)
-        return await self._inner.analyze_data(request)
+        return await self._inner.analyze(request)
 
     def _require(
         self,
@@ -1014,37 +1014,37 @@ class AuthorizedSkillInterface(SkillInterfaceProtocol):
         self._require("skills", "list")
         return self._inner.list_skills()
 
-    def create_skill(self, config: SkillTemplateConfig) -> SkillDefinition:
+    def create_template(self, config: SkillTemplateConfig) -> SkillDefinition:
         self._require("skills", "create", config.name)
-        return self._inner.create_skill(config)
+        return self._inner.create_template(config)
 
-    def get_skill_template(self, skill_name: str) -> SkillTemplateConfig:
+    def get_template(self, skill_name: str) -> SkillTemplateConfig:
         self._require("skills", "get_template", skill_name)
-        return self._inner.get_skill_template(skill_name)
+        return self._inner.get_template(skill_name)
 
-    def update_skill(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition:
+    def update_template(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition:
         self._require("skills", "update", skill_name)
-        return self._inner.update_skill(skill_name, update)
+        return self._inner.update_template(skill_name, update)
 
-    def delete_skill(self, skill_name: str) -> None:
+    def delete_template(self, skill_name: str) -> None:
         self._require("skills", "delete", skill_name)
-        self._inner.delete_skill(skill_name)
+        self._inner.delete_template(skill_name)
 
     def get_skill(self, skill_name: str) -> SkillDefinition:
         self._require("skills", "get", skill_name)
         return self._inner.get_skill(skill_name)
 
-    def skill_supports(
+    def supports(
         self,
         skill_name: str,
         capability: SkillCapability,
     ) -> bool:
         self._require("skills", "supports", skill_name)
-        return self._inner.skill_supports(skill_name, capability)
+        return self._inner.supports(skill_name, capability)
 
-    async def render_skill(self, request: SkillRenderRequest) -> RenderedSkill:
+    async def render(self, request: SkillRenderRequest) -> RenderedSkill:
         self._require("skills", "render", request.skill_name)
-        return await self._inner.render_skill(request)
+        return await self._inner.render(request)
 
     def _require(
         self,

@@ -1,7 +1,5 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ResponsibilityProtocol,
-)
+from typing import Protocol
+
 from EvernightAI.core.schema.sandbox import (
     SandboxExecutionRequest,
     SandboxExecutionResult,
@@ -9,15 +7,7 @@ from EvernightAI.core.schema.sandbox import (
 )
 
 
-class SandboxProtocol(EvernightAIProtocol):
-    """
-    沙盒协议
-    """
-
-    ...
-
-
-class SandboxPolicyProtocol(SandboxProtocol, ResponsibilityProtocol):
+class SandboxPolicyProtocol(Protocol):
     """
     沙盒策略协议
     """
@@ -25,7 +15,7 @@ class SandboxPolicyProtocol(SandboxProtocol, ResponsibilityProtocol):
     def authorize(self, request: SandboxExecutionRequest) -> SandboxPolicyDecision: ...
 
 
-class SandboxExecuteProtocol(SandboxProtocol, ResponsibilityProtocol):
+class SandboxExecuteProtocol(Protocol):
     """
     沙盒执行协议
     """

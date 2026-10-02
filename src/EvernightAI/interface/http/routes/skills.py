@@ -22,22 +22,22 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 @router.post("", response_model=SkillDefinition, status_code=status.HTTP_201_CREATED, operation_id="create_skill")
 async def create_skill(config: SkillTemplateConfig, interface: InterfaceDependency) -> SkillDefinition:
-    return interface.skills.create_skill(config)
+    return interface.skills.create_template(config)
 
 
 @router.get("/{skill_name}/template", response_model=SkillTemplateConfig, operation_id="get_skill_template")
 async def get_skill_template(skill_name: str, interface: InterfaceDependency) -> SkillTemplateConfig:
-    return interface.skills.get_skill_template(skill_name)
+    return interface.skills.get_template(skill_name)
 
 
 @router.patch("/{skill_name}", response_model=SkillDefinition, operation_id="update_skill")
 async def update_skill(skill_name: str, update: SkillTemplateUpdate, interface: InterfaceDependency) -> SkillDefinition:
-    return interface.skills.update_skill(skill_name, update)
+    return interface.skills.update_template(skill_name, update)
 
 
 @router.delete("/{skill_name}", status_code=status.HTTP_204_NO_CONTENT, operation_id="delete_skill")
 async def delete_skill(skill_name: str, interface: InterfaceDependency) -> Response:
-    interface.skills.delete_skill(skill_name)
+    interface.skills.delete_template(skill_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -78,7 +78,7 @@ async def skill_supports(
     capability: SkillCapability,
     interface: InterfaceDependency,
 ) -> bool:
-    return interface.skills.skill_supports(skill_name, capability)
+    return interface.skills.supports(skill_name, capability)
 
 
 @router.post(
@@ -100,7 +100,7 @@ async def render_skill(
     ],
     interface: InterfaceDependency,
 ) -> RenderedSkill:
-    return await interface.skills.render_skill(
+    return await interface.skills.render(
         SkillRenderRequest(
             render_id=request.render_id or f"{skill_name}-0",
             skill_name=skill_name,

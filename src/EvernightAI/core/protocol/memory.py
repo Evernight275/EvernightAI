@@ -1,23 +1,11 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-)
+from typing import Protocol
+
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 
 
-class MemoryProtocol(EvernightAIProtocol):
-    """
-    记忆协议
-    """
-
-    ...
-
-
-class MemoryRegisterProtocol(MemoryProtocol, RegisterProtocol):
+class MemoryRegisterProtocol(Protocol):
     """
     记忆注册协议
     """
@@ -61,13 +49,7 @@ class MemoryRegisterProtocol(MemoryProtocol, RegisterProtocol):
     ) -> list[MemoryItem]: ...
 
 
-class MemoryResponsibilityProtocol(MemoryProtocol, ResponsibilityProtocol):
-    """
-    记忆职责协议
-    """
-
-
-class MemoryStrategyProtocol(MemoryResponsibilityProtocol):
+class MemoryStrategyProtocol(Protocol):
     """
     记忆选择策略协议
     """
@@ -79,7 +61,7 @@ class MemoryStrategyProtocol(MemoryResponsibilityProtocol):
     ) -> MemorySelection: ...
 
 
-class MemoryWriteStrategyProtocol(MemoryResponsibilityProtocol):
+class MemoryWriteStrategyProtocol(Protocol):
     """
     记忆写入策略协议
     """
@@ -91,7 +73,7 @@ class MemoryWriteStrategyProtocol(MemoryResponsibilityProtocol):
     ) -> list[MemoryItem]: ...
 
 
-class MemoryManageProtocol(MemoryProtocol, ManageProtocol):
+class MemoryManageProtocol(Protocol):
     """
     记忆管理协议
     """

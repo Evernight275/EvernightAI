@@ -365,7 +365,7 @@ def skill_supports(
     skill_name: str,
     capability: SkillCapability,
 ) -> str:
-    supported = interface.skills.skill_supports(skill_name, capability)
+    supported = interface.skills.supports(skill_name, capability)
     return "yes" if supported else "no"
 
 
@@ -377,7 +377,7 @@ async def render_skill(
     variables: dict[str, object] | None = None,
     metadata: dict[str, object] | None = None,
 ) -> str:
-    rendered = await interface.skills.render_skill(
+    rendered = await interface.skills.render(
         SkillRenderRequest(
             render_id=render_id,
             skill_name=skill_name,

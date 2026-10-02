@@ -5,10 +5,8 @@ import pytest
 
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
-from EvernightAI.application.data_analysis import DataAnalysisApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
-from EvernightAI.application.skill import SkillApplication
 from EvernightAI.bootstrap.config import create_runtime_from_config
 from EvernightAI.bootstrap.interface import (
     create_authorized_interface,
@@ -40,32 +38,30 @@ from EvernightAI.interface.cli.config import parse_config
 def test_interface_bootstrap_wraps_existing_runtime() -> None:
     runtime = create_runtime()
 
-    interface = create_interface(runtime)
+    interface: EvernightInterfaceProtocol = create_interface(runtime)
 
     assert isinstance(interface, EvernightInterface)
-    assert isinstance(interface, EvernightInterfaceProtocol)
     assert interface.runtime is runtime
     assert isinstance(interface.chat, ChatApplication)
     assert isinstance(interface.providers, ProviderApplication)
     assert interface.tools is runtime.tools
-    assert isinstance(interface.data_analysis, DataAnalysisApplication)
+    assert interface.data_analysis is runtime.data_analysis
     assert isinstance(interface.agent, AgentApplication)
     assert isinstance(interface.agent_runs, AgentRunApplication)
-    assert isinstance(interface.skills, SkillApplication)
+    assert interface.skills is runtime.skills
     assert isinstance(interface.sessions, SessionApplication)
 
 
 def test_interface_bootstrap_wraps_authorized_interface() -> None:
     interface = create_interface(create_runtime())
 
-    authorized = create_authorized_interface(
+    authorized: EvernightInterfaceProtocol = create_authorized_interface(
         interface,
         Authorizer(PermissionAuthPolicy()),
         Principal(principal_id="user-1", permissions=["*"]),
     )
 
     assert isinstance(authorized, AuthorizedEvernightInterface)
-    assert isinstance(authorized, EvernightInterfaceProtocol)
     assert authorized.runtime is interface.runtime
 
 

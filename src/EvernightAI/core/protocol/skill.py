@@ -1,11 +1,6 @@
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-)
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
     SkillRenderRequest,
@@ -20,7 +15,7 @@ SkillRendererProtocol = Callable[[SkillRenderRequest], Awaitable[RenderedSkill]]
 SkillTemplateFactoryProtocol = Callable[[SkillTemplateConfig], SkillRendererProtocol]
 
 
-class SkillTemplateStoreProtocol(EvernightAIProtocol):
+class SkillTemplateStoreProtocol(Protocol):
     def save(self, config: SkillTemplateConfig) -> None: ...
     def list_configs(self) -> list[SkillTemplateConfig]: ...
     def delete(self, skill_name: str) -> None: ...
@@ -28,23 +23,7 @@ class SkillTemplateStoreProtocol(EvernightAIProtocol):
     def is_ready(self) -> bool: ...
 
 
-class SkillProtocol(EvernightAIProtocol):
-    """
-    技能协议
-    """
-
-    ...
-
-
-class SkillRenderProtocol(SkillProtocol, ResponsibilityProtocol):
-    """
-    技能渲染协议
-    """
-
-    async def render(self, request: SkillRenderRequest) -> RenderedSkill: ...
-
-
-class SkillManageProtocol(SkillProtocol, ManageProtocol):
+class SkillManageProtocol(Protocol):
     """
     技能管理协议
     """
@@ -66,7 +45,7 @@ class SkillManageProtocol(SkillProtocol, ManageProtocol):
     async def render(self, request: SkillRenderRequest) -> RenderedSkill: ...
 
 
-class SkillRegisterProtocol(SkillProtocol, RegisterProtocol):
+class SkillRegisterProtocol(Protocol):
     """
     技能注册协议
     """

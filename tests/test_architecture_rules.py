@@ -30,7 +30,6 @@ ENTRYPOINT_FORBIDDEN_ASSEMBLY_CALLS = {
     "ProviderFactory",
     "ProviderManager",
     "RuntimeKernel",
-    "SkillApplication",
     "SkillManager",
     "SkillRegister",
     "ToolManager",

@@ -1,9 +1,5 @@
-from EvernightAI.core.protocol.base import (
-    EvernightAIProtocol,
-    ManageProtocol,
-    RegisterProtocol,
-    ResponsibilityProtocol,
-)
+from typing import Protocol
+
 from EvernightAI.core.schema.content import ChatRequest, Content
 from EvernightAI.core.schema.context import Context, ContextWindow
 from EvernightAI.core.schema.auth import PrincipalScope
@@ -12,15 +8,7 @@ from EvernightAI.core.schema.tool import ToolDefinition
 from EvernightAI.core.error.context import ContextStateError
 
 
-class ContextProtocol(EvernightAIProtocol):
-    """
-    上下文协议
-    """
-
-    ...
-
-
-class ContextRegisterProtocol(ContextProtocol, RegisterProtocol):
+class ContextRegisterProtocol(Protocol):
     """
     上下文注册协议
     """
@@ -86,13 +74,7 @@ class ContextRegisterProtocol(ContextProtocol, RegisterProtocol):
         return updated
 
 
-class ContextResponsibilityProtocol(ContextProtocol, ResponsibilityProtocol):
-    """
-    上下文职责协议
-    """
-
-
-class ContextOrganizerProtocol(ContextResponsibilityProtocol):
+class ContextOrganizerProtocol(Protocol):
     """
     上下文组织协议
     """
@@ -115,7 +97,7 @@ class ContextOrganizerProtocol(ContextResponsibilityProtocol):
     ) -> ChatRequest: ...
 
 
-class ContextStrategyProtocol(ContextResponsibilityProtocol):
+class ContextStrategyProtocol(Protocol):
     """
     上下文策略协议
     """
@@ -132,15 +114,15 @@ class ContextStrategyProtocol(ContextResponsibilityProtocol):
     ) -> ChatRequest: ...
 
 
-class ContextTokenEstimatorProtocol(ContextResponsibilityProtocol):
+class ContextTokenEstimatorProtocol(Protocol):
     def estimate(self, message: Content) -> int: ...
 
 
-class ContextSummarizerProtocol(ContextResponsibilityProtocol):
+class ContextSummarizerProtocol(Protocol):
     def summarize(self, messages: list[Content]) -> Content: ...
 
 
-class ContextManageProtocol(ContextProtocol, ManageProtocol):
+class ContextManageProtocol(Protocol):
     """
     上下文管理协议
     """
