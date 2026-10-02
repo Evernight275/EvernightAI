@@ -8,10 +8,7 @@ from EvernightAI.application.chat import ChatApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
 from EvernightAI.bootstrap.config import create_runtime_from_config
-from EvernightAI.bootstrap.interface import (
-    create_authorized_interface,
-    create_interface,
-)
+from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
@@ -52,10 +49,10 @@ def test_interface_bootstrap_wraps_existing_runtime() -> None:
     assert isinstance(interface.sessions, SessionApplication)
 
 
-def test_interface_bootstrap_wraps_authorized_interface() -> None:
+def test_authorized_interface_wraps_existing_interface() -> None:
     interface = create_interface(create_runtime())
 
-    authorized: EvernightInterfaceProtocol = create_authorized_interface(
+    authorized: EvernightInterfaceProtocol = AuthorizedEvernightInterface(
         interface,
         Authorizer(PermissionAuthPolicy()),
         Principal(principal_id="user-1", permissions=["*"]),
@@ -68,7 +65,7 @@ def test_interface_bootstrap_wraps_authorized_interface() -> None:
 @pytest.mark.asyncio
 async def test_authorized_interface_lifecycle_delegates_to_runtime() -> None:
     runtime = create_runtime()
-    authorized = create_authorized_interface(
+    authorized = AuthorizedEvernightInterface(
         create_interface(runtime),
         Authorizer(PermissionAuthPolicy()),
         Principal(principal_id="user-1", permissions=["*"]),

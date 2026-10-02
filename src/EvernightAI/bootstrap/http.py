@@ -4,12 +4,10 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from EvernightAI.bootstrap.config import create_unsecured_interface_from_config
-from EvernightAI.bootstrap.interface import (
-    create_authorized_interface,
-    create_interface,
-)
+from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.cli.schema import EvernightConfig
@@ -137,7 +135,7 @@ def _env_auth_device() -> HttpAuthDeviceProtocol | None:
             permissions=_env_set("EVERNIGHTAI_HTTP_AUTH_PERMISSIONS") or ["*"],
         )
         devices.append(
-            _api_key_auth_device(
+            ApiKeyHttpAuthDevice(
                 [HttpApiKeyCredential(api_key=api_key, principal=principal)]
             )
         )
@@ -152,7 +150,7 @@ def _env_auth_device() -> HttpAuthDeviceProtocol | None:
             permissions=_env_set("EVERNIGHTAI_HTTP_OAUTH_PERMISSIONS") or ["*"],
         )
         devices.append(
-            _oauth_bearer_auth_device(
+            OAuthBearerHttpAuthDevice(
                 [
                     HttpOAuthBearerCredential(
                         access_token=access_token,
@@ -185,7 +183,7 @@ def _config_auth_device(config: EvernightConfig) -> HttpAuthDeviceProtocol | Non
         if principal.api_key is not None
     ]
     if api_key_credentials:
-        devices.append(_api_key_auth_device(api_key_credentials))
+        devices.append(ApiKeyHttpAuthDevice(api_key_credentials))
 
     oauth_credentials = [
         HttpOAuthBearerCredential(
@@ -202,7 +200,7 @@ def _config_auth_device(config: EvernightConfig) -> HttpAuthDeviceProtocol | Non
         if token.access_token is not None
     ]
     if oauth_credentials:
-        devices.append(_oauth_bearer_auth_device(oauth_credentials))
+        devices.append(OAuthBearerHttpAuthDevice(oauth_credentials))
 
     oauth_jwt_device = _config_oauth_jwt_auth_device(config)
     if oauth_jwt_device is not None:
@@ -212,18 +210,6 @@ def _config_auth_device(config: EvernightConfig) -> HttpAuthDeviceProtocol | Non
         return CompositeHttpAuthDevice([])
 
     return _combine_auth_devices(devices)
-
-
-def _api_key_auth_device(
-    credentials: list[HttpApiKeyCredential],
-) -> ApiKeyHttpAuthDevice:
-    return ApiKeyHttpAuthDevice(credentials)
-
-
-def _oauth_bearer_auth_device(
-    credentials: list[HttpOAuthBearerCredential],
-) -> OAuthBearerHttpAuthDevice:
-    return OAuthBearerHttpAuthDevice(credentials)
 
 
 def _config_oauth_jwt_auth_device(
@@ -275,7 +261,7 @@ def _authorized_interface_factory():
     authorizer = Authorizer(PermissionAuthPolicy())
 
     def factory(interface, principal):
-        return create_authorized_interface(interface, authorizer, principal)
+        return AuthorizedEvernightInterface(interface, authorizer, principal)
 
     return factory
 

@@ -89,6 +89,22 @@ HTTP 路径、OpenAPI operation ID、CLI 命令和权限动作名称不随内部
 Python 调用方使用 manager 的规范方法名，例如 `interface.skills.render`、
 `interface.skills.create_template`、`interface.data_analysis.statistics`。
 
+### Bootstrap 工厂的保留标准
+
+组件在 `bootstrap` 装配点直接构造，不为注册表、基础策略、沙箱、SQLite 存储
+和认证包装再提供一层原样转发的工厂。仅用于补齐 manager 构造参数的浅工厂也已删除。
+这些旧的 Python 工厂入口不再保留兼容别名；HTTP / CLI 启动入口保持不变。
+
+| 保留入口 | 装配职责 |
+| --- | --- |
+| `create_provider_factory` | 注册四种 provider builder，维持 provider 创建边界 |
+| `create_skill_manager` | 注入模板渲染工厂和可选模板存储 |
+| `create_context_strategy` | 按配置组合摘要、消息裁剪和 token 预算策略 |
+| `register_builtin_tools` | 按启用条件注册工具，并注入路径、限制和共享沙箱 |
+| `create_runtime`、`create_runtime_with_agent_storage`、`create_sqlite_runtime`、`_create_runtime` | 选择存储、执行迁移与恢复，装配共享组件及生命周期 |
+| `create_interface` | 装配应用服务，并让 Agent 与 AgentRun 共享 Agent 实例 |
+| 配置和 HTTP 主工厂 | 转换配置、选择沙箱后端、装配认证及启动行为 |
+
 ### 模块依赖关系
 
 下面的箭头表示源码 import 方向；请求的执行顺序见下一节。

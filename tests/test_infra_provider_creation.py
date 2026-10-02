@@ -50,28 +50,16 @@ from EvernightAI.infra.adapters.providers.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
+from EvernightAI.core.domain.provider import ProviderManager
+from EvernightAI.core.domain.skill import SkillRegister
+from EvernightAI.core.domain.tool import ToolRegister
+from EvernightAI.infra.registrations.skill.echo import register_echo_skill
 from EvernightAI.bootstrap.runtime import (
     RuntimeKernel,
-    create_context_manager,
-    create_context_organizer,
-    create_context_register,
-    create_context_strategy,
-    create_memory_manager,
-    create_memory_register,
-    create_memory_strategy,
-    create_memory_write_strategy,
     create_provider_factory,
-    create_provider_manager,
     create_runtime,
-    create_session_manager,
-    create_session_register,
     create_skill_manager,
-    create_skill_register,
     create_sqlite_runtime,
-    create_tool_manager,
-    create_tool_register,
-    create_tool_safety_policy,
-    register_builtin_skills,
     register_builtin_tools,
 )
 
@@ -111,17 +99,8 @@ def test_bootstrap_registers_openai_compatible_builder() -> None:
     assert factory.has(ProviderType.ANTHROPIC) is True
 
 
-def test_bootstrap_creates_tool_manager() -> None:
-    register = create_tool_register()
-    policy = create_tool_safety_policy()
-    manager = create_tool_manager(register, policy)
-
-    assert manager.list_tools() == []
-    assert policy.authorize.__name__ == "authorize"
-
-
 def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
-    register = create_tool_register()
+    register = ToolRegister()
 
     register_builtin_tools(register)
 
@@ -175,11 +154,11 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
     ]
 
 
-def test_bootstrap_registers_builtin_skills_explicitly() -> None:
-    register = create_skill_register()
+def test_echo_skill_registration() -> None:
+    register = SkillRegister()
     manager = create_skill_manager(register)
 
-    register_builtin_skills(register)
+    register_echo_skill(register)
 
     skills = manager.list_skills()
     assert [skill.name for skill in skills] == ["echo"]
@@ -187,42 +166,9 @@ def test_bootstrap_registers_builtin_skills_explicitly() -> None:
     assert skills[0].metadata == {"builtin": True}
 
 
-def test_bootstrap_creates_context_manager() -> None:
-    register = create_context_register()
-    manager = create_context_manager(register)
-
-    assert manager._register is register
-
-
-def test_bootstrap_creates_context_organizer() -> None:
-    organizer = create_context_organizer()
-    strategy = create_context_strategy(organizer)
-
-    assert organizer.organize.__name__ == "organize"
-    assert strategy.compose_chat_request.__name__ == "compose_chat_request"
-
-
-def test_bootstrap_creates_memory_services() -> None:
-    register = create_memory_register()
-    manager = create_memory_manager(register)
-    strategy = create_memory_strategy()
-    write_strategy = create_memory_write_strategy()
-
-    assert manager._register is register
-    assert strategy.select.__name__ == "select"
-    assert write_strategy.create_memories.__name__ == "create_memories"
-
-
-def test_bootstrap_creates_session_manager() -> None:
-    register = create_session_register()
-    manager = create_session_manager(register)
-
-    assert manager._register is register
-
-
 @pytest.mark.asyncio
 async def test_bootstrap_provider_manager_creates_openai_instance() -> None:
-    manager = create_provider_manager()
+    manager = ProviderManager(create_provider_factory())
 
     instance = await manager.create(make_openai_config())
     model = await manager.get_model("openai-main", "gpt-test")

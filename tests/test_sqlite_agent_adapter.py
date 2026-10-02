@@ -27,11 +27,6 @@ from EvernightAI.infra.adapters.agent.sqlite import (
     SQLiteAgentTraceRegister,
     SQLiteToolExecutionRegister,
 )
-from EvernightAI.bootstrap.runtime import (
-    create_sqlite_agent_state_register,
-    create_sqlite_agent_trace_register,
-    create_sqlite_tool_execution_register,
-)
 from EvernightAI.core.schema.tool import (
     ToolCall,
     ToolCallResult,
@@ -257,26 +252,3 @@ def test_sqlite_tool_execution_register_persists_attempts_and_cascades(
     assert register.list_attempts("run-1") == []
     register.close()
     state_register.close()
-
-
-def test_sqlite_agent_bootstrap_helpers(tmp_path: Path) -> None:
-    database_path = make_database_path(tmp_path)
-    state_register = create_sqlite_agent_state_register(database_path)
-
-    try:
-        assert isinstance(state_register, SQLiteAgentRunStateRegister)
-    finally:
-        state_register.close()
-
-    trace_register = create_sqlite_agent_trace_register(database_path)
-
-    try:
-        assert isinstance(trace_register, SQLiteAgentTraceRegister)
-    finally:
-        trace_register.close()
-
-    execution_register = create_sqlite_tool_execution_register(database_path)
-    try:
-        assert isinstance(execution_register, SQLiteToolExecutionRegister)
-    finally:
-        execution_register.close()

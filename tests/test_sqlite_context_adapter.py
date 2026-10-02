@@ -12,10 +12,6 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.infra.adapters.context.sqlite import SQLiteContextRegister
-from EvernightAI.bootstrap.runtime import (
-    create_sqlite_context_manager,
-    create_sqlite_context_register,
-)
 
 
 def make_message(text: str) -> Content:
@@ -83,17 +79,3 @@ async def test_sqlite_context_manager_appends_and_deletes(
         assert await manager.list_contexts() == []
     finally:
         register.close()
-
-
-def test_sqlite_context_bootstrap_helpers(tmp_path: Path) -> None:
-    database_path = make_database_path(tmp_path)
-    register = create_sqlite_context_register(database_path)
-
-    try:
-        assert isinstance(register, SQLiteContextRegister)
-    finally:
-        register.close()
-
-    manager = create_sqlite_context_manager(database_path)
-
-    assert isinstance(manager, ContextManager)

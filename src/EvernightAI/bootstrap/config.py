@@ -1,22 +1,18 @@
 import os
 from typing import Any
 
-from EvernightAI.bootstrap.interface import (
-    create_authorized_interface,
-    create_interface,
-)
-from EvernightAI.bootstrap.runtime import (
-    create_bubblewrap_sandbox_executor,
-    create_sandbox_executor,
-    create_sqlite_runtime,
-)
+from EvernightAI.bootstrap.interface import create_interface
+from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolSourceProtocol
 from EvernightAI.core.schema.data_analysis import DataSourceDefinition
+from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.registrations.data_analysis.sqlite import (
     register_sqlite_data_source,
 )
@@ -63,8 +59,8 @@ def register_configured_data_sources(
 
 def create_sandbox_from_config(config: EvernightConfig) -> SandboxExecuteProtocol:
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
-        return create_bubblewrap_sandbox_executor()
-    return create_sandbox_executor()
+        return BubblewrapSandboxExecutor()
+    return SubprocessSandboxExecutor()
 
 
 def create_interface_from_config(
@@ -74,7 +70,7 @@ def create_interface_from_config(
     if not config.auth.enabled:
         return interface
 
-    return create_authorized_interface(
+    return AuthorizedEvernightInterface(
         interface,
         Authorizer(PermissionAuthPolicy()),
         ConfigCliAuthDevice().principal_for_config(config),

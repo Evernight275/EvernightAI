@@ -6,10 +6,6 @@ from EvernightAI.core.domain.memory import MemoryManager
 from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.schema.memory import MemoryItem, MemoryKind, MemoryScope
 from EvernightAI.infra.adapters.memory.sqlite import SQLiteMemoryRegister
-from EvernightAI.bootstrap.runtime import (
-    create_sqlite_memory_manager,
-    create_sqlite_memory_register,
-)
 
 
 def make_database_path(tmp_path: Path) -> Path:
@@ -83,17 +79,3 @@ async def test_sqlite_memory_manager_creates_and_deletes(
         assert await manager.list_memories() == []
     finally:
         register.close()
-
-
-def test_sqlite_memory_bootstrap_helpers(tmp_path: Path) -> None:
-    database_path = make_database_path(tmp_path)
-    register = create_sqlite_memory_register(database_path)
-
-    try:
-        assert isinstance(register, SQLiteMemoryRegister)
-    finally:
-        register.close()
-
-    manager = create_sqlite_memory_manager(database_path)
-
-    assert isinstance(manager, MemoryManager)
