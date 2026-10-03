@@ -1,6 +1,6 @@
-import { ApiError } from '../api/client'
-import { skillErrorIssues } from '../domain/runSkills'
-import { editableRunOptions } from './runEditor'
+import { ApiError } from '../api/client';
+import { skillErrorIssues } from '../domain/runSkills';
+import { editableRunOptions } from './runEditor';
 import {
   cancelAgentRun,
   createSession,
@@ -21,110 +21,110 @@ import {
   type ToolApprovalDecision,
   type ToolApprovalStatus,
   type ToolDefinition,
-} from '../api'
+} from '../api';
 import {
   transcriptFromMessages,
   restoreChatHistory,
   runHistoryTime,
   type ChatSubmission,
   type ChatTranscriptEntry,
-} from '../domain/chat'
+} from '../domain/chat';
 
-export const chatMaxToolRounds = 16
+export const chatMaxToolRounds = 16;
 
 export type ChatRequestInput = {
-  contextId: string
-  sessionId?: string | null
-  submission: ChatSubmission
-  tools: ToolDefinition[]
-  runId?: string
-  onTrace?: (event: AgentTraceEvent) => void
-  onSnapshot?: (run: AgentRunState) => void
-  onConnection?: (state: ChatConnectionState) => void
-}
+  contextId: string;
+  sessionId?: string | null;
+  submission: ChatSubmission;
+  tools: ToolDefinition[];
+  runId?: string;
+  onTrace?: (event: AgentTraceEvent) => void;
+  onSnapshot?: (run: AgentRunState) => void;
+  onConnection?: (state: ChatConnectionState) => void;
+};
 
 export type ChatResumeInput = {
-  run: AgentRunState
-  approvalStatuses: ApprovalStatuses
-  onTrace?: (event: AgentTraceEvent) => void
-  onSnapshot?: (run: AgentRunState) => void
-  onConnection?: (state: ChatConnectionState) => void
-}
+  run: AgentRunState;
+  approvalStatuses: ApprovalStatuses;
+  onTrace?: (event: AgentTraceEvent) => void;
+  onSnapshot?: (run: AgentRunState) => void;
+  onConnection?: (state: ChatConnectionState) => void;
+};
 
-export type ApprovalStatuses = Record<string, Extract<ToolApprovalStatus, 'approved' | 'denied'>>
+export type ApprovalStatuses = Record<string, Extract<ToolApprovalStatus, 'approved' | 'denied'>>;
 
 export type ChatRetryInput = {
-  run: AgentRunState
-  runId: string
-  onTrace?: (event: AgentTraceEvent) => void
-  onSnapshot?: (run: AgentRunState) => void
-  onConnection?: (state: ChatConnectionState) => void
-}
+  run: AgentRunState;
+  runId: string;
+  onTrace?: (event: AgentTraceEvent) => void;
+  onSnapshot?: (run: AgentRunState) => void;
+  onConnection?: (state: ChatConnectionState) => void;
+};
 
 export type ChatCancelInput = {
-  run: AgentRunState | null
-  runId?: string | null
-}
+  run: AgentRunState | null;
+  runId?: string | null;
+};
 
 export type ChatClearInput = {
-  contextId: string | null
-  sessionId?: string | null
-  run: AgentRunState | null
-  runId?: string | null
-}
+  contextId: string | null;
+  sessionId?: string | null;
+  run: AgentRunState | null;
+  runId?: string | null;
+};
 
 export type ChatSessionInput = {
-  session: Session
-  currentRun: AgentRunState | null
-  currentRunId: string | null
-}
+  session: Session;
+  currentRun: AgentRunState | null;
+  currentRunId: string | null;
+};
 
 export type ChatSessionSnapshot = {
-  session: Session
-  transcript: ChatTranscriptEntry[]
-  run?: AgentRunState | null
-}
+  session: Session;
+  transcript: ChatTranscriptEntry[];
+  run?: AgentRunState | null;
+};
 
 export function createChatContextId(): string {
   const suffix =
-    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `web-chat-${suffix}`
+    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `web-chat-${suffix}`;
 }
 
 export function createChatRunId(): string {
   const suffix =
-    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `web-run-${suffix}`
+    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `web-run-${suffix}`;
 }
 
 export function createChatSessionId(): string {
   const suffix =
-    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `web-session-${suffix}`
+    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `web-session-${suffix}`;
 }
 
 export async function createChatSession(
   input: ChatSessionInput,
   signal: AbortSignal,
 ): Promise<ChatSessionSnapshot> {
-  await cancelCurrentChatRun(input, signal)
+  await cancelCurrentChatRun(input, signal);
   try {
-    const session = await createSession(input.session, signal)
-    return { session, transcript: [] }
+    const session = await createSession(input.session, signal);
+    return { session, transcript: [] };
   } catch (createError) {
     if (!signal.aborted) {
       try {
-        const session = await getSession(input.session.session_id, signal)
-        const context = await getContext(session.context_id, signal)
+        const session = await getSession(input.session.session_id, signal);
+        const context = await getContext(session.context_id, signal);
         return {
           session,
           transcript: transcriptFromMessages(context.messages || []),
-        }
+        };
       } catch {
         // Preserve the create error when the requested session does not exist.
       }
     }
-    throw createError
+    throw createError;
   }
 }
 
@@ -132,11 +132,11 @@ export async function loadChatSession(
   input: ChatSessionInput,
   signal: AbortSignal,
 ): Promise<ChatSessionSnapshot> {
-  await cancelCurrentChatRun(input, signal)
+  await cancelCurrentChatRun(input, signal);
   return {
     session: input.session,
-    ...await loadChatHistory(input.session.context_id, signal, input.session.session_id),
-  }
+    ...(await loadChatHistory(input.session.context_id, signal, input.session.session_id)),
+  };
 }
 
 export async function loadChatHistory(
@@ -145,42 +145,59 @@ export async function loadChatHistory(
   sessionId?: string,
   focusedRun?: AgentRunState,
 ): Promise<{ transcript: ChatTranscriptEntry[]; run: AgentRunState | null }> {
-  const [context, loaded] = await Promise.all([getContext(contextId, signal), listAgentRuns(signal, contextId)])
-  signal.throwIfAborted()
-  const generation = context.metadata?.chat_history_generation ?? null
-  const runs = loaded.filter(run => run.request.context_id === contextId &&
-    (!sessionId || !run.request.metadata?.session_id || run.request.metadata.session_id === sessionId))
-  if (focusedRun?.request.context_id === contextId && !runs.some(run => run.run_id === focusedRun.run_id))
-    runs.push(focusedRun)
-  const visible = runs.filter(run =>
-    ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)?.context_history_generation ?? null) === generation)
-    .sort((a, b) => runHistoryTime(a).localeCompare(runHistoryTime(b)))
+  const [context, loaded] = await Promise.all([
+    getContext(contextId, signal),
+    listAgentRuns(signal, contextId),
+  ]);
+  signal.throwIfAborted();
+  const generation = context.metadata?.chat_history_generation ?? null;
+  const runs = loaded.filter(
+    (run) =>
+      run.request.context_id === contextId &&
+      (!sessionId ||
+        !run.request.metadata?.session_id ||
+        run.request.metadata.session_id === sessionId),
+  );
+  if (
+    focusedRun?.request.context_id === contextId &&
+    !runs.some((run) => run.run_id === focusedRun.run_id)
+  )
+    runs.push(focusedRun);
+  const visible = runs
+    .filter(
+      (run) =>
+        ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)
+          ?.context_history_generation ?? null) === generation,
+    )
+    .sort((a, b) => runHistoryTime(a).localeCompare(runHistoryTime(b)));
   return {
     transcript: restoreChatHistory(context, visible),
-    run: (focusedRun ? visible.find(run => run.run_id === focusedRun.run_id) : visible.at(-1)) || null,
-  }
+    run:
+      (focusedRun ? visible.find((run) => run.run_id === focusedRun.run_id) : visible.at(-1)) ||
+      null,
+  };
 }
 
 export async function prepareChatContext(contextId: string, signal: AbortSignal): Promise<void> {
-  await createContext({ context_id: contextId, messages: [] }, signal)
+  await createContext({ context_id: contextId, messages: [] }, signal);
 }
 
 export async function streamChatRun(
   input: ChatRequestInput,
   signal: AbortSignal,
 ): Promise<AgentRunState> {
-  const runId = input.runId || createChatRunId()
+  const runId = input.runId || createChatRunId();
   const request = agentRunRequest(input, {
     run_id: runId,
     stream: true,
     ...(input.sessionId ? { session_id: input.sessionId } : {}),
-  })
+  });
   return streamAndReadRun(
     runId,
     () => startAgentRunStream(request, (event) => input.onTrace?.(event), signal),
     signal,
     input,
-  )
+  );
 }
 
 export async function resumeChatRunStream(
@@ -200,11 +217,11 @@ export async function resumeChatRunStream(
       ),
     signal,
     input,
-  )
+  );
 }
 
 export function retryChatRun(input: ChatRetryInput, signal: AbortSignal): Promise<AgentRunState> {
-  return retryChatRunStream(input, signal)
+  return retryChatRunStream(input, signal);
 }
 
 async function retryChatRunStream(
@@ -224,38 +241,38 @@ async function retryChatRunStream(
       ),
     signal,
     input,
-  )
+  );
 }
 
 export async function cancelChatRun(
   input: ChatCancelInput,
   signal: AbortSignal,
 ): Promise<AgentRunState | null> {
-  const runId = input.runId || input.run?.run_id
+  const runId = input.runId || input.run?.run_id;
   if (!runId) {
-    return null
+    return null;
   }
-  return cancelAgentRun(runId, { reason: 'user canceled chat' }, signal)
+  return cancelAgentRun(runId, { reason: 'user canceled chat' }, signal);
 }
 
 export async function clearChatContext(input: ChatClearInput, signal: AbortSignal): Promise<void> {
-  const runId = input.runId || input.run?.run_id
+  const runId = input.runId || input.run?.run_id;
   const shouldCancel =
     runId &&
     (!input.run ||
       input.run.run_id !== runId ||
       input.run.status === 'running' ||
-      input.run.status === 'paused')
+      input.run.status === 'paused');
   if (shouldCancel) {
     try {
-      await cancelAgentRun(runId, { reason: 'chat history cleared' }, signal)
+      await cancelAgentRun(runId, { reason: 'chat history cleared' }, signal);
     } catch {
       // Context cleanup remains the important part when the run is already terminal.
     }
   }
   if (input.contextId) {
     if (input.sessionId) {
-      const context = await getContext(input.contextId, signal)
+      const context = await getContext(input.contextId, signal);
       await replaceContext(
         input.contextId,
         {
@@ -264,9 +281,9 @@ export async function clearChatContext(input: ChatClearInput, signal: AbortSigna
           metadata: { ...context.metadata, chat_history_generation: createChatContextId() },
         },
         signal,
-      )
+      );
     } else {
-      await deleteContext(input.contextId, signal)
+      await deleteContext(input.contextId, signal);
     }
   }
 }
@@ -275,23 +292,23 @@ export function approvalDecisions(
   run: AgentRunState,
   statuses: ApprovalStatuses,
 ): ToolApprovalDecision[] {
-  const pending = run.pending_approval_requests || []
+  const pending = run.pending_approval_requests || [];
   return pending.map((request) => {
-    const status = statuses[request.approval_id]
+    const status = statuses[request.approval_id];
     if (!status) {
-      throw new Error(`Missing decision for tool approval: ${request.approval_id}`)
+      throw new Error(`Missing decision for tool approval: ${request.approval_id}`);
     }
     return {
       approval_id: request.approval_id,
       tool_call_id: request.tool_call_id,
       status,
-    }
-  })
+    };
+  });
 }
 
-export type ChatConnectionState = 'live' | 'reconnecting' | 'syncing'
+export type ChatConnectionState = 'live' | 'reconnecting' | 'syncing';
 
-type RunObserver = Pick<ChatRequestInput, 'onSnapshot' | 'onConnection'>
+type RunObserver = Pick<ChatRequestInput, 'onSnapshot' | 'onConnection'>;
 
 async function streamAndReadRun(
   runId: string,
@@ -299,20 +316,24 @@ async function streamAndReadRun(
   signal: AbortSignal,
   observer: RunObserver,
 ): Promise<AgentRunState> {
-  observer.onConnection?.('live')
+  observer.onConnection?.('live');
   try {
-    await stream()
+    await stream();
   } catch (error) {
-    signal.throwIfAborted()
+    signal.throwIfAborted();
     if (!canReconnect(error)) {
       if (skillErrorIssues(error, null).length) {
-        try { observer.onSnapshot?.(await getAgentRun(runId, signal)) } catch { /* Preserve the conflict if state lookup fails. */ }
+        try {
+          observer.onSnapshot?.(await getAgentRun(runId, signal));
+        } catch {
+          /* Preserve the conflict if state lookup fails. */
+        }
       }
-      throw error
+      throw error;
     }
-    observer.onConnection?.('reconnecting')
+    observer.onConnection?.('reconnecting');
   }
-  return recoverChatRun(runId, signal, observer)
+  return recoverChatRun(runId, signal, observer);
 }
 
 export async function recoverChatRun(
@@ -320,28 +341,28 @@ export async function recoverChatRun(
   signal: AbortSignal,
   observer: RunObserver = {},
 ): Promise<AgentRunState> {
-  let failures = 0
+  let failures = 0;
   while (true) {
-    signal.throwIfAborted()
-    let run: AgentRunState
+    signal.throwIfAborted();
+    let run: AgentRunState;
     try {
-      run = await getAgentRun(runId, signal)
+      run = await getAgentRun(runId, signal);
     } catch (error) {
-      signal.throwIfAborted()
-      if (!canReconnect(error)) throw error
-      observer.onConnection?.('reconnecting')
-      await reconnectDelay(Math.min(1000 * 2 ** Math.min(failures++, 4), 10000), signal)
-      continue
+      signal.throwIfAborted();
+      if (!canReconnect(error)) throw error;
+      observer.onConnection?.('reconnecting');
+      await reconnectDelay(Math.min(1000 * 2 ** Math.min(failures++, 4), 10000), signal);
+      continue;
     }
-    signal.throwIfAborted()
-    failures = 0
-    observer.onSnapshot?.(run)
+    signal.throwIfAborted();
+    failures = 0;
+    observer.onSnapshot?.(run);
     if (run.status !== 'running') {
-      observer.onConnection?.('live')
-      return run
+      observer.onConnection?.('live');
+      return run;
     }
-    observer.onConnection?.('syncing')
-    await reconnectDelay(1000, signal)
+    observer.onConnection?.('syncing');
+    await reconnectDelay(1000, signal);
   }
 }
 
@@ -351,40 +372,40 @@ function canReconnect(error: unknown): boolean {
     error.status === 200 ||
     error.status >= 500 ||
     [408, 429].includes(error.status)
-  )
+  );
 }
 
 function reconnectDelay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    signal.throwIfAborted()
+    signal.throwIfAborted();
     const abort = () => {
-      clearTimeout(timer)
-      reject(signal.reason)
-    }
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
     const timer = setTimeout(() => {
-      signal.removeEventListener('abort', abort)
-      resolve()
-    }, ms)
-    signal.addEventListener('abort', abort, { once: true })
-  })
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', abort, { once: true });
+  });
 }
 
 async function cancelCurrentChatRun(input: ChatSessionInput, signal: AbortSignal): Promise<void> {
-  const runId = input.currentRunId || input.currentRun?.run_id
+  const runId = input.currentRunId || input.currentRun?.run_id;
   const active =
     runId &&
     (!input.currentRun ||
       input.currentRun.run_id !== runId ||
       input.currentRun.status === 'running' ||
-      input.currentRun.status === 'paused')
+      input.currentRun.status === 'paused');
   if (!active) {
-    return
+    return;
   }
-  await cancelAgentRun(runId, { reason: 'chat session changed' }, signal)
+  await cancelAgentRun(runId, { reason: 'chat session changed' }, signal);
 }
 
 function agentRunRequest(input: ChatRequestInput, metadata: Record<string, unknown> = {}) {
-  const options = editableRunOptions(input.submission.runOptions || {})
+  const options = editableRunOptions(input.submission.runOptions || {});
   return {
     provider_id: input.submission.providerId,
     context_id: input.contextId,
@@ -405,14 +426,14 @@ function agentRunRequest(input: ChatRequestInput, metadata: Record<string, unkno
     tool_approvals: [],
     pause_on_approval: true,
     metadata: { ...options.metadata, ...metadata },
-  }
+  };
 }
 
 export async function deleteChatSession(
   input: ChatSessionInput,
   signal: AbortSignal,
 ): Promise<string> {
-  await cancelCurrentChatRun(input, signal)
-  await deleteSession(input.session.session_id, signal)
-  return input.session.session_id
+  await cancelCurrentChatRun(input, signal);
+  await deleteSession(input.session.session_id, signal);
+  return input.session.session_id;
 }

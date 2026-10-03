@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import type { WorkspaceSnapshot } from '../../domain/workspace'
-import CapabilityCatalogView from '../capabilities/CapabilityCatalogView.vue'
-import ConversationIndexView from '../conversations/ConversationIndexView.vue'
-import ExecutionIndexView from '../executions/ExecutionIndexView.vue'
-import KnowledgeIndexView from '../knowledge/KnowledgeIndexView.vue'
-import ProviderCatalogView from '../providers/ProviderCatalogView.vue'
+import type { WorkspaceSnapshot } from '../../domain/workspace';
+import CapabilityCatalogView from '../capabilities/CapabilityCatalogView.vue';
+import ConversationIndexView from '../conversations/ConversationIndexView.vue';
+import ExecutionIndexView from '../executions/ExecutionIndexView.vue';
+import KnowledgeIndexView from '../knowledge/KnowledgeIndexView.vue';
+import ProviderCatalogView from '../providers/ProviderCatalogView.vue';
 
 defineProps<{
-  workspace: WorkspaceSnapshot
-}>()
+  workspace: WorkspaceSnapshot;
+}>();
 </script>
 
 <template>

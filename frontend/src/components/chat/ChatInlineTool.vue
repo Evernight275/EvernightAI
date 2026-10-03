@@ -1,44 +1,44 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import { Check, ChevronRight, CircleAlert, Clock, LoaderCircle, Wrench } from '@lucide/vue'
-import { toolStatusLabels, type ChatTranscriptEntry } from '../../domain/chat'
-import type { ChatApprovalItem } from './chatRequestStatus'
-import ChatToolApproval from './ChatToolApproval.vue'
-import { toolResultSummary } from './toolResult'
+import { computed, nextTick, ref } from 'vue';
+import { Check, ChevronRight, CircleAlert, Clock, LoaderCircle, Wrench } from '@lucide/vue';
+import { toolStatusLabels, type ChatTranscriptEntry } from '../../domain/chat';
+import type { ChatApprovalItem } from './chatRequestStatus';
+import ChatToolApproval from './ChatToolApproval.vue';
+import { toolResultSummary } from './toolResult';
 
 const props = defineProps<{
-  activity: NonNullable<ChatTranscriptEntry['toolActivity']>
-  approval?: ChatApprovalItem
-}>()
-defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>()
-const details = ref<HTMLDetailsElement>()
-const result = ref<HTMLPreElement>()
+  activity: NonNullable<ChatTranscriptEntry['toolActivity']>;
+  approval?: ChatApprovalItem;
+}>();
+defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>();
+const details = ref<HTMLDetailsElement>();
+const result = ref<HTMLPreElement>();
 const status = computed(() =>
   props.approval?.decisionText === '已拒绝'
     ? 'failed'
     : props.approval?.decisionText === '已批准'
       ? 'pending'
       : props.activity.status,
-)
-const summary = computed(() => toolResultSummary(props.activity.resultText))
+);
+const summary = computed(() => toolResultSummary(props.activity.resultText));
 const target = computed(() => {
   try {
-    const args = JSON.parse(props.activity.argumentsText)
+    const args = JSON.parse(props.activity.argumentsText);
     const path =
       [args.path, args.file_path, args.directory, args.command, args.query, args.url].find(
         (value) => typeof value === 'string',
-      ) || ''
-    const line = args.line ?? args.start_line
-    return path && Number.isInteger(line) ? `${path}:${line}` : path
+      ) || '';
+    const line = args.line ?? args.start_line;
+    return path && Number.isInteger(line) ? `${path}:${line}` : path;
   } catch {
-    return ''
+    return '';
   }
-})
+});
 async function locateError() {
-  if (details.value) details.value.open = true
-  await nextTick()
-  result.value?.focus({ preventScroll: true })
-  result.value?.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+  if (details.value) details.value.open = true;
+  await nextTick();
+  result.value?.focus({ preventScroll: true });
+  result.value?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
 }
 </script>
 <template>

@@ -55,27 +55,49 @@ def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_update_survives_restart_and_configured_provider_defaults(tmp_path, monkeypatch) -> None:
+async def test_provider_update_survives_restart_and_configured_provider_defaults(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("PROVIDER_UPDATE_TEST_KEY", "test-only-key")
     config = EvernightConfig(
         runtime=RuntimeConfig(database_path=(tmp_path / "runtime.sqlite3").as_posix()),
-        providers=[ProviderConfig(
-            provider_id="provider-1", name="Configured default", type=ProviderType.OPENAI,
-            api_key_secret_ref="env:PROVIDER_UPDATE_TEST_KEY",
-        )],
+        providers=[
+            ProviderConfig(
+                provider_id="provider-1",
+                name="Configured default",
+                type=ProviderType.OPENAI,
+                api_key_secret_ref="env:PROVIDER_UPDATE_TEST_KEY",
+            )
+        ],
     )
     app = create_app_from_config(config)
     async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
-            assert (await client.get("/providers/provider-1/config")).json()["name"] == "Configured default"
-            response = await client.patch("/providers/provider-1", json={
-                "name": "Updated", "base_url": "https://changed.example/v1",
-                "model": {"alias": {"model_id": "new-model", "timeout": 60, "capabilities": ["chat", "tool_call"]}},
-            })
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/providers/provider-1/config")).json()[
+                "name"
+            ] == "Configured default"
+            response = await client.patch(
+                "/providers/provider-1",
+                json={
+                    "name": "Updated",
+                    "base_url": "https://changed.example/v1",
+                    "model": {
+                        "alias": {
+                            "model_id": "new-model",
+                            "timeout": 60,
+                            "capabilities": ["chat", "tool_call"],
+                        }
+                    },
+                },
+            )
             assert response.status_code == 200
     restarted = create_app_from_config(config)
     async with restarted.router.lifespan_context(restarted):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(restarted), base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(restarted), base_url="http://test"
+        ) as client:
             saved = (await client.get("/providers/provider-1/config")).json()
             assert saved["name"] == "Updated"
             assert saved["base_url"] == "https://changed.example/v1"
@@ -89,7 +111,9 @@ async def test_provider_update_survives_restart_and_configured_provider_defaults
 @pytest.mark.asyncio
 @pytest.mark.parametrize("initially_enabled", [False, True])
 async def test_disabled_provider_survives_restart_and_can_be_reenabled(
-    tmp_path, monkeypatch, initially_enabled: bool,
+    tmp_path,
+    monkeypatch,
+    initially_enabled: bool,
 ) -> None:
     secret_name = "PROVIDER_DISABLED_TEST_KEY"
     monkeypatch.delenv(secret_name, raising=False)
@@ -97,40 +121,67 @@ async def test_disabled_provider_survives_restart_and_can_be_reenabled(
         monkeypatch.setenv(secret_name, "test-only-key")
     config = EvernightConfig(
         runtime=RuntimeConfig(database_path=(tmp_path / "runtime.sqlite3").as_posix()),
-        providers=[ProviderConfig(
-            provider_id="provider-1", name="Provider", type=ProviderType.OPENAI,
-            is_enabled=initially_enabled, api_key_secret_ref=f"env:{secret_name}",
-        )],
+        providers=[
+            ProviderConfig(
+                provider_id="provider-1",
+                name="Provider",
+                type=ProviderType.OPENAI,
+                is_enabled=initially_enabled,
+                api_key_secret_ref=f"env:{secret_name}",
+            )
+        ],
     )
     app = create_app_from_config(config)
     async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
             monkeypatch.delenv(secret_name, raising=False)
-            disabled = await client.patch("/providers/provider-1", json={"is_enabled": False})
+            disabled = await client.patch(
+                "/providers/provider-1", json={"is_enabled": False}
+            )
             assert disabled.status_code == 200
             assert disabled.json()["is_enabled"] is False
 
     restarted = create_app_from_config(config)
     async with restarted.router.lifespan_context(restarted):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(restarted), base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(restarted), base_url="http://test"
+        ) as client:
             assert (await client.get("/ready")).status_code == 200
             providers = (await client.get("/providers")).json()
             assert len(providers) == 1 and providers[0]["is_enabled"] is False
-            edited = await client.patch("/providers/provider-1", json={
-                "name": "Edited while disabled",
-                "model": {"alias": {"model_id": "model-1", "capabilities": ["chat"]}},
-            })
+            edited = await client.patch(
+                "/providers/provider-1",
+                json={
+                    "name": "Edited while disabled",
+                    "model": {
+                        "alias": {"model_id": "model-1", "capabilities": ["chat"]}
+                    },
+                },
+            )
             assert edited.status_code == 200
-            assert (await client.get("/providers/provider-1/models")).json()[0]["model_id"] == "model-1"
-            failed = await client.patch("/providers/provider-1", json={"is_enabled": True})
+            assert (await client.get("/providers/provider-1/models")).json()[0][
+                "model_id"
+            ] == "model-1"
+            failed = await client.patch(
+                "/providers/provider-1", json={"is_enabled": True}
+            )
             assert failed.status_code == 400
-            assert (await client.get("/providers/provider-1/config")).json()["is_enabled"] is False
+            assert (await client.get("/providers/provider-1/config")).json()[
+                "is_enabled"
+            ] is False
 
             monkeypatch.setenv(secret_name, "replacement-test-key")
-            enabled = await client.patch("/providers/provider-1", json={"is_enabled": True})
+            enabled = await client.patch(
+                "/providers/provider-1", json={"is_enabled": True}
+            )
             assert enabled.status_code == 200 and enabled.json()["is_enabled"] is True
             assert enabled.json()["name"] == "Edited while disabled"
-            assert "replacement-test-key" not in (await client.get("/providers/provider-1/config")).text
+            assert (
+                "replacement-test-key"
+                not in (await client.get("/providers/provider-1/config")).text
+            )
 
 
 def test_http_bootstrap_can_enable_env_api_key_auth(tmp_path, monkeypatch) -> None:

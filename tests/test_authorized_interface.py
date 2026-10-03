@@ -167,12 +167,17 @@ def test_authorized_interface_preserves_runtime_and_close_delegation() -> None:
 async def test_provider_config_access_requires_its_own_permission(method: str) -> None:
     inner = FakeProviderInterface()
     interface = AuthorizedProviderInterface(
-        cast(ProviderInterfaceProtocol, inner), Authorizer(PermissionAuthPolicy()),
-        Principal(principal_id="user-1", permissions=["providers:list", "providers:create"]),
+        cast(ProviderInterfaceProtocol, inner),
+        Authorizer(PermissionAuthPolicy()),
+        Principal(
+            principal_id="user-1", permissions=["providers:list", "providers:create"]
+        ),
     )
     with pytest.raises(AuthPermissionDeniedError):
         if method == "update_provider":
-            await interface.update_provider("provider-1", ProviderConfigUpdate(name="New"))
+            await interface.update_provider(
+                "provider-1", ProviderConfigUpdate(name="New")
+            )
         else:
             await interface.get_provider_config("provider-1")
     assert inner.calls == []
@@ -323,9 +328,27 @@ async def test_authorized_chat_interface_requires_expected_permission(
             "provider-1",
         ),
         ("list_providers", (), "providers", "list", None),
-        ("test_provider", ("provider-1", ProviderTestRequest(model_id="custom")), "providers", "test", "provider-1"),
-        ("get_provider_config", ("provider-1",), "providers", "get_config", "provider-1"),
-        ("update_provider", ("provider-1", ProviderConfigUpdate(name="New")), "providers", "update", "provider-1"),
+        (
+            "test_provider",
+            ("provider-1", ProviderTestRequest(model_id="custom")),
+            "providers",
+            "test",
+            "provider-1",
+        ),
+        (
+            "get_provider_config",
+            ("provider-1",),
+            "providers",
+            "get_config",
+            "provider-1",
+        ),
+        (
+            "update_provider",
+            ("provider-1", ProviderConfigUpdate(name="New")),
+            "providers",
+            "update",
+            "provider-1",
+        ),
         (
             "list_provider_models",
             ("provider-1",),
@@ -509,9 +532,25 @@ async def test_authorized_agent_run_interface_requires_expected_permission(
     ("method_name", "args", "expected_resource", "expected_action", "expected_id"),
     [
         ("list_skills", (), "skills", "list", None),
-        ("create_template", (SkillTemplateConfig(name="skill-1", description="Template", prompt="Hello"),), "skills", "create", "skill-1"),
+        (
+            "create_template",
+            (
+                SkillTemplateConfig(
+                    name="skill-1", description="Template", prompt="Hello"
+                ),
+            ),
+            "skills",
+            "create",
+            "skill-1",
+        ),
         ("get_template", ("skill-1",), "skills", "get_template", "skill-1"),
-        ("update_template", ("skill-1", SkillTemplateUpdate(is_enabled=False)), "skills", "update", "skill-1"),
+        (
+            "update_template",
+            ("skill-1", SkillTemplateUpdate(is_enabled=False)),
+            "skills",
+            "update",
+            "skill-1",
+        ),
         ("delete_template", ("skill-1",), "skills", "delete", "skill-1"),
         ("get_skill", ("skill-1",), "skills", "get", "skill-1"),
         (
@@ -829,7 +868,9 @@ class FakeProviderInterface:
         self.calls.append("list_providers")
         return "delegated"
 
-    async def test_provider(self, provider_id: str, request: ProviderTestRequest) -> str:
+    async def test_provider(
+        self, provider_id: str, request: ProviderTestRequest
+    ) -> str:
         self.calls.append("test_provider")
         return "delegated"
 
@@ -837,7 +878,9 @@ class FakeProviderInterface:
         self.calls.append("get_provider_config")
         return "delegated"
 
-    async def update_provider(self, provider_id: str, update: ProviderConfigUpdate) -> str:
+    async def update_provider(
+        self, provider_id: str, update: ProviderConfigUpdate
+    ) -> str:
         self.calls.append("update_provider")
         return "delegated"
 

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { WorkspaceIssue } from '../../domain/workspace'
+import type { WorkspaceIssue } from '../../domain/workspace';
 
 defineProps<{
-  issues: WorkspaceIssue[]
-}>()
+  issues: WorkspaceIssue[];
+}>();
 </script>
 
 <template>

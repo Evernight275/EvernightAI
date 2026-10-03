@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { ConversationIndex } from '../../domain/workspace'
-import EmptyValue from '../common/EmptyValue.vue'
+import type { ConversationIndex } from '../../domain/workspace';
+import EmptyValue from '../common/EmptyValue.vue';
 
 defineProps<{
-  index: ConversationIndex
-}>()
+  index: ConversationIndex;
+}>();
 </script>
 
 <template>

@@ -1,20 +1,20 @@
-import { katex } from '@mdit/plugin-katex'
-import highlighter from 'highlight.js/lib/core'
-import bash from 'highlight.js/lib/languages/bash'
-import css from 'highlight.js/lib/languages/css'
-import javascript from 'highlight.js/lib/languages/javascript'
-import json from 'highlight.js/lib/languages/json'
-import matlab from 'highlight.js/lib/languages/matlab'
-import python from 'highlight.js/lib/languages/python'
-import sql from 'highlight.js/lib/languages/sql'
-import typescript from 'highlight.js/lib/languages/typescript'
-import xml from 'highlight.js/lib/languages/xml'
-import MarkdownIt from 'markdown-it'
-import { computed, type ComputedRef } from 'vue'
+import { katex } from '@mdit/plugin-katex';
+import highlighter from 'highlight.js/lib/core';
+import bash from 'highlight.js/lib/languages/bash';
+import css from 'highlight.js/lib/languages/css';
+import javascript from 'highlight.js/lib/languages/javascript';
+import json from 'highlight.js/lib/languages/json';
+import matlab from 'highlight.js/lib/languages/matlab';
+import python from 'highlight.js/lib/languages/python';
+import sql from 'highlight.js/lib/languages/sql';
+import typescript from 'highlight.js/lib/languages/typescript';
+import xml from 'highlight.js/lib/languages/xml';
+import MarkdownIt from 'markdown-it';
+import { computed, type ComputedRef } from 'vue';
 
 export type MarkdownContentProps = {
-  source: string
-}
+  source: string;
+};
 
 const languages = {
   bash,
@@ -26,11 +26,11 @@ const languages = {
   sql,
   typescript,
   xml,
-}
+};
 
 Object.entries(languages).forEach(([name, language]) => {
-  highlighter.registerLanguage(name, language)
-})
+  highlighter.registerLanguage(name, language);
+});
 
 const languageAliases: Record<string, string> = {
   html: 'xml',
@@ -41,7 +41,7 @@ const languageAliases: Record<string, string> = {
   shell: 'bash',
   ts: 'typescript',
   tsx: 'typescript',
-}
+};
 
 const languageLabels: Record<string, string> = {
   bash: 'Shell',
@@ -53,7 +53,7 @@ const languageLabels: Record<string, string> = {
   sql: 'SQL',
   typescript: 'TypeScript',
   xml: 'HTML / XML',
-}
+};
 
 const markdown = new MarkdownIt({
   html: false,
@@ -61,39 +61,39 @@ const markdown = new MarkdownIt({
   linkify: true,
   typographer: false,
   highlight(source, language) {
-    const normalized = normalizeLanguage(language)
+    const normalized = normalizeLanguage(language);
     if (!normalized || !highlighter.getLanguage(normalized)) {
-      return escapeHtml(source)
+      return escapeHtml(source);
     }
     return highlighter.highlight(source, {
       language: normalized,
       ignoreIllegals: true,
-    }).value
+    }).value;
   },
-})
+});
 
 markdown.use(katex, {
   delimiters: 'all',
   throwOnError: false,
   trust: false,
-})
+});
 
-const defaultLinkOpen = markdown.renderer.rules.link_open
+const defaultLinkOpen = markdown.renderer.rules.link_open;
 markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
-  tokens[index]?.attrSet('target', '_blank')
-  tokens[index]?.attrSet('rel', 'noopener noreferrer')
+  tokens[index]?.attrSet('target', '_blank');
+  tokens[index]?.attrSet('rel', 'noopener noreferrer');
   return defaultLinkOpen
     ? defaultLinkOpen(tokens, index, options, env, renderer)
-    : renderer.renderToken(tokens, index, options)
-}
+    : renderer.renderToken(tokens, index, options);
+};
 
-const defaultFence = markdown.renderer.rules.fence
+const defaultFence = markdown.renderer.rules.fence;
 markdown.renderer.rules.fence = (tokens, index, options, env, renderer) => {
-  const language = normalizeLanguage(tokens[index]?.info || '')
-  const label = languageLabels[language] || language || '代码'
+  const language = normalizeLanguage(tokens[index]?.info || '');
+  const label = languageLabels[language] || language || '代码';
   const fence = defaultFence
     ? defaultFence(tokens, index, options, env, renderer)
-    : renderer.renderToken(tokens, index, options)
+    : renderer.renderToken(tokens, index, options);
   return [
     '<div class="markdown-code-block">',
     '<div class="markdown-code-header">',
@@ -102,53 +102,51 @@ markdown.renderer.rules.fence = (tokens, index, options, env, renderer) => {
     '</div>',
     fence,
     '</div>',
-  ].join('')
-}
+  ].join('');
+};
 
-export function useMarkdownContent(
-  props: MarkdownContentProps,
-): {
-  html: ComputedRef<string>
-  copyCode: (event: MouseEvent) => Promise<void>
+export function useMarkdownContent(props: MarkdownContentProps): {
+  html: ComputedRef<string>;
+  copyCode: (event: MouseEvent) => Promise<void>;
 } {
   return {
     html: computed(() => renderMarkdown(props.source)),
     copyCode: copyMarkdownCode,
-  }
+  };
 }
 
 export function renderMarkdown(source: string): string {
-  return markdown.render(source)
+  return markdown.render(source);
 }
 
 export async function copyMarkdownCode(event: MouseEvent): Promise<void> {
-  const target = event.target
+  const target = event.target;
   if (!(target instanceof Element)) {
-    return
+    return;
   }
-  const button = target.closest<HTMLButtonElement>('[data-copy-code]')
-  const code = button?.closest('.markdown-code-block')?.querySelector('code')
+  const button = target.closest<HTMLButtonElement>('[data-copy-code]');
+  const code = button?.closest('.markdown-code-block')?.querySelector('code');
   if (!button || !code?.textContent) {
-    return
+    return;
   }
   try {
-    await navigator.clipboard.writeText(code.textContent)
-    showCopyResult(button, '已复制')
+    await navigator.clipboard.writeText(code.textContent);
+    showCopyResult(button, '已复制');
   } catch {
-    showCopyResult(button, '复制失败')
+    showCopyResult(button, '复制失败');
   }
 }
 
 function normalizeLanguage(value: string): string {
-  const language = value.trim().split(/\s+/, 1)[0]?.toLowerCase() || ''
-  return languageAliases[language] || language
+  const language = value.trim().split(/\s+/, 1)[0]?.toLowerCase() || '';
+  return languageAliases[language] || language;
 }
 
 function showCopyResult(button: HTMLButtonElement, label: string): void {
-  button.textContent = label
+  button.textContent = label;
   window.setTimeout(() => {
-    button.textContent = '复制'
-  }, 1600)
+    button.textContent = '复制';
+  }, 1600);
 }
 
 function escapeHtml(value: string): string {
@@ -156,5 +154,5 @@ function escapeHtml(value: string): string {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
+    .replaceAll('"', '&quot;');
 }

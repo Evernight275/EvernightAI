@@ -1,7 +1,7 @@
-import { defineConfig, loadEnv } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import { defineConfig, loadEnv } from 'vite';
+import vue from '@vitejs/plugin-vue';
 
-const defaultApiTarget = 'http://127.0.0.1:8000'
+const defaultApiTarget = 'http://127.0.0.1:8000';
 const apiPaths = [
   '/agent-runs',
   '/contexts',
@@ -14,14 +14,12 @@ const apiPaths = [
   '/sessions',
   '/skills',
   '/tools',
-]
+];
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-  const apiTarget = normalizeApiTarget(
-    env.EVERNIGHTAI_API_PROXY_TARGET || defaultApiTarget,
-  )
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiTarget = normalizeApiTarget(env.EVERNIGHTAI_API_PROXY_TARGET || defaultApiTarget);
 
   return {
     plugins: [vue()],
@@ -32,10 +30,15 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        ...Object.fromEntries(apiPaths.map((path) => [path, {
-          target: apiTarget,
-          changeOrigin: true,
-        }])),
+        ...Object.fromEntries(
+          apiPaths.map((path) => [
+            path,
+            {
+              target: apiTarget,
+              changeOrigin: true,
+            },
+          ]),
+        ),
         '^/chat(?:$|/)': {
           target: apiTarget,
           changeOrigin: true,
@@ -51,9 +54,9 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-  }
-})
+  };
+});
 
 function normalizeApiTarget(value: string): string {
-  return value.trim().replace(/\/+$/, '') || defaultApiTarget
+  return value.trim().replace(/\/+$/, '') || defaultApiTarget;
 }

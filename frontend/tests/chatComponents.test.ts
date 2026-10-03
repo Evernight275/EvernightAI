@@ -1,68 +1,68 @@
-import { createSSRApp } from 'vue'
-import { renderToString } from '@vue/server-renderer'
-import { describe, expect, it } from 'vitest'
-import ChatApp from '../src/ChatApp.vue'
-import ChatMessage from '../src/components/chat/ChatMessage.vue'
-import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue'
-import ChatRequestStatus from '../src/components/chat/ChatRequestStatus.vue'
-import ChatRunDetails from '../src/components/chat/ChatRunDetails.vue'
-import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue'
-import ChatTranscript from '../src/components/chat/ChatTranscript.vue'
-import ChatView from '../src/components/chat/ChatView.vue'
-import { reconcileRunTranscript } from '../src/domain/chat'
-import type { AgentRunState } from '../src/api'
+import { createSSRApp } from 'vue';
+import { renderToString } from '@vue/server-renderer';
+import { describe, expect, it } from 'vitest';
+import ChatApp from '../src/ChatApp.vue';
+import ChatMessage from '../src/components/chat/ChatMessage.vue';
+import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue';
+import ChatRequestStatus from '../src/components/chat/ChatRequestStatus.vue';
+import ChatRunDetails from '../src/components/chat/ChatRunDetails.vue';
+import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue';
+import ChatTranscript from '../src/components/chat/ChatTranscript.vue';
+import ChatView from '../src/components/chat/ChatView.vue';
+import { reconcileRunTranscript } from '../src/domain/chat';
+import type { AgentRunState } from '../src/api';
 
 describe('chat component composition', () => {
   it('composes session management beside the chat page', async () => {
-    const html = await renderToString(createSSRApp(ChatApp))
+    const html = await renderToString(createSSRApp(ChatApp));
 
-    expect(html).toContain('class="chat-layout"')
-    expect(html).toContain('class="chat-sidebar"')
-    expect(html).toContain('aria-label="会话管理"')
-    expect(html).toContain('新建会话')
-    expect(html).toContain('没有会话')
-    expect(html).toContain('设置')
-    expect(html).toContain('class="chat-main"')
-    expect(html).toContain('class="chat-view-header"')
-    expect(html).toContain('class="chat-view-scroll"')
-    expect(html).toContain('class="chat-view-footer"')
-    expect(html).toContain('EvernightAI')
-    expect(html).toContain('今天想聊些什么？')
-  })
+    expect(html).toContain('class="chat-layout"');
+    expect(html).toContain('class="chat-sidebar"');
+    expect(html).toContain('aria-label="会话管理"');
+    expect(html).toContain('新建会话');
+    expect(html).toContain('没有会话');
+    expect(html).toContain('设置');
+    expect(html).toContain('class="chat-main"');
+    expect(html).toContain('class="chat-view-header"');
+    expect(html).toContain('class="chat-view-scroll"');
+    expect(html).toContain('class="chat-view-footer"');
+    expect(html).toContain('EvernightAI');
+    expect(html).toContain('今天想聊些什么？');
+  });
 
   it('delegates the chat skeleton and its empty state', async () => {
-    const html = await renderToString(createSSRApp(ChatView))
+    const html = await renderToString(createSSRApp(ChatView));
 
-    expect(html).toContain('发送消息')
-    expect(html).toContain('运行详情')
-    expect(html).toContain('环境与诊断')
-    expect(html).toContain('请求状态')
-    expect(html).toContain('工具调用（0）')
-    expect(html).toContain('可用工具')
-    expect(html).toContain('aria-label="对话记录"')
-    expect(html).toContain('还没有消息')
-    expect(html).not.toContain('<datalist')
+    expect(html).toContain('发送消息');
+    expect(html).toContain('运行详情');
+    expect(html).toContain('环境与诊断');
+    expect(html).toContain('请求状态');
+    expect(html).toContain('工具调用（0）');
+    expect(html).toContain('可用工具');
+    expect(html).toContain('aria-label="对话记录"');
+    expect(html).toContain('还没有消息');
+    expect(html).not.toContain('<datalist');
 
     expect(html.indexOf('class="chat-transcript"')).toBeLessThan(
       html.indexOf('class="chat-composer"'),
-    )
+    );
     expect(html.indexOf('class="chat-details-panel"')).toBeGreaterThan(
       html.indexOf('class="chat-composer"'),
-    )
-    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
-    expect(header).toContain('准备就绪')
-    expect(header).not.toContain('前置状态')
-    expect(header).not.toContain('<dialog')
+    );
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).toContain('准备就绪');
+    expect(header).not.toContain('前置状态');
+    expect(header).not.toContain('<dialog');
     expect(html.indexOf('class="chat-request-status"')).toBeGreaterThan(
       html.indexOf('class="chat-view-footer"'),
-    )
+    );
     expect(html.indexOf('class="chat-request-status"')).toBeLessThan(
       html.indexOf('class="chat-composer"'),
-    )
+    );
     expect(html.indexOf('class="chat-composer-message"')).toBeLessThan(
       html.indexOf('class="chat-composer-options"'),
-    )
-  })
+    );
+  });
 
   it('renders a focused user or assistant message component', async () => {
     const html = await renderToString(
@@ -78,13 +78,13 @@ describe('chat component composition', () => {
           },
         },
       }),
-    )
+    );
 
-    expect(html).toContain('class="chat-message chat-message--assistant"')
-    expect(html).toContain('EvernightAI')
-    expect(html).toContain('A direct answer.')
-    expect(html).not.toContain('model-1')
-  })
+    expect(html).toContain('class="chat-message chat-message--assistant"');
+    expect(html).toContain('EvernightAI');
+    expect(html).toContain('A direct answer.');
+    expect(html).not.toContain('model-1');
+  });
 
   it('selects models from the active Provider catalog', async () => {
     const html = await renderToString(
@@ -111,15 +111,15 @@ describe('chat component composition', () => {
         busy: false,
         sessionReady: true,
       }),
-    )
+    );
 
-    expect(html).toContain('aria-label="选择模型"')
-    expect(html).toContain('aria-pressed="true"')
-    expect(html).toContain('model-1')
-    expect(html).toContain('model-2')
-    expect(html).toContain('aria-label="搜索模型"')
-    expect(html).not.toContain('<select')
-  })
+    expect(html).toContain('aria-label="选择模型"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('model-1');
+    expect(html).toContain('model-2');
+    expect(html).toContain('aria-label="搜索模型"');
+    expect(html).not.toContain('<select');
+  });
 
   it('keeps approval decisions visible before large tool arguments', async () => {
     const run: AgentRunState = {
@@ -139,7 +139,7 @@ describe('chat component composition', () => {
           },
         },
       ],
-    }
+    };
     const html = await renderToString(
       createSSRApp(ChatTranscript, {
         entries: reconcileRunTranscript([], run),
@@ -148,17 +148,17 @@ describe('chat component composition', () => {
         approvalStatuses: {},
         canApprove: true,
       }),
-    )
+    );
 
-    expect(html).toContain('class="chat-tool-approval"')
-    expect(html).toContain('class="chat-approval-payload"')
-    expect(html).toContain('查看调用参数')
-    const approval = html.slice(html.indexOf('class="chat-tool-approval"'))
-    expect(approval.indexOf('批准')).toBeLessThan(approval.indexOf('查看调用参数'))
-    expect(approval.indexOf('拒绝')).toBeLessThan(approval.indexOf('查看调用参数'))
-    expect(approval.indexOf('large.py')).toBeLessThan(approval.indexOf('查看调用参数'))
-    expect(html).not.toContain('运行 ID')
-  })
+    expect(html).toContain('class="chat-tool-approval"');
+    expect(html).toContain('class="chat-approval-payload"');
+    expect(html).toContain('查看调用参数');
+    const approval = html.slice(html.indexOf('class="chat-tool-approval"'));
+    expect(approval.indexOf('批准')).toBeLessThan(approval.indexOf('查看调用参数'));
+    expect(approval.indexOf('拒绝')).toBeLessThan(approval.indexOf('查看调用参数'));
+    expect(approval.indexOf('large.py')).toBeLessThan(approval.indexOf('查看调用参数'));
+    expect(html).not.toContain('运行 ID');
+  });
 
   it('shows pending approvals in the tool activity count', async () => {
     const html = await renderToString(
@@ -173,49 +173,58 @@ describe('chat component composition', () => {
           },
         ],
       }),
-    )
+    );
 
-    expect(html).toContain('工具调用（1）')
-    expect(html).toContain('write_text_file')
-    expect(html).toContain('审批')
-    expect(html).not.toContain('还没有工具调用')
-  })
+    expect(html).toContain('工具调用（1）');
+    expect(html).toContain('write_text_file');
+    expect(html).toContain('审批');
+    expect(html).not.toContain('还没有工具调用');
+  });
 
   it('keeps an idle attention area empty and shows recovery actions near errors', async () => {
-    const props = { state: 'idle', error: null, pendingApprovals: [], approvalStatuses: {} }
-    const idle = await renderToString(createSSRApp(ChatRequestStatus, props))
+    const props = { state: 'idle', error: null, pendingApprovals: [], approvalStatuses: {} };
+    const idle = await renderToString(createSSRApp(ChatRequestStatus, props));
     const failed = await renderToString(
       createSSRApp(ChatRequestStatus, {
         ...props,
         state: 'failed',
         error: new Error('Provider unavailable'),
       }),
-    )
+    );
     const paused = await renderToString(
       createSSRApp(ChatRequestStatus, { ...props, state: 'resumeRequired' }),
-    )
+    );
     const pending = {
       ...props,
       state: 'approvalRequired',
-      pendingApprovals: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_text_file' }],
-    }
-    const approving = await renderToString(createSSRApp(ChatRequestStatus, pending))
-    const decided = await renderToString(createSSRApp(ChatRequestStatus, {
-      ...pending, approvalStatuses: { 'approval-1': 'approved' },
-    }))
-    const conflict = await renderToString(createSSRApp(ChatRequestStatus, {
-      ...pending, skillConflict: true, approvalStatuses: { 'approval-1': 'approved' },
-    }))
-    expect(idle).not.toContain('chat-request-status')
-    expect(failed).toContain('role="alert"')
-    expect(failed).toContain('Provider unavailable')
-    expect(failed).toContain('重试')
-    expect(failed).toContain('查看详情')
-    expect(paused).toContain('继续运行')
-    expect(approving).not.toContain('chat-request-status')
-    expect(decided).toContain('继续运行')
-    expect(conflict).not.toContain('chat-request-status')
-  })
+      pendingApprovals: [
+        { approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_text_file' },
+      ],
+    };
+    const approving = await renderToString(createSSRApp(ChatRequestStatus, pending));
+    const decided = await renderToString(
+      createSSRApp(ChatRequestStatus, {
+        ...pending,
+        approvalStatuses: { 'approval-1': 'approved' },
+      }),
+    );
+    const conflict = await renderToString(
+      createSSRApp(ChatRequestStatus, {
+        ...pending,
+        skillConflict: true,
+        approvalStatuses: { 'approval-1': 'approved' },
+      }),
+    );
+    expect(idle).not.toContain('chat-request-status');
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain('Provider unavailable');
+    expect(failed).toContain('重试');
+    expect(failed).toContain('查看详情');
+    expect(paused).toContain('继续运行');
+    expect(approving).not.toContain('chat-request-status');
+    expect(decided).toContain('继续运行');
+    expect(conflict).not.toContain('chat-request-status');
+  });
 
   it('places stop in the composer instead of a disabled send button', async () => {
     const html = await renderToString(
@@ -226,11 +235,11 @@ describe('chat component composition', () => {
         canStop: true,
         state: 'approvalRequired',
       }),
-    )
-    expect(html).toContain('aria-label="停止当前运行"')
-    expect(html).not.toContain('type="submit"')
-    expect(html).not.toContain('发送中')
-  })
+    );
+    expect(html).toContain('aria-label="停止当前运行"');
+    expect(html).not.toContain('type="submit"');
+    expect(html).not.toContain('发送中');
+  });
 
   it('keeps diagnostics in a separate dialog without duplicate approval actions', async () => {
     const html = await renderToString(
@@ -251,12 +260,12 @@ describe('chat component composition', () => {
           { approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file' },
         ],
       }),
-    )
-    expect(html).toContain('<dialog')
-    expect(html).toContain('运行 ID')
-    expect(html).toContain('原始请求参数')
-    expect(html).toContain('环境与诊断')
-    expect(html).not.toContain('class="chat-approval-actions"')
-    expect(html).toContain('disabled')
-  })
-})
+    );
+    expect(html).toContain('<dialog');
+    expect(html).toContain('运行 ID');
+    expect(html).toContain('原始请求参数');
+    expect(html).toContain('环境与诊断');
+    expect(html).not.toContain('class="chat-approval-actions"');
+    expect(html).toContain('disabled');
+  });
+});

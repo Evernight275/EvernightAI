@@ -88,7 +88,11 @@ class ProviderConfigUpdate(EvernightAISchema):
 
     @model_validator(mode="after")
     def validate_update(self) -> "ProviderConfigUpdate":
-        for name in self.model_fields_set - {"api_key", "api_key_secret_ref", "base_url"}:
+        for name in self.model_fields_set - {
+            "api_key",
+            "api_key_secret_ref",
+            "base_url",
+        }:
             if getattr(self, name) is None:
                 raise ValueError(f"{name} cannot be null")
         if self.api_key is not None and self.api_key_secret_ref is not None:

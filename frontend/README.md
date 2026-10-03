@@ -1,5 +1,8 @@
 # EvernightAI Frontend
 
+Run `pnpm run format` to format frontend source, tests, and configuration.
+Run `pnpm run format:check` to check formatting without modifying files.
+
 设置页现已接入模型服务创建/删除、记忆管理、运行管理和实时轨迹、数据分析。
 工作区资源提供上下文、会话归档/恢复、工具与技能、日志等高级入口。
 聊天标题旁可编辑会话名称，输入框上方可选择技能及预览上下文。

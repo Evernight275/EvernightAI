@@ -1,6 +1,6 @@
-import { ApiError, requestJson, requestSse, type SseEvent } from './client'
-import type { ChatResponse, ChatSkill, ChatUsage, Content } from './content'
-import type { MemoryQuery } from './memory'
+import { ApiError, requestJson, requestSse, type SseEvent } from './client';
+import type { ChatResponse, ChatSkill, ChatUsage, Content } from './content';
+import type { MemoryQuery } from './memory';
 import type {
   ToolApprovalDecision,
   ToolApprovalRequest,
@@ -8,9 +8,9 @@ import type {
   ToolCallResult,
   ToolDefinition,
   ToolReplayPolicy,
-} from './tools'
+} from './tools';
 
-export type AgentStepType = 'start' | 'chat' | 'tool' | 'tool_error' | 'memory_write' | 'stop'
+export type AgentStepType = 'start' | 'chat' | 'tool' | 'tool_error' | 'memory_write' | 'stop';
 
 export type AgentTraceEventType =
   | 'run_started'
@@ -24,113 +24,113 @@ export type AgentTraceEventType =
   | 'tool_execution_resolved'
   | 'memory_written'
   | 'run_paused'
-  | 'run_stopped'
+  | 'run_stopped';
 
-export type AgentRunStatus = 'running' | 'paused' | 'canceled' | 'finished' | 'failed'
-export type AgentStopReason = 'finished' | 'tool_rounds_exhausted' | 'tool_error'
-export type ToolExecutionStatus = 'scheduled' | 'started' | 'completed' | 'failed' | 'unknown'
-export type ToolExecutionResolution = 'confirm_completed' | 'retry' | 'abandon_and_retry_run'
+export type AgentRunStatus = 'running' | 'paused' | 'canceled' | 'finished' | 'failed';
+export type AgentStopReason = 'finished' | 'tool_rounds_exhausted' | 'tool_error';
+export type ToolExecutionStatus = 'scheduled' | 'started' | 'completed' | 'failed' | 'unknown';
+export type ToolExecutionResolution = 'confirm_completed' | 'retry' | 'abandon_and_retry_run';
 
 export type ToolExecutionAttempt = {
-  run_id: string
-  owner_id?: string | null
-  tool_call_id: string
-  attempt: number
-  tool_name: string
-  status: ToolExecutionStatus
-  replay_policy: ToolReplayPolicy
-  idempotency_key: string
-  tool_call: ToolCall
-  result?: ToolCallResult | null
-  error_type?: string | null
-  error_message?: string | null
-  resolution?: ToolExecutionResolution | null
-  resolution_reason?: string | null
-  created_at: string
-  started_at?: string | null
-  finished_at?: string | null
-  resolved_at?: string | null
-  metadata?: Record<string, unknown>
-}
+  run_id: string;
+  owner_id?: string | null;
+  tool_call_id: string;
+  attempt: number;
+  tool_name: string;
+  status: ToolExecutionStatus;
+  replay_policy: ToolReplayPolicy;
+  idempotency_key: string;
+  tool_call: ToolCall;
+  result?: ToolCallResult | null;
+  error_type?: string | null;
+  error_message?: string | null;
+  resolution?: ToolExecutionResolution | null;
+  resolution_reason?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  resolved_at?: string | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type AgentRunRequest = {
-  working_directory?: string | null
-  provider_id: string
-  context_id: string
-  model_id: string
-  messages?: Content[]
-  retry_from_message_index?: number | null
-  memory_query?: MemoryQuery | null
-  skills?: ChatSkill[] | null
-  tools?: ToolDefinition[] | null
-  max_tool_rounds?: number
-  recover_tool_errors?: boolean
-  write_memory?: boolean
-  tool_approvals?: ToolApprovalDecision[]
-  pause_on_approval?: boolean
-  metadata?: Record<string, unknown>
-}
+  working_directory?: string | null;
+  provider_id: string;
+  context_id: string;
+  model_id: string;
+  messages?: Content[];
+  retry_from_message_index?: number | null;
+  memory_query?: MemoryQuery | null;
+  skills?: ChatSkill[] | null;
+  tools?: ToolDefinition[] | null;
+  max_tool_rounds?: number;
+  recover_tool_errors?: boolean;
+  write_memory?: boolean;
+  tool_approvals?: ToolApprovalDecision[];
+  pause_on_approval?: boolean;
+  metadata?: Record<string, unknown>;
+};
 
 export type AgentStep = {
-  step_type: AgentStepType
-  trace_event_id?: string | null
-  response?: ChatResponse | null
-  message?: Content | null
-  tool_call?: ToolCall | null
-  tool_result?: ToolCallResult | null
-  error_type?: string | null
-  error_message?: string | null
-  metadata?: Record<string, unknown>
-}
+  step_type: AgentStepType;
+  trace_event_id?: string | null;
+  response?: ChatResponse | null;
+  message?: Content | null;
+  tool_call?: ToolCall | null;
+  tool_result?: ToolCallResult | null;
+  error_type?: string | null;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type AgentTraceEvent = {
-  occurred_at?: string | null
-  sequence?: number | null
-  event_type: AgentTraceEventType
-  summary?: string | null
-  step_type?: AgentStepType | null
-  message?: Content | null
-  response?: ChatResponse | null
-  text_delta?: string | null
-  tool_call?: ToolCall | null
-  tool_result?: ToolCallResult | null
-  approval_request?: ToolApprovalRequest | null
-  approval_decision?: ToolApprovalDecision | null
-  error_type?: string | null
-  error_message?: string | null
-  payload?: Record<string, unknown> | null
-  metadata?: Record<string, unknown>
-}
+  occurred_at?: string | null;
+  sequence?: number | null;
+  event_type: AgentTraceEventType;
+  summary?: string | null;
+  step_type?: AgentStepType | null;
+  message?: Content | null;
+  response?: ChatResponse | null;
+  text_delta?: string | null;
+  tool_call?: ToolCall | null;
+  tool_result?: ToolCallResult | null;
+  approval_request?: ToolApprovalRequest | null;
+  approval_decision?: ToolApprovalDecision | null;
+  error_type?: string | null;
+  error_message?: string | null;
+  payload?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type AgentRunState = {
-  run_id: string
-  request: AgentRunRequest
-  status?: AgentRunStatus | string
-  response?: ChatResponse | null
-  usage?: ChatUsage | null
-  stop_reason?: AgentStopReason | string | null
-  steps?: AgentStep[]
-  trace?: AgentTraceEvent[]
-  applied_trace_sequence?: number | null
-  skill_revisions?: Record<string, string | null> | null
-  remaining_tool_rounds?: number
-  tool_rounds_used?: number
-  pending_tool_calls?: ToolCall[]
-  pending_approval_requests?: ToolApprovalRequest[]
-  metadata?: Record<string, unknown>
-}
+  run_id: string;
+  request: AgentRunRequest;
+  status?: AgentRunStatus | string;
+  response?: ChatResponse | null;
+  usage?: ChatUsage | null;
+  stop_reason?: AgentStopReason | string | null;
+  steps?: AgentStep[];
+  trace?: AgentTraceEvent[];
+  applied_trace_sequence?: number | null;
+  skill_revisions?: Record<string, string | null> | null;
+  remaining_tool_rounds?: number;
+  tool_rounds_used?: number;
+  pending_tool_calls?: ToolCall[];
+  pending_approval_requests?: ToolApprovalRequest[];
+  metadata?: Record<string, unknown>;
+};
 
 export type ResumeAgentRunRequest = {
-  approvals: ToolApprovalDecision[]
-}
+  approvals: ToolApprovalDecision[];
+};
 
 export type RetryAgentRunRequest = {
-  retried_run_id?: string | null
-}
+  retried_run_id?: string | null;
+};
 
 export type AgentRunControlRequest = {
-  reason?: string | null
-}
+  reason?: string | null;
+};
 
 export function startAgentRun(
   request: AgentRunRequest,
@@ -140,7 +140,7 @@ export function startAgentRun(
     method: 'POST',
     body: request,
     signal,
-  })
+  });
 }
 
 export function startAgentRunStream(
@@ -156,21 +156,21 @@ export function startAgentRunStream(
       signal,
     },
     (rawEvent) => {
-      const event = agentTraceEventFromSse(rawEvent)
+      const event = agentTraceEventFromSse(rawEvent);
       if (event) {
-        onEvent(event, rawEvent)
+        onEvent(event, rawEvent);
       }
     },
-  )
+  );
 }
 
 export function listAgentRuns(signal?: AbortSignal, contextId?: string): Promise<AgentRunState[]> {
-  const query = contextId ? `?context_id=${encodeURIComponent(contextId)}` : ''
-  return requestJson<AgentRunState[]>(`/agent-runs${query}`, { signal })
+  const query = contextId ? `?context_id=${encodeURIComponent(contextId)}` : '';
+  return requestJson<AgentRunState[]>(`/agent-runs${query}`, { signal });
 }
 
 export function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunState> {
-  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}`, { signal })
+  return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}`, { signal });
 }
 
 export function resumeAgentRun(
@@ -182,7 +182,7 @@ export function resumeAgentRun(
     method: 'POST',
     body: request,
     signal,
-  })
+  });
 }
 
 export function resumeAgentRunStream(
@@ -199,12 +199,12 @@ export function resumeAgentRunStream(
       signal,
     },
     (rawEvent) => {
-      const event = agentTraceEventFromSse(rawEvent)
+      const event = agentTraceEventFromSse(rawEvent);
       if (event) {
-        onEvent(event, rawEvent)
+        onEvent(event, rawEvent);
       }
     },
-  )
+  );
 }
 
 export function pauseAgentRun(
@@ -214,7 +214,7 @@ export function pauseAgentRun(
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/pause`, {
     method: 'POST',
     body: request,
-  })
+  });
 }
 
 export function cancelAgentRun(
@@ -226,13 +226,13 @@ export function cancelAgentRun(
     method: 'POST',
     body: request,
     signal,
-  })
+  });
 }
 
 export function approvePendingAgentRun(runId: string): Promise<AgentRunState> {
   return requestJson<AgentRunState>(`/agent-runs/${encodeURIComponent(runId)}/approve-pending`, {
     method: 'POST',
-  })
+  });
 }
 
 export function retryAgentRun(
@@ -244,7 +244,7 @@ export function retryAgentRun(
     method: 'POST',
     body: request,
     signal,
-  })
+  });
 }
 
 export function retryAgentRunStream(
@@ -261,18 +261,18 @@ export function retryAgentRunStream(
       signal,
     },
     (rawEvent) => {
-      const event = agentTraceEventFromSse(rawEvent)
+      const event = agentTraceEventFromSse(rawEvent);
       if (event) {
-        onEvent(event, rawEvent)
+        onEvent(event, rawEvent);
       }
     },
-  )
+  );
 }
 
 export function listAgentRunToolExecutions(runId: string): Promise<ToolExecutionAttempt[]> {
   return requestJson<ToolExecutionAttempt[]>(
     `/agent-runs/${encodeURIComponent(runId)}/tool-executions`,
-  )
+  );
 }
 
 export function resolveAgentRunToolExecution(
@@ -280,9 +280,9 @@ export function resolveAgentRunToolExecution(
   toolCallId: string,
   attempt: number,
   request: {
-    resolution: ToolExecutionResolution
-    result?: Record<string, unknown> | null
-    reason?: string | null
+    resolution: ToolExecutionResolution;
+    result?: Record<string, unknown> | null;
+    reason?: string | null;
   },
 ): Promise<AgentRunState> {
   return requestJson<AgentRunState>(
@@ -291,58 +291,66 @@ export function resolveAgentRunToolExecution(
       method: 'POST',
       body: request,
     },
-  )
+  );
 }
 
 export function listAgentTrace(
   runId: string,
   options: { afterSequence?: number; limit?: number } = {},
 ): Promise<AgentTraceEvent[]> {
-  const query = new URLSearchParams()
+  const query = new URLSearchParams();
   if (options.afterSequence !== undefined) {
-    query.set('after_sequence', String(options.afterSequence))
+    query.set('after_sequence', String(options.afterSequence));
   }
   if (options.limit !== undefined) {
-    query.set('limit', String(options.limit))
+    query.set('limit', String(options.limit));
   }
-  const suffix = query.size > 0 ? `?${query.toString()}` : ''
-  return requestJson<AgentTraceEvent[]>(`/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`)
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  return requestJson<AgentTraceEvent[]>(`/agent-runs/${encodeURIComponent(runId)}/trace${suffix}`);
 }
 
 function agentTraceEventFromSse(rawEvent: SseEvent): AgentTraceEvent | null {
   if (rawEvent.data === '[DONE]' || rawEvent.data.trim() === '') {
-    return null
+    return null;
   }
 
-  const payload = parseSseJson(rawEvent)
+  const payload = parseSseJson(rawEvent);
   if (rawEvent.event === 'error') {
-    const error = isRecord(payload.error) ? payload.error : payload
-    const errorType = typeof error.type === 'string' ? error.type : null
-    const status = errorType === 'SkillNotFoundError' ? 404
-      : ['SkillConflictError', 'SkillDisabledError'].includes(errorType || '') ? 409 : 200
+    const error = isRecord(payload.error) ? payload.error : payload;
+    const errorType = typeof error.type === 'string' ? error.type : null;
+    const status =
+      errorType === 'SkillNotFoundError'
+        ? 404
+        : ['SkillConflictError', 'SkillDisabledError'].includes(errorType || '')
+          ? 409
+          : 200;
     throw new ApiError(typeof error.message === 'string' ? error.message : 'Agent 流式响应失败', {
-      status, path: 'agent-stream', requestId: null, errorType, detail: error.detail,
-    })
+      status,
+      path: 'agent-stream',
+      requestId: null,
+      errorType,
+      detail: error.detail,
+    });
   }
 
   if (!isRecord(payload)) {
-    return null
+    return null;
   }
 
-  const event = payload as AgentTraceEvent
+  const event = payload as AgentTraceEvent;
   if (!event.event_type && isAgentTraceEventType(rawEvent.event)) {
-    event.event_type = rawEvent.event
+    event.event_type = rawEvent.event;
   }
 
-  return event.event_type ? event : null
+  return event.event_type ? event : null;
 }
 
 function parseSseJson(rawEvent: SseEvent): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(rawEvent.data) as unknown
-    return isRecord(parsed) ? parsed : {}
+    const parsed = JSON.parse(rawEvent.data) as unknown;
+    return isRecord(parsed) ? parsed : {};
   } catch {
-    throw new Error(`无法解析 Agent 流式事件：${rawEvent.event}`)
+    throw new Error(`无法解析 Agent 流式事件：${rawEvent.event}`);
   }
 }
 
@@ -360,9 +368,9 @@ function isAgentTraceEventType(value: string): value is AgentTraceEventType {
     'memory_written',
     'run_paused',
     'run_stopped',
-  ].includes(value)
+  ].includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -11,17 +11,25 @@ from EvernightAI.core.schema.provider import (
 )
 from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
-from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.core.schema.image import (
+    ImageEditRequest,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+)
 
 
 @runtime_checkable
 class ImageGenerationProviderProtocol(Protocol):
-    async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse: ...
+    async def generate_images(
+        self, request: ImageGenerationRequest
+    ) -> ImageGenerationResponse: ...
 
 
 @runtime_checkable
 class ImageEditProviderProtocol(Protocol):
-    async def edit_images(self, request: ImageEditRequest) -> ImageGenerationResponse: ...
+    async def edit_images(
+        self, request: ImageEditRequest
+    ) -> ImageGenerationResponse: ...
 
 
 class ProviderInstanceProtocol(Protocol):
@@ -95,7 +103,10 @@ class ProviderManageProtocol(Protocol):
     """
 
     async def create(
-        self, provider: ProviderConfig, *, replace_existing: bool = True,
+        self,
+        provider: ProviderConfig,
+        *,
+        replace_existing: bool = True,
     ) -> ProviderInstanceProtocol | None: ...
 
     async def get(self, provider_id: str) -> ProviderInstanceProtocol: ...
@@ -105,7 +116,9 @@ class ProviderManageProtocol(Protocol):
     async def get_config(self, provider_id: str) -> ProviderConfigView: ...
 
     async def update(
-        self, provider_id: str, update: ProviderConfigUpdate,
+        self,
+        provider_id: str,
+        update: ProviderConfigUpdate,
     ) -> ProviderInstanceProtocol | None: ...
 
     async def list_instances(self) -> list[ProviderInstanceProtocol]: ...
@@ -125,11 +138,15 @@ class ProviderManageProtocol(Protocol):
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
 
     async def generate_images(
-        self, provider_id: str, request: ImageGenerationRequest,
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest,
     ) -> ImageGenerationResponse: ...
 
     async def edit_images(
-        self, provider_id: str, request: ImageEditRequest,
+        self,
+        provider_id: str,
+        request: ImageEditRequest,
     ) -> ImageGenerationResponse: ...
 
     async def chat_stream(

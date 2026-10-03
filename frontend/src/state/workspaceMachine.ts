@@ -1,22 +1,20 @@
-import { assign, createActor, fromPromise, setup } from 'xstate'
+import { assign, createActor, fromPromise, setup } from 'xstate';
 import {
   emptyWorkspaceSnapshot,
   loadWorkspace,
   type WorkspaceIssue,
   type WorkspaceLoadResult,
   type WorkspaceSnapshot,
-} from '../domain/workspace'
+} from '../domain/workspace';
 
 export type WorkspaceMachineContext = {
-  workspace: WorkspaceSnapshot
-  issues: WorkspaceIssue[]
-  connectionError: unknown
-}
+  workspace: WorkspaceSnapshot;
+  issues: WorkspaceIssue[];
+  connectionError: unknown;
+};
 
 export type WorkspaceMachineEvent =
-  | { type: 'START' }
-  | { type: 'REFRESH' }
-  | { type: 'AUTH_CHANGED' }
+  { type: 'START' } | { type: 'REFRESH' } | { type: 'AUTH_CHANGED' };
 
 export const workspaceMachine = setup({
   types: {
@@ -24,9 +22,7 @@ export const workspaceMachine = setup({
     events: {} as WorkspaceMachineEvent,
   },
   actors: {
-    loadWorkspace: fromPromise<WorkspaceLoadResult>(
-      ({ signal }) => loadWorkspace(signal),
-    ),
+    loadWorkspace: fromPromise<WorkspaceLoadResult>(({ signal }) => loadWorkspace(signal)),
   },
 }).createMachine({
   id: 'workspace',
@@ -38,9 +34,13 @@ export const workspaceMachine = setup({
   },
   on: {
     AUTH_CHANGED: {
-      target: ".loading",
+      target: '.loading',
       reenter: true,
-      actions: assign({ workspace: () => emptyWorkspaceSnapshot(), issues: [], connectionError: null }),
+      actions: assign({
+        workspace: () => emptyWorkspaceSnapshot(),
+        issues: [],
+        connectionError: null,
+      }),
     },
   },
   states: {
@@ -116,6 +116,6 @@ export const workspaceMachine = setup({
       },
     },
   },
-})
+});
 
-export const workspaceActor = createActor(workspaceMachine)
+export const workspaceActor = createActor(workspaceMachine);

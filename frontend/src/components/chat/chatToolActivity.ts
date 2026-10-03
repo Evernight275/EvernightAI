@@ -1,32 +1,32 @@
-import { computed, type ComputedRef } from 'vue'
-import type { AgentRunState, AgentTraceEvent, ToolApprovalRequest } from '../../api'
+import { computed, type ComputedRef } from 'vue';
+import type { AgentRunState, AgentTraceEvent, ToolApprovalRequest } from '../../api';
 import {
   reconcileRunTranscript,
   toolStatusLabels,
   type ChatTranscriptEntry,
-} from '../../domain/chat'
+} from '../../domain/chat';
 
 export type ChatToolActivityProps = {
-  run: AgentRunState | null
-  trace: AgentTraceEvent[]
-  pendingApprovals: ToolApprovalRequest[]
-}
+  run: AgentRunState | null;
+  trace: AgentTraceEvent[];
+  pendingApprovals: ToolApprovalRequest[];
+};
 
 export type ChatToolActivityEntry = {
-  key: string
-  name: string
-  status: NonNullable<ChatTranscriptEntry['toolActivity']>['status']
-  statusLabel: string
-  callText: string
-  resultText: string | null
-}
+  key: string;
+  name: string;
+  status: NonNullable<ChatTranscriptEntry['toolActivity']>['status'];
+  statusLabel: string;
+  callText: string;
+  resultText: string | null;
+};
 
 export function useChatToolActivity(props: ChatToolActivityProps): {
-  activities: ComputedRef<ChatToolActivityEntry[]>
+  activities: ComputedRef<ChatToolActivityEntry[]>;
 } {
   return {
     activities: computed(() => toolActivities(props.run, props.trace, props.pendingApprovals)),
-  }
+  };
 }
 
 export function toolActivities(
@@ -48,9 +48,9 @@ export function toolActivities(
     pending_approval_requests: pendingApprovals.length
       ? pendingApprovals
       : run?.pending_approval_requests,
-  }
+  };
   return reconcileRunTranscript([], snapshot).flatMap((entry) => {
-    const activity = entry.toolActivity
+    const activity = entry.toolActivity;
     return activity
       ? [
           {
@@ -62,6 +62,6 @@ export function toolActivities(
             resultText: activity.resultText || null,
           },
         ]
-      : []
-  })
+      : [];
+  });
 }

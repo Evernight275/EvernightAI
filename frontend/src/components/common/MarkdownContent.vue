@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import {
-  useMarkdownContent,
-  type MarkdownContentProps,
-} from './markdownContent'
+import { useMarkdownContent, type MarkdownContentProps } from './markdownContent';
 
-const props = defineProps<MarkdownContentProps>()
-const { html, copyCode } = useMarkdownContent(props)
+const props = defineProps<MarkdownContentProps>();
+const { html, copyCode } = useMarkdownContent(props);
 </script>
 
 <template>

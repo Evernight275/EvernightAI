@@ -1,42 +1,53 @@
-import { describe, expect, it } from 'vitest'
-import { chatHeaderTitle } from '../src/components/chat/chatHeader'
-import { chatMessagePresentation } from '../src/components/chat/chatMessage'
-import { prerequisiteNotice } from '../src/components/chat/chatPrerequisites'
-import { canSubmitChat, shouldSubmitChatKeydown } from '../src/components/chat/chatRequestForm'
+import { describe, expect, it } from 'vitest';
+import { chatHeaderTitle } from '../src/components/chat/chatHeader';
+import { chatMessagePresentation } from '../src/components/chat/chatMessage';
+import { prerequisiteNotice } from '../src/components/chat/chatPrerequisites';
+import { canSubmitChat, shouldSubmitChatKeydown } from '../src/components/chat/chatRequestForm';
 import {
   approvalItem,
   formatChatError,
   formatChatState,
-} from '../src/components/chat/chatRequestStatus'
-import { toolActivities } from '../src/components/chat/chatToolActivity'
-import { isChatRunCancelable, isChatSubmissionBlocked } from '../src/components/chat/chatView'
-import { createChatSessionDraft, sidebarItems } from '../src/components/chat/chatSidebar'
-import { transcriptFromMessages } from '../src/domain/chat'
+} from '../src/components/chat/chatRequestStatus';
+import { toolActivities } from '../src/components/chat/chatToolActivity';
+import { isChatRunCancelable, isChatSubmissionBlocked } from '../src/components/chat/chatView';
+import { createChatSessionDraft, sidebarItems } from '../src/components/chat/chatSidebar';
+import { transcriptFromMessages } from '../src/domain/chat';
 
 describe('chat component controllers', () => {
   it('chooses an enabled provider for new sessions', () => {
-    const disabled = { provider_id: 'off', name: 'Off', type: 'openai' as const, is_enabled: false }
-    const enabled = { provider_id: 'on', name: 'On', type: 'openai' as const }
+    const disabled = {
+      provider_id: 'off',
+      name: 'Off',
+      type: 'openai' as const,
+      is_enabled: false,
+    };
+    const enabled = { provider_id: 'on', name: 'On', type: 'openai' as const };
     const catalog = {
       providers: [disabled, enabled],
       modelGroups: [
         { provider: disabled, models: [{ model_id: 'off-model' }] },
         { provider: enabled, models: [{ model_id: 'on-model' }] },
       ],
-    }
-    expect(createChatSessionDraft(catalog)).toMatchObject({ provider_id: 'on', model_id: 'on-model' })
-    expect(createChatSessionDraft({ ...catalog, providers: [disabled] })).toMatchObject({ provider_id: null, model_id: null })
-  })
+    };
+    expect(createChatSessionDraft(catalog)).toMatchObject({
+      provider_id: 'on',
+      model_id: 'on-model',
+    });
+    expect(createChatSessionDraft({ ...catalog, providers: [disabled] })).toMatchObject({
+      provider_id: null,
+      model_id: null,
+    });
+  });
 
   it('derives chat header and message presentation outside Vue', () => {
-    expect(chatHeaderTitle(null)).toBe('EvernightAI')
+    expect(chatHeaderTitle(null)).toBe('EvernightAI');
     expect(
       chatHeaderTitle({
         session_id: 'session-1',
         context_id: 'context-1',
         title: 'Planning',
       }),
-    ).toBe('Planning')
+    ).toBe('Planning');
     expect(
       chatMessagePresentation({
         entryId: 'user-1',
@@ -49,8 +60,8 @@ describe('chat component controllers', () => {
       roleLabel: '你',
       roleClass: 'user',
       markdown: false,
-    })
-  })
+    });
+  });
 
   it('keeps prose and tool records while hiding system messages', () => {
     expect(
@@ -73,16 +84,16 @@ describe('chat component controllers', () => {
       ['user', 'question'],
       ['tool', ''],
       ['assistant', 'answer'],
-    ])
-  })
+    ]);
+  });
 
   it('derives prerequisite notices outside the Vue component', () => {
-    expect(prerequisiteNotice('loading', 0)).toBe('正在读取 Provider。')
-    expect(prerequisiteNotice('offline', 0)).toBe('后端不可用。')
-    expect(prerequisiteNotice('unauthorized', 0)).toBe('业务接口需要认证。')
-    expect(prerequisiteNotice('ready', 0)).toBe('没有可用 Provider。')
-    expect(prerequisiteNotice('ready', 1)).toBeNull()
-  })
+    expect(prerequisiteNotice('loading', 0)).toBe('正在读取 Provider。');
+    expect(prerequisiteNotice('offline', 0)).toBe('后端不可用。');
+    expect(prerequisiteNotice('unauthorized', 0)).toBe('业务接口需要认证。');
+    expect(prerequisiteNotice('ready', 0)).toBe('没有可用 Provider。');
+    expect(prerequisiteNotice('ready', 1)).toBeNull();
+  });
 
   it('validates submissions outside the Vue component', () => {
     expect(
@@ -92,7 +103,7 @@ describe('chat component controllers', () => {
         modelId: 'model-1',
         text: 'hello',
       }),
-    ).toBe(true)
+    ).toBe(true);
     expect(
       canSubmitChat({
         busy: true,
@@ -100,7 +111,7 @@ describe('chat component controllers', () => {
         modelId: 'model-1',
         text: 'hello',
       }),
-    ).toBe(false)
+    ).toBe(false);
     expect(
       canSubmitChat({
         busy: false,
@@ -109,7 +120,7 @@ describe('chat component controllers', () => {
         modelId: 'model-1',
         text: 'hello',
       }),
-    ).toBe(false)
+    ).toBe(false);
     expect(
       canSubmitChat({
         busy: false,
@@ -117,8 +128,8 @@ describe('chat component controllers', () => {
         modelId: ' ',
         text: 'hello',
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
   it('submits with Enter while preserving Shift+Enter and composition', () => {
     expect(
@@ -127,39 +138,39 @@ describe('chat component controllers', () => {
         shiftKey: false,
         isComposing: false,
       }),
-    ).toBe(true)
+    ).toBe(true);
     expect(
       shouldSubmitChatKeydown({
         key: 'Enter',
         shiftKey: true,
         isComposing: false,
       }),
-    ).toBe(false)
+    ).toBe(false);
     expect(
       shouldSubmitChatKeydown({
         key: 'Enter',
         shiftKey: false,
         isComposing: true,
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
   it('formats request errors outside the Vue component', () => {
-    expect(formatChatError(new Error('provider unavailable'))).toBe('provider unavailable')
-    expect(formatChatError('request failed')).toBe('request failed')
-    expect(formatChatError(null)).toBeNull()
-  })
+    expect(formatChatError(new Error('provider unavailable'))).toBe('provider unavailable');
+    expect(formatChatError('request failed')).toBe('request failed');
+    expect(formatChatError(null)).toBeNull();
+  });
 
   it('presents internal chat states as readable labels', () => {
-    expect(formatChatState('approvalRequired')).toBe('等待工具审批')
-    expect(formatChatState('streaming')).toBe('正在生成回复')
-    expect(formatChatState('customState')).toBe('customState')
-  })
+    expect(formatChatState('approvalRequired')).toBe('等待工具审批');
+    expect(formatChatState('streaming')).toBe('正在生成回复');
+    expect(formatChatState('customState')).toBe('customState');
+  });
 
   it('blocks new messages while an approval or paused run needs attention', () => {
-    expect(isChatSubmissionBlocked('approvalRequired', null)).toBe(true)
-    expect(isChatSubmissionBlocked('resumeRequired', null)).toBe(true)
-    expect(isChatSubmissionBlocked('idle', null)).toBe(false)
+    expect(isChatSubmissionBlocked('approvalRequired', null)).toBe(true);
+    expect(isChatSubmissionBlocked('resumeRequired', null)).toBe(true);
+    expect(isChatSubmissionBlocked('idle', null)).toBe(false);
     expect(
       isChatSubmissionBlocked('failed', {
         run_id: 'run-paused',
@@ -170,10 +181,10 @@ describe('chat component controllers', () => {
         },
         status: 'paused',
       }),
-    ).toBe(true)
-    expect(isChatSubmissionBlocked('failed', null, 'run-unknown')).toBe(true)
-    expect(isChatRunCancelable('failed', null, 'run-unknown')).toBe(true)
-  })
+    ).toBe(true);
+    expect(isChatSubmissionBlocked('failed', null, 'run-unknown')).toBe(true);
+    expect(isChatRunCancelable('failed', null, 'run-unknown')).toBe(true);
+  });
 
   it('offers stop only in states that can accept cancellation', () => {
     for (const state of [
@@ -184,7 +195,7 @@ describe('chat component controllers', () => {
       'resuming',
       'retrying',
     ]) {
-      expect(isChatRunCancelable(state, null, 'run-1')).toBe(true)
+      expect(isChatRunCancelable(state, null, 'run-1')).toBe(true);
     }
     for (const state of [
       'idle',
@@ -194,10 +205,10 @@ describe('chat component controllers', () => {
       'creatingSession',
       'loadingSession',
     ]) {
-      expect(isChatRunCancelable(state, null, 'run-1')).toBe(false)
+      expect(isChatRunCancelable(state, null, 'run-1')).toBe(false);
     }
-    expect(isChatRunCancelable('failed', null, null)).toBe(false)
-  })
+    expect(isChatRunCancelable('failed', null, null)).toBe(false);
+  });
 
   it('presents approval arguments, permissions, and the current decision', () => {
     expect(
@@ -217,8 +228,8 @@ describe('chat component controllers', () => {
       toolCallText: expect.stringContaining('note.txt'),
       safetyLabel: '风险未知',
       targets: [{ name: '路径', value: 'note.txt' }],
-    })
-  })
+    });
+  });
 
   it('counts a pending approval as tool activity', () => {
     expect(
@@ -243,8 +254,8 @@ describe('chat component controllers', () => {
         callText: '{}',
         resultText: null,
       },
-    ])
-  })
+    ]);
+  });
 
   it('orders sidebar sessions and marks the current context', () => {
     expect(
@@ -282,39 +293,39 @@ describe('chat component controllers', () => {
         status: 'active',
         active: true,
       },
-    ])
-  })
-})
+    ]);
+  });
+});
 
-import { toolResultSummary } from '../src/components/chat/toolResult'
+import { toolResultSummary } from '../src/components/chat/toolResult';
 
 it('summarizes text, command output, arrays and persisted results without hiding raw data', () => {
   expect(toolResultSummary('{"tool_call_result":{"content":"line one\\nline two"}}')).toBe(
     'line one line two',
-  )
+  );
   expect(toolResultSummary('{"exit_code":1,"stdout":"missing file"}')).toBe(
     '退出码 1 · missing file',
-  )
-  expect(toolResultSummary('[1,2,3]')).toBe('3 项结果')
-  expect(toolResultSummary('{"result":0}')).toBe('0')
-  expect(toolResultSummary('x'.repeat(200))).toBe('x'.repeat(160) + '…')
-})
+  );
+  expect(toolResultSummary('[1,2,3]')).toBe('3 项结果');
+  expect(toolResultSummary('{"result":0}')).toBe('0');
+  expect(toolResultSummary('x'.repeat(200))).toBe('x'.repeat(160) + '…');
+});
 
 it('shows live tool execution in diagnostics even when the last snapshot was paused', () => {
   const call = {
     tool_call_id: 'c',
     tool_call: { name: 'write_file', arguments: { path: 'a.txt' } },
-  }
+  };
   const run = {
     run_id: 'r',
     status: 'paused',
     request: { provider_id: 'p', model_id: 'm', context_id: 'c' },
-  }
+  };
   expect(
     toolActivities(
       run,
       [{ event_type: 'tool_started', tool_call: call }],
       [{ approval_id: 'a', tool_call_id: 'c', tool_name: 'write_file' }],
     )[0]?.statusLabel,
-  ).toBe('执行中')
-})
+  ).toBe('执行中');
+});

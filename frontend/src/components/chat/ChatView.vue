@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import ChatHeader from './ChatHeader.vue'
-import ChatRequestForm from './ChatRequestForm.vue'
-import ChatRequestStatus from './ChatRequestStatus.vue'
-import ChatRunDetails from './ChatRunDetails.vue'
-import ChatTranscript from './ChatTranscript.vue'
-import RunSkillConflict from '../skills/RunSkillConflict.vue'
-import { useChatView } from './chatView'
+import ChatHeader from './ChatHeader.vue';
+import ChatRequestForm from './ChatRequestForm.vue';
+import ChatRequestStatus from './ChatRequestStatus.vue';
+import ChatRunDetails from './ChatRunDetails.vue';
+import ChatTranscript from './ChatTranscript.vue';
+import RunSkillConflict from '../skills/RunSkillConflict.vue';
+import { useChatView } from './chatView';
 
-defineEmits<{ navigation: [] }>()
+defineEmits<{ navigation: [] }>();
 
 const {
   skills,
@@ -39,9 +39,13 @@ const {
   approve,
   deny,
   resume,
-  skillIssues, editing, editRun, editRequest, contextId,
+  skillIssues,
+  editing,
+  editRun,
+  editRequest,
+  contextId,
   authGeneration,
-} = useChatView()
+} = useChatView();
 </script>
 
 <template>

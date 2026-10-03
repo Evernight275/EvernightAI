@@ -61,7 +61,8 @@ async def list_providers(interface: InterfaceDependency) -> list[ProviderInfo]:
     operation_id="get_provider_config",
 )
 async def get_provider_config(
-    provider_id: str, interface: InterfaceDependency,
+    provider_id: str,
+    interface: InterfaceDependency,
 ) -> ProviderConfigView:
     return await interface.providers.get_provider_config(provider_id)
 
@@ -83,7 +84,9 @@ async def get_provider_config(
     operation_id="update_provider",
 )
 async def update_provider(
-    provider_id: str, update: ProviderConfigUpdate, interface: InterfaceDependency,
+    provider_id: str,
+    update: ProviderConfigUpdate,
+    interface: InterfaceDependency,
 ) -> ProviderInfo:
     return await interface.providers.update_provider(provider_id, update)
 
@@ -103,7 +106,9 @@ async def update_provider(
     operation_id="test_provider_connection",
 )
 async def test_provider_connection(
-    provider_id: str, request: ProviderTestRequest, interface: InterfaceDependency,
+    provider_id: str,
+    request: ProviderTestRequest,
+    interface: InterfaceDependency,
 ) -> ProviderTestResult:
     return await interface.providers.test_provider(provider_id, request)
 

@@ -1,8 +1,20 @@
-import { ApiError } from '../api/client'
-import { readRunDecisions } from '../runtime/runEditor'
-import { canRetryRun, runSkillIssues, skillErrorIssues, runFailureError, type RunSkillIssue } from '../domain/runSkills'
-import { assign, createActor, fromPromise, setup } from 'xstate'
-import type { AgentRunState, AgentTraceEvent, Session, SkillDefinition, ToolDefinition } from '../api'
+import { ApiError } from '../api/client';
+import { readRunDecisions } from '../runtime/runEditor';
+import {
+  canRetryRun,
+  runSkillIssues,
+  skillErrorIssues,
+  runFailureError,
+  type RunSkillIssue,
+} from '../domain/runSkills';
+import { assign, createActor, fromPromise, setup } from 'xstate';
+import type {
+  AgentRunState,
+  AgentTraceEvent,
+  Session,
+  SkillDefinition,
+  ToolDefinition,
+} from '../api';
 import {
   applyChatTrace,
   reconcileRunTranscript,
@@ -10,7 +22,7 @@ import {
   userEntry,
   type ChatSubmission,
   type ChatTranscriptEntry,
-} from '../domain/chat'
+} from '../domain/chat';
 import {
   createChatContextId,
   createChatRunId,
@@ -33,35 +45,41 @@ import {
   type ChatRetryInput,
   type ChatSessionInput,
   type ChatSessionSnapshot,
-} from '../runtime/chatRuntime'
+} from '../runtime/chatRuntime';
 
 type ChatPendingRequest = {
-  submission: ChatSubmission
-  tools: ToolDefinition[]
-}
+  submission: ChatSubmission;
+  tools: ToolDefinition[];
+};
 
 export type ChatMachineContext = {
-  transcript: ChatTranscriptEntry[]
-  trace: AgentTraceEvent[]
-  contextId: string | null
-  runId: string | null
-  contextReady: boolean
-  pending: ChatPendingRequest | null
-  run: AgentRunState | null
-  session: Session | null
-  requestedSession: Session | null
-  sessionOperation: 'create' | 'load' | 'delete' | null
-  deletedSessionId: string | null
-  approvalStatuses: ApprovalStatuses
-  error: unknown
-  connection: ChatConnectionState
-  skills: SkillDefinition[] | null
-  skillIssues: RunSkillIssue[]
-}
+  transcript: ChatTranscriptEntry[];
+  trace: AgentTraceEvent[];
+  contextId: string | null;
+  runId: string | null;
+  contextReady: boolean;
+  pending: ChatPendingRequest | null;
+  run: AgentRunState | null;
+  session: Session | null;
+  requestedSession: Session | null;
+  sessionOperation: 'create' | 'load' | 'delete' | null;
+  deletedSessionId: string | null;
+  approvalStatuses: ApprovalStatuses;
+  error: unknown;
+  connection: ChatConnectionState;
+  skills: SkillDefinition[] | null;
+  skillIssues: RunSkillIssue[];
+};
 
 export type ChatMachineEvent =
   | { type: 'SKILL_CATALOG'; skills: SkillDefinition[] | null }
-  | { type: 'OPEN_RUN'; run: AgentRunState; session: Session | null; transcript: ChatTranscriptEntry[]; choices: ApprovalStatuses }
+  | {
+      type: 'OPEN_RUN';
+      run: AgentRunState;
+      session: Session | null;
+      transcript: ChatTranscriptEntry[];
+      choices: ApprovalStatuses;
+    }
   | { type: 'SNAPSHOT'; run: AgentRunState }
   | { type: 'CONNECTION'; runId: string; connection: ChatConnectionState }
   | { type: 'AUTH_CHANGED' }
@@ -76,9 +94,9 @@ export type ChatMachineEvent =
   | { type: 'DELETE_SESSION'; sessionId: string }
   | { type: 'CANCEL' }
   | { type: 'TRACE'; event: AgentTraceEvent }
-  | { type: 'CLEAR' }
+  | { type: 'CLEAR' };
 
-export type { ChatCancelInput, ChatClearInput, ChatRequestInput, ChatResumeInput, ChatRetryInput }
+export type { ChatCancelInput, ChatClearInput, ChatRequestInput, ChatResumeInput, ChatRetryInput };
 
 const emptyContext = (): ChatMachineContext => ({
   transcript: [],
@@ -97,14 +115,15 @@ const emptyContext = (): ChatMachineContext => ({
   error: null,
   skills: null,
   skillIssues: [],
-})
+});
 
 const sessionLoadedContext = {
   transcript: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.transcript,
   trace: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run?.trace || [],
   contextId: ({ event }: { event: { output: ChatSessionSnapshot } }) =>
     event.output.session.context_id,
-  runId: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run?.run_id || null,
+  runId: ({ event }: { event: { output: ChatSessionSnapshot } }) =>
+    event.output.run?.run_id || null,
   contextReady: true,
   pending: null,
   run: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run || null,
@@ -117,7 +136,7 @@ const sessionLoadedContext = {
   connection: 'live' as const,
   error: null,
   skillIssues: [],
-}
+};
 
 export const chatMachine = setup({
   types: {
@@ -128,9 +147,9 @@ export const chatMachine = setup({
     recoverChat: fromPromise<
       AgentRunState,
       {
-        runId: string
-        onSnapshot: (run: AgentRunState) => void
-        onConnection: (state: ChatConnectionState) => void
+        runId: string;
+        onSnapshot: (run: AgentRunState) => void;
+        onConnection: (state: ChatConnectionState) => void;
       }
     >(({ input, signal }) => recoverChatRun(input.runId, signal, input)),
     prepareContext: fromPromise<void, string>(({ input, signal }) =>
@@ -142,7 +161,7 @@ export const chatMachine = setup({
     resumeChat: fromPromise<
       AgentRunState,
       ChatResumeInput & {
-        onTrace?: (event: AgentTraceEvent) => void
+        onTrace?: (event: AgentTraceEvent) => void;
       }
     >(({ input, signal }) => resumeChatRunStream(input, signal)),
     retryChat: fromPromise<AgentRunState, ChatRetryInput>(({ input, signal }) =>
@@ -169,17 +188,27 @@ export const chatMachine = setup({
   initial: 'idle',
   context: emptyContext,
   on: {
-    SKILL_CATALOG: { actions: assign({
-      skills: ({ event }) => event.skills,
-      skillIssues: ({ context, event }) => context.skillIssues.length ? context.skillIssues : runSkillIssues(context.run, event.skills),
-    }) },
+    SKILL_CATALOG: {
+      actions: assign({
+        skills: ({ event }) => event.skills,
+        skillIssues: ({ context, event }) =>
+          context.skillIssues.length
+            ? context.skillIssues
+            : runSkillIssues(context.run, event.skills),
+      }),
+    },
     OPEN_RUN: {
       target: '.evaluatingRun',
       actions: assign({
-        run: ({ event }) => event.run, runId: ({ event }) => event.run.run_id,
-        contextId: ({ event }) => event.run.request.context_id, contextReady: true,
-        session: ({ event }) => event.session, transcript: ({ event }) => event.transcript,
-        trace: ({ event }) => event.run.trace || [], pending: null, error: null,
+        run: ({ event }) => event.run,
+        runId: ({ event }) => event.run.run_id,
+        contextId: ({ event }) => event.run.request.context_id,
+        contextReady: true,
+        session: ({ event }) => event.session,
+        transcript: ({ event }) => event.transcript,
+        trace: ({ event }) => event.run.trace || [],
+        pending: null,
+        error: null,
         approvalStatuses: ({ event }) => event.choices,
         skillIssues: ({ context, event }) => runSkillIssues(event.run, context.skills),
       }),
@@ -399,7 +428,16 @@ export const chatMachine = setup({
           context.transcript.map((entry) => ({ ...entry, streaming: false })),
       }),
       on: {
-        RESUME: { guard: ({ context }) => !hasSkillConflict(context) && Boolean(context.run?.pending_approval_requests?.every(item => context.approvalStatuses[item.approval_id])), target: 'resuming' },
+        RESUME: {
+          guard: ({ context }) =>
+            !hasSkillConflict(context) &&
+            Boolean(
+              context.run?.pending_approval_requests?.every(
+                (item) => context.approvalStatuses[item.approval_id],
+              ),
+            ),
+          target: 'resuming',
+        },
         APPROVE: [
           {
             guard: ({ context, event }) => completesApprovals(context, event),
@@ -786,20 +824,20 @@ export const chatMachine = setup({
       },
     },
   },
-})
+});
 
-export const chatActor = createActor(chatMachine)
+export const chatActor = createActor(chatMachine);
 
 function agentRunError(run: AgentRunState): Error {
-  const error = runFailureError(run)
-  if (error) return error
+  const error = runFailureError(run);
+  if (error) return error;
   if (run.stop_reason === 'tool_rounds_exhausted') {
     return new Error(
       `Agent run exhausted ${run.tool_rounds_used ?? 'all'} tool rounds before finishing`,
-    )
+    );
   }
-  const detail = run.stop_reason || run.status || 'unknown state'
-  return new Error(`Agent run did not finish: ${detail}`)
+  const detail = run.stop_reason || run.status || 'unknown state';
+  return new Error(`Agent run did not finish: ${detail}`);
 }
 
 function isSuccessfullyFinishedRun(run: AgentRunState | null): boolean {
@@ -807,46 +845,46 @@ function isSuccessfullyFinishedRun(run: AgentRunState | null): boolean {
     run?.status === 'finished' &&
     run.response != null &&
     (run.stop_reason == null || run.stop_reason === 'finished')
-  )
+  );
 }
 
 function isRecoverablePause(run: AgentRunState | null): boolean {
   if (run?.status !== 'paused') {
-    return false
+    return false;
   }
-  const runtime = run.metadata?.agent_runtime
+  const runtime = run.metadata?.agent_runtime;
   return !(
     runtime &&
     typeof runtime === 'object' &&
     'recovery_eligible' in runtime &&
     runtime.recovery_eligible === false
-  )
+  );
 }
 
 function isApprovalPause(run: AgentRunState | null): boolean {
-  return isRecoverablePause(run) && (run?.pending_approval_requests?.length || 0) > 0
+  return isRecoverablePause(run) && (run?.pending_approval_requests?.length || 0) > 0;
 }
 
 function isManualPause(run: AgentRunState | null): boolean {
   if (!isRecoverablePause(run)) {
-    return false
+    return false;
   }
-  const runtime = run?.metadata?.agent_runtime
+  const runtime = run?.metadata?.agent_runtime;
   return Boolean(
     runtime &&
-      typeof runtime === 'object' &&
-      'manual_pause' in runtime &&
-      runtime.manual_pause === true,
-  )
+    typeof runtime === 'object' &&
+    'manual_pause' in runtime &&
+    runtime.manual_pause === true,
+  );
 }
 
-type ApprovalDecisionEvent = Extract<ChatMachineEvent, { type: 'APPROVE' | 'DENY' }>
+type ApprovalDecisionEvent = Extract<ChatMachineEvent, { type: 'APPROVE' | 'DENY' }>;
 
 function isPendingApproval(context: ChatMachineContext, approvalId: string): boolean {
-  if (hasSkillConflict(context)) return false
+  if (hasSkillConflict(context)) return false;
   return Boolean(
     context.run?.pending_approval_requests?.some((request) => request.approval_id === approvalId),
-  )
+  );
 }
 
 function recordApproval(
@@ -856,34 +894,37 @@ function recordApproval(
   return {
     ...context.approvalStatuses,
     [event.approvalId]: event.type === 'APPROVE' ? 'approved' : 'denied',
-  }
+  };
 }
 
 function completesApprovals(context: ChatMachineContext, event: ApprovalDecisionEvent): boolean {
   if (!isPendingApproval(context, event.approvalId)) {
-    return false
+    return false;
   }
-  const statuses = recordApproval(context, event)
+  const statuses = recordApproval(context, event);
   return Boolean(
     context.run?.pending_approval_requests?.every((request) => statuses[request.approval_id]),
-  )
+  );
 }
 
 function hasSkillConflict(context: ChatMachineContext): boolean {
-  return context.skillIssues.length > 0 || skillErrorIssues(context.error, context.run).length > 0
-    || runSkillIssues(context.run, context.skills).length > 0
+  return (
+    context.skillIssues.length > 0 ||
+    skillErrorIssues(context.error, context.run).length > 0 ||
+    runSkillIssues(context.run, context.skills).length > 0
+  );
 }
 
 function hasPotentiallyActiveRun(context: ChatMachineContext): boolean {
   if (!context.runId) {
-    return false
+    return false;
   }
   return (
     !context.run ||
     context.run.run_id !== context.runId ||
     context.run.status === 'running' ||
     context.run.status === 'paused'
-  )
+  );
 }
 
 function sessionInput(context: ChatMachineContext): ChatSessionInput {
@@ -891,5 +932,5 @@ function sessionInput(context: ChatMachineContext): ChatSessionInput {
     session: context.requestedSession as Session,
     currentRun: context.run,
     currentRunId: context.runId,
-  }
+  };
 }

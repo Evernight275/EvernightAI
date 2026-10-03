@@ -13,10 +13,22 @@ from EvernightAI.core.error.provider import (
     ProviderRequestTimeoutError,
     ProviderUnavailableError,
 )
-from EvernightAI.core.schema.content import ChatRequest, Content, ContentPart, ContentPartType, MessageRole
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from EvernightAI.core.protocol.interface import ProviderInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
+from EvernightAI.core.schema.image import (
+    ImageEditRequest,
+    ImageGenerationRecord,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+    ImageHistoryPage,
+)
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
@@ -37,26 +49,51 @@ class ProviderApplication(ProviderInterfaceProtocol):
         self._runtime = runtime
 
     async def generate_images(
-        self, provider_id: str, request: ImageGenerationRequest,
-        *, principal_scope: PrincipalScope | None = None,
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse:
-        return await ImageApplication(self._runtime).generate(provider_id, request, principal_scope=principal_scope)
+        return await ImageApplication(self._runtime).generate(
+            provider_id, request, principal_scope=principal_scope
+        )
 
     async def edit_images(
-        self, provider_id: str, request: ImageEditRequest,
-        *, principal_scope: PrincipalScope | None = None,
+        self,
+        provider_id: str,
+        request: ImageEditRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse:
-        return await ImageApplication(self._runtime).edit(provider_id, request, principal_scope=principal_scope)
+        return await ImageApplication(self._runtime).edit(
+            provider_id, request, principal_scope=principal_scope
+        )
 
-    def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
-                           principal_scope: PrincipalScope | None = None) -> ImageHistoryPage:
-        return ImageApplication(self._runtime).list_records(limit=limit, cursor=cursor, principal_scope=principal_scope)
+    def list_image_records(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageHistoryPage:
+        return ImageApplication(self._runtime).list_records(
+            limit=limit, cursor=cursor, principal_scope=principal_scope
+        )
 
-    def get_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> ImageGenerationRecord:
-        return ImageApplication(self._runtime).get_record(record_id, principal_scope=principal_scope)
+    def get_image_record(
+        self, record_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ImageGenerationRecord:
+        return ImageApplication(self._runtime).get_record(
+            record_id, principal_scope=principal_scope
+        )
 
-    def delete_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> None:
-        ImageApplication(self._runtime).delete_record(record_id, principal_scope=principal_scope)
+    def delete_image_record(
+        self, record_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        ImageApplication(self._runtime).delete_record(
+            record_id, principal_scope=principal_scope
+        )
 
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo:
         await self._runtime.providers.create(config, replace_existing=False)
@@ -66,7 +103,9 @@ class ProviderApplication(ProviderInterfaceProtocol):
         return await self._runtime.providers.list_infos()
 
     async def test_provider(
-        self, provider_id: str, request: ProviderTestRequest,
+        self,
+        provider_id: str,
+        request: ProviderTestRequest,
     ) -> ProviderTestResult:
         await self._runtime.providers.get(provider_id)
         started = perf_counter()
@@ -75,12 +114,22 @@ class ProviderApplication(ProviderInterfaceProtocol):
         error_message = None
         try:
             async with asyncio.timeout(PROVIDER_TEST_TIMEOUT_SECONDS):
-                response = await self._runtime.providers.chat(provider_id, ChatRequest(
-                    model_id=request.model_id,
-                    messages=[Content(role=MessageRole.USER, content=[
-                        ContentPart(type=ContentPartType.TEXT, text="Reply with OK."),
-                    ])],
-                ))
+                response = await self._runtime.providers.chat(
+                    provider_id,
+                    ChatRequest(
+                        model_id=request.model_id,
+                        messages=[
+                            Content(
+                                role=MessageRole.USER,
+                                content=[
+                                    ContentPart(
+                                        type=ContentPartType.TEXT, text="Reply with OK."
+                                    ),
+                                ],
+                            )
+                        ],
+                    ),
+                )
             response_model_id = response.model_id
         except ProviderDisabledError:
             raise
@@ -91,16 +140,22 @@ class ProviderApplication(ProviderInterfaceProtocol):
             error_type = error.error_type
             error_message = _test_error_message(error)
         return ProviderTestResult(
-            provider_id=provider_id, model_id=request.model_id,
-            success=error_type is None, elapsed_ms=round((perf_counter() - started) * 1000, 2),
-            response_model_id=response_model_id, error_type=error_type, error_message=error_message,
+            provider_id=provider_id,
+            model_id=request.model_id,
+            success=error_type is None,
+            elapsed_ms=round((perf_counter() - started) * 1000, 2),
+            response_model_id=response_model_id,
+            error_type=error_type,
+            error_message=error_message,
         )
 
     async def get_provider_config(self, provider_id: str) -> ProviderConfigView:
         return await self._runtime.providers.get_config(provider_id)
 
     async def update_provider(
-        self, provider_id: str, update: ProviderConfigUpdate,
+        self,
+        provider_id: str,
+        update: ProviderConfigUpdate,
     ) -> ProviderInfo:
         await self._runtime.providers.update(provider_id, update)
         return await self._runtime.providers.get_info(provider_id)

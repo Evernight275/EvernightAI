@@ -7,26 +7,71 @@ from fastapi.testclient import TestClient
 
 from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.bootstrap.interface import create_interface
-from EvernightAI.bootstrap.runtime import create_runtime_with_agent_storage, create_sqlite_runtime
+from EvernightAI.bootstrap.runtime import (
+    create_runtime_with_agent_storage,
+    create_sqlite_runtime,
+)
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.error.agent import AgentStateError
-from EvernightAI.core.error.skill import SkillConflictError, SkillDisabledError, SkillNotFoundError
+from EvernightAI.core.error.skill import (
+    SkillConflictError,
+    SkillDisabledError,
+    SkillNotFoundError,
+)
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunStatus, AgentStepType, AgentTraceEventType, ToolExecutionStatus
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse, ChatSkill, Content, ContentPart, ContentPartType, MessageRole
+from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
+    AgentRunStatus,
+    AgentStepType,
+    AgentTraceEventType,
+    ToolExecutionStatus,
+)
+from EvernightAI.core.schema.content import (
+    ChatRequest,
+    ChatResponse,
+    ChatSkill,
+    Content,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.provider import ProviderConfig, ProviderModelCapability, ProviderModelConfig, ProviderType
-from EvernightAI.core.schema.skill import RenderedSkill, SkillCapability, SkillDefinition, SkillRenderRequest, SkillTemplateConfig, SkillTemplateUpdate
+from EvernightAI.core.schema.provider import (
+    ProviderConfig,
+    ProviderModelCapability,
+    ProviderModelConfig,
+    ProviderType,
+)
+from EvernightAI.core.schema.skill import (
+    RenderedSkill,
+    SkillCapability,
+    SkillDefinition,
+    SkillRenderRequest,
+    SkillTemplateConfig,
+    SkillTemplateUpdate,
+)
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus, ToolCall, ToolDefinition, ToolSafetyLevel
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolApprovalStatus,
+    ToolCall,
+    ToolDefinition,
+    ToolSafetyLevel,
+)
 from EvernightAI.interface.http.app import create_http_app
-from tests.fakes.agent import InMemoryAgentRunStateRegister, InMemoryAgentTraceRegister, InMemoryToolExecutionRegister
+from tests.fakes.agent import (
+    InMemoryAgentRunStateRegister,
+    InMemoryAgentTraceRegister,
+    InMemoryToolExecutionRegister,
+)
 from tests.fakes.streams import EventStream
 
 
 def message(text: str, role: MessageRole = MessageRole.USER) -> Content:
-    return Content(role=role, content=[ContentPart(type=ContentPartType.TEXT, text=text)])
+    return Content(
+        role=role, content=[ContentPart(type=ContentPartType.TEXT, text=text)]
+    )
 
 
 class RecordingProvider(ProviderInstanceProtocol):
@@ -36,18 +81,32 @@ class RecordingProvider(ProviderInstanceProtocol):
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request.model_copy(deep=True))
-        calls = [ToolCall(tool_call_id=name, tool_call={"name": name, "arguments": {}}) for name in self.tools]
+        calls = [
+            ToolCall(tool_call_id=name, tool_call={"name": name, "arguments": {}})
+            for name in self.tools
+        ]
         return ChatResponse(
             model_id=request.model_id,
-            message=Content(role=MessageRole.ASSISTANT, tool_calls=calls) if len(self.requests) == 1 else message("Done", MessageRole.ASSISTANT),
+            message=Content(role=MessageRole.ASSISTANT, tool_calls=calls)
+            if len(self.requests) == 1
+            else message("Done", MessageRole.ASSISTANT),
             finish_reason="tool_calls" if len(self.requests) == 1 else "stop",
         )
 
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         response = await self.chat(request)
-        events = [ChatStreamEvent(event_type=ChatStreamEventType.TOOL_CALL_COMPLETED, tool_call=call)
-                  for call in response.message.tool_calls or []]
-        events.append(ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_COMPLETED, finish_reason=response.finish_reason))
+        events = [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.TOOL_CALL_COMPLETED, tool_call=call
+            )
+            for call in response.message.tool_calls or []
+        ]
+        events.append(
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                finish_reason=response.finish_reason,
+            )
+        )
         return EventStream(events)
 
     async def list_models(self) -> list[ProviderModelConfig]:
@@ -74,12 +133,19 @@ def create_test_runtime(database: Path | None) -> RuntimeKernel:
 
 
 def template() -> SkillTemplateConfig:
-    return SkillTemplateConfig(name="style", description="Style", prompt="Use $tone", capabilities=[SkillCapability.AGENT])
+    return SkillTemplateConfig(
+        name="style",
+        description="Style",
+        prompt="Use $tone",
+        capabilities=[SkillCapability.AGENT],
+    )
 
 
 def mutate(runtime: RuntimeKernel, change: str) -> None:
     if change == "update":
-        runtime.skills.update_template("style", SkillTemplateUpdate(prompt="Changed $tone"))
+        runtime.skills.update_template(
+            "style", SkillTemplateUpdate(prompt="Changed $tone")
+        )
     elif change == "disable":
         runtime.skills.update_template("style", SkillTemplateUpdate(is_enabled=False))
     else:
@@ -89,11 +155,15 @@ def mutate(runtime: RuntimeKernel, change: str) -> None:
 
 
 def mutation_error(change: str) -> type[Exception]:
-    return {"disable": SkillDisabledError, "delete": SkillNotFoundError}.get(change, SkillConflictError)
+    return {"disable": SkillDisabledError, "delete": SkillNotFoundError}.get(
+        change, SkillConflictError
+    )
 
 
 async def assemble(
-    runtime: RuntimeKernel, provider: RecordingProvider, executed: list[str],
+    runtime: RuntimeKernel,
+    provider: RecordingProvider,
+    executed: list[str],
     on_add: Callable[[], None] | None = None,
 ) -> AgentRunApplication:
     async def build(_config: ProviderConfig) -> ProviderInstanceProtocol:
@@ -111,22 +181,41 @@ async def assemble(
 
     runtime.provider_factory.register(ProviderType.OPENAI, build)
     runtime.tool_register.register(ToolDefinition(name="add", description="Add"), add)
-    runtime.tool_register.register(ToolDefinition(name="write_file", description="Write", safety_level=ToolSafetyLevel.SENSITIVE), write)
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write",
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
     await runtime.initialize()
-    await runtime.providers.create(ProviderConfig(provider_id="fake", name="Fake", type=ProviderType.OPENAI))
+    await runtime.providers.create(
+        ProviderConfig(provider_id="fake", name="Fake", type=ProviderType.OPENAI)
+    )
     return AgentRunApplication(runtime)
 
 
 def request(runtime: RuntimeKernel, streaming: bool = False) -> AgentRunRequest:
     return AgentRunRequest(
-        provider_id="fake", context_id="ctx", model_id="model", messages=[message("Add and write")],
-        skills=[ChatSkill(skill_name="style", variables={"tone": "calm"})], tools=runtime.tools.list_tools(),
+        provider_id="fake",
+        context_id="ctx",
+        model_id="model",
+        messages=[message("Add and write")],
+        skills=[ChatSkill(skill_name="style", variables={"tone": "calm"})],
+        tools=runtime.tools.list_tools(),
         metadata={"stream": streaming},
     )
 
 
 def approvals() -> list[ToolApprovalDecision]:
-    return [ToolApprovalDecision(approval_id="approval", tool_call_id="write_file", status=ToolApprovalStatus.APPROVED)]
+    return [
+        ToolApprovalDecision(
+            approval_id="approval",
+            tool_call_id="write_file",
+            status=ToolApprovalStatus.APPROVED,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -134,7 +223,10 @@ def approvals() -> list[ToolApprovalDecision]:
 @pytest.mark.parametrize("restart", [False, True])
 @pytest.mark.parametrize("streaming", [False, True])
 async def test_changed_skill_blocks_resume_before_approval_or_tool_execution(
-    change: str, restart: bool, streaming: bool, tmp_path: Path,
+    change: str,
+    restart: bool,
+    streaming: bool,
+    tmp_path: Path,
 ) -> None:
     database = tmp_path / "runtime.sqlite3" if restart else None
     runtime = create_test_runtime(database)
@@ -142,11 +234,15 @@ async def test_changed_skill_blocks_resume_before_approval_or_tool_execution(
     executed: list[str] = []
     app = await assemble(runtime, provider, executed)
     runtime.skills.create_template(template())
-    await runtime.contexts.create(Context(context_id="ctx", messages=[message("History")]))
+    await runtime.contexts.create(
+        Context(context_id="ctx", messages=[message("History")])
+    )
     state = await app.start(request(runtime, streaming))
     assert state.status is AgentRunStatus.PAUSED
     assert executed == ["add"]
-    assert state.skill_revisions == {"style": runtime.skills.get_skill("style").revision}
+    assert state.skill_revisions == {
+        "style": runtime.skills.get_skill("style").revision
+    }
     mutate(runtime, change)
     if restart:
         await app.close()
@@ -178,7 +274,9 @@ async def test_changed_skill_blocks_resume_before_approval_or_tool_execution(
 @pytest.mark.parametrize("restart", [False, True])
 @pytest.mark.parametrize("streaming", [False, True])
 async def test_unchanged_skill_resumes_without_repeating_completed_tools(
-    restart: bool, streaming: bool, tmp_path: Path,
+    restart: bool,
+    streaming: bool,
+    tmp_path: Path,
 ) -> None:
     database = tmp_path / "runtime.sqlite3" if restart else None
     runtime = create_test_runtime(database)
@@ -204,12 +302,21 @@ async def test_unchanged_skill_resumes_without_repeating_completed_tools(
     assert resumed.skill_revisions == {"style": revision}
     assert executed == ["add", "write_file"]
     assert len(provider.requests) == 2
-    assert all(item.messages[0] == message("Use calm", MessageRole.SYSTEM) for item in provider.requests)
+    assert all(
+        item.messages[0] == message("Use calm", MessageRole.SYSTEM)
+        for item in provider.requests
+    )
     assert [item.role for item in (await runtime.contexts.get("ctx")).messages] == [
-        MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL, MessageRole.TOOL, MessageRole.ASSISTANT,
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.TOOL,
+        MessageRole.ASSISTANT,
     ]
     attempts = app.list_tool_executions(state.run_id)
-    assert len(attempts) == 2 and all(item.status is ToolExecutionStatus.COMPLETED for item in attempts)
+    assert len(attempts) == 2 and all(
+        item.status is ToolExecutionStatus.COMPLETED for item in attempts
+    )
     await app.close()
     await runtime.close()
 
@@ -219,7 +326,10 @@ async def test_unchanged_skill_resumes_without_repeating_completed_tools(
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("restart", [False, True])
 async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execution(
-    change: str, streaming: bool, restart: bool, tmp_path: Path,
+    change: str,
+    streaming: bool,
+    restart: bool,
+    tmp_path: Path,
 ) -> None:
     database = tmp_path / "runtime.sqlite3" if restart else None
     runtime = create_test_runtime(database)
@@ -230,7 +340,7 @@ async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execu
     await runtime.contexts.create(Context(context_id="ctx"))
     with pytest.raises(mutation_error(change)):
         await app.start(request(runtime, streaming))
-    state, = app.list_states()
+    (state,) = app.list_states()
     if restart:
         await app.close()
         await runtime.close()
@@ -239,13 +349,23 @@ async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execu
         state = app.get_state(state.run_id)
     assert state.status is AgentRunStatus.FAILED
     assert state.trace[-1].error_type == mutation_error(change).__name__
-    expected_detail = {"reason": {"disable": "disabled", "delete": "deleted"}.get(change, "revision_changed"), "skill_names": ["style"]}
+    expected_detail = {
+        "reason": {"disable": "disabled", "delete": "deleted"}.get(
+            change, "revision_changed"
+        ),
+        "skill_names": ["style"],
+    }
     assert state.trace[-1].payload is not None
     assert json.loads(state.trace[-1].payload["error_detail"]) == expected_detail
-    assert json.loads(state.metadata["agent_runtime"]["failure_detail"]) == expected_detail
+    assert (
+        json.loads(state.metadata["agent_runtime"]["failure_detail"]) == expected_detail
+    )
     assert any(step.step_type is AgentStepType.TOOL for step in state.steps)
     assert executed == ["add"] and len(provider.requests) == 1
-    assert app.list_tool_executions(state.run_id)[0].status is ToolExecutionStatus.COMPLETED
+    assert (
+        app.list_tool_executions(state.run_id)[0].status
+        is ToolExecutionStatus.COMPLETED
+    )
     assert (await runtime.contexts.get("ctx")).messages == []
     for _ in range(2):
         with pytest.raises(AgentStateError, match="not paused"):
@@ -257,7 +377,9 @@ async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execu
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("streaming", [False, True])
-async def test_skill_change_during_request_composition_blocks_provider_dispatch(streaming: bool) -> None:
+async def test_skill_change_during_request_composition_blocks_provider_dispatch(
+    streaming: bool,
+) -> None:
     runtime = create_test_runtime(None)
     provider = RecordingProvider()
     app = await assemble(runtime, provider, [])
@@ -265,9 +387,18 @@ async def test_skill_change_during_request_composition_blocks_provider_dispatch(
 
     async def renderer(render_request: SkillRenderRequest) -> RenderedSkill:
         mutate(runtime, "update")
-        return RenderedSkill(skill_name=render_request.skill_name, render_id=render_request.render_id)
+        return RenderedSkill(
+            skill_name=render_request.skill_name, render_id=render_request.render_id
+        )
 
-    runtime.skill_register.register(SkillDefinition(name="gate", description="Mutation during composition", capabilities=[SkillCapability.AGENT]), renderer)
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="gate",
+            description="Mutation during composition",
+            capabilities=[SkillCapability.AGENT],
+        ),
+        renderer,
+    )
     await runtime.contexts.create(Context(context_id="ctx"))
     run_request = request(runtime, streaming)
     assert run_request.skills is not None
@@ -293,7 +424,7 @@ async def test_skill_change_after_tool_started_event_blocks_execution() -> None:
         async for event in app.start_stream(request(runtime)):
             if event.event_type is AgentTraceEventType.TOOL_STARTED:
                 mutate(runtime, "update")
-    state, = app.list_states()
+    (state,) = app.list_states()
     assert state.status is AgentRunStatus.FAILED
     assert executed == [] and len(provider.requests) == 1
     assert app.list_tool_executions(state.run_id) == []
@@ -304,7 +435,9 @@ async def test_skill_change_after_tool_started_event_blocks_execution() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("restart", [False, True])
-async def test_manual_checkpoint_pause_keeps_versions_across_restart(restart: bool, tmp_path: Path) -> None:
+async def test_manual_checkpoint_pause_keeps_versions_across_restart(
+    restart: bool, tmp_path: Path
+) -> None:
     database = tmp_path / "runtime.sqlite3" if restart else None
     runtime = create_test_runtime(database)
     provider = RecordingProvider(["add"])
@@ -315,11 +448,13 @@ async def test_manual_checkpoint_pause_keeps_versions_across_restart(restart: bo
 
     async def pause_during_tool(_arguments: dict[str, object]) -> dict[str, object]:
         executed.append("add")
-        running, = app.list_states()
+        (running,) = app.list_states()
         await app.pause(running.run_id)
         return {"result": 3}
 
-    runtime.tool_register.register(ToolDefinition(name="add", description="Add"), pause_during_tool)
+    runtime.tool_register.register(
+        ToolDefinition(name="add", description="Add"), pause_during_tool
+    )
     state = await app.start(request(runtime))
     assert state.status is AgentRunStatus.PAUSED
     mutate(runtime, "update")
@@ -333,7 +468,10 @@ async def test_manual_checkpoint_pause_keeps_versions_across_restart(restart: bo
     assert app.get_state(state.run_id).skill_revisions == state.skill_revisions
     assert app.get_state(state.run_id).status is AgentRunStatus.PAUSED
     assert executed == ["add"] and len(provider.requests) == 1
-    assert app.list_tool_executions(state.run_id)[0].status is ToolExecutionStatus.COMPLETED
+    assert (
+        app.list_tool_executions(state.run_id)[0].status
+        is ToolExecutionStatus.COMPLETED
+    )
     assert (await runtime.contexts.get("ctx")).messages == []
     await app.close()
     await runtime.close()
@@ -377,18 +515,40 @@ async def test_http_skill_conflict_keeps_paused_run_inspectable(change: str) -> 
         else:
             mutate(runtime, change)
         error_type = mutation_error(change).__name__
-        expected_detail = {"reason": {"update": "revision_changed", "disable": "disabled", "delete": "deleted", "legacy": "revision_unavailable"}[change], "skill_names": ["style"]}
-        response = client.post(f"/agent-runs/{state.run_id}/resume", json={
-            "approvals": [approval.model_dump(mode="json") for approval in approvals()],
-        })
+        expected_detail = {
+            "reason": {
+                "update": "revision_changed",
+                "disable": "disabled",
+                "delete": "deleted",
+                "legacy": "revision_unavailable",
+            }[change],
+            "skill_names": ["style"],
+        }
+        response = client.post(
+            f"/agent-runs/{state.run_id}/resume",
+            json={
+                "approvals": [
+                    approval.model_dump(mode="json") for approval in approvals()
+                ],
+            },
+        )
         assert response.status_code == (404 if change == "delete" else 409)
         assert response.json()["error"]["type"] == error_type
         assert json.loads(response.json()["error"]["detail"]) == expected_detail
-        streamed = client.post(f"/agent-runs/{state.run_id}/resume/stream", json={
-            "approvals": [approval.model_dump(mode="json") for approval in approvals()],
-        })
+        streamed = client.post(
+            f"/agent-runs/{state.run_id}/resume/stream",
+            json={
+                "approvals": [
+                    approval.model_dump(mode="json") for approval in approvals()
+                ],
+            },
+        )
         assert streamed.status_code == 200
-        error_event, = [json.loads(line[6:])["error"] for line in streamed.text.splitlines() if line.startswith("data: ")]
+        (error_event,) = [
+            json.loads(line[6:])["error"]
+            for line in streamed.text.splitlines()
+            if line.startswith("data: ")
+        ]
         assert error_event["type"] == error_type
         assert json.loads(error_event["detail"]) == expected_detail
         stored = client.get(f"/agent-runs/{state.run_id}").json()

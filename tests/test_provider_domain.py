@@ -110,15 +110,24 @@ def make_config(provider_id: str = "provider-1") -> ProviderConfig:
 
 
 @pytest.mark.asyncio
-async def test_disabled_provider_can_be_managed_without_factory_or_secret_resolution() -> None:
+async def test_disabled_provider_can_be_managed_without_factory_or_secret_resolution() -> (
+    None
+):
     store = FakeProviderConfigStore()
     manager = ProviderManager(ProviderFactory(), config_store=store)
-    config = make_config().model_copy(update={
-        "is_enabled": False, "api_key_secret_ref": "env:MISSING_KEY", "discover_models": True,
-        "model": {"alias": ProviderModelConfig(
-            model_id="model-1", capabilities=[ProviderModelCapability.CHAT],
-        )},
-    })
+    config = make_config().model_copy(
+        update={
+            "is_enabled": False,
+            "api_key_secret_ref": "env:MISSING_KEY",
+            "discover_models": True,
+            "model": {
+                "alias": ProviderModelConfig(
+                    model_id="model-1",
+                    capabilities=[ProviderModelCapability.CHAT],
+                )
+            },
+        }
+    )
     assert await manager.create(config) is None
     assert await manager.list_instances() == []
     assert not (await manager.get_info("provider-1")).is_enabled
@@ -126,7 +135,9 @@ async def test_disabled_provider_can_be_managed_without_factory_or_secret_resolu
     with pytest.raises(ProviderConflictError):
         await manager.create(config, replace_existing=False)
 
-    await manager.update("provider-1", ProviderConfigUpdate(name="Edited while disabled"))
+    await manager.update(
+        "provider-1", ProviderConfigUpdate(name="Edited while disabled")
+    )
     assert (await manager.get_config("provider-1")).name == "Edited while disabled"
     assert store.get("provider-1").name == "Edited while disabled"
     assert (await manager.list_models("provider-1"))[0].model_id == "model-1"
@@ -159,7 +170,9 @@ async def test_disabled_provider_can_be_managed_without_factory_or_secret_resolu
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["builder", "persistence"])
-async def test_enable_failure_preserves_disabled_config_and_can_retry(failure: str) -> None:
+async def test_enable_failure_preserves_disabled_config_and_can_retry(
+    failure: str,
+) -> None:
     candidate = FakeProvider()
     fail_build = failure == "builder"
 
@@ -175,7 +188,9 @@ async def test_enable_failure_preserves_disabled_config_and_can_retry(failure: s
     await manager.create(make_config().model_copy(update={"is_enabled": False}))
     store.fail_saves = failure == "persistence"
     with pytest.raises(RuntimeError):
-        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True, name="Not saved"))
+        await manager.update(
+            "provider-1", ProviderConfigUpdate(is_enabled=True, name="Not saved")
+        )
     assert await manager.list_instances() == []
     assert not (await manager.get_config("provider-1")).is_enabled
     assert store.get("provider-1").name == "OpenAI"
@@ -186,9 +201,15 @@ async def test_enable_failure_preserves_disabled_config_and_can_retry(failure: s
     fail_build = False
     store.fail_saves = False
     candidate = FakeProvider()
-    assert await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)) is candidate
+    assert (
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
+        is candidate
+    )
     assert store.get("provider-1").is_enabled
-    assert await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)) is candidate
+    assert (
+        await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
+        is candidate
+    )
     assert not candidate.closed
     await manager.close()
 
@@ -211,7 +232,9 @@ async def test_disable_save_failure_keeps_provider_callable() -> None:
     assert await manager.get("provider-1") is instance
     assert store.get("provider-1").is_enabled
     assert not instance.closed
-    assert (await manager.chat("provider-1", ChatRequest(model_id="model-1", messages=[]))).model_id == "model-1"
+    assert (
+        await manager.chat("provider-1", ChatRequest(model_id="model-1", messages=[]))
+    ).model_id == "model-1"
     await manager.close()
 
 
@@ -232,10 +255,16 @@ async def test_concurrent_enable_and_edit_preserve_latest_config() -> None:
     factory.register(ProviderType.OPENAI, build)
     manager = ProviderManager(factory, config_store=store)
     await manager.create(make_config().model_copy(update={"is_enabled": False}))
-    enabling = asyncio.create_task(manager.update("provider-1", ProviderConfigUpdate(is_enabled=True)))
+    enabling = asyncio.create_task(
+        manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
+    )
     await started.wait()
     assert not (await manager.get_info("provider-1")).is_enabled
-    disabling = asyncio.create_task(manager.update("provider-1", ProviderConfigUpdate(is_enabled=False, name="Edited")))
+    disabling = asyncio.create_task(
+        manager.update(
+            "provider-1", ProviderConfigUpdate(is_enabled=False, name="Edited")
+        )
+    )
     release.set()
     await asyncio.gather(enabling, disabling)
     assert not (await manager.get_config("provider-1")).is_enabled
@@ -271,7 +300,12 @@ async def test_shutdown_waits_for_calls_on_a_disabled_provider() -> None:
     factory.register(ProviderType.OPENAI, build)
     manager = ProviderManager(factory)
     await manager.create(make_config())
-    calls = {name: asyncio.create_task(manager.chat("provider-1", ChatRequest(model_id=name, messages=[]))) for name in started}
+    calls = {
+        name: asyncio.create_task(
+            manager.chat("provider-1", ChatRequest(model_id=name, messages=[]))
+        )
+        for name in started
+    }
     await asyncio.gather(*(event.wait() for event in started.values()))
     await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
     release["first"].set()
@@ -304,7 +338,9 @@ async def test_raw_key_configuration_survives_disable_edit_and_reenable() -> Non
     manager = ProviderManager(factory, config_store=store)
     await manager.create(make_config().model_copy(update={"api_key": "runtime-only"}))
     await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
-    await manager.update("provider-1", ProviderConfigUpdate(base_url="https://edited.example/v1"))
+    await manager.update(
+        "provider-1", ProviderConfigUpdate(base_url="https://edited.example/v1")
+    )
     assert len(built) == 1
     await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
     assert len(built) == 2
@@ -326,14 +362,21 @@ async def test_update_preserves_omitted_credentials_and_model_settings() -> None
     factory = ProviderFactory()
     factory.register(ProviderType.OPENAI, build)
     manager = ProviderManager(factory)
-    config = make_config().model_copy(update={
-        "api_key": "original-key", "base_url": "https://old.example/v1",
-        "discover_models": True, "metadata": {"tag": "keep"},
-        "model": {"alias": ProviderModelConfig(
-            model_id="model-1", capabilities=[ProviderModelCapability.CHAT],
-            metadata={"provider_option": "keep"},
-        )},
-    })
+    config = make_config().model_copy(
+        update={
+            "api_key": "original-key",
+            "base_url": "https://old.example/v1",
+            "discover_models": True,
+            "metadata": {"tag": "keep"},
+            "model": {
+                "alias": ProviderModelConfig(
+                    model_id="model-1",
+                    capabilities=[ProviderModelCapability.CHAT],
+                    metadata={"provider_option": "keep"},
+                )
+            },
+        }
+    )
     await manager.create(config)
     config.name = "caller mutation"
     await manager.update("provider-1", ProviderConfigUpdate(name="Renamed"))
@@ -346,7 +389,9 @@ async def test_update_preserves_omitted_credentials_and_model_settings() -> None
     assert "original-key" not in view.model_dump_json()
     assert "api_key" not in view.model_dump()
     view.model["alias"].metadata["provider_option"] = "mutation"
-    assert (await manager.get_config("provider-1")).model["alias"].metadata == {"provider_option": "keep"}
+    assert (await manager.get_config("provider-1")).model["alias"].metadata == {
+        "provider_option": "keep"
+    }
     await manager.close()
 
 
@@ -367,12 +412,18 @@ async def test_update_switches_to_resolved_reference_and_clears_credentials() ->
     factory = ProviderFactory()
     factory.register(ProviderType.OPENAI, build)
     factory.register(ProviderType.ANTHROPIC, build)
-    manager = ProviderManager(factory, config_store=store, secret_resolver=SecretResolver())
+    manager = ProviderManager(
+        factory, config_store=store, secret_resolver=SecretResolver()
+    )
     await manager.create(make_config().model_copy(update={"api_key": "runtime-key"}))
 
-    await manager.update("provider-1", ProviderConfigUpdate(
-        type=ProviderType.ANTHROPIC, api_key_secret_ref="env:NEW_KEY",
-    ))
+    await manager.update(
+        "provider-1",
+        ProviderConfigUpdate(
+            type=ProviderType.ANTHROPIC,
+            api_key_secret_ref="env:NEW_KEY",
+        ),
+    )
 
     assert built[-1].type is ProviderType.ANTHROPIC
     assert built[-1].api_key == "resolved-key"
@@ -383,9 +434,13 @@ async def test_update_switches_to_resolved_reference_and_clears_credentials() ->
     await manager.update("provider-1", ProviderConfigUpdate(name="Keep reference"))
     assert built[-1].api_key == "resolved-key"
 
-    await manager.update("provider-1", ProviderConfigUpdate(
-        api_key=None, api_key_secret_ref=None,
-    ))
+    await manager.update(
+        "provider-1",
+        ProviderConfigUpdate(
+            api_key=None,
+            api_key_secret_ref=None,
+        ),
+    )
     assert built[-1].api_key is None
     assert built[-1].api_key_secret_ref is None
     assert store.get("provider-1").api_key is None
@@ -439,7 +494,9 @@ async def test_update_builder_failure_preserves_configuration_and_instance() -> 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_save", [False, True])
-async def test_raw_key_update_replaces_persisted_reference_atomically(fail_save: bool) -> None:
+async def test_raw_key_update_replaces_persisted_reference_atomically(
+    fail_save: bool,
+) -> None:
     built: list[FakeProvider] = []
 
     async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
@@ -451,9 +508,14 @@ async def test_raw_key_update_replaces_persisted_reference_atomically(fail_save:
     factory = ProviderFactory()
     factory.register(ProviderType.OPENAI, build)
     manager = ProviderManager(factory, config_store=store)
-    await manager.create(make_config().model_copy(update={
-        "api_key": "old-key", "api_key_secret_ref": "env:OLD_KEY",
-    }))
+    await manager.create(
+        make_config().model_copy(
+            update={
+                "api_key": "old-key",
+                "api_key_secret_ref": "env:OLD_KEY",
+            }
+        )
+    )
     store.fail_saves = fail_save
     if fail_save:
         with pytest.raises(RuntimeError, match="config save failed"):
@@ -483,7 +545,9 @@ async def test_concurrent_updates_merge_against_latest_configuration() -> None:
     await manager.create(make_config())
     await asyncio.gather(
         manager.update("provider-1", ProviderConfigUpdate(name="New")),
-        manager.update("provider-1", ProviderConfigUpdate(base_url="https://new.example/v1")),
+        manager.update(
+            "provider-1", ProviderConfigUpdate(base_url="https://new.example/v1")
+        ),
     )
     saved = store.get("provider-1")
     assert saved.name == "New"
@@ -501,7 +565,9 @@ async def test_update_does_not_close_active_model_stream(disable: bool) -> None:
             return self.events()
 
         async def events(self) -> AsyncIterator[ChatStreamEvent]:
-            yield ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_DELTA, text_delta="old")
+            yield ChatStreamEvent(
+                event_type=ChatStreamEventType.MESSAGE_DELTA, text_delta="old"
+            )
             await release.wait()
             yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
@@ -520,14 +586,23 @@ async def test_update_does_not_close_active_model_stream(disable: bool) -> None:
     factory.register(ProviderType.OPENAI, build)
     manager = ProviderManager(factory)
     await manager.create(make_config())
-    stream = await manager.chat_stream("provider-1", ChatRequest(model_id="model-1", messages=[]))
+    stream = await manager.chat_stream(
+        "provider-1", ChatRequest(model_id="model-1", messages=[])
+    )
     iterator = stream.__aiter__()
     assert (await anext(iterator)).text_delta == "old"
-    await asyncio.wait_for(manager.update("provider-1", ProviderConfigUpdate(name="New", is_enabled=not disable)), timeout=1)
+    await asyncio.wait_for(
+        manager.update(
+            "provider-1", ProviderConfigUpdate(name="New", is_enabled=not disable)
+        ),
+        timeout=1,
+    )
     assert not previous.closed
     if disable:
         with pytest.raises(ProviderDisabledError):
-            await manager.chat_stream("provider-1", ChatRequest(model_id="model-1", messages=[]))
+            await manager.chat_stream(
+                "provider-1", ChatRequest(model_id="model-1", messages=[])
+            )
         await manager.update("provider-1", ProviderConfigUpdate(is_enabled=True))
     assert await manager.get("provider-1") is replacement
     release.set()
@@ -562,7 +637,9 @@ async def test_manager_creates_and_deletes_provider_instance() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["create", "update"])
-async def test_manager_keeps_previous_instance_when_config_save_fails(operation: str) -> None:
+async def test_manager_keeps_previous_instance_when_config_save_fails(
+    operation: str,
+) -> None:
     instances = [FakeProvider(), FakeProvider()]
 
     async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
@@ -580,7 +657,9 @@ async def test_manager_keeps_previous_instance_when_config_save_fails(operation:
         if operation == "update":
             await manager.update("provider-1", ProviderConfigUpdate(name="Replacement"))
         else:
-            await manager.create(make_config().model_copy(update={"name": "Replacement"}))
+            await manager.create(
+                make_config().model_copy(update={"name": "Replacement"})
+            )
 
     assert await manager.get("provider-1") is previous
     assert (await manager.list_infos())[0].name == "OpenAI"
@@ -628,7 +707,9 @@ async def test_manager_keeps_replacement_when_previous_close_fails(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["create", "update", "disable"])
-async def test_manager_keeps_in_flight_call_on_replaced_generation(operation: str) -> None:
+async def test_manager_keeps_in_flight_call_on_replaced_generation(
+    operation: str,
+) -> None:
     class BlockingProvider(FakeProvider):
         def __init__(self) -> None:
             super().__init__()
@@ -657,7 +738,10 @@ async def test_manager_keeps_in_flight_call_on_replaced_generation(operation: st
     await previous.started.wait()
 
     created = (
-        await manager.update("provider-1", ProviderConfigUpdate(name="New", is_enabled=operation != "disable"))
+        await manager.update(
+            "provider-1",
+            ProviderConfigUpdate(name="New", is_enabled=operation != "disable"),
+        )
         if operation != "create"
         else await manager.create(make_config().model_copy(update={"name": "New"}))
     )

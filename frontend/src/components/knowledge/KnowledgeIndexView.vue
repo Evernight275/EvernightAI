@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { KnowledgeIndex } from '../../domain/workspace'
-import EmptyValue from '../common/EmptyValue.vue'
+import type { KnowledgeIndex } from '../../domain/workspace';
+import EmptyValue from '../common/EmptyValue.vue';
 
 defineProps<{
-  index: KnowledgeIndex
-}>()
+  index: KnowledgeIndex;
+}>();
 </script>
 
 <template>

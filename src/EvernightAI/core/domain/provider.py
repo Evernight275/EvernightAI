@@ -16,7 +16,11 @@ from EvernightAI.core.protocol.provider import (
     ImageEditProviderProtocol,
 )
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.core.schema.image import (
+    ImageEditRequest,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+)
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -184,13 +188,18 @@ class ProviderManager(ProviderManageProtocol):
         self._error_totals: dict[str, int] = {}
 
     async def create(
-        self, provider: ProviderConfig, *, replace_existing: bool = True,
+        self,
+        provider: ProviderConfig,
+        *,
+        replace_existing: bool = True,
     ) -> ProviderInstanceProtocol | None:
         lock = self._lock_for(provider.provider_id)
         async with lock:
             previous = self._slots.get(provider.provider_id)
             if provider.provider_id in self._configs and not replace_existing:
-                raise ProviderConflictError(f"The provider {provider.provider_id} already exists")
+                raise ProviderConflictError(
+                    f"The provider {provider.provider_id} already exists"
+                )
             instance = await self._replace_provider(provider, previous)
         if previous is not None:
             await self._close_if_idle(
@@ -200,7 +209,9 @@ class ProviderManager(ProviderManageProtocol):
         return instance
 
     async def update(
-        self, provider_id: str, update: ProviderConfigUpdate,
+        self,
+        provider_id: str,
+        update: ProviderConfigUpdate,
     ) -> ProviderInstanceProtocol | None:
         async with self._lock_for(provider_id):
             config = self._get_config(provider_id)
@@ -212,20 +223,27 @@ class ProviderManager(ProviderManageProtocol):
                 changes["api_key_secret_ref"] = None
             elif update.api_key_secret_ref is not None:
                 changes["api_key"] = None
-            provider = ProviderConfig.model_validate({
-                **config.model_dump(), **changes,
-            })
+            provider = ProviderConfig.model_validate(
+                {
+                    **config.model_dump(),
+                    **changes,
+                }
+            )
             instance = await self._replace_provider(
-                provider, previous,
+                provider,
+                previous,
             )
         if previous is not None:
             await self._close_if_idle(
-                previous, message="Failed to close replaced provider instance",
+                previous,
+                message="Failed to close replaced provider instance",
             )
         return instance
 
     async def _replace_provider(
-        self, provider: ProviderConfig, previous: _ProviderSlot | None,
+        self,
+        provider: ProviderConfig,
+        previous: _ProviderSlot | None,
     ) -> ProviderInstanceProtocol | None:
         provider = provider.model_copy(deep=True)
         instance = None
@@ -242,7 +260,8 @@ class ProviderManager(ProviderManageProtocol):
         except Exception:
             if instance is not None:
                 await self._close_unpublished_instance(
-                    provider.provider_id, instance,
+                    provider.provider_id,
+                    instance,
                     message="Failed to close provider instance after create failure",
                 )
             raise
@@ -253,8 +272,10 @@ class ProviderManager(ProviderManageProtocol):
             generation = self._generations.get(provider.provider_id, 0) + 1
             self._generations[provider.provider_id] = generation
             self._slots[provider.provider_id] = _ProviderSlot(
-                provider_id=provider.provider_id, generation=generation,
-                instance=instance, info=info,
+                provider_id=provider.provider_id,
+                generation=generation,
+                instance=instance,
+                info=info,
             )
         if previous is not None:
             self._retire_slot(previous)
@@ -268,10 +289,12 @@ class ProviderManager(ProviderManageProtocol):
 
     async def get_config(self, provider_id: str) -> ProviderConfigView:
         config = self._get_config(provider_id)
-        return ProviderConfigView.model_validate({
-            **config.model_dump(exclude={"api_key"}),
-            "has_api_key": bool(config.api_key or config.api_key_secret_ref),
-        })
+        return ProviderConfigView.model_validate(
+            {
+                **config.model_dump(exclude={"api_key"}),
+                "has_api_key": bool(config.api_key or config.api_key_secret_ref),
+            }
+        )
 
     async def list_instances(self) -> list[ProviderInstanceProtocol]:
         return [slot.instance for slot in self._slots.values()]
@@ -307,7 +330,9 @@ class ProviderManager(ProviderManageProtocol):
     ) -> bool:
         config = self._get_config(provider_id)
         if not config.is_enabled:
-            return any(capability in model.capabilities for model in config.model.values())
+            return any(
+                capability in model.capabilities for model in config.model.values()
+            )
         slot = await self._acquire_slot(provider_id)
         try:
             return await slot.instance.supports(capability)
@@ -315,28 +340,39 @@ class ProviderManager(ProviderManageProtocol):
             await self._release_slot(slot)
 
     async def generate_images(
-        self, provider_id: str, request: ImageGenerationRequest,
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest,
     ) -> ImageGenerationResponse:
         return await self._run_images(provider_id, request)
 
     async def edit_images(
-        self, provider_id: str, request: ImageEditRequest,
+        self,
+        provider_id: str,
+        request: ImageEditRequest,
     ) -> ImageGenerationResponse:
         return await self._run_images(provider_id, request)
 
     async def _run_images(
-        self, provider_id: str, request: ImageGenerationRequest | ImageEditRequest,
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest | ImageEditRequest,
     ) -> ImageGenerationResponse:
         slot = await self._acquire_slot(provider_id)
         started = perf_counter()
         usage = None
         try:
             model = next(
-                (model for model in slot.info.model.values() if model.model_id == request.model_id),
+                (
+                    model
+                    for model in slot.info.model.values()
+                    if model.model_id == request.model_id
+                ),
                 None,
             )
             if (
-                model is not None and model.capabilities
+                model is not None
+                and model.capabilities
                 and ProviderModelCapability.IMAGE_GENERATION not in model.capabilities
             ):
                 raise ProviderCapabilityUnsupportedError(

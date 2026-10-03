@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { CapabilityCatalog } from '../../domain/workspace'
-import EmptyValue from '../common/EmptyValue.vue'
+import type { CapabilityCatalog } from '../../domain/workspace';
+import EmptyValue from '../common/EmptyValue.vue';
 
 defineProps<{
-  catalog: CapabilityCatalog
-}>()
+  catalog: CapabilityCatalog;
+}>();
 </script>
 
 <template>
@@ -15,7 +15,8 @@ defineProps<{
     <EmptyValue v-if="!catalog.tools.length" label="没有工具" />
     <ul v-else>
       <li v-for="tool in catalog.tools" :key="tool.name">
-        <strong>{{ tool.name }}</strong>：{{ tool.description }}
+        <strong>{{ tool.name }}</strong
+        >：{{ tool.description }}
         <span> / {{ tool.safety_level || 'safe' }}</span>
         <span v-if="tool.requires_approval"> / 需要审批</span>
       </li>
@@ -25,10 +26,9 @@ defineProps<{
     <EmptyValue v-if="!catalog.skills.length" label="没有技能" />
     <ul v-else>
       <li v-for="skill in catalog.skills" :key="skill.name">
-        <strong>{{ skill.name }}</strong>：{{ skill.description }}
-        <span v-if="skill.capabilities?.length">
-          / {{ skill.capabilities.join(', ') }}
-        </span>
+        <strong>{{ skill.name }}</strong
+        >：{{ skill.description }}
+        <span v-if="skill.capabilities?.length"> / {{ skill.capabilities.join(', ') }} </span>
       </li>
     </ul>
 

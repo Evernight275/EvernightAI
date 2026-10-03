@@ -20,22 +20,41 @@ from EvernightAI.interface.http.template import (
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 
-@router.post("", response_model=SkillDefinition, status_code=status.HTTP_201_CREATED, operation_id="create_skill")
-async def create_skill(config: SkillTemplateConfig, interface: InterfaceDependency) -> SkillDefinition:
+@router.post(
+    "",
+    response_model=SkillDefinition,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="create_skill",
+)
+async def create_skill(
+    config: SkillTemplateConfig, interface: InterfaceDependency
+) -> SkillDefinition:
     return interface.skills.create_template(config)
 
 
-@router.get("/{skill_name}/template", response_model=SkillTemplateConfig, operation_id="get_skill_template")
-async def get_skill_template(skill_name: str, interface: InterfaceDependency) -> SkillTemplateConfig:
+@router.get(
+    "/{skill_name}/template",
+    response_model=SkillTemplateConfig,
+    operation_id="get_skill_template",
+)
+async def get_skill_template(
+    skill_name: str, interface: InterfaceDependency
+) -> SkillTemplateConfig:
     return interface.skills.get_template(skill_name)
 
 
-@router.patch("/{skill_name}", response_model=SkillDefinition, operation_id="update_skill")
-async def update_skill(skill_name: str, update: SkillTemplateUpdate, interface: InterfaceDependency) -> SkillDefinition:
+@router.patch(
+    "/{skill_name}", response_model=SkillDefinition, operation_id="update_skill"
+)
+async def update_skill(
+    skill_name: str, update: SkillTemplateUpdate, interface: InterfaceDependency
+) -> SkillDefinition:
     return interface.skills.update_template(skill_name, update)
 
 
-@router.delete("/{skill_name}", status_code=status.HTTP_204_NO_CONTENT, operation_id="delete_skill")
+@router.delete(
+    "/{skill_name}", status_code=status.HTTP_204_NO_CONTENT, operation_id="delete_skill"
+)
 async def delete_skill(skill_name: str, interface: InterfaceDependency) -> Response:
     interface.skills.delete_template(skill_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

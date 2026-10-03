@@ -1,7 +1,7 @@
-import type { ToolDefinition, ToolCall } from './tools'
+import type { ToolDefinition, ToolCall } from './tools';
 
-export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
-export type MessageStatus = 'active' | 'rejected' | 'error'
+export type MessageRole = 'user' | 'assistant' | 'tool' | 'system';
+export type MessageStatus = 'active' | 'rejected' | 'error';
 
 export type ContentPartType =
   | 'text'
@@ -13,57 +13,57 @@ export type ContentPartType =
   | 'link'
   | 'table'
   | 'code'
-  | 'function_call'
+  | 'function_call';
 
 export type ContentPart = {
-  type: ContentPartType | string
-  text?: string | null
-  url?: string | null
-  data?: string | null
-  mime_type?: string | null
-  detail?: string | null
-  metadata?: Record<string, unknown>
-}
+  type: ContentPartType | string;
+  text?: string | null;
+  url?: string | null;
+  data?: string | null;
+  mime_type?: string | null;
+  detail?: string | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type Content = {
-  role: MessageRole | string
-  content?: ContentPart[] | null
-  status?: MessageStatus | string | null
-  name?: string | null
-  tool_call_id?: string | null
-  tool_calls?: ToolCall[] | null
-  metadata?: Record<string, unknown>
-}
+  role: MessageRole | string;
+  content?: ContentPart[] | null;
+  status?: MessageStatus | string | null;
+  name?: string | null;
+  tool_call_id?: string | null;
+  tool_calls?: ToolCall[] | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type ChatSkill = {
-  skill_name: string
-  render_id?: string | null
-  variables?: Record<string, unknown>
-  metadata?: Record<string, unknown>
-}
+  skill_name: string;
+  render_id?: string | null;
+  variables?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
 
 export type ChatUsage = {
-  prompt_tokens?: number | null
-  completion_tokens?: number | null
-  total_tokens?: number | null
-  cached_prompt_tokens?: number | null
-  cache_write_prompt_tokens?: number | null
-  metadata?: Record<string, unknown>
-}
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  cached_prompt_tokens?: number | null;
+  cache_write_prompt_tokens?: number | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type ChatRequest = {
-  model_id: string
-  messages: Content[]
-  skills?: ChatSkill[] | null
-  tools?: ToolDefinition[] | null
-  metadata?: Record<string, unknown>
-}
+  model_id: string;
+  messages: Content[];
+  skills?: ChatSkill[] | null;
+  tools?: ToolDefinition[] | null;
+  metadata?: Record<string, unknown>;
+};
 
 export type ChatResponse = {
-  response_id?: string | null
-  model_id: string
-  message: Content
-  finish_reason?: string | null
-  usage?: ChatUsage | null
-  metadata?: Record<string, unknown>
-}
+  response_id?: string | null;
+  model_id: string;
+  message: Content;
+  finish_reason?: string | null;
+  usage?: ChatUsage | null;
+  metadata?: Record<string, unknown>;
+};

@@ -1,7 +1,7 @@
-import { createActor, fromPromise, waitFor } from 'xstate'
-import { describe, expect, it, vi } from 'vitest'
-import type { AgentRunState, ChatResponse, Session, ToolDefinition } from '../src/api'
-import type { ChatSubmission } from '../src/domain/chat'
+import { createActor, fromPromise, waitFor } from 'xstate';
+import { describe, expect, it, vi } from 'vitest';
+import type { AgentRunState, ChatResponse, Session, ToolDefinition } from '../src/api';
+import type { ChatSubmission } from '../src/domain/chat';
 import type {
   ChatCancelInput,
   ChatClearInput,
@@ -10,126 +10,158 @@ import type {
   ChatRetryInput,
   ChatSessionInput,
   ChatSessionSnapshot,
-} from '../src/runtime/chatRuntime'
-import { chatMachine } from '../src/state/chatMachine'
-import { ApiError } from '../src/api/client'
+} from '../src/runtime/chatRuntime';
+import { chatMachine } from '../src/state/chatMachine';
+import { ApiError } from '../src/api/client';
 
 describe('chatMachine', () => {
   it('blocks resume and approvals after a catalog revision change, retaining earlier choices', async () => {
-    const resume = vi.fn()
-    const actor = actorWithServices(async ({ input }) => pausedRun(input), resume)
-    actor.start()
-    const run = pausedRunWithTwoApprovals({ contextId: 'ctx', submission: submission('input'), tools: [] })
-    run.request.skills = [{ skill_name: 'style' }]; run.skill_revisions = { style: 'v1' }
-    actor.send({ type: 'SKILL_CATALOG', skills: [{ name: 'style', description: 'Style', revision: 'v1' }] })
-    actor.send({ type: 'OPEN_RUN', run, session: null, transcript: [], choices: {} })
-    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
-    actor.send({ type: 'SKILL_CATALOG', skills: [{ name: 'style', description: 'Style', revision: 'v2' }] })
-    actor.send({ type: 'DENY', approvalId: 'approval-2' })
-    actor.send({ type: 'RESUME' })
-    expect(actor.getSnapshot().value).toBe('approvalRequired')
-    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
-    expect(resume).not.toHaveBeenCalled()
-    actor.stop()
-  })
+    const resume = vi.fn();
+    const actor = actorWithServices(async ({ input }) => pausedRun(input), resume);
+    actor.start();
+    const run = pausedRunWithTwoApprovals({
+      contextId: 'ctx',
+      submission: submission('input'),
+      tools: [],
+    });
+    run.request.skills = [{ skill_name: 'style' }];
+    run.skill_revisions = { style: 'v1' };
+    actor.send({
+      type: 'SKILL_CATALOG',
+      skills: [{ name: 'style', description: 'Style', revision: 'v1' }],
+    });
+    actor.send({ type: 'OPEN_RUN', run, session: null, transcript: [], choices: {} });
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' });
+    actor.send({
+      type: 'SKILL_CATALOG',
+      skills: [{ name: 'style', description: 'Style', revision: 'v2' }],
+    });
+    actor.send({ type: 'DENY', approvalId: 'approval-2' });
+    actor.send({ type: 'RESUME' });
+    expect(actor.getSnapshot().value).toBe('approvalRequired');
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' });
+    expect(resume).not.toHaveBeenCalled();
+    actor.stop();
+  });
 
   it('latches a resume conflict and retains choices when cancellation fails', async () => {
-    const resume = vi.fn(async () => { throw new ApiError('Changed', {
-      status: 409, errorType: 'SkillConflictError', detail: { reason: 'revision_changed', skill_names: ['style'] }, path: '', requestId: null,
-    }) })
-    const actor = actorWithServices(async ({ input }) => pausedRun(input), resume, undefined, undefined,
-      async () => { throw new Error('Cancel unavailable') })
-    actor.start(); actor.send(sendEvent('input'))
-    await waitFor(actor, state => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
-    await waitFor(actor, state => state.matches('failed'))
-    actor.send({ type: 'RETRY' }); actor.send({ type: 'RESUME' })
-    expect(resume).toHaveBeenCalledTimes(1)
-    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
-    expect(actor.getSnapshot().context.skillIssues[0]?.names).toEqual(['style'])
-    actor.send({ type: 'CANCEL' })
-    await waitFor(actor, state => state.matches('failed') && state.context.error instanceof Error && state.context.error.message === 'Cancel unavailable')
-    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' })
-    expect(actor.getSnapshot().context.run?.status).toBe('paused')
-    actor.send({ type: 'RETRY' })
-    expect(resume).toHaveBeenCalledTimes(1)
-    actor.stop()
-  })
+    const resume = vi.fn(async () => {
+      throw new ApiError('Changed', {
+        status: 409,
+        errorType: 'SkillConflictError',
+        detail: { reason: 'revision_changed', skill_names: ['style'] },
+        path: '',
+        requestId: null,
+      });
+    });
+    const actor = actorWithServices(
+      async ({ input }) => pausedRun(input),
+      resume,
+      undefined,
+      undefined,
+      async () => {
+        throw new Error('Cancel unavailable');
+      },
+    );
+    actor.start();
+    actor.send(sendEvent('input'));
+    await waitFor(actor, (state) => state.matches('approvalRequired'));
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' });
+    await waitFor(actor, (state) => state.matches('failed'));
+    actor.send({ type: 'RETRY' });
+    actor.send({ type: 'RESUME' });
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' });
+    expect(actor.getSnapshot().context.skillIssues[0]?.names).toEqual(['style']);
+    actor.send({ type: 'CANCEL' });
+    await waitFor(
+      actor,
+      (state) =>
+        state.matches('failed') &&
+        state.context.error instanceof Error &&
+        state.context.error.message === 'Cancel unavailable',
+    );
+    expect(actor.getSnapshot().context.approvalStatuses).toEqual({ 'approval-1': 'approved' });
+    expect(actor.getSnapshot().context.run?.status).toBe('paused');
+    actor.send({ type: 'RETRY' });
+    expect(resume).toHaveBeenCalledTimes(1);
+    actor.stop();
+  });
   it('clears the old transcript on an identity change without deleting server data', async () => {
-    const actor = actorWithServices(async ({ input }) => finishedRun(input, 'private answer'))
-    actor.start()
-    actor.send(sendEvent('private question'))
-    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 2)
-    actor.send({ type: 'AUTH_CHANGED' })
-    expect(actor.getSnapshot().matches('idle')).toBe(true)
-    expect(actor.getSnapshot().context.transcript).toEqual([])
-    expect(actor.getSnapshot().context.contextId).toBeNull()
-    expect(actor.getSnapshot().context.run).toBeNull()
-    actor.stop()
-  })
+    const actor = actorWithServices(async ({ input }) => finishedRun(input, 'private answer'));
+    actor.start();
+    actor.send(sendEvent('private question'));
+    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 2);
+    actor.send({ type: 'AUTH_CHANGED' });
+    expect(actor.getSnapshot().matches('idle')).toBe(true);
+    expect(actor.getSnapshot().context.transcript).toEqual([]);
+    expect(actor.getSnapshot().context.contextId).toBeNull();
+    expect(actor.getSnapshot().context.run).toBeNull();
+    actor.stop();
+  });
 
   it('records both sides of a successful agent run', async () => {
-    const actor = actorWithServices(async ({ input }) => finishedRun(input, 'answer'))
+    const actor = actorWithServices(async ({ input }) => finishedRun(input, 'answer'));
 
-    actor.start()
-    actor.send(sendEvent('question'))
+    actor.start();
+    actor.send(sendEvent('question'));
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('idle') && state.context.transcript.length === 2,
-    )
+    );
 
     expect(snapshot.context.transcript.map((entry) => [entry.role, entry.text])).toEqual([
       ['user', 'question'],
       ['assistant', 'answer'],
-    ])
-    expect(snapshot.context.pending).toBeNull()
-    actor.stop()
-  })
+    ]);
+    expect(snapshot.context.pending).toBeNull();
+    actor.stop();
+  });
 
   it('renders deltas before completion and replaces the partial response without duplication', async () => {
-    let finish!: () => void
+    let finish!: () => void;
     const gate = new Promise<void>((resolve) => {
-      finish = resolve
-    })
+      finish = resolve;
+    });
     const actor = actorWithServices(async ({ input }) => {
-      input.onTrace?.({ event_type: 'chat_delta', text_delta: '你' })
-      await gate
-      input.onTrace?.({ event_type: 'chat_delta', text_delta: '好' })
-      input.onTrace?.({ event_type: 'chat_completed', response: response('你好') })
-      return { ...finishedRun(input, '你好'), run_id: input.runId! }
-    })
-    actor.start()
-    actor.send(sendEvent('question'))
-    const partial = await waitFor(actor, (state) => state.context.transcript.at(-1)?.text === '你')
-    expect(partial.value).toBe('streaming')
-    expect(partial.context.transcript.at(-1)?.streaming).toBe(true)
-    finish()
-    const final = await waitFor(actor, (state) => state.matches('idle'))
-    expect(final.context.transcript.map((entry) => entry.text)).toEqual(['question', '你好'])
-    expect(final.context.transcript.at(-1)?.streaming).toBe(false)
-    actor.stop()
-  })
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: '你' });
+      await gate;
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: '好' });
+      input.onTrace?.({ event_type: 'chat_completed', response: response('你好') });
+      return { ...finishedRun(input, '你好'), run_id: input.runId! };
+    });
+    actor.start();
+    actor.send(sendEvent('question'));
+    const partial = await waitFor(actor, (state) => state.context.transcript.at(-1)?.text === '你');
+    expect(partial.value).toBe('streaming');
+    expect(partial.context.transcript.at(-1)?.streaming).toBe(true);
+    finish();
+    const final = await waitFor(actor, (state) => state.matches('idle'));
+    expect(final.context.transcript.map((entry) => entry.text)).toEqual(['question', '你好']);
+    expect(final.context.transcript.at(-1)?.streaming).toBe(false);
+    actor.stop();
+  });
 
   it('keeps partial text when canceled and ignores late stream events', async () => {
     const actor = actorWithServices(async ({ input }) => {
-      input.onTrace?.({ event_type: 'chat_delta', text_delta: 'partial answer' })
-      return new Promise<AgentRunState>(() => {})
-    })
-    actor.start()
-    actor.send(sendEvent('question'))
-    await waitFor(actor, (state) => state.context.transcript.length === 2)
-    actor.send({ type: 'CANCEL' })
-    await waitFor(actor, (state) => state.matches('canceled'))
-    actor.send({ type: 'TRACE', event: { event_type: 'chat_delta', text_delta: 'late' } })
+      input.onTrace?.({ event_type: 'chat_delta', text_delta: 'partial answer' });
+      return new Promise<AgentRunState>(() => {});
+    });
+    actor.start();
+    actor.send(sendEvent('question'));
+    await waitFor(actor, (state) => state.context.transcript.length === 2);
+    actor.send({ type: 'CANCEL' });
+    await waitFor(actor, (state) => state.matches('canceled'));
+    actor.send({ type: 'TRACE', event: { event_type: 'chat_delta', text_delta: 'late' } });
     expect(actor.getSnapshot().context.transcript.at(-1)).toMatchObject({
       text: 'partial answer',
       streaming: false,
-    })
-    actor.stop()
-  })
+    });
+    actor.stop();
+  });
 
   it('clears the active session only after deletion succeeds and retries failures', async () => {
-    let fail = true
+    let fail = true;
     const actor = createActor(
       chatMachine.provide({
         actors: {
@@ -138,74 +170,74 @@ describe('chatMachine', () => {
             transcript: [],
           })),
           deleteSession: fromPromise<string, ChatSessionInput>(async ({ input }) => {
-            if (fail) throw new Error('Delete unavailable')
-            return input.session.session_id
+            if (fail) throw new Error('Delete unavailable');
+            return input.session.session_id;
           }),
         },
       }),
-    )
-    actor.start()
-    actor.send({ type: 'CREATE_SESSION', session: session('delete-me', 'context-1') })
-    await waitFor(actor, (state) => state.matches('idle'))
-    actor.send({ type: 'DELETE_SESSION', sessionId: 'another-session' })
-    expect(actor.getSnapshot().value).toBe('idle')
-    actor.send({ type: 'DELETE_SESSION', sessionId: 'delete-me' })
-    await waitFor(actor, (state) => state.matches('failed'))
-    expect(actor.getSnapshot().context.session?.session_id).toBe('delete-me')
-    fail = false
-    actor.send({ type: 'RETRY' })
-    const deleted = await waitFor(actor, (state) => state.matches('idle'))
-    expect(deleted.context.session).toBeNull()
-    expect(deleted.context.deletedSessionId).toBe('delete-me')
-    expect(deleted.context.transcript).toEqual([])
-    actor.stop()
-  })
+    );
+    actor.start();
+    actor.send({ type: 'CREATE_SESSION', session: session('delete-me', 'context-1') });
+    await waitFor(actor, (state) => state.matches('idle'));
+    actor.send({ type: 'DELETE_SESSION', sessionId: 'another-session' });
+    expect(actor.getSnapshot().value).toBe('idle');
+    actor.send({ type: 'DELETE_SESSION', sessionId: 'delete-me' });
+    await waitFor(actor, (state) => state.matches('failed'));
+    expect(actor.getSnapshot().context.session?.session_id).toBe('delete-me');
+    fail = false;
+    actor.send({ type: 'RETRY' });
+    const deleted = await waitFor(actor, (state) => state.matches('idle'));
+    expect(deleted.context.session).toBeNull();
+    expect(deleted.context.deletedSessionId).toBe('delete-me');
+    expect(deleted.context.transcript).toEqual([]);
+    actor.stop();
+  });
 
   it('does not become idle when tool rounds are exhausted', async () => {
     const actor = actorWithServices(async ({ input }) => ({
       ...finishedRun(input, ''),
       stop_reason: 'tool_rounds_exhausted',
       tool_rounds_used: 16,
-    }))
+    }));
 
-    actor.start()
-    actor.send(sendEvent('finish the task'))
-    const snapshot = await waitFor(actor, (state) => state.matches('failed'))
+    actor.start();
+    actor.send(sendEvent('finish the task'));
+    const snapshot = await waitFor(actor, (state) => state.matches('failed'));
 
-    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user'])
-    expect(snapshot.context.pending?.submission.text).toBe('finish the task')
+    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user']);
+    expect(snapshot.context.pending?.submission.text).toBe('finish the task');
     expect(snapshot.context.error).toMatchObject({
       message: 'Agent run exhausted 16 tool rounds before finishing',
-    })
-    actor.stop()
-  })
+    });
+    actor.stop();
+  });
 
   it('sends tools and reuses the server context on later turns', async () => {
-    const requests: ChatRequestInput[] = []
+    const requests: ChatRequestInput[] = [];
     const actor = actorWithServices(async ({ input }) => {
-      requests.push(input)
-      return finishedRun(input, `answer-${requests.length}`)
-    })
+      requests.push(input);
+      return finishedRun(input, `answer-${requests.length}`);
+    });
 
-    actor.start()
-    actor.send(sendEvent('first'))
-    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 2)
-    actor.send(sendEvent('second'))
-    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 4)
+    actor.start();
+    actor.send(sendEvent('first'));
+    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 2);
+    actor.send(sendEvent('second'));
+    await waitFor(actor, (state) => state.matches('idle') && state.context.transcript.length === 4);
 
-    expect(requests[0]?.tools).toEqual([tool()])
-    expect(requests[1]?.contextId).toBe(requests[0]?.contextId)
-    expect(requests[1]?.submission.text).toBe('second')
-    actor.stop()
-  })
+    expect(requests[0]?.tools).toEqual([tool()]);
+    expect(requests[1]?.contextId).toBe(requests[0]?.contextId);
+    expect(requests[1]?.submission.text).toBe('second');
+    actor.stop();
+  });
 
   it('loads a session transcript and sends later turns through its context', async () => {
-    const requests: ChatRequestInput[] = []
-    const selected = session('session-1', 'context-session-1')
+    const requests: ChatRequestInput[] = [];
+    const selected = session('session-1', 'context-session-1');
     const actor = actorWithServices(
       async ({ input }) => {
-        requests.push(input)
-        return finishedRun(input, 'session answer')
+        requests.push(input);
+        return finishedRun(input, 'session answer');
       },
       undefined,
       undefined,
@@ -226,29 +258,29 @@ describe('chatMachine', () => {
           },
         ],
       }),
-    )
+    );
 
-    actor.start()
-    actor.send({ type: 'SELECT_SESSION', session: selected })
-    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
-    actor.send(sendEvent('next message'))
+    actor.start();
+    actor.send({ type: 'SELECT_SESSION', session: selected });
+    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null);
+    actor.send(sendEvent('next message'));
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('idle') && state.context.transcript.length === 3,
-    )
+    );
 
-    expect(snapshot.context.contextId).toBe('context-session-1')
-    expect(snapshot.context.transcript[0]?.text).toBe('stored message')
+    expect(snapshot.context.contextId).toBe('context-session-1');
+    expect(snapshot.context.transcript[0]?.text).toBe('stored message');
     expect(requests[0]).toMatchObject({
       contextId: 'context-session-1',
       sessionId: 'session-1',
-    })
-    actor.stop()
-  })
+    });
+    actor.stop();
+  });
 
   it('creates and selects a persisted session', async () => {
-    const created: Session[] = []
-    const target = session('session-new', 'context-new')
+    const created: Session[] = [];
+    const target = session('session-new', 'context-new');
     const actor = actorWithServices(
       async ({ input }) => finishedRun(input, 'unused'),
       undefined,
@@ -256,60 +288,60 @@ describe('chatMachine', () => {
       undefined,
       undefined,
       async ({ input }) => {
-        created.push(input.session)
-        return { session: input.session, transcript: [] }
+        created.push(input.session);
+        return { session: input.session, transcript: [] };
       },
-    )
+    );
 
-    actor.start()
-    actor.send({ type: 'CREATE_SESSION', session: target })
+    actor.start();
+    actor.send({ type: 'CREATE_SESSION', session: target });
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('idle') && state.context.session?.session_id === 'session-new',
-    )
+    );
 
-    expect(created).toEqual([target])
-    expect(snapshot.context.contextId).toBe('context-new')
-    expect(snapshot.context.contextReady).toBe(true)
-    actor.stop()
-  })
+    expect(created).toEqual([target]);
+    expect(snapshot.context.contextId).toBe('context-new');
+    expect(snapshot.context.contextReady).toBe(true);
+    actor.stop();
+  });
 
   it('clears a session without detaching it from the chat', async () => {
-    const clears: ChatClearInput[] = []
-    const selected = session('session-1', 'context-session-1')
+    const clears: ChatClearInput[] = [];
+    const selected = session('session-1', 'context-session-1');
     const actor = actorWithServices(
       async ({ input }) => finishedRun(input, 'unused'),
       undefined,
       undefined,
       async ({ input }) => {
-        clears.push(input)
+        clears.push(input);
       },
-    )
+    );
 
-    actor.start()
-    actor.send({ type: 'SELECT_SESSION', session: selected })
-    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null)
-    actor.send({ type: 'CLEAR' })
-    const snapshot = await waitFor(actor, (state) => state.matches('idle') && clears.length === 1)
+    actor.start();
+    actor.send({ type: 'SELECT_SESSION', session: selected });
+    await waitFor(actor, (state) => state.matches('idle') && state.context.session !== null);
+    actor.send({ type: 'CLEAR' });
+    const snapshot = await waitFor(actor, (state) => state.matches('idle') && clears.length === 1);
 
     expect(clears[0]).toMatchObject({
       contextId: 'context-session-1',
       sessionId: 'session-1',
-    })
-    expect(snapshot.context.session?.session_id).toBe('session-1')
-    expect(snapshot.context.contextReady).toBe(true)
-    actor.stop()
-  })
+    });
+    expect(snapshot.context.session?.session_id).toBe('session-1');
+    expect(snapshot.context.contextReady).toBe(true);
+    actor.stop();
+  });
 
   it('reads the original run after a lost connection without resubmitting', async () => {
-    const sender = vi.fn().mockRejectedValue(new Error('connection lost'))
+    const sender = vi.fn().mockRejectedValue(new Error('connection lost'));
     const recover = vi.fn(async ({ input }: { input: { runId: string } }) => ({
       ...finishedRun(
         { contextId: 'ctx', submission: sendEvent('question').submission, tools: [] },
         'recovered',
       ),
       run_id: input.runId,
-    }))
+    }));
     const actor = createActor(
       chatMachine.provide({
         actors: {
@@ -318,253 +350,255 @@ describe('chatMachine', () => {
           recoverChat: fromPromise(async (options) => recover(options)),
         },
       }),
-    )
-    actor.start()
-    actor.send(sendEvent('question'))
-    await waitFor(actor, (state) => state.matches('failed'))
-    const originalId = actor.getSnapshot().context.runId
-    actor.send({ type: 'RETRY' })
-    const snapshot = await waitFor(actor, (state) => state.matches('idle'))
-    expect(sender).toHaveBeenCalledTimes(1)
-    expect(recover.mock.calls[0]?.[0].input.runId).toBe(originalId)
-    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user', 'assistant'])
-    actor.stop()
-  })
+    );
+    actor.start();
+    actor.send(sendEvent('question'));
+    await waitFor(actor, (state) => state.matches('failed'));
+    const originalId = actor.getSnapshot().context.runId;
+    actor.send({ type: 'RETRY' });
+    const snapshot = await waitFor(actor, (state) => state.matches('idle'));
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(recover.mock.calls[0]?.[0].input.runId).toBe(originalId);
+    expect(snapshot.context.transcript.map((entry) => entry.role)).toEqual(['user', 'assistant']);
+    actor.stop();
+  });
 
   it('uses the agent retry endpoint for a returned failed run', async () => {
-    const retries: ChatRetryInput[] = []
+    const retries: ChatRetryInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => failedRun(input),
       undefined,
       async ({ input }) => {
-        retries.push(input)
-        return finishedRetriedRun(input, 'recovered run')
+        retries.push(input);
+        return finishedRetriedRun(input, 'recovered run');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('question'))
-    await waitFor(actor, (state) => state.matches('failed'))
-    actor.send({ type: 'RETRY' })
+    actor.start();
+    actor.send(sendEvent('question'));
+    await waitFor(actor, (state) => state.matches('failed'));
+    actor.send({ type: 'RETRY' });
     const snapshot = await waitFor(
       actor,
-      (state) => state.matches('idle') && state.context.transcript.some(entry => entry.text === 'recovered run'),
-    )
+      (state) =>
+        state.matches('idle') &&
+        state.context.transcript.some((entry) => entry.text === 'recovered run'),
+    );
 
-    expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-failed'])
-    expect(snapshot.context.runId).toBe(retries[0]?.runId)
-    expect(snapshot.context.transcript.at(-1)?.text).toBe('recovered run')
-    expect(snapshot.context.transcript.find(entry => entry.runNotice)?.runNotice).toBe('failed')
-    actor.stop()
-  })
+    expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-failed']);
+    expect(snapshot.context.runId).toBe(retries[0]?.runId);
+    expect(snapshot.context.transcript.at(-1)?.text).toBe('recovered run');
+    expect(snapshot.context.transcript.find((entry) => entry.runNotice)?.runNotice).toBe('failed');
+    actor.stop();
+  });
 
   it('keeps an interrupted run paused without automatically executing tools again', async () => {
-    const resumes: ChatResumeInput[] = []
-    const retries: ChatRetryInput[] = []
+    const resumes: ChatResumeInput[] = [];
+    const retries: ChatRetryInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => unrecoverablePausedRun(input),
       async ({ input }) => {
-        resumes.push(input)
-        return input.run
+        resumes.push(input);
+        return input.run;
       },
       async ({ input }) => {
-        retries.push(input)
-        return finishedRetriedRun(input, 'recovered pause')
+        retries.push(input);
+        return finishedRetriedRun(input, 'recovered pause');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('recover me'))
-    const snapshot = await waitFor(actor, (state) => state.matches('resumeRequired'))
-    expect(resumes).toHaveLength(0)
-    expect(retries).toHaveLength(0)
-    expect(snapshot.context.run?.run_id).toBe('run-unrecoverable')
-    actor.stop()
-  })
+    actor.start();
+    actor.send(sendEvent('recover me'));
+    const snapshot = await waitFor(actor, (state) => state.matches('resumeRequired'));
+    expect(resumes).toHaveLength(0);
+    expect(retries).toHaveLength(0);
+    expect(snapshot.context.run?.run_id).toBe('run-unrecoverable');
+    actor.stop();
+  });
 
   it('resumes a paused tool call after approval', async () => {
-    const resumes: ChatResumeInput[] = []
+    const resumes: ChatResumeInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => pausedRun(input),
       async ({ input }) => {
-        resumes.push(input)
-        return finishedResumedRun(input.run, 'tool complete')
+        resumes.push(input);
+        return finishedResumedRun(input.run, 'tool complete');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('use the tool'))
-    await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
+    actor.start();
+    actor.send(sendEvent('use the tool'));
+    await waitFor(actor, (state) => state.matches('approvalRequired'));
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' });
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('idle') && state.context.transcript.length === 3,
-    )
+    );
 
-    expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'approved' })
-    expect(snapshot.context.transcript[2]?.text).toBe('tool complete')
-    actor.stop()
-  })
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'approved' });
+    expect(snapshot.context.transcript[2]?.text).toBe('tool complete');
+    actor.stop();
+  });
 
   it('resumes a paused tool call after denial', async () => {
-    const resumes: ChatResumeInput[] = []
+    const resumes: ChatResumeInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => pausedRun(input),
       async ({ input }) => {
-        resumes.push(input)
-        return finishedResumedRun(input.run, 'denial handled')
+        resumes.push(input);
+        return finishedResumedRun(input.run, 'denial handled');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('do not use the tool'))
-    await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'DENY', approvalId: 'approval-1' })
+    actor.start();
+    actor.send(sendEvent('do not use the tool'));
+    await waitFor(actor, (state) => state.matches('approvalRequired'));
+    actor.send({ type: 'DENY', approvalId: 'approval-1' });
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('idle') && state.context.transcript.length === 3,
-    )
+    );
 
-    expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'denied' })
-    expect(snapshot.context.transcript[2]?.text).toBe('denial handled')
-    actor.stop()
-  })
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]?.approvalStatuses).toEqual({ 'approval-1': 'denied' });
+    expect(snapshot.context.transcript[2]?.text).toBe('denial handled');
+    actor.stop();
+  });
 
   it('keeps the approval decision when a resume request is retried', async () => {
-    const statuses: ChatResumeInput['approvalStatuses'][] = []
+    const statuses: ChatResumeInput['approvalStatuses'][] = [];
     const resumer = vi.fn(async ({ input }: { input: ChatResumeInput }) => {
-      statuses.push(input.approvalStatuses)
+      statuses.push(input.approvalStatuses);
       if (statuses.length === 1) {
-        throw new Error('resume unavailable')
+        throw new Error('resume unavailable');
       }
-      return finishedResumedRun(input.run, 'resumed after retry')
-    })
-    const actor = actorWithServices(async ({ input }) => pausedRun(input), resumer)
+      return finishedResumedRun(input.run, 'resumed after retry');
+    });
+    const actor = actorWithServices(async ({ input }) => pausedRun(input), resumer);
 
-    actor.start()
-    actor.send(sendEvent('approve and retry'))
-    await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
-    await waitFor(actor, (state) => state.matches('failed'))
-    actor.send({ type: 'RETRY' })
-    await waitFor(actor, (state) => state.matches('idle'))
+    actor.start();
+    actor.send(sendEvent('approve and retry'));
+    await waitFor(actor, (state) => state.matches('approvalRequired'));
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' });
+    await waitFor(actor, (state) => state.matches('failed'));
+    actor.send({ type: 'RETRY' });
+    await waitFor(actor, (state) => state.matches('idle'));
 
-    expect(statuses).toEqual([{ 'approval-1': 'approved' }, { 'approval-1': 'approved' }])
-    actor.stop()
-  })
+    expect(statuses).toEqual([{ 'approval-1': 'approved' }, { 'approval-1': 'approved' }]);
+    actor.stop();
+  });
 
   it('separates a manual pause from tool approval', async () => {
-    const resumes: ChatResumeInput[] = []
+    const resumes: ChatResumeInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => manualPausedRun(input),
       async ({ input }) => {
-        resumes.push(input)
-        return finishedResumedRun(input.run, 'continued')
+        resumes.push(input);
+        return finishedResumedRun(input.run, 'continued');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('pause externally'))
-    await waitFor(actor, (state) => state.matches('resumeRequired'))
-    actor.send({ type: 'RESUME' })
-    await waitFor(actor, (state) => state.matches('idle'))
+    actor.start();
+    actor.send(sendEvent('pause externally'));
+    await waitFor(actor, (state) => state.matches('resumeRequired'));
+    actor.send({ type: 'RESUME' });
+    await waitFor(actor, (state) => state.matches('idle'));
 
-    expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.approvalStatuses).toEqual({})
-    actor.stop()
-  })
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]?.approvalStatuses).toEqual({});
+    actor.stop();
+  });
 
   it('collects an independent decision for every pending approval', async () => {
-    const resumes: ChatResumeInput[] = []
+    const resumes: ChatResumeInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => pausedRunWithTwoApprovals(input),
       async ({ input }) => {
-        resumes.push(input)
-        return finishedResumedRun(input.run, 'both handled')
+        resumes.push(input);
+        return finishedResumedRun(input.run, 'both handled');
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('use selected tools'))
-    await waitFor(actor, (state) => state.matches('approvalRequired'))
-    actor.send({ type: 'APPROVE', approvalId: 'approval-1' })
-    expect(actor.getSnapshot().matches('approvalRequired')).toBe(true)
-    actor.send({ type: 'DENY', approvalId: 'approval-2' })
-    await waitFor(actor, (state) => state.matches('idle'))
+    actor.start();
+    actor.send(sendEvent('use selected tools'));
+    await waitFor(actor, (state) => state.matches('approvalRequired'));
+    actor.send({ type: 'APPROVE', approvalId: 'approval-1' });
+    expect(actor.getSnapshot().matches('approvalRequired')).toBe(true);
+    actor.send({ type: 'DENY', approvalId: 'approval-2' });
+    await waitFor(actor, (state) => state.matches('idle'));
 
     expect(resumes[0]?.approvalStatuses).toEqual({
       'approval-1': 'approved',
       'approval-2': 'denied',
-    })
-    actor.stop()
-  })
+    });
+    actor.stop();
+  });
 
   it('allocates a fresh run id when sending after a terminal failure', async () => {
-    const requests: ChatRequestInput[] = []
+    const requests: ChatRequestInput[] = [];
     const actor = actorWithServices(async ({ input }) => {
-      requests.push(input)
-      return requests.length === 1 ? failedRun(input) : finishedRun(input, 'new request')
-    })
+      requests.push(input);
+      return requests.length === 1 ? failedRun(input) : finishedRun(input, 'new request');
+    });
 
-    actor.start()
-    actor.send(sendEvent('first'))
-    await waitFor(actor, (state) => state.matches('failed'))
-    actor.send(sendEvent('second'))
-    await waitFor(actor, (state) => state.matches('idle'))
+    actor.start();
+    actor.send(sendEvent('first'));
+    await waitFor(actor, (state) => state.matches('failed'));
+    actor.send(sendEvent('second'));
+    await waitFor(actor, (state) => state.matches('idle'));
 
-    expect(requests[0]?.runId).not.toBe(requests[1]?.runId)
-    actor.stop()
-  })
+    expect(requests[0]?.runId).not.toBe(requests[1]?.runId);
+    actor.stop();
+  });
 
   it('cancels the newly allocated run while retrying', async () => {
-    const retries: ChatRetryInput[] = []
-    const cancellations: ChatCancelInput[] = []
+    const retries: ChatRetryInput[] = [];
+    const cancellations: ChatCancelInput[] = [];
     const actor = actorWithServices(
       async ({ input }) => failedRun(input),
       undefined,
       ({ input }) => {
-        retries.push(input)
-        return new Promise<AgentRunState>(() => undefined)
+        retries.push(input);
+        return new Promise<AgentRunState>(() => undefined);
       },
       undefined,
       async ({ input }) => {
-        cancellations.push(input)
-        return null
+        cancellations.push(input);
+        return null;
       },
-    )
+    );
 
-    actor.start()
-    actor.send(sendEvent('retry then cancel'))
-    await waitFor(actor, (state) => state.matches('failed'))
-    actor.send({ type: 'RETRY' })
-    await waitFor(actor, (state) => state.matches('retrying'))
-    actor.send({ type: 'CANCEL' })
-    await waitFor(actor, (state) => state.matches('canceled'))
+    actor.start();
+    actor.send(sendEvent('retry then cancel'));
+    await waitFor(actor, (state) => state.matches('failed'));
+    actor.send({ type: 'RETRY' });
+    await waitFor(actor, (state) => state.matches('retrying'));
+    actor.send({ type: 'CANCEL' });
+    await waitFor(actor, (state) => state.matches('canceled'));
 
-    expect(retries[0]?.runId).not.toBe('run-failed')
-    expect(cancellations[0]?.runId).toBe(retries[0]?.runId)
-    actor.stop()
-  })
+    expect(retries[0]?.runId).not.toBe('run-failed');
+    expect(cancellations[0]?.runId).toBe(retries[0]?.runId);
+    actor.stop();
+  });
 
   it('aborts an active agent run when local history is cleared', async () => {
-    const requestSignals: AbortSignal[] = []
+    const requestSignals: AbortSignal[] = [];
     const actor = actorWithServices(({ signal }) => {
-      requestSignals.push(signal)
-      return new Promise<AgentRunState>(() => undefined)
-    })
+      requestSignals.push(signal);
+      return new Promise<AgentRunState>(() => undefined);
+    });
 
-    actor.start()
-    actor.send(sendEvent('question'))
-    await vi.waitFor(() => expect(requestSignals).toHaveLength(1))
-    actor.send({ type: 'CLEAR' })
+    actor.start();
+    actor.send(sendEvent('question'));
+    await vi.waitFor(() => expect(requestSignals).toHaveLength(1));
+    actor.send({ type: 'CLEAR' });
 
-    expect(requestSignals[0]?.aborted).toBe(true)
-    await waitFor(actor, (state) => state.matches('canceled'))
-    expect(actor.getSnapshot().context.transcript).toEqual([])
-    actor.stop()
-  })
+    expect(requestSignals[0]?.aborted).toBe(true);
+    await waitFor(actor, (state) => state.matches('canceled'));
+    expect(actor.getSnapshot().context.transcript).toEqual([]);
+    actor.stop();
+  });
 
   it('records streamed tool trace while the run is still active', async () => {
     const actor = actorWithServices(({ input }) => {
@@ -574,68 +608,68 @@ describe('chatMachine', () => {
           tool_call_id: 'call-1',
           tool_call: { name: 'read_file' },
         },
-      })
-      return new Promise<AgentRunState>(() => undefined)
-    })
+      });
+      return new Promise<AgentRunState>(() => undefined);
+    });
 
-    actor.start()
-    actor.send(sendEvent('stream tool'))
+    actor.start();
+    actor.send(sendEvent('stream tool'));
     const snapshot = await waitFor(
       actor,
       (state) => state.matches('streaming') && state.context.trace.length === 1,
-    )
+    );
 
-    expect(snapshot.context.trace[0]?.event_type).toBe('tool_completed')
-    actor.send({ type: 'CANCEL' })
-    await waitFor(actor, (state) => state.matches('canceled'))
-    actor.stop()
-  })
+    expect(snapshot.context.trace[0]?.event_type).toBe('tool_completed');
+    actor.send({ type: 'CANCEL' });
+    await waitFor(actor, (state) => state.matches('canceled'));
+    actor.stop();
+  });
 
   it('enters canceled without clearing local history when explicitly canceled', async () => {
-    const requestSignals: AbortSignal[] = []
+    const requestSignals: AbortSignal[] = [];
     const actor = actorWithServices(({ signal }) => {
-      requestSignals.push(signal)
-      return new Promise<AgentRunState>(() => undefined)
-    })
+      requestSignals.push(signal);
+      return new Promise<AgentRunState>(() => undefined);
+    });
 
-    actor.start()
-    actor.send(sendEvent('cancel me'))
-    await vi.waitFor(() => expect(requestSignals).toHaveLength(1))
-    actor.send({ type: 'CANCEL' })
-    await waitFor(actor, (state) => state.matches('canceled'))
+    actor.start();
+    actor.send(sendEvent('cancel me'));
+    await vi.waitFor(() => expect(requestSignals).toHaveLength(1));
+    actor.send({ type: 'CANCEL' });
+    await waitFor(actor, (state) => state.matches('canceled'));
 
-    expect(requestSignals[0]?.aborted).toBe(true)
-    expect(actor.getSnapshot().context.transcript[0]?.text).toBe('cancel me')
-    actor.stop()
-  })
-})
+    expect(requestSignals[0]?.aborted).toBe(true);
+    expect(actor.getSnapshot().context.transcript[0]?.text).toBe('cancel me');
+    actor.stop();
+  });
+});
 
 function actorWithServices(
   sender: (options: { input: ChatRequestInput; signal: AbortSignal }) => Promise<AgentRunState>,
   resumer: (options: {
-    input: ChatResumeInput
-    signal: AbortSignal
+    input: ChatResumeInput;
+    signal: AbortSignal;
   }) => Promise<AgentRunState> = async ({ input }) => input.run,
   retryer: (options: {
-    input: ChatRetryInput
-    signal: AbortSignal
+    input: ChatRetryInput;
+    signal: AbortSignal;
   }) => Promise<AgentRunState> = async ({ input }) => input.run,
   clearer: (_options: { input: ChatClearInput; signal: AbortSignal }) => Promise<void> = async () =>
     undefined,
   canceler: (_options: {
-    input: ChatCancelInput
-    signal: AbortSignal
+    input: ChatCancelInput;
+    signal: AbortSignal;
   }) => Promise<AgentRunState | null> = async () => null,
   sessionCreator: (options: {
-    input: ChatSessionInput
-    signal: AbortSignal
+    input: ChatSessionInput;
+    signal: AbortSignal;
   }) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
     session: input.session,
     transcript: [],
   }),
   sessionLoader: (options: {
-    input: ChatSessionInput
-    signal: AbortSignal
+    input: ChatSessionInput;
+    signal: AbortSignal;
   }) => Promise<ChatSessionSnapshot> = async ({ input }) => ({
     session: input.session,
     transcript: [],
@@ -654,7 +688,7 @@ function actorWithServices(
         loadSession: fromPromise<ChatSessionSnapshot, ChatSessionInput>(sessionLoader),
       },
     }),
-  )
+  );
 }
 
 function sendEvent(text: string) {
@@ -662,7 +696,7 @@ function sendEvent(text: string) {
     type: 'SEND' as const,
     submission: submission(text),
     tools: [tool()],
-  }
+  };
 }
 
 function submission(text: string): ChatSubmission {
@@ -670,7 +704,7 @@ function submission(text: string): ChatSubmission {
     providerId: 'main',
     modelId: 'model-1',
     text,
-  }
+  };
 }
 
 function tool(): ToolDefinition {
@@ -678,7 +712,7 @@ function tool(): ToolDefinition {
     name: 'read_file',
     description: 'Read a file',
     parameters_schema: { type: 'object' },
-  }
+  };
 }
 
 function session(sessionId: string, contextId: string): Session {
@@ -687,7 +721,7 @@ function session(sessionId: string, contextId: string): Session {
     context_id: contextId,
     provider_id: 'main',
     model_id: 'model-1',
-  }
+  };
 }
 
 function finishedRun(input: ChatRequestInput, text: string): AgentRunState {
@@ -698,7 +732,7 @@ function finishedRun(input: ChatRequestInput, text: string): AgentRunState {
     response: response(text),
     steps: [],
     pending_approval_requests: [],
-  }
+  };
 }
 
 function pausedRun(input: ChatRequestInput): AgentRunState {
@@ -715,11 +749,11 @@ function pausedRun(input: ChatRequestInput): AgentRunState {
         safety_level: 'sensitive',
       },
     ],
-  }
+  };
 }
 
 function pausedRunWithTwoApprovals(input: ChatRequestInput): AgentRunState {
-  const run = pausedRun(input)
+  const run = pausedRun(input);
   run.pending_approval_requests = [
     ...(run.pending_approval_requests || []),
     {
@@ -728,8 +762,8 @@ function pausedRunWithTwoApprovals(input: ChatRequestInput): AgentRunState {
       tool_name: 'write_file',
       safety_level: 'restricted',
     },
-  ]
-  return run
+  ];
+  return run;
 }
 
 function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
@@ -741,7 +775,7 @@ function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
         recovery_eligible: false,
       },
     },
-  }
+  };
 }
 
 function manualPausedRun(input: ChatRequestInput): AgentRunState {
@@ -755,7 +789,7 @@ function manualPausedRun(input: ChatRequestInput): AgentRunState {
         recovery_eligible: true,
       },
     },
-  }
+  };
 }
 
 function failedRun(input: ChatRequestInput): AgentRunState {
@@ -764,7 +798,7 @@ function failedRun(input: ChatRequestInput): AgentRunState {
     request: agentRequest(input),
     status: 'failed',
     stop_reason: 'tool_error',
-  }
+  };
 }
 
 function finishedResumedRun(run: AgentRunState, text: string): AgentRunState {
@@ -773,7 +807,7 @@ function finishedResumedRun(run: AgentRunState, text: string): AgentRunState {
     status: 'finished',
     response: response(text),
     pending_approval_requests: [],
-  }
+  };
 }
 
 function finishedRetriedRun(input: ChatRetryInput, text: string): AgentRunState {
@@ -781,7 +815,7 @@ function finishedRetriedRun(input: ChatRetryInput, text: string): AgentRunState 
     ...finishedResumedRun(input.run, text),
     run_id: input.runId,
     stop_reason: 'finished',
-  }
+  };
 }
 
 function agentRequest(input: ChatRequestInput) {
@@ -796,7 +830,7 @@ function agentRequest(input: ChatRequestInput) {
       },
     ],
     tools: input.tools,
-  }
+  };
 }
 
 function response(text: string): ChatResponse {
@@ -808,5 +842,5 @@ function response(text: string): ChatResponse {
       content: [{ type: 'text', text }],
     },
     finish_reason: 'stop',
-  }
+  };
 }

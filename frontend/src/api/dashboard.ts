@@ -1,38 +1,41 @@
-import { listAgentRuns } from './agentRuns'
-import { getHealth } from './health'
+import { listAgentRuns } from './agentRuns';
+import { getHealth } from './health';
 import {
   listProviderModels,
   listProviders,
   type ProviderInfo,
   type ProviderModelConfig,
-} from './providers'
-import { listSessions } from './sessions'
-import { listTools } from './tools'
+} from './providers';
+import { listSessions } from './sessions';
+import { listTools } from './tools';
 
 export async function fetchDashboard() {
-  const [healthResult, sessionsResult, toolsResult, runsResult, providersResult] = await Promise.allSettled([
-    getHealth(),
-    listSessions(),
-    listTools(),
-    listAgentRuns(),
-    listProviders(),
-  ])
-  const providers = providersResult.status === 'fulfilled' && Array.isArray(providersResult.value)
-    ? providersResult.value
-    : []
-  const providerModelGroups = await fetchProviderModelGroups(providers)
+  const [healthResult, sessionsResult, toolsResult, runsResult, providersResult] =
+    await Promise.allSettled([
+      getHealth(),
+      listSessions(),
+      listTools(),
+      listAgentRuns(),
+      listProviders(),
+    ]);
+  const providers =
+    providersResult.status === 'fulfilled' && Array.isArray(providersResult.value)
+      ? providersResult.value
+      : [];
+  const providerModelGroups = await fetchProviderModelGroups(providers);
 
   return {
     healthOk: healthResult.status === 'fulfilled' && healthResult.value.status === 'ok',
-    sessions: sessionsResult.status === 'fulfilled' && Array.isArray(sessionsResult.value)
-      ? sessionsResult.value
-      : [],
-    tools: toolsResult.status === 'fulfilled' && Array.isArray(toolsResult.value)
-      ? toolsResult.value
-      : [],
-    runs: runsResult.status === 'fulfilled' && Array.isArray(runsResult.value)
-      ? runsResult.value
-      : [],
+    sessions:
+      sessionsResult.status === 'fulfilled' && Array.isArray(sessionsResult.value)
+        ? sessionsResult.value
+        : [],
+    tools:
+      toolsResult.status === 'fulfilled' && Array.isArray(toolsResult.value)
+        ? toolsResult.value
+        : [],
+    runs:
+      runsResult.status === 'fulfilled' && Array.isArray(runsResult.value) ? runsResult.value : [],
     providers,
     providerModelGroups,
     error: firstRejectedReason([
@@ -42,21 +45,21 @@ export async function fetchDashboard() {
       runsResult,
       providersResult,
     ]),
-  }
+  };
 }
 
 export async function fetchProviderModels(signal?: AbortSignal) {
-  const providers = await listProviders(signal)
+  const providers = await listProviders(signal);
   return {
     providers,
     providerModelGroups: await fetchProviderModelGroups(providers, signal),
-  }
+  };
 }
 
 export type ProviderModelGroup = {
-  provider: ProviderInfo
-  models: ProviderModelConfig[]
-}
+  provider: ProviderInfo;
+  models: ProviderModelConfig[];
+};
 
 async function fetchProviderModelGroups(
   providers: ProviderInfo[],
@@ -65,30 +68,31 @@ async function fetchProviderModelGroups(
   const results = await Promise.allSettled(
     providers.map(async (provider) => ({
       provider,
-      models: provider.is_enabled === false
-        ? Object.values(provider.model || {})
-        : await listProviderModels(provider.provider_id, signal),
+      models:
+        provider.is_enabled === false
+          ? Object.values(provider.model || {})
+          : await listProviderModels(provider.provider_id, signal),
     })),
-  )
+  );
 
   return results.map((result, index) => {
     if (result.status === 'fulfilled') {
-      return result.value
+      return result.value;
     }
 
-    const provider = providers[index]
+    const provider = providers[index];
     return {
       provider,
       models: Object.values(provider.model || {}),
-    }
-  })
+    };
+  });
 }
 
 function firstRejectedReason(results: Array<PromiseSettledResult<unknown>>): string | null {
-  const failed = results.find((result) => result.status === 'rejected')
+  const failed = results.find((result) => result.status === 'rejected');
   if (!failed || failed.status !== 'rejected') {
-    return null
+    return null;
   }
 
-  return failed.reason instanceof Error ? failed.reason.message : '后端接口请求失败'
+  return failed.reason instanceof Error ? failed.reason.message : '后端接口请求失败';
 }

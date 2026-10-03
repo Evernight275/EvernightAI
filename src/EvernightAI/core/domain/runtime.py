@@ -1,6 +1,9 @@
 import inspect
 from EvernightAI.core.domain.image import ImageGenerationStore
-from EvernightAI.core.protocol.image import ImageArchiveProtocol, ImageGenerationStoreProtocol
+from EvernightAI.core.protocol.image import (
+    ImageArchiveProtocol,
+    ImageGenerationStoreProtocol,
+)
 from typing import Any
 
 from EvernightAI.core.protocol.agent import (

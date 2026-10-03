@@ -23,7 +23,13 @@ from EvernightAI.core.schema.content import (
     Content,
 )
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
+from EvernightAI.core.schema.image import (
+    ImageEditRequest,
+    ImageGenerationRecord,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+    ImageHistoryPage,
+)
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
@@ -197,24 +203,41 @@ class ChatInterfaceProtocol(Protocol):
 
 class ProviderInterfaceProtocol(Protocol):
     async def generate_images(
-        self, provider_id: str, request: ImageGenerationRequest,
-        *, principal_scope: PrincipalScope | None = None,
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse: ...
 
     async def edit_images(
-        self, provider_id: str, request: ImageEditRequest,
-        *, principal_scope: PrincipalScope | None = None,
+        self,
+        provider_id: str,
+        request: ImageEditRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse: ...
 
-    def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
-                           principal_scope: PrincipalScope | None = None) -> ImageHistoryPage: ...
+    def list_image_records(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageHistoryPage: ...
 
-    def get_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> ImageGenerationRecord: ...
+    def get_image_record(
+        self, record_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ImageGenerationRecord: ...
 
-    def delete_image_record(self, record_id: str, *, principal_scope: PrincipalScope | None = None) -> None: ...
+    def delete_image_record(
+        self, record_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None: ...
 
     async def test_provider(
-        self, provider_id: str, request: ProviderTestRequest,
+        self,
+        provider_id: str,
+        request: ProviderTestRequest,
     ) -> ProviderTestResult: ...
 
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo: ...
@@ -222,7 +245,9 @@ class ProviderInterfaceProtocol(Protocol):
     async def get_provider_config(self, provider_id: str) -> ProviderConfigView: ...
 
     async def update_provider(
-        self, provider_id: str, update: ProviderConfigUpdate,
+        self,
+        provider_id: str,
+        update: ProviderConfigUpdate,
     ) -> ProviderInfo: ...
 
     async def list_providers(self) -> list[ProviderInfo]: ...
@@ -419,7 +444,9 @@ class AgentRunInterfaceProtocol(Protocol):
 class SkillInterfaceProtocol(Protocol):
     def create_template(self, config: SkillTemplateConfig) -> SkillDefinition: ...
     def get_template(self, skill_name: str) -> SkillTemplateConfig: ...
-    def update_template(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition: ...
+    def update_template(
+        self, skill_name: str, update: SkillTemplateUpdate
+    ) -> SkillDefinition: ...
     def delete_template(self, skill_name: str) -> None: ...
 
     def list_skills(self) -> list[SkillDefinition]: ...

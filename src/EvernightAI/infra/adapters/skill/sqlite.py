@@ -3,7 +3,11 @@ from pathlib import Path
 from EvernightAI.core.error.skill import SkillNotFoundError
 from EvernightAI.core.protocol.skill import SkillTemplateStoreProtocol
 from EvernightAI.core.schema.skill import SkillTemplateConfig
-from EvernightAI.infra.sqlite import SQLiteMigrationRunner, connect_sqlite, sqlite_transaction
+from EvernightAI.infra.sqlite import (
+    SQLiteMigrationRunner,
+    connect_sqlite,
+    sqlite_transaction,
+)
 
 
 class SQLiteSkillTemplateStore(SkillTemplateStoreProtocol):
@@ -20,13 +24,24 @@ class SQLiteSkillTemplateStore(SkillTemplateStoreProtocol):
             )
 
     def list_configs(self) -> list[SkillTemplateConfig]:
-        return [SkillTemplateConfig.model_validate_json(row[0]) for row in
-                self._connection.execute("SELECT payload FROM skill_templates ORDER BY name").fetchall()]
+        return [
+            SkillTemplateConfig.model_validate_json(row[0])
+            for row in self._connection.execute(
+                "SELECT payload FROM skill_templates ORDER BY name"
+            ).fetchall()
+        ]
 
     def delete(self, skill_name: str) -> None:
         with sqlite_transaction(self._connection, immediate=True):
-            if self._connection.execute("DELETE FROM skill_templates WHERE name = ?", (skill_name,)).rowcount == 0:
-                raise SkillNotFoundError(f"The skill template {skill_name} is not found")
+            if (
+                self._connection.execute(
+                    "DELETE FROM skill_templates WHERE name = ?", (skill_name,)
+                ).rowcount
+                == 0
+            ):
+                raise SkillNotFoundError(
+                    f"The skill template {skill_name} is not found"
+                )
 
     def close(self) -> None:
         self._connection.close()

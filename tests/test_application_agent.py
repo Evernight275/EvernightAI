@@ -643,13 +643,21 @@ async def test_agent_rejects_invalid_skill_before_provider(streaming: bool) -> N
     register_style_skill(runtime)
     await runtime.contexts.create(Context(context_id="ctx-1"))
     await runtime.providers.create(make_config())
-    app = AgentApplication(runtime) if streaming else NoStreamingResponseAgentApplication(runtime)
+    app = (
+        AgentApplication(runtime)
+        if streaming
+        else NoStreamingResponseAgentApplication(runtime)
+    )
     with pytest.raises(SkillInputError, match="violates type"):
-        await app.run_agent(AgentRunRequest(
-            provider_id="provider-1", context_id="ctx-1", model_id="model-1",
-            messages=[make_message("Current request")],
-            skills=[ChatSkill(skill_name="style", variables={"tone": 3})],
-        ))
+        await app.run_agent(
+            AgentRunRequest(
+                provider_id="provider-1",
+                context_id="ctx-1",
+                model_id="model-1",
+                messages=[make_message("Current request")],
+                skills=[ChatSkill(skill_name="style", variables={"tone": 3})],
+            )
+        )
     assert provider.requests == []
     assert (await runtime.contexts.get("ctx-1")).messages == []
 
@@ -1161,12 +1169,18 @@ async def test_agent_run_until_pause_returns_pending_approval_state() -> None:
     assert state.pending_tool_calls[0].tool_call_id == "tool-call-1"
     assert len(state.pending_approval_requests) == 1
     assert state.pending_approval_requests[0].tool_name == "write_file"
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-    ] == 1
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-    ] == 0
+    assert (
+        state.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+        ]
+        == 1
+    )
+    assert (
+        state.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+        ]
+        == 0
+    )
     assert [event.event_type for event in state.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
@@ -1330,12 +1344,18 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
 
     assert state.metadata["pending_approval_count"] == "caller-value"
     assert state.metadata["tool_rounds_used"] == "caller-value"
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-    ] == 1
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-    ] == 0
+    assert (
+        state.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+        ]
+        == 1
+    )
+    assert (
+        state.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+        ]
+        == 0
+    )
 
     resumed = await app.resume_agent_until_pause(
         state,
@@ -1351,12 +1371,18 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
     assert resumed.status is AgentRunStatus.FINISHED
     assert resumed.metadata["pending_approval_count"] == "caller-value"
     assert resumed.metadata["tool_rounds_used"] == "caller-value"
-    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-    ] == 0
-    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-    ] == 1
+    assert (
+        resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+        ]
+        == 0
+    )
+    assert (
+        resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
+            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+        ]
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -1540,7 +1566,10 @@ async def test_agent_resume_requires_paused_state() -> None:
         )
     )
 
-    assert AgentRunMetadata.TOOL_ROUNDS_USED_KEY not in state.metadata[AgentRunMetadata.RUNTIME_KEY]
+    assert (
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+        not in state.metadata[AgentRunMetadata.RUNTIME_KEY]
+    )
 
     with pytest.raises(AgentStateError, match="not paused"):
         await app.resume_agent_until_pause(state, [])
@@ -3494,7 +3523,8 @@ def register_style_skill(runtime: RuntimeKernel) -> None:
             name="style",
             description="Render style instructions",
             input_schema={
-                "type": "object", "properties": {"tone": {"type": "string"}},
+                "type": "object",
+                "properties": {"tone": {"type": "string"}},
                 "required": ["tone"],
             },
             capabilities=[SkillCapability.AGENT],
@@ -3724,7 +3754,9 @@ class FinalAnswerProvider(ToolCallingProvider):
 
 
 @pytest.mark.asyncio
-async def test_agent_history_positions_preserve_context_messages_and_reset_generation() -> None:
+async def test_agent_history_positions_preserve_context_messages_and_reset_generation() -> (
+    None
+):
     states = InMemoryAgentRunStateRegister()
     provider = FinalAnswerProvider()
     runtime = make_runtime(
@@ -3733,14 +3765,20 @@ async def test_agent_history_positions_preserve_context_messages_and_reset_gener
         agent_trace_register=InMemoryAgentTraceRegister(),
     )
     previous = make_message("previous")
-    await runtime.contexts.create(Context(
-        context_id="ctx-1", messages=[previous],
-        metadata={"chat_history_generation": "cleared"},
-    ))
+    await runtime.contexts.create(
+        Context(
+            context_id="ctx-1",
+            messages=[previous],
+            metadata={"chat_history_generation": "cleared"},
+        )
+    )
     await runtime.providers.create(make_config())
     request = AgentRunRequest(
-        provider_id="provider-1", context_id="ctx-1", model_id="model-1",
-        messages=[make_message("next")], metadata={"run_id": "history"},
+        provider_id="provider-1",
+        context_id="ctx-1",
+        model_id="model-1",
+        messages=[make_message("next")],
+        metadata={"run_id": "history"},
     )
     state = await AgentRunApplication(runtime).start(request)
     history = state.metadata["agent_runtime"]
@@ -3750,7 +3788,9 @@ async def test_agent_history_positions_preserve_context_messages_and_reset_gener
     assert isinstance(history["history_started_at"], str)
     assert state.response is not None
     assert (await runtime.contexts.get("ctx-1")).messages == [
-        previous, *request.messages, state.response.message,
+        previous,
+        *request.messages,
+        state.response.message,
     ]
     assert provider.requests[0].messages == [previous, *request.messages]
 

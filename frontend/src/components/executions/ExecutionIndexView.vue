@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { ExecutionIndex } from '../../domain/workspace'
-import EmptyValue from '../common/EmptyValue.vue'
+import type { ExecutionIndex } from '../../domain/workspace';
+import EmptyValue from '../common/EmptyValue.vue';
 
 defineProps<{
-  index: ExecutionIndex
-}>()
+  index: ExecutionIndex;
+}>();
 </script>
 
 <template>

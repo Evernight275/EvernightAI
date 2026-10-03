@@ -1,33 +1,33 @@
 <script setup lang="ts">
-import type { ToolApprovalRequest } from '../../api'
-import type { ApprovalStatuses } from '../../runtime/chatRuntime'
-import { approvalItem } from './chatRequestStatus'
-import type { ChatTranscriptEntry } from '../../domain/chat'
-import EmptyValue from '../common/EmptyValue.vue'
-import ChatMessage from './ChatMessage.vue'
-import ChatInlineTool from './ChatInlineTool.vue'
-import { useChatTranscript } from './chatTranscript'
+import type { ToolApprovalRequest } from '../../api';
+import type { ApprovalStatuses } from '../../runtime/chatRuntime';
+import { approvalItem } from './chatRequestStatus';
+import type { ChatTranscriptEntry } from '../../domain/chat';
+import EmptyValue from '../common/EmptyValue.vue';
+import ChatMessage from './ChatMessage.vue';
+import ChatInlineTool from './ChatInlineTool.vue';
+import { useChatTranscript } from './chatTranscript';
 
 const props = defineProps<{
-  entries: ChatTranscriptEntry[]
-  runId?: string | null
-  pendingApprovals?: ToolApprovalRequest[]
-  approvalStatuses?: ApprovalStatuses
-  canApprove?: boolean
-}>()
+  entries: ChatTranscriptEntry[];
+  runId?: string | null;
+  pendingApprovals?: ToolApprovalRequest[];
+  approvalStatuses?: ApprovalStatuses;
+  canApprove?: boolean;
+}>();
 
-defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>()
+defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>();
 function inlineApproval(entry: ChatTranscriptEntry) {
-  if (entry.streamRunId !== props.runId) return undefined
+  if (entry.streamRunId !== props.runId) return undefined;
   const approval = props.pendingApprovals?.find(
     (item) => item.tool_call_id === entry.toolActivity?.callId,
-  )
+  );
   if (!approval || !['approval', 'pending'].includes(entry.toolActivity?.status || ''))
-    return undefined
-  const item = approvalItem(approval, props.approvalStatuses?.[approval.approval_id])
-  return { ...item, decided: item.decided || !props.canApprove }
+    return undefined;
+  const item = approvalItem(approval, props.approvalStatuses?.[approval.approval_id]);
+  return { ...item, decided: item.decided || !props.canApprove };
 }
-const { setEndMarker } = useChatTranscript(() => props.entries)
+const { setEndMarker } = useChatTranscript(() => props.entries);
 </script>
 
 <template>
@@ -41,7 +41,12 @@ const { setEndMarker } = useChatTranscript(() => props.entries)
         :key="entry.entryId"
         :class="{ 'chat-transcript-tool': !!entry.toolActivity }"
       >
-        <p v-if="entry.runNotice" class="chat-run-notice" :class="{ 'is-error': entry.runNotice === 'failed' }" role="status">
+        <p
+          v-if="entry.runNotice"
+          class="chat-run-notice"
+          :class="{ 'is-error': entry.runNotice === 'failed' }"
+          role="status"
+        >
           {{ entry.text }}
         </p>
         <ChatInlineTool

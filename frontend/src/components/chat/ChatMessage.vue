@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { ChatTranscriptEntry } from '../../domain/chat'
-import MarkdownContent from '../common/MarkdownContent.vue'
-import { chatMessagePresentation } from './chatMessage'
+import { computed } from 'vue';
+import type { ChatTranscriptEntry } from '../../domain/chat';
+import MarkdownContent from '../common/MarkdownContent.vue';
+import { chatMessagePresentation } from './chatMessage';
 
 const props = defineProps<{
-  entry: ChatTranscriptEntry
-}>()
+  entry: ChatTranscriptEntry;
+}>();
 
-const presentation = computed(() => chatMessagePresentation(props.entry))
+const presentation = computed(() => chatMessagePresentation(props.entry));
 </script>
 
 <template>
@@ -19,7 +19,12 @@ const presentation = computed(() => chatMessagePresentation(props.entry))
       </header>
       <MarkdownContent v-if="presentation.markdown" :source="entry.text" />
       <p v-else class="chat-message-text">{{ entry.text }}</p>
-      <span v-if="entry.streaming" class="chat-stream-cursor" role="status" aria-label="正在生成回复"></span>
+      <span
+        v-if="entry.streaming"
+        class="chat-stream-cursor"
+        role="status"
+        aria-label="正在生成回复"
+      ></span>
     </div>
   </article>
 </template>

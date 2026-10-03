@@ -957,8 +957,12 @@ body,
   cursor: pointer;
   color: var(--color-muted);
 }
-.chat-advanced[open] { max-height: min(44dvh, 420px); }
-.chat-view--empty:has(.chat-advanced[open]) .chat-welcome { display: none; }
+.chat-advanced[open] {
+  max-height: min(44dvh, 420px);
+}
+.chat-view--empty:has(.chat-advanced[open]) .chat-welcome {
+  display: none;
+}
 .chat-advanced pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

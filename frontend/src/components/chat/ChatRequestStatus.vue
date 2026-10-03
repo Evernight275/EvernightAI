@@ -1,19 +1,14 @@
 <script setup lang="ts">
-import { Play, RotateCcw } from '@lucide/vue'
+import { Play, RotateCcw } from '@lucide/vue';
 import {
   useChatRequestStatus,
   type ChatRequestStatusEmits,
   type ChatRequestStatusProps,
-} from './chatRequestStatus'
+} from './chatRequestStatus';
 
-const props = defineProps<ChatRequestStatusProps>()
-defineEmits<ChatRequestStatusEmits>()
-const {
-  visible,
-  errorMessage,
-  canRetry,
-  canResume,
-} = useChatRequestStatus(props)
+const props = defineProps<ChatRequestStatusProps>();
+defineEmits<ChatRequestStatusEmits>();
+const { visible, errorMessage, canRetry, canResume } = useChatRequestStatus(props);
 </script>
 
 <template>

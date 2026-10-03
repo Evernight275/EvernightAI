@@ -201,10 +201,14 @@ class ChatApplication(ChatInterfaceProtocol):
             principal_scope=principal_scope,
         )
         for index, skill in enumerate(request.skills or []):
-            self._runtime.skills.validate_input(SkillRenderRequest(
-                render_id=skill.render_id or f"{skill.skill_name}-{index}",
-                skill_name=skill.skill_name, variables=skill.variables, metadata=skill.metadata,
-            ))
+            self._runtime.skills.validate_input(
+                SkillRenderRequest(
+                    render_id=skill.render_id or f"{skill.skill_name}-{index}",
+                    skill_name=skill.skill_name,
+                    variables=skill.variables,
+                    metadata=skill.metadata,
+                )
+            )
         return request
 
     async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:

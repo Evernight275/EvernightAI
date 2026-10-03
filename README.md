@@ -364,7 +364,10 @@ These rules are intentionally backed by tests.
 
 ## Local Checks
 
+Format Python source, tests, and examples with `ruff format src tests examples`.
+
 ```powershell
+.\.venv\Scripts\ruff.exe format --check src tests examples
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\pyright.exe
 ```

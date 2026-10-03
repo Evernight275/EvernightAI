@@ -1,6 +1,9 @@
 from typing import Protocol
 
-from EvernightAI.core.protocol.image import ImageArchiveProtocol, ImageGenerationStoreProtocol
+from EvernightAI.core.protocol.image import (
+    ImageArchiveProtocol,
+    ImageGenerationStoreProtocol,
+)
 from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunStateRegisterProtocol,

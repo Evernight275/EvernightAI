@@ -7,7 +7,11 @@ from openai.types.chat import ChatCompletionChunk
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
-from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.core.schema.image import (
+    ImageEditRequest,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+)
 from EvernightAI.infra.adapters.providers.openai_compatible.images import (
     from_openai_images,
     image_generation_params,
@@ -54,7 +58,9 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
     def is_closed(self) -> bool:
         return self._closed
 
-    async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+    async def generate_images(
+        self, request: ImageGenerationRequest
+    ) -> ImageGenerationResponse:
         params = image_generation_params(request)
         return await self._images(request, params, edit=False)
 
@@ -63,10 +69,18 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         return await self._images(request, params, edit=True)
 
     async def _images(
-        self, request: ImageGenerationRequest, params: dict[str, Any], *, edit: bool,
+        self,
+        request: ImageGenerationRequest,
+        params: dict[str, Any],
+        *,
+        edit: bool,
     ) -> ImageGenerationResponse:
         model = next(
-            (model for model in self._models.values() if model.model_id == request.model_id),
+            (
+                model
+                for model in self._models.values()
+                if model.model_id == request.model_id
+            ),
             None,
         )
         params["timeout"] = request.timeout_seconds or (
@@ -74,7 +88,9 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
         )
         try:
             images = self._client.with_options(max_retries=0).images
-            response = await images.edit(**params) if edit else await images.generate(**params)
+            response = (
+                await images.edit(**params) if edit else await images.generate(**params)
+            )
         except OpenAIError as error:
             raise_openai_compatible_error(error)
         return from_openai_images(response, request)

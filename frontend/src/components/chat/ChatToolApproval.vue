@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { Check, X } from '@lucide/vue'
-import type { ChatApprovalItem } from './chatRequestStatus'
+import { Check, X } from '@lucide/vue';
+import type { ChatApprovalItem } from './chatRequestStatus';
 
 defineProps<{
-  approval: ChatApprovalItem
-  disabled?: boolean
-}>()
+  approval: ChatApprovalItem;
+  disabled?: boolean;
+}>();
 
 defineEmits<{
-  approve: [approvalId: string]
-  deny: [approvalId: string]
-}>()
+  approve: [approvalId: string];
+  deny: [approvalId: string];
+}>();
 </script>
 
 <template>
@@ -22,12 +22,11 @@ defineEmits<{
     <p v-if="approval.reason" class="chat-approval-reason">
       {{ approval.reason }}
     </p>
-    <p class="chat-approval-permissions">
-      权限：{{ approval.permissionsText }}
-    </p>
+    <p class="chat-approval-permissions">权限：{{ approval.permissionsText }}</p>
     <dl v-if="approval.targets.length" class="chat-approval-targets">
       <div v-for="target in approval.targets" :key="target.name">
-        <dt>{{ target.name }}</dt><dd tabindex="0">{{ target.value }}</dd>
+        <dt>{{ target.name }}</dt>
+        <dd tabindex="0">{{ target.value }}</dd>
       </div>
     </dl>
     <div class="chat-approval-actions">
@@ -55,7 +54,9 @@ defineEmits<{
     </div>
     <details class="chat-approval-payload">
       <summary>查看调用参数</summary>
-      <pre tabindex="0" :aria-label="approval.tool_name + ' 调用参数'">{{ approval.toolCallText }}</pre>
+      <pre tabindex="0" :aria-label="approval.tool_name + ' 调用参数'">{{
+        approval.toolCallText
+      }}</pre>
     </details>
   </article>
 </template>

@@ -90,7 +90,10 @@ class ImageEditRequest(ImageGenerationRequest):
 
     @model_validator(mode="after")
     def input_size_limit(self) -> "ImageEditRequest":
-        total = sum(len(base64.b64decode(image.base64_data, validate=True)) for image in self.images)
+        total = sum(
+            len(base64.b64decode(image.base64_data, validate=True))
+            for image in self.images
+        )
         if total > MAX_IMAGE_INPUT_TOTAL_BYTES:
             raise ValueError("Reference images must not exceed 50 MiB in total")
         return self

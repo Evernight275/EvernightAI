@@ -434,7 +434,9 @@ def _add_agent_tool_execution_table(connection: sqlite3.Connection) -> None:
 
 
 def _add_skill_templates(connection: sqlite3.Connection) -> None:
-    connection.execute("CREATE TABLE IF NOT EXISTS skill_templates (name TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS skill_templates (name TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
 
 
 def _add_image_records(connection: sqlite3.Connection) -> None:
@@ -447,8 +449,12 @@ def _add_image_records(connection: sqlite3.Connection) -> None:
             payload TEXT NOT NULL
         )
     """)
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_images_owner_created ON image_records(owner_id, created_at DESC, record_id DESC)")
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_images_created ON image_records(created_at DESC, record_id DESC)")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_images_owner_created ON image_records(owner_id, created_at DESC, record_id DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_images_created ON image_records(created_at DESC, record_id DESC)"
+    )
 
 
 DEFAULT_MIGRATIONS = (

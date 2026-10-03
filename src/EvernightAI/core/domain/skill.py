@@ -72,7 +72,9 @@ class SkillRegister(SkillRegisterProtocol):
 
 class SkillManager(SkillManageProtocol):
     def __init__(
-        self, register: SkillRegisterProtocol, *,
+        self,
+        register: SkillRegisterProtocol,
+        *,
         template_factory: SkillTemplateFactoryProtocol | None = None,
         template_store: SkillTemplateStoreProtocol | None = None,
     ) -> None:
@@ -91,10 +93,14 @@ class SkillManager(SkillManageProtocol):
         skill = self._register.get(skill_name)
         return skill.is_enabled and capability in skill.capabilities
 
-    def _build_template(self, config: SkillTemplateConfig) -> tuple[SkillDefinition, SkillRendererProtocol]:
+    def _build_template(
+        self, config: SkillTemplateConfig
+    ) -> tuple[SkillDefinition, SkillRendererProtocol]:
         if self._template_factory is None:
             raise SkillConfigurationError("Skill template creation is not configured")
-        definition = SkillDefinition.model_validate(config.model_dump(exclude={"prompt"}))
+        definition = SkillDefinition.model_validate(
+            config.model_dump(exclude={"prompt"})
+        )
         definition.is_template = True
         _input_validator(definition)
         return definition, self._template_factory(config.model_copy(deep=True))
@@ -118,11 +124,16 @@ class SkillManager(SkillManageProtocol):
             raise SkillConfigurationError(f"The skill {skill_name} is read-only")
         return self._templates[skill_name].model_copy(deep=True)
 
-    def update_template(self, skill_name: str, update: SkillTemplateUpdate) -> SkillDefinition:
+    def update_template(
+        self, skill_name: str, update: SkillTemplateUpdate
+    ) -> SkillDefinition:
         current = self.get_template(skill_name)
-        config = SkillTemplateConfig.model_validate({
-            **current.model_dump(), **update.model_dump(exclude_unset=True),
-        })
+        config = SkillTemplateConfig.model_validate(
+            {
+                **current.model_dump(),
+                **update.model_dump(exclude_unset=True),
+            }
+        )
         if config != current:
             config.revision = uuid4().hex
         definition, renderer = self._build_template(config)
@@ -144,7 +155,9 @@ class SkillManager(SkillManageProtocol):
             return
         for config in self._template_store.list_configs():
             if self._register.has(config.name) and config.name not in self._templates:
-                raise SkillConflictError(f"The stored skill {config.name} conflicts with a registered skill")
+                raise SkillConflictError(
+                    f"The stored skill {config.name} conflicts with a registered skill"
+                )
             config = config.model_copy(deep=True)
             needs_revision = config.revision is None
             if needs_revision:
@@ -189,11 +202,13 @@ class SkillManager(SkillManageProtocol):
                 path = ["variables", *error.absolute_path]
                 raise SkillInputError(
                     f"The skill {skill.name} input at {error.json_path} violates {error.validator}",
-                    detail=json.dumps({
-                        "path": path,
-                        "schema_path": list(error.absolute_schema_path),
-                        "constraint": error.validator,
-                    }),
+                    detail=json.dumps(
+                        {
+                            "path": path,
+                            "schema_path": list(error.absolute_schema_path),
+                            "constraint": error.validator,
+                        }
+                    ),
                 )
 
     async def render(self, request: SkillRenderRequest) -> RenderedSkill:
@@ -212,7 +227,9 @@ class SkillManager(SkillManageProtocol):
             ) from exc
 
         if not isinstance(rendered, RenderedSkill):
-            raise SkillRenderError(f"The skill {skill.name} renderer returned an invalid result")
+            raise SkillRenderError(
+                f"The skill {skill.name} renderer returned an invalid result"
+            )
         if rendered.skill_name != skill_name or rendered.render_id != render_id:
             raise SkillRenderError(
                 f"The skill {skill.name} renderer returned a mismatched skill name or render ID"
@@ -227,7 +244,8 @@ def _input_validator(skill: SkillDefinition) -> Validator | None:
     try:
         # The protocol is a sentinel for unsupported explicit drafts.
         validator_class = validator_for(
-            schema, default=Draft202012Validator if "$schema" not in schema else Validator,
+            schema,
+            default=Draft202012Validator if "$schema" not in schema else Validator,
         )
         if validator_class is Validator:
             raise SkillConfigurationError(
@@ -238,5 +256,6 @@ def _input_validator(skill: SkillDefinition) -> Validator | None:
         return validator_class(schema, registry=Registry())
     except (SchemaError, TypeError, ValueError) as exc:
         raise SkillConfigurationError(
-            f"The skill {skill.name} input schema is invalid", cause=exc,
+            f"The skill {skill.name} input schema is invalid",
+            cause=exc,
         ) from exc

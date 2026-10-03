@@ -6,7 +6,10 @@ from EvernightAI.core.schema.image import (
     ImageHistoryPage,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
-from EvernightAI.interface.http.schema import DirectImageEditRequest, DirectImageGenerationRequest
+from EvernightAI.interface.http.schema import (
+    DirectImageEditRequest,
+    DirectImageGenerationRequest,
+)
 
 
 router = APIRouter(prefix="/images", tags=["images"])

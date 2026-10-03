@@ -1,49 +1,48 @@
-import { computed, type ComputedRef } from 'vue'
-import type { ToolApprovalRequest, ToolApprovalStatus } from '../../api'
-import type { ApprovalStatuses } from '../../runtime/chatRuntime'
+import { computed, type ComputedRef } from 'vue';
+import type { ToolApprovalRequest, ToolApprovalStatus } from '../../api';
+import type { ApprovalStatuses } from '../../runtime/chatRuntime';
 
 export type ChatRequestStatusProps = {
-  state: string
-  error: unknown
-  workspaceNotice?: string | null
-  pendingApprovals: ToolApprovalRequest[]
-  approvalStatuses: ApprovalStatuses
-  skillConflict?: boolean
-  retryBlocked?: boolean
-}
+  state: string;
+  error: unknown;
+  workspaceNotice?: string | null;
+  pendingApprovals: ToolApprovalRequest[];
+  approvalStatuses: ApprovalStatuses;
+  skillConflict?: boolean;
+  retryBlocked?: boolean;
+};
 
 export type ChatRequestStatusEmits = {
-  retry: []
-  resume: []
-  details: []
-}
+  retry: [];
+  resume: [];
+  details: [];
+};
 
 export function useChatRequestStatus(props: ChatRequestStatusProps): {
-  visible: ComputedRef<boolean>
-  errorMessage: ComputedRef<string | null>
-  canRetry: ComputedRef<boolean>
-  canResume: ComputedRef<boolean>
+  visible: ComputedRef<boolean>;
+  errorMessage: ComputedRef<string | null>;
+  canRetry: ComputedRef<boolean>;
+  canResume: ComputedRef<boolean>;
 } {
-  const canRetry = computed(() => props.state === 'failed' && !props.skillConflict && !props.retryBlocked)
-  const canResume = computed(() =>
-    !props.skillConflict && (
-      props.state === 'resumeRequired' || (
-        props.state === 'approvalRequired' &&
-        props.pendingApprovals.every(item => props.approvalStatuses[item.approval_id])
-      )
-    ),
-  )
+  const canRetry = computed(
+    () => props.state === 'failed' && !props.skillConflict && !props.retryBlocked,
+  );
+  const canResume = computed(
+    () =>
+      !props.skillConflict &&
+      (props.state === 'resumeRequired' ||
+        (props.state === 'approvalRequired' &&
+          props.pendingApprovals.every((item) => props.approvalStatuses[item.approval_id]))),
+  );
   return {
     visible: computed(
       () =>
-        canRetry.value || canResume.value ||
-        Boolean(props.error) ||
-        Boolean(props.workspaceNotice),
+        canRetry.value || canResume.value || Boolean(props.error) || Boolean(props.workspaceNotice),
     ),
     errorMessage: computed(() => formatChatError(props.error)),
     canRetry,
     canResume,
-  }
+  };
 }
 
 const chatStateLabels: Record<string, string> = {
@@ -63,20 +62,20 @@ const chatStateLabels: Record<string, string> = {
   clearing: '正在清空',
   canceled: '已取消',
   failed: '运行失败',
-}
+};
 
 export function formatChatState(state: string): string {
-  return chatStateLabels[state] || state
+  return chatStateLabels[state] || state;
 }
 
 export type ChatApprovalItem = ToolApprovalRequest & {
-  toolCallText: string
-  permissionsText: string
-  decisionText: string | null
-  decided: boolean
-  safetyLabel: string
-  targets: { name: string; value: string }[]
-}
+  toolCallText: string;
+  permissionsText: string;
+  decisionText: string | null;
+  decided: boolean;
+  safetyLabel: string;
+  targets: { name: string; value: string }[];
+};
 
 export function approvalItem(
   approval: ToolApprovalRequest,
@@ -102,11 +101,11 @@ export function approvalItem(
         : []),
       ...approvalTargets(approval.tool_call?.arguments),
     ],
-  }
+  };
 }
 
 function approvalTargets(value: unknown): { name: string; value: string }[] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const labels: Record<string, string> = {
     project: '项目',
     path: '路径',
@@ -117,17 +116,17 @@ function approvalTargets(value: unknown): { name: string; value: string }[] {
     query: '查询',
     source: '来源',
     destination: '目标',
-  }
+  };
   return Object.entries(value).flatMap(([key, target]) =>
     Object.hasOwn(labels, key) && typeof target === 'string'
       ? [{ name: labels[key] as string, value: target }]
       : [],
-  )
+  );
 }
 
 export function formatChatError(error: unknown): string | null {
   if (!error) {
-    return null
+    return null;
   }
-  return error instanceof Error ? error.message : String(error)
+  return error instanceof Error ? error.message : String(error);
 }

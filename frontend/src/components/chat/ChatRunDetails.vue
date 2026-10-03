@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { Activity, ChevronRight, Code2, Trash2, X } from '@lucide/vue'
-import ChatPrerequisites from './ChatPrerequisites.vue'
-import ChatToolActivity from './ChatToolActivity.vue'
+import { Activity, ChevronRight, Code2, Trash2, X } from '@lucide/vue';
+import ChatPrerequisites from './ChatPrerequisites.vue';
+import ChatToolActivity from './ChatToolActivity.vue';
 import {
   useChatRunDetails,
   type ChatRunDetailsEmits,
   type ChatRunDetailsProps,
-} from './chatRunDetails'
+} from './chatRunDetails';
 
-const props = defineProps<ChatRunDetailsProps>()
-const emit = defineEmits<ChatRunDetailsEmits>()
+const props = defineProps<ChatRunDetailsProps>();
+const emit = defineEmits<ChatRunDetailsEmits>();
 const {
   setDialog,
   onCancel,
@@ -19,7 +19,7 @@ const {
   errorMessage,
   requestText,
   traceText,
-} = useChatRunDetails(props, () => emit('close'))
+} = useChatRunDetails(props, () => emit('close'));
 </script>
 
 <template>

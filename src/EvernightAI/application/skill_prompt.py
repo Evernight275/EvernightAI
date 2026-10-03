@@ -24,9 +24,13 @@ async def render_chat_skill_messages(
         if not definition.is_enabled:
             raise SkillDisabledError(f"The skill {skill.skill_name} is disabled")
         available_tools = {tool.name for tool in tools or []}
-        missing = [name for name in definition.required_tools if name not in available_tools]
+        missing = [
+            name for name in definition.required_tools if name not in available_tools
+        ]
         if missing:
-            raise SkillInputError(f"The skill {skill.skill_name} requires tools: {', '.join(missing)}")
+            raise SkillInputError(
+                f"The skill {skill.skill_name} requires tools: {', '.join(missing)}"
+            )
         if not runtime.skills.supports(skill.skill_name, capability):
             raise SkillInputError(
                 f"The skill {skill.skill_name} does not support {capability.value}"

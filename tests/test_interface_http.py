@@ -1258,7 +1258,8 @@ def test_http_app_exposes_skill_routes() -> None:
             json={"variables": {"text": "default"}},
         )
         invalid_render_response = client.post(
-            "/skills/summarize/render", json={"variables": {"text": 3}},
+            "/skills/summarize/render",
+            json={"variables": {"text": 3}},
         )
         missing_response = client.get("/skills/missing")
 
@@ -1278,7 +1279,10 @@ def test_http_app_exposes_skill_routes() -> None:
     assert default_render_response.status_code == 200
     assert invalid_render_response.status_code == 400
     assert_error_response(invalid_render_response.json(), "SkillInputError")
-    assert json.loads(invalid_render_response.json()["error"]["detail"])["path"] == ["variables", "text"]
+    assert json.loads(invalid_render_response.json()["error"]["detail"])["path"] == [
+        "variables",
+        "text",
+    ]
     assert default_render_response.json()["render_id"] == "summarize-0"
     assert (
         default_render_response.json()["messages"][0]["content"][0]["text"] == "default"
@@ -1353,11 +1357,19 @@ def test_http_app_orchestrates_chat_skills() -> None:
 def test_http_disabled_provider_remains_manageable_and_rejects_chat() -> None:
     app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
     with TestClient(app) as client:
-        config = {"provider_id": "provider-1", "name": "Disabled", "type": "openai", "is_enabled": False}
+        config = {
+            "provider_id": "provider-1",
+            "name": "Disabled",
+            "type": "openai",
+            "is_enabled": False,
+        }
         assert client.post("/providers", json=config).status_code == 201
         assert client.get("/providers").json()[0]["is_enabled"] is False
         assert client.post("/providers", json=config).status_code == 409
-        request = {"provider_id": "provider-1", "request": {"model_id": "model-1", "messages": []}}
+        request = {
+            "provider_id": "provider-1",
+            "request": {"model_id": "model-1", "messages": []},
+        }
         blocked = client.post("/chat", json=request)
         assert blocked.status_code == 409
         assert blocked.json()["error"]["type"] == "ProviderDisabledError"
@@ -1369,7 +1381,12 @@ def test_http_disabled_provider_remains_manageable_and_rejects_chat() -> None:
         enabled = client.patch("/providers/provider-1", json={"is_enabled": True})
         assert enabled.status_code == 200 and enabled.json()["is_enabled"] is True
         assert client.post("/chat", json=request).status_code == 200
-        assert client.patch("/providers/provider-1", json={"is_enabled": False}).status_code == 200
+        assert (
+            client.patch(
+                "/providers/provider-1", json={"is_enabled": False}
+            ).status_code
+            == 200
+        )
         assert client.post("/chat", json=request).status_code == 409
         assert client.post("/providers/provider-1/delete").status_code == 204
         assert client.get("/providers").json() == []
@@ -1378,15 +1395,29 @@ def test_http_disabled_provider_remains_manageable_and_rejects_chat() -> None:
 def test_http_provider_partial_update_preserves_secrets_and_model_options() -> None:
     app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
     with TestClient(app) as client:
-        created = client.post("/providers", json={
-            "provider_id": "provider-1", "name": "Old", "type": "openai",
-            "api_key": "private-key", "base_url": "https://old.example/v1",
-            "metadata": {"tag": "keep"}, "model": {
-                "alias": {"model_id": "model-1", "timeout": 90, "capabilities": ["chat"], "metadata": {"option": "keep"}},
+        created = client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Old",
+                "type": "openai",
+                "api_key": "private-key",
+                "base_url": "https://old.example/v1",
+                "metadata": {"tag": "keep"},
+                "model": {
+                    "alias": {
+                        "model_id": "model-1",
+                        "timeout": 90,
+                        "capabilities": ["chat"],
+                        "metadata": {"option": "keep"},
+                    },
+                },
             },
-        })
+        )
         assert created.status_code == 201
-        response = client.patch("/providers/provider-1", json={"name": "New", "discover_models": True})
+        response = client.patch(
+            "/providers/provider-1", json={"name": "New", "discover_models": True}
+        )
         assert response.status_code == 200
         assert response.json()["provider_id"] == "provider-1"
         assert response.json()["name"] == "New"
@@ -1401,34 +1432,58 @@ def test_http_provider_partial_update_preserves_secrets_and_model_options() -> N
         assert body["model"]["alias"]["timeout"] == "PT1M30S"
         assert body["model"]["alias"]["metadata"] == {"option": "keep"}
         assert body["metadata"] == {"tag": "keep"}
-        duplicate = client.post("/providers", json={
-            "provider_id": "provider-1", "name": "Overwrite", "type": "openai",
-        })
+        duplicate = client.post(
+            "/providers",
+            json={
+                "provider_id": "provider-1",
+                "name": "Overwrite",
+                "type": "openai",
+            },
+        )
         assert duplicate.status_code == 409
         assert client.get("/providers/provider-1/config").json()["name"] == "New"
-        cleared = client.patch("/providers/provider-1", json={
-            "base_url": None, "api_key": None, "api_key_secret_ref": None, "model": {},
-        })
+        cleared = client.patch(
+            "/providers/provider-1",
+            json={
+                "base_url": None,
+                "api_key": None,
+                "api_key_secret_ref": None,
+                "model": {},
+            },
+        )
         assert cleared.status_code == 200
         cleared_body = client.get("/providers/provider-1/config").json()
         assert cleared_body["base_url"] is None
         assert cleared_body["has_api_key"] is False
         assert cleared_body["model"] == {}
-        assert client.patch("/providers/missing", json={"name": "New"}).status_code == 404
+        assert (
+            client.patch("/providers/missing", json={"name": "New"}).status_code == 404
+        )
         assert client.get("/providers/missing/config").status_code == 404
 
 
-@pytest.mark.parametrize("invalid", [
-    {"provider_id": "renamed"}, {"name": None}, {"type": None},
-    {"model": None}, {"metadata": None}, {"discover_models": None},
-    {"api_key": ""}, {"api_key": "private-key", "api_key_secret_ref": "env:KEY"},
-])
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"provider_id": "renamed"},
+        {"name": None},
+        {"type": None},
+        {"model": None},
+        {"metadata": None},
+        {"discover_models": None},
+        {"api_key": ""},
+        {"api_key": "private-key", "api_key_secret_ref": "env:KEY"},
+    ],
+)
 def test_http_provider_invalid_update_preserves_existing_config_without_echoing_secrets(
     invalid: dict[str, object],
 ) -> None:
     app = create_http_app(create_interface(make_runtime()), close_on_shutdown=False)
     with TestClient(app) as client:
-        client.post("/providers", json={"provider_id": "provider-1", "name": "Old", "type": "openai"})
+        client.post(
+            "/providers",
+            json={"provider_id": "provider-1", "name": "Old", "type": "openai"},
+        )
         response = client.patch("/providers/provider-1", json=invalid)
         assert response.status_code == 400
         assert "private-key" not in response.text
@@ -3498,18 +3553,39 @@ def test_http_context_preview_validates_skill_variables_without_rendering() -> N
 
     provider = FakeProvider()
     runtime = make_runtime(provider=provider)
-    runtime.skill_register.register(SkillDefinition(
-        name="parameters", description="Agent skill", capabilities=[SkillCapability.AGENT],
-        input_schema={"type": "object", "properties": {"count": {"type": "integer"}}},
-    ), unexpected)
+    runtime.skill_register.register(
+        SkillDefinition(
+            name="parameters",
+            description="Agent skill",
+            capabilities=[SkillCapability.AGENT],
+            input_schema={
+                "type": "object",
+                "properties": {"count": {"type": "integer"}},
+            },
+        ),
+        unexpected,
+    )
     with TestClient(create_http_app(create_interface(runtime))) as client:
         client.post("/contexts", json={"context_id": "ctx-1"})
-        invalid = client.post("/contexts/ctx-1/compose-preview", json={
-            "model_id": "model-1", "skills": [{"skill_name": "parameters", "variables": {"count": "private-input"}}],
-        })
-        valid = client.post("/contexts/ctx-1/compose-preview", json={
-            "model_id": "model-1", "skills": [{"skill_name": "parameters", "variables": {"count": 3}}],
-        })
+        invalid = client.post(
+            "/contexts/ctx-1/compose-preview",
+            json={
+                "model_id": "model-1",
+                "skills": [
+                    {
+                        "skill_name": "parameters",
+                        "variables": {"count": "private-input"},
+                    }
+                ],
+            },
+        )
+        valid = client.post(
+            "/contexts/ctx-1/compose-preview",
+            json={
+                "model_id": "model-1",
+                "skills": [{"skill_name": "parameters", "variables": {"count": 3}}],
+            },
+        )
         assert client.get("/contexts/ctx-1").json()["messages"] == []
     assert invalid.status_code == 400
     assert_error_response(invalid.json(), "SkillInputError")
@@ -3723,7 +3799,9 @@ class FakeProvider(ProviderInstanceProtocol):
 
 
 class ConnectionTestProvider(FakeProvider):
-    def __init__(self, error: ProviderError | None = None, *, block: bool = False) -> None:
+    def __init__(
+        self, error: ProviderError | None = None, *, block: bool = False
+    ) -> None:
         super().__init__()
         self.error = error
         self.block = block
@@ -3744,45 +3822,79 @@ class ConnectionTestProvider(FakeProvider):
         if self.error:
             raise self.error
         return ChatResponse(
-            model_id="actual-model", message=make_message("private reply"),
+            model_id="actual-model",
+            message=make_message("private reply"),
             metadata={"private": "secret-value"},
         )
 
 
 @pytest.mark.parametrize("declared", [True, False])
-def test_http_provider_connection_uses_fixed_request_without_discovery(declared: bool) -> None:
+def test_http_provider_connection_uses_fixed_request_without_discovery(
+    declared: bool,
+) -> None:
     provider = ConnectionTestProvider()
     app = create_http_app(create_interface(make_runtime(provider=provider)))
     with TestClient(app) as client:
-        assert client.post("/providers", json={
-            "provider_id": "probe", "name": "Probe", "type": "openai",
-            "model": {"alias": {"model_id": "custom"}} if declared else {},
-        }).status_code == 201
+        assert (
+            client.post(
+                "/providers",
+                json={
+                    "provider_id": "probe",
+                    "name": "Probe",
+                    "type": "openai",
+                    "model": {"alias": {"model_id": "custom"}} if declared else {},
+                },
+            ).status_code
+            == 201
+        )
         for _ in range(2):
-            response = client.post("/providers/probe/test", json={"model_id": " custom "})
+            response = client.post(
+                "/providers/probe/test", json={"model_id": " custom "}
+            )
             assert response.status_code == 200
             body = response.json()
             assert body == {
-                "provider_id": "probe", "model_id": "custom", "success": True,
-                "response_model_id": "actual-model", "elapsed_ms": body["elapsed_ms"],
+                "provider_id": "probe",
+                "model_id": "custom",
+                "success": True,
+                "response_model_id": "actual-model",
+                "elapsed_ms": body["elapsed_ms"],
             }
             assert body["elapsed_ms"] >= 0
         assert client.get("/contexts").json() == []
         assert client.get("/memories").json() == []
     assert provider.calls == 2
     assert provider.last_request == ChatRequest(
-        model_id="custom", messages=[make_message("Reply with OK.")],
+        model_id="custom",
+        messages=[make_message("Reply with OK.")],
     )
 
 
-@pytest.mark.parametrize("error_class", [
-    ProviderAuthorizationError, ProviderNotFoundError, ProviderRateLimitError,
-    ProviderRequestTimeoutError, ProviderUnavailableError, ProviderRequestError, ProviderError,
-])
-def test_http_provider_connection_sanitizes_upstream_errors(error_class: type[ProviderError]) -> None:
-    provider = ConnectionTestProvider(error_class("secret-value", detail="key=secret-value"))
-    with TestClient(create_http_app(create_interface(make_runtime(provider=provider)))) as client:
-        client.post("/providers", json={"provider_id": "probe", "name": "Probe", "type": "openai"})
+@pytest.mark.parametrize(
+    "error_class",
+    [
+        ProviderAuthorizationError,
+        ProviderNotFoundError,
+        ProviderRateLimitError,
+        ProviderRequestTimeoutError,
+        ProviderUnavailableError,
+        ProviderRequestError,
+        ProviderError,
+    ],
+)
+def test_http_provider_connection_sanitizes_upstream_errors(
+    error_class: type[ProviderError],
+) -> None:
+    provider = ConnectionTestProvider(
+        error_class("secret-value", detail="key=secret-value")
+    )
+    with TestClient(
+        create_http_app(create_interface(make_runtime(provider=provider)))
+    ) as client:
+        client.post(
+            "/providers",
+            json={"provider_id": "probe", "name": "Probe", "type": "openai"},
+        )
         response = client.post("/providers/probe/test", json={"model_id": "custom"})
     assert response.status_code == 200
     assert response.json()["success"] is False
@@ -3792,13 +3904,21 @@ def test_http_provider_connection_sanitizes_upstream_errors(error_class: type[Pr
 
 
 @pytest.mark.asyncio
-async def test_provider_connection_timeout_releases_active_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("EvernightAI.application.provider.PROVIDER_TEST_TIMEOUT_SECONDS", 0.01)
+async def test_provider_connection_timeout_releases_active_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "EvernightAI.application.provider.PROVIDER_TEST_TIMEOUT_SECONDS", 0.01
+    )
     provider = ConnectionTestProvider(block=True)
     runtime = make_runtime(provider=provider)
     interface = create_interface(runtime)
-    await interface.providers.create_provider(ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI))
-    result = await interface.providers.test_provider("probe", ProviderTestRequest(model_id="custom"))
+    await interface.providers.create_provider(
+        ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI)
+    )
+    result = await interface.providers.test_provider(
+        "probe", ProviderTestRequest(model_id="custom")
+    )
     assert result.success is False
     assert result.error_type == "ProviderRequestTimeoutError"
     assert provider.cancelled
@@ -3806,36 +3926,83 @@ async def test_provider_connection_timeout_releases_active_call(monkeypatch: pyt
     await runtime.close()
 
 
-def test_http_provider_connection_rejects_invalid_requests_and_disabled_provider() -> None:
+def test_http_provider_connection_rejects_invalid_requests_and_disabled_provider() -> (
+    None
+):
     provider = ConnectionTestProvider()
-    with TestClient(create_http_app(create_interface(make_runtime(provider=provider)))) as client:
-        client.post("/providers", json={"provider_id": "probe", "name": "Probe", "type": "openai", "is_enabled": False})
-        for body in [{"model_id": " "}, {"model_id": "x", "prompt": "custom"}, {"model_id": "x", "api_key": "key"}]:
+    with TestClient(
+        create_http_app(create_interface(make_runtime(provider=provider)))
+    ) as client:
+        client.post(
+            "/providers",
+            json={
+                "provider_id": "probe",
+                "name": "Probe",
+                "type": "openai",
+                "is_enabled": False,
+            },
+        )
+        for body in [
+            {"model_id": " "},
+            {"model_id": "x", "prompt": "custom"},
+            {"model_id": "x", "api_key": "key"},
+        ]:
             assert client.post("/providers/probe/test", json=body).status_code == 400
-        assert client.post("/providers/probe/test", json={"model_id": "x"}).status_code == 409
-        assert client.post("/providers/missing/test", json={"model_id": "x"}).status_code == 404
+        assert (
+            client.post("/providers/probe/test", json={"model_id": "x"}).status_code
+            == 409
+        )
+        assert (
+            client.post("/providers/missing/test", json={"model_id": "x"}).status_code
+            == 404
+        )
     assert provider.calls == 0
 
 
-@pytest.mark.parametrize("permissions, expected", [
-    (["providers:test"], 200),
-    (["providers:update", "providers:list", "providers:create", "chat:chat"], 403),
-])
-def test_http_provider_connection_requires_separate_permission(permissions: list[str], expected: int) -> None:
+@pytest.mark.parametrize(
+    "permissions, expected",
+    [
+        (["providers:test"], 200),
+        (["providers:update", "providers:list", "providers:create", "chat:chat"], 403),
+    ],
+)
+def test_http_provider_connection_requires_separate_permission(
+    permissions: list[str], expected: int
+) -> None:
     runtime = make_runtime(provider=ConnectionTestProvider())
-    asyncio.run(runtime.providers.create(ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI)))
+    asyncio.run(
+        runtime.providers.create(
+            ProviderConfig(provider_id="probe", name="Probe", type=ProviderType.OPENAI)
+        )
+    )
     app = create_http_app(
         create_interface(runtime),
-        auth_device=ApiKeyHttpAuthDevice([HttpApiKeyCredential(
-            api_key="local-key", principal=Principal(principal_id="user", permissions=permissions),
-        )]),
-        authorized_interface_factory=lambda interface, principal: AuthorizedEvernightInterface(
-            interface, Authorizer(PermissionAuthPolicy()), principal,
+        auth_device=ApiKeyHttpAuthDevice(
+            [
+                HttpApiKeyCredential(
+                    api_key="local-key",
+                    principal=Principal(principal_id="user", permissions=permissions),
+                )
+            ]
+        ),
+        authorized_interface_factory=lambda interface, principal: (
+            AuthorizedEvernightInterface(
+                interface,
+                Authorizer(PermissionAuthPolicy()),
+                principal,
+            )
         ),
     )
     with TestClient(app) as client:
-        assert client.post("/providers/probe/test", json={"model_id": "x"}).status_code == 401
-        response = client.post("/providers/probe/test", json={"model_id": "x"}, headers={"authorization": "Bearer local-key"})
+        assert (
+            client.post("/providers/probe/test", json={"model_id": "x"}).status_code
+            == 401
+        )
+        response = client.post(
+            "/providers/probe/test",
+            json={"model_id": "x"},
+            headers={"authorization": "Bearer local-key"},
+        )
         assert response.status_code == expected
 
 
