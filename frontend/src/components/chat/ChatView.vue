@@ -98,8 +98,6 @@ const {
           :retry-blocked="run?.status === 'finished'"
           @retry="retry"
           @resume="resume"
-          @approve="approve"
-          @deny="deny"
           @details="openDetails"
         />
         <ChatRequestForm

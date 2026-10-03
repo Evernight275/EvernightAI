@@ -180,9 +180,8 @@ it('restores all five phases from persisted events without duplicating text or t
   expect(restored.at(-1)?.toolActivity?.errorType).toBe('FileNotFoundError')
   expect(reconcileRunTranscript(restored, run)).toEqual(restored)
   expect(
-    reconcileRunTranscript(restored, { ...run, trace: events.slice(0, 5), status: 'canceled' }).at(
-      -1,
-    )?.toolActivity,
+    reconcileRunTranscript(restored, { ...run, trace: events.slice(0, 5), status: 'canceled' })
+      .find(entry => entry.toolActivity)?.toolActivity,
   ).toMatchObject({ status: 'pending', notice: '运行已停止，结果尚未确认' })
 })
 

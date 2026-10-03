@@ -41,8 +41,11 @@ const { setEndMarker } = useChatTranscript(() => props.entries)
         :key="entry.entryId"
         :class="{ 'chat-transcript-tool': !!entry.toolActivity }"
       >
+        <p v-if="entry.runNotice" class="chat-run-notice" :class="{ 'is-error': entry.runNotice === 'failed' }" role="status">
+          {{ entry.text }}
+        </p>
         <ChatInlineTool
-          v-if="entry.toolActivity"
+          v-else-if="entry.toolActivity"
           :activity="entry.toolActivity"
           :approval="inlineApproval(entry)"
           @approve="$emit('approve', $event)"

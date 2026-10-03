@@ -366,6 +366,7 @@ describe('chat runtime', () => {
           headers: { 'content-type': 'application/json' },
         }),
       )
+      .mockResolvedValueOnce(new Response('[]'))
     vi.stubGlobal('fetch', fetchMock)
 
     const snapshot = await loadChatSession(
@@ -383,6 +384,7 @@ describe('chat runtime', () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/agent-runs/run-old/cancel',
       '/contexts/context-2',
+      '/agent-runs?context_id=context-2',
     ])
     expect(snapshot.transcript[0]?.text).toBe('stored message')
   })

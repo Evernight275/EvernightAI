@@ -18,7 +18,7 @@ try {
     let failUpdate = true
     let providerConfig = null
     let session = { session_id: 'session-1', context_id: 'ctx-1', title: '原始标题', provider_id: 'test', model_id: 'model-a', metadata: { preserve: true } }
-    const run = { run_id: 'run-1', request: { provider_id: 'test', model_id: 'model-a', context_id: 'ctx-1' }, status: 'paused', pending_approval_requests: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file', permissions: ['write'], tool_call: { path: 'example.txt' } }] }
+    let run = { run_id: 'run-1', request: { provider_id: 'test', model_id: 'model-a', context_id: 'ctx-1' }, status: 'paused', pending_approval_requests: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_file', permissions: ['write'], tool_call: { path: 'example.txt' } }] }
     page.on('pageerror', error => errors.push(error.message))
     await page.addInitScript(() => { window.EVERNIGHTAI_API_BASE = '/mock-api' })
     await page.routeWebSocket('**/ws', socket => {
@@ -87,7 +87,11 @@ try {
       if (path === '/data-analysis/analyze') return json({ source_id: 'runtime', narrative: '共有三次运行', insights: [] })
       if (path === '/agent-runs') return json([run])
       if (path === '/agent-runs/run-1') return json(run)
-      if (path.endsWith('/resume')) return json({ ...run, status: 'finished', pending_approval_requests: [] })
+      if (path.endsWith('/resume')) {
+        run = { ...run, status: 'finished', stop_reason: 'finished', pending_approval_requests: [],
+          response: { model_id: 'model-a', message: { role: 'assistant', content: [{ type: 'text', text: '此前运行已完成。' }] } } }
+        return json(run)
+      }
       if (path === '/agent-runs/stream') return route.fulfill({ contentType: 'text/event-stream', body: 'data: [DONE]\n\n' })
       if (path.startsWith('/agent-runs/')) return json({ ...run, run_id: path.split('/')[2], status: 'finished', stop_reason: 'finished', pending_approval_requests: [], response: { model_id: 'model-a', message: { role: 'assistant', content: [{ type: 'text', text: '你好！' }] } } })
       return json([])

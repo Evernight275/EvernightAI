@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Play, RotateCcw } from '@lucide/vue'
-import ChatToolApproval from './ChatToolApproval.vue'
 import {
   useChatRequestStatus,
   type ChatRequestStatusEmits,
@@ -12,7 +11,6 @@ defineEmits<ChatRequestStatusEmits>()
 const {
   visible,
   errorMessage,
-  approvalItems,
   canRetry,
   canResume,
 } = useChatRequestStatus(props)
@@ -37,18 +35,5 @@ const {
         <Play :size="16" aria-hidden="true" /> 继续运行
       </button>
     </div>
-    <details v-if="approvalItems.length > 0" class="chat-approval-group" open>
-      <summary>等待工具审批（{{ approvalItems.length }}）</summary>
-      <div class="chat-approval-list">
-        <ChatToolApproval
-          v-for="approval in approvalItems"
-          :key="approval.approval_id"
-          :approval="approval"
-          :disabled="skillConflict || state !== 'approvalRequired'"
-          @approve="$emit('approve', $event)"
-          @deny="$emit('deny', $event)"
-        />
-      </div>
-    </details>
   </section>
 </template>

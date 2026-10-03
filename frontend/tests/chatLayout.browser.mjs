@@ -190,7 +190,7 @@ try {
     async function send() {
       await page.locator('#chat-message').fill('请写入这三个文件。')
       await page.getByRole('button', { name: '发送', exact: true }).click()
-      await page.locator('.chat-approval-group').waitFor({ state: 'visible' })
+      await page.locator('.chat-transcript .chat-tool-approval').first().waitFor({ state: 'visible' })
     }
     async function checkBounds() {
       const bounds = await page.evaluate(() => {
@@ -219,9 +219,13 @@ try {
     await checkBounds()
     assert.equal(await page.locator('.chat-details-panel').evaluate((el) => el.open), false)
     assert.equal(await page.locator('.chat-view-scroll .chat-tool-approval').count(), 3)
-    await page.locator('.chat-view-footer .chat-approval-payload summary').first().click()
+    assert.equal(await page.getByRole('button', { name: '批准', exact: true }).count(), 3)
+    assert.equal(await page.getByRole('button', { name: '拒绝', exact: true }).count(), 3)
+    assert.equal(await page.locator('.chat-view-footer .chat-tool-approval').count(), 0)
+    assert.equal(await page.locator('.chat-request-status').count(), 0)
+    await page.locator('.chat-transcript .chat-approval-payload summary').first().click()
     await checkBounds()
-    await page.locator('.chat-view-footer .chat-approval-payload summary').first().click()
+    await page.locator('.chat-transcript .chat-approval-payload summary').first().click()
     await page.screenshot({ path: `${screenshots}/${width}x${height}-approvals.png` })
 
     await page.getByRole('button', { name: '运行详情', exact: true }).click()
@@ -257,24 +261,24 @@ try {
 
     await send()
     await page
-      .locator('.chat-view-footer')
+      .locator('.chat-transcript')
       .getByRole('button', { name: '批准', exact: true })
       .nth(0)
       .click()
     assert.ok(
       await page
-        .locator('.chat-view-footer')
+        .locator('.chat-transcript')
         .getByRole('button', { name: '批准', exact: true })
         .nth(0)
         .isDisabled(),
     )
     await page
-      .locator('.chat-view-footer')
+      .locator('.chat-transcript')
       .getByRole('button', { name: '拒绝', exact: true })
       .nth(1)
       .click()
     await page
-      .locator('.chat-view-footer')
+      .locator('.chat-transcript')
       .getByRole('button', { name: '批准', exact: true })
       .nth(2)
       .click()
@@ -292,7 +296,7 @@ try {
     await page.getByRole('button', { name: '发送', exact: true }).click()
     await page.locator('.chat-status-error[role="alert"]').waitFor()
     await page.getByRole('button', { name: '重试', exact: true }).click()
-    await page.locator('.chat-approval-group').waitFor()
+    await page.locator('.chat-transcript .chat-tool-approval').first().waitFor()
     await checkBounds()
     if (width <= 760) {
       await page.getByRole('button', { name: '会话管理', exact: true }).click()
@@ -309,12 +313,12 @@ try {
       await page.waitForFunction(() => !document.querySelector('.chat-sidebar-dialog').open)
     }
     await page.reload()
-    await page.locator('.chat-approval-group').waitFor()
+    await page.locator('.chat-transcript .chat-tool-approval').first().waitFor()
     await page.goto(`${base}/chat.html`)
     await page.waitForFunction(() => !document.querySelector('#chat-message').disabled)
     await page.locator('#chat-message').fill('直接开始一段新对话。')
     await page.getByRole('button', { name: '发送', exact: true }).click()
-    await page.locator('.chat-approval-group').waitFor()
+    await page.locator('.chat-transcript .chat-tool-approval').first().waitFor()
     assert.equal(createdSessions.length, 1)
     assert.equal(createdSessions[0].provider_id, 'test')
     assert.equal(createdSessions[0].model_id, 'test-model')

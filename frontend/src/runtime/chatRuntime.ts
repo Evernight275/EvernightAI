@@ -8,6 +8,7 @@ import {
   deleteContext,
   deleteSession,
   getAgentRun,
+  listAgentRuns,
   getContext,
   getSession,
   replaceContext,
@@ -23,6 +24,8 @@ import {
 } from '../api'
 import {
   transcriptFromMessages,
+  restoreChatHistory,
+  runHistoryTime,
   type ChatSubmission,
   type ChatTranscriptEntry,
 } from '../domain/chat'
@@ -79,6 +82,7 @@ export type ChatSessionInput = {
 export type ChatSessionSnapshot = {
   session: Session
   transcript: ChatTranscriptEntry[]
+  run?: AgentRunState | null
 }
 
 export function createChatContextId(): string {
@@ -129,10 +133,31 @@ export async function loadChatSession(
   signal: AbortSignal,
 ): Promise<ChatSessionSnapshot> {
   await cancelCurrentChatRun(input, signal)
-  const context = await getContext(input.session.context_id, signal)
   return {
     session: input.session,
-    transcript: transcriptFromMessages(context.messages || []),
+    ...await loadChatHistory(input.session.context_id, signal, input.session.session_id),
+  }
+}
+
+export async function loadChatHistory(
+  contextId: string,
+  signal: AbortSignal,
+  sessionId?: string,
+  focusedRun?: AgentRunState,
+): Promise<{ transcript: ChatTranscriptEntry[]; run: AgentRunState | null }> {
+  const [context, loaded] = await Promise.all([getContext(contextId, signal), listAgentRuns(signal, contextId)])
+  signal.throwIfAborted()
+  const generation = context.metadata?.chat_history_generation ?? null
+  const runs = loaded.filter(run => run.request.context_id === contextId &&
+    (!sessionId || !run.request.metadata?.session_id || run.request.metadata.session_id === sessionId))
+  if (focusedRun?.request.context_id === contextId && !runs.some(run => run.run_id === focusedRun.run_id))
+    runs.push(focusedRun)
+  const visible = runs.filter(run =>
+    ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)?.context_history_generation ?? null) === generation)
+    .sort((a, b) => runHistoryTime(a).localeCompare(runHistoryTime(b)))
+  return {
+    transcript: restoreChatHistory(context, visible),
+    run: (focusedRun ? visible.find(run => run.run_id === focusedRun.run_id) : visible.at(-1)) || null,
   }
 }
 
@@ -236,6 +261,7 @@ export async function clearChatContext(input: ChatClearInput, signal: AbortSigna
         {
           ...context,
           messages: [],
+          metadata: { ...context.metadata, chat_history_generation: createChatContextId() },
         },
         signal,
       )

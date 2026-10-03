@@ -7,7 +7,10 @@ import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue'
 import ChatRequestStatus from '../src/components/chat/ChatRequestStatus.vue'
 import ChatRunDetails from '../src/components/chat/ChatRunDetails.vue'
 import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue'
+import ChatTranscript from '../src/components/chat/ChatTranscript.vue'
 import ChatView from '../src/components/chat/ChatView.vue'
+import { reconcileRunTranscript } from '../src/domain/chat'
+import type { AgentRunState } from '../src/api'
 
 describe('chat component composition', () => {
   it('composes session management beside the chat page', async () => {
@@ -119,33 +122,41 @@ describe('chat component composition', () => {
   })
 
   it('keeps approval decisions visible before large tool arguments', async () => {
-    const html = await renderToString(
-      createSSRApp(ChatRequestStatus, {
-        state: 'approvalRequired',
-        error: null,
-        pendingApprovals: [
-          {
-            approval_id: 'approval-1',
-            tool_call_id: 'call-1',
-            tool_name: 'write_text_file',
-            safety_level: 'sensitive',
-            permissions: ['write', 'filesystem'],
-            tool_call: {
-              name: 'write_text_file',
-              arguments: { path: 'large.py', content: 'line\n'.repeat(500) },
-            },
+    const run: AgentRunState = {
+      run_id: 'run-1',
+      request: { provider_id: 'provider-1', model_id: 'model-1', context_id: 'context-1' },
+      status: 'paused',
+      pending_approval_requests: [
+        {
+          approval_id: 'approval-1',
+          tool_call_id: 'call-1',
+          tool_name: 'write_text_file',
+          safety_level: 'sensitive',
+          permissions: ['write', 'filesystem'],
+          tool_call: {
+            name: 'write_text_file',
+            arguments: { path: 'large.py', content: 'line\n'.repeat(500) },
           },
-        ],
+        },
+      ],
+    }
+    const html = await renderToString(
+      createSSRApp(ChatTranscript, {
+        entries: reconcileRunTranscript([], run),
+        runId: run.run_id,
+        pendingApprovals: run.pending_approval_requests,
         approvalStatuses: {},
+        canApprove: true,
       }),
     )
 
     expect(html).toContain('class="chat-tool-approval"')
     expect(html).toContain('class="chat-approval-payload"')
     expect(html).toContain('查看调用参数')
-    expect(html.indexOf('批准')).toBeLessThan(html.indexOf('查看调用参数'))
-    expect(html.indexOf('拒绝')).toBeLessThan(html.indexOf('查看调用参数'))
-    expect(html.indexOf('large.py')).toBeLessThan(html.indexOf('查看调用参数'))
+    const approval = html.slice(html.indexOf('class="chat-tool-approval"'))
+    expect(approval.indexOf('批准')).toBeLessThan(approval.indexOf('查看调用参数'))
+    expect(approval.indexOf('拒绝')).toBeLessThan(approval.indexOf('查看调用参数'))
+    expect(approval.indexOf('large.py')).toBeLessThan(approval.indexOf('查看调用参数'))
     expect(html).not.toContain('运行 ID')
   })
 
@@ -183,12 +194,27 @@ describe('chat component composition', () => {
     const paused = await renderToString(
       createSSRApp(ChatRequestStatus, { ...props, state: 'resumeRequired' }),
     )
+    const pending = {
+      ...props,
+      state: 'approvalRequired',
+      pendingApprovals: [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_text_file' }],
+    }
+    const approving = await renderToString(createSSRApp(ChatRequestStatus, pending))
+    const decided = await renderToString(createSSRApp(ChatRequestStatus, {
+      ...pending, approvalStatuses: { 'approval-1': 'approved' },
+    }))
+    const conflict = await renderToString(createSSRApp(ChatRequestStatus, {
+      ...pending, skillConflict: true, approvalStatuses: { 'approval-1': 'approved' },
+    }))
     expect(idle).not.toContain('chat-request-status')
     expect(failed).toContain('role="alert"')
     expect(failed).toContain('Provider unavailable')
     expect(failed).toContain('重试')
     expect(failed).toContain('查看详情')
     expect(paused).toContain('继续运行')
+    expect(approving).not.toContain('chat-request-status')
+    expect(decided).toContain('继续运行')
+    expect(conflict).not.toContain('chat-request-status')
   })
 
   it('places stop in the composer instead of a disabled send button', async () => {

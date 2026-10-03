@@ -1161,10 +1161,12 @@ async def test_agent_run_until_pause_returns_pending_approval_state() -> None:
     assert state.pending_tool_calls[0].tool_call_id == "tool-call-1"
     assert len(state.pending_approval_requests) == 1
     assert state.pending_approval_requests[0].tool_name == "write_file"
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 1,
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 0,
-    }
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+    ] == 1
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+    ] == 0
     assert [event.event_type for event in state.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
@@ -1328,10 +1330,12 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
 
     assert state.metadata["pending_approval_count"] == "caller-value"
     assert state.metadata["tool_rounds_used"] == "caller-value"
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 1,
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 0,
-    }
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+    ] == 1
+    assert state.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+    ] == 0
 
     resumed = await app.resume_agent_until_pause(
         state,
@@ -1347,10 +1351,12 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
     assert resumed.status is AgentRunStatus.FINISHED
     assert resumed.metadata["pending_approval_count"] == "caller-value"
     assert resumed.metadata["tool_rounds_used"] == "caller-value"
-    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY] == {
-        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY: 0,
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 1,
-    }
+    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
+    ] == 0
+    assert resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
+        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
+    ] == 1
 
 
 @pytest.mark.asyncio
@@ -1534,7 +1540,7 @@ async def test_agent_resume_requires_paused_state() -> None:
         )
     )
 
-    assert AgentRunMetadata.RUNTIME_KEY not in state.metadata
+    assert AgentRunMetadata.TOOL_ROUNDS_USED_KEY not in state.metadata[AgentRunMetadata.RUNTIME_KEY]
 
     with pytest.raises(AgentStateError, match="not paused"):
         await app.resume_agent_until_pause(state, [])
@@ -1632,6 +1638,11 @@ async def test_agent_start_and_resume_run_persist_state_and_trace() -> None:
     )
 
     assert resumed.status is AgentRunStatus.FINISHED
+    history = resumed.metadata["agent_runtime"]
+    assert history["context_message_offset"] == 0
+    assert history["context_message_indices"] == list(
+        range(len((await runtime.contexts.get("ctx-1")).messages))
+    )
     assert state_register.get_state("run-1").status is AgentRunStatus.FINISHED
     assert [event.event_type for event in trace_register.list_events("run-1")] == [
         AgentTraceEventType.RUN_STARTED,
@@ -2593,6 +2604,7 @@ async def test_agent_close_pauses_running_state_without_trace_register() -> None
 @pytest.mark.asyncio
 async def test_agent_run_events_requires_chat_response() -> None:
     runtime = make_runtime(provider=FinalAnswerProvider())
+    await runtime.contexts.create(Context(context_id="ctx-1"))
     request = AgentRunRequest(
         provider_id="provider-1",
         context_id="ctx-1",
@@ -3709,6 +3721,38 @@ class FinalAnswerProvider(ToolCallingProvider):
             message=make_message("Stored", role=MessageRole.ASSISTANT),
             finish_reason="stop",
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_history_positions_preserve_context_messages_and_reset_generation() -> None:
+    states = InMemoryAgentRunStateRegister()
+    provider = FinalAnswerProvider()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=states,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    previous = make_message("previous")
+    await runtime.contexts.create(Context(
+        context_id="ctx-1", messages=[previous],
+        metadata={"chat_history_generation": "cleared"},
+    ))
+    await runtime.providers.create(make_config())
+    request = AgentRunRequest(
+        provider_id="provider-1", context_id="ctx-1", model_id="model-1",
+        messages=[make_message("next")], metadata={"run_id": "history"},
+    )
+    state = await AgentRunApplication(runtime).start(request)
+    history = state.metadata["agent_runtime"]
+    assert history["context_message_offset"] == 1
+    assert history["context_message_indices"] == [1, 2]
+    assert history["context_history_generation"] == "cleared"
+    assert isinstance(history["history_started_at"], str)
+    assert state.response is not None
+    assert (await runtime.contexts.get("ctx-1")).messages == [
+        previous, *request.messages, state.response.message,
+    ]
+    assert provider.requests[0].messages == [previous, *request.messages]
 
 
 class StreamingAnswerProvider(FinalAnswerProvider):

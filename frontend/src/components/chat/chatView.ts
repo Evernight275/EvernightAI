@@ -1,13 +1,14 @@
 import { waitFor } from 'xstate'
 import { createChatSessionDraft } from './chatSidebar'
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { getAgentRun, getContext, getSession, type AgentRunRequest, type AgentRunState } from '../../api'
+import { getAgentRun, getSession, type AgentRunRequest, type AgentRunState } from '../../api'
+import { loadChatHistory } from '../../runtime/chatRuntime'
 import type { ChatSubmission } from '../../domain/chat'
 import { chatActor } from '../../state/chatMachine'
 import { workspaceActor } from '../../state/workspaceMachine'
 import { prerequisiteNotice } from './chatPrerequisites'
 import { runSkillIssues, skillErrorIssues } from '../../domain/runSkills'
-import { reconcileRunTranscript, transcriptFromMessages } from '../../domain/chat'
+import { reconcileRunTranscript } from '../../domain/chat'
 import { cancelForEditing, readRunDecisions, saveRunDecisions } from '../../runtime/runEditor'
 import { authGeneration } from '../../runtime/workspaceRuntime'
 
@@ -38,12 +39,17 @@ export function useChatView() {
       && !workspaceSnapshot.value.context.issues.some(issue => issue.resource === 'skills')
       ? workspace.capabilityCatalog.skills : null })
   }, { immediate: true })
-  watch(() => chatSnapshot.value.context.runId, id => {
+  watch([
+    () => chatSnapshot.value.context.runId,
+    () => chatSnapshot.value.context.session?.session_id,
+  ], ([id, sessionId]) => {
     if (restoring.value) return
     stopOperation(); editRequest.value = null; editorError.value = null
     const url = new URL(window.location.href)
     if (id) url.searchParams.set('run', id)
     else url.searchParams.delete('run')
+    if (sessionId) url.searchParams.set('session', sessionId)
+    else url.searchParams.delete('session')
     url.searchParams.delete('edit')
     window.history.replaceState(null, '', url)
   }, { flush: 'sync' })
@@ -59,27 +65,36 @@ export function useChatView() {
   onMounted(async () => {
     const url = new URL(window.location.href)
     const id = url.searchParams.get('run')
-    if (!id || chatActor.getSnapshot().context.runId) return
+    const selectedSessionId = url.searchParams.get('session')
+    if ((!id && !selectedSessionId) || chatActor.getSnapshot().context.runId) return
     const current = ++operation
     const generation = authGeneration.value
     const signal = AbortSignal.any([lifetime.signal, operationController.signal])
     restoring.value = true
     try {
+      if (!id) {
+        const session = await getSession(selectedSessionId!, signal)
+        if (current === operation && generation === authGeneration.value && !signal.aborted)
+          chatActor.send({ type: 'SELECT_SESSION', session })
+        return
+      }
       const run = await getAgentRun(id, signal)
-      signal.throwIfAborted()
-      const context = await getContext(run.request.context_id, signal)
       signal.throwIfAborted()
       const sessionId = run.request.metadata?.session_id
       const session = typeof sessionId === 'string' ? await getSession(sessionId, signal) : null
+      const history = await loadChatHistory(run.request.context_id, signal, session?.session_id, run)
       if (lifetime.signal.aborted || current !== operation || generation !== authGeneration.value
         || chatActor.getSnapshot().context.runId || chatActor.getSnapshot().context.session
         || chatActor.getSnapshot().context.sessionOperation) return
-      chatActor.send({ type: 'OPEN_RUN', run, session,
-        transcript: reconcileRunTranscript(transcriptFromMessages([
-          ...context.messages || [], ...(run.status === 'finished' ? [] : run.request.messages || []),
-        ]), run), choices: readRunDecisions(run) })
+      if (!history.run) {
+        if (session) chatActor.send({ type: 'SELECT_SESSION', session })
+        return
+      }
+      chatActor.send({ type: 'OPEN_RUN', run: history.run, session,
+        transcript: history.transcript, choices: readRunDecisions(history.run) })
       if (url.searchParams.get('edit') === '1' && ['canceled', 'failed'].includes(run.status || ''))
         editRequest.value = { id: run.run_id, request: run.request }
+      if (session) url.searchParams.set('session', session.session_id)
       url.searchParams.delete('edit'); window.history.replaceState(null, '', url)
     } catch (cause) { if (current === operation && !lifetime.signal.aborted) editorError.value = cause }
     finally { if (current === operation) restoring.value = false }

@@ -138,20 +138,19 @@ try {
     const writeCard = cards.filter({ hasText: 'write_text_file' })
     await writeCard.getByRole('button', { name: '批准', exact: true }).waitFor()
     assert.equal(await cards.count(), 3)
+    assert.equal(await page.getByRole('button', { name: '批准', exact: true }).count(), 2)
+    assert.equal(await page.getByRole('button', { name: '拒绝', exact: true }).count(), 2)
+    assert.equal(await page.locator('.chat-view-footer .chat-tool-approval').count(), 0)
     assert.equal(await page.getByText('先检查配置。', { exact: true }).count(), 1)
     assert.ok(await cards.first().getByText('配置文件共 24 行。', { exact: true }).isVisible())
     await writeCard.getByRole('button', { name: '批准', exact: true }).click()
-    const footer = page.locator('.chat-view-footer')
     assert.ok(
-      await footer
-        .locator('.chat-tool-approval')
-        .filter({ hasText: 'write_text_file' })
+      await writeCard
         .getByRole('button', { name: '批准', exact: true })
         .isDisabled(),
     )
     assert.equal(await writeCard.locator('.chat-inline-tool-status').innerText(), '准备')
-    await footer
-      .locator('.chat-tool-approval')
+    await cards
       .filter({ hasText: 'delete_file' })
       .getByRole('button', { name: '拒绝', exact: true })
       .click()

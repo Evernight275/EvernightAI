@@ -14,8 +14,6 @@ export type ChatRequestStatusProps = {
 
 export type ChatRequestStatusEmits = {
   retry: []
-  approve: [approvalId: string]
-  deny: [approvalId: string]
   resume: []
   details: []
 }
@@ -23,28 +21,28 @@ export type ChatRequestStatusEmits = {
 export function useChatRequestStatus(props: ChatRequestStatusProps): {
   visible: ComputedRef<boolean>
   errorMessage: ComputedRef<string | null>
-  approvalItems: ComputedRef<ChatApprovalItem[]>
   canRetry: ComputedRef<boolean>
   canResume: ComputedRef<boolean>
 } {
+  const canRetry = computed(() => props.state === 'failed' && !props.skillConflict && !props.retryBlocked)
+  const canResume = computed(() =>
+    !props.skillConflict && (
+      props.state === 'resumeRequired' || (
+        props.state === 'approvalRequired' &&
+        props.pendingApprovals.every(item => props.approvalStatuses[item.approval_id])
+      )
+    ),
+  )
   return {
     visible: computed(
       () =>
-        ['approvalRequired', 'resumeRequired', 'failed'].includes(props.state) ||
+        canRetry.value || canResume.value ||
         Boolean(props.error) ||
         Boolean(props.workspaceNotice),
     ),
     errorMessage: computed(() => formatChatError(props.error)),
-    approvalItems: computed(() =>
-      ['approvalRequired', 'failed'].includes(props.state)
-        ? props.pendingApprovals.map((approval) =>
-            approvalItem(approval, props.approvalStatuses[approval.approval_id]),
-          )
-        : [],
-    ),
-    canRetry: computed(() => props.state === 'failed' && !props.skillConflict && !props.retryBlocked),
-    canResume: computed(() => (props.state === 'resumeRequired'
-      || (props.state === 'approvalRequired' && props.pendingApprovals.every(item => props.approvalStatuses[item.approval_id]))) && !props.skillConflict),
+    canRetry,
+    canResume,
   }
 }
 

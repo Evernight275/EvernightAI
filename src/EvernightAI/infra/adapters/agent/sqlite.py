@@ -193,7 +193,7 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
             if value is not None:
                 where.append(clause)
                 values.append(value)
-        sql = "SELECT payload FROM agent_run_states"
+        sql = "SELECT payload, created_at FROM agent_run_states"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY run_id"
@@ -201,7 +201,16 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
             sql += " LIMIT ?"
             values.append(limit)
         rows = self._connection.execute(sql, values).fetchall()
-        return [AgentRunState.model_validate_json(row[0]) for row in rows]
+        states: list[AgentRunState] = []
+        # Legacy snapshots use the stored creation time to retain history order.
+        for payload, created_at in rows:
+            state = AgentRunState.model_validate_json(payload)
+            runtime = state.metadata.get("agent_runtime")
+            runtime = dict(runtime) if isinstance(runtime, dict) else {}
+            runtime.setdefault("history_started_at", created_at)
+            state.metadata = {**state.metadata, "agent_runtime": runtime}
+            states.append(state)
+        return states
 
     def delete_state(
         self,

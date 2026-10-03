@@ -6,7 +6,9 @@ import type {
   Content,
   ChatSkill,
   ToolCall,
+  Context,
 } from '../api'
+import { runFailureError } from './runSkills'
 
 export type ChatSubmission = {
   providerId: string
@@ -27,6 +29,7 @@ export type ChatTranscriptEntry = {
   finishReason?: string | null
   streamRunId?: string
   streaming?: boolean
+  runNotice?: 'canceled' | 'failed'
   toolActivity?: {
     callId: string
     name: string
@@ -190,18 +193,20 @@ export function completeStreamedResponse(
   runId: string,
 ): ChatTranscriptEntry[] {
   let result = entries
-  const last = entries.at(-1)
+  const last = entries.filter(item => item.streamRunId === runId).at(-1)
   const text = visibleTextFromContent(response.message)
   const entry = {
     ...assistantEntry(response, entries.length + 1),
+    entryId: response.response_id ? `${runId}-response-${response.response_id}` : `${runId}-assistant-${entries.length + 1}`,
     streamRunId: runId,
     streaming: false,
   }
-  const previous = [...entries].reverse().find((item) => !item.toolActivity)
+  const previous = [...entries].reverse().find((item) =>
+    item.streamRunId === runId && !item.toolActivity && !item.runNotice)
   const alreadyCompleted =
     previous?.streamRunId === runId &&
     !previous.streaming &&
-    ((response.response_id && previous.entryId === response.response_id) ||
+    ((response.response_id && previous.entryId === entry.entryId) ||
       (previous.text === text &&
         (last === previous ||
           (!!response.message.tool_calls?.length &&
@@ -301,8 +306,19 @@ export function reconcileRunTranscript(
         return []
       })
   let result = entries
+  let trailing: ChatTranscriptEntry[] = []
+  if (!events.length) {
+    const lastEntry = [...entries].reverse().find(entry => entry.streamRunId === run.run_id)
+    const last = lastEntry ? entries.indexOf(lastEntry) : -1
+    if (last >= 0) {
+      result = entries.slice(0, last + 1)
+      trailing = entries.slice(last + 1)
+    }
+  }
   if (events.length) {
-    result = entries.filter((entry) => entry.streamRunId !== run.run_id)
+    const first = entries.findIndex(entry => entry.streamRunId === run.run_id)
+    trailing = first < 0 ? [] : entries.slice(first).filter(entry => entry.streamRunId !== run.run_id)
+    result = first < 0 ? entries : entries.slice(0, first)
     const seen = new Set<number>()
     for (const event of events) {
       if (event.sequence != null && seen.has(event.sequence)) continue
@@ -364,5 +380,119 @@ export function reconcileRunTranscript(
           },
     )
   }
+  result = result.filter(entry => !(entry.streamRunId === run.run_id && entry.runNotice))
+  if (run.status === 'canceled' || run.status === 'failed') {
+    const failure = runFailureError(run)?.message ||
+      [...run.trace || []].reverse().find(event => event.error_message)?.error_message ||
+      ({ tool_error: '工具调用失败', tool_rounds_exhausted: '工具调用轮次已达上限' } as Record<string, string>)[run.stop_reason || ''] ||
+      '原因未知'
+    const text = run.status === 'canceled' ? '请求已取消' : `运行失败：${failure}`
+    result.push({
+      entryId: `${run.run_id}-status`, role: 'system', text,
+      content: { role: 'system', content: [{ type: 'text', text }] },
+      streamRunId: run.run_id, runNotice: run.status,
+    })
+  }
+  return [...result, ...trailing]
+}
+
+export function restoreChatHistory(context: Context, runs: AgentRunState[]): ChatTranscriptEntry[] {
+  const messages = context.messages || []
+  const generation = context.metadata?.chat_history_generation ?? null
+  const claimed = new Set<number>()
+  const history = runs.filter(run => run.request.context_id === context.context_id &&
+    ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)?.context_history_generation ?? null) === generation)
+    .map(run => {
+      const runtime = run.metadata?.agent_runtime as Record<string, unknown> | undefined
+      const indices = Array.isArray(runtime?.context_message_indices)
+        ? runtime.context_message_indices.filter((index): index is number =>
+            Number.isInteger(index) && index >= 0 && index < messages.length)
+        : []
+      return { run, indices, offset: typeof runtime?.context_message_offset === 'number'
+        ? runtime.context_message_offset : messages.length }
+    })
+    .sort((a, b) => runHistoryTime(a.run).localeCompare(runHistoryTime(b.run)))
+  // Older snapshots have no commit positions. Match complete committed turns in order.
+  let cursor = 0
+  for (const item of history) {
+    const runtime = item.run.metadata?.agent_runtime as Record<string, unknown> | undefined
+    if (!Array.isArray(runtime?.context_message_indices) &&
+      (item.run.status === 'finished' || ['tool_error', 'tool_rounds_exhausted'].includes(item.run.stop_reason || ''))) {
+      let replies = (item.run.steps || [])
+        .filter(step => ['chat', 'tool', 'tool_error'].includes(step.step_type))
+        .flatMap(step => step.message ? [step.message] : step.response ? [step.response.message] : [])
+      if (!replies.length) replies = (item.run.trace || [])
+        .flatMap(event => event.message ? [event.message] : event.event_type === 'chat_completed' && event.response ? [event.response.message] : [])
+      if (!replies.length && item.run.response) replies = [item.run.response.message]
+      const committed = [...item.run.request.messages || [], ...replies]
+      if (committed.length) {
+        for (let start = cursor; start + committed.length <= messages.length; start++) {
+          if (committed.every((message, index) => sameMessage(message, messages[start + index]!))) {
+            item.indices = committed.map((_, index) => start + index)
+            cursor = start + committed.length
+            break
+          }
+        }
+      }
+    }
+    if (item.indices.length) item.offset = Math.min(...item.indices)
+    item.offset = Math.max(0, Math.min(messages.length, item.offset))
+    for (const index of item.indices) claimed.add(index)
+  }
+  // Place interrupted turns before the next committed turn when legacy offsets are missing.
+  for (let i = history.length - 2; i >= 0; i--) {
+    const item = history[i]!
+    const runtime = item.run.metadata?.agent_runtime as Record<string, unknown> | undefined
+    if (!item.indices.length && typeof runtime?.context_message_offset !== 'number')
+      item.offset = history[i + 1]!.offset
+  }
+  let result: ChatTranscriptEntry[] = []
+  let stored: Content[] = []
+  let storedOffset = 0
+  function flushStored() {
+    result.push(...transcriptFromMessages(stored).map((entry, position) => ({
+      ...entry, entryId: `context-${storedOffset}-${position}`,
+    })))
+    stored = []
+  }
+  for (let index = 0; index <= messages.length; index++) {
+    for (const { run } of history.filter(item => item.offset === index)) {
+      flushStored()
+      const request = transcriptFromMessages(run.request.messages || []).map((entry, position) => ({
+        ...entry, entryId: `${run.run_id}-request-${position}`,
+      }))
+      let turn = reconcileRunTranscript(request, run)
+      if (run.status === 'finished' && run.response)
+        turn = completeStreamedResponse(turn, run.response, run.run_id)
+      result.push(...turn)
+    }
+    if (index < messages.length && !claimed.has(index)) {
+      if (!stored.length) storedOffset = index
+      stored.push(messages[index]!)
+    }
+  }
+  flushStored()
   return result
+}
+
+function sameMessage(a: Content, b: Content): boolean {
+  const key = (message: Content) => JSON.stringify(
+    [message.role, message.status ?? null, message.metadata?.error ?? null,
+      (message.content || []).map(part => [part.type, part.text ?? null, part.url ?? null,
+        part.data ?? null, part.mime_type ?? null, part.detail ?? null, part.metadata || {}]),
+      (message.tool_calls || []).map(call => [call.tool_call_id, call.tool_call,
+        call.approval ? [call.approval.approval_id, call.approval.tool_call_id, call.approval.status,
+          call.approval.reason ?? null, call.approval.metadata || {}] : null, call.metadata || {}]),
+      message.tool_call_id ?? null, message.name ?? null],
+    (_, value) => value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+      : value,
+  )
+  return key(a) === key(b)
+}
+
+export function runHistoryTime(run: AgentRunState): string {
+  const runtime = run.metadata?.agent_runtime as Record<string, unknown> | undefined
+  return typeof runtime?.history_started_at === 'string'
+    ? runtime.history_started_at : run.trace?.[0]?.occurred_at || ''
 }

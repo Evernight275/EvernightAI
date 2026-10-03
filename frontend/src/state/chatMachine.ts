@@ -1,4 +1,5 @@
 import { ApiError } from '../api/client'
+import { readRunDecisions } from '../runtime/runEditor'
 import { canRetryRun, runSkillIssues, skillErrorIssues, runFailureError, type RunSkillIssue } from '../domain/runSkills'
 import { assign, createActor, fromPromise, setup } from 'xstate'
 import type { AgentRunState, AgentTraceEvent, Session, SkillDefinition, ToolDefinition } from '../api'
@@ -100,18 +101,19 @@ const emptyContext = (): ChatMachineContext => ({
 
 const sessionLoadedContext = {
   transcript: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.transcript,
-  trace: [],
+  trace: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run?.trace || [],
   contextId: ({ event }: { event: { output: ChatSessionSnapshot } }) =>
     event.output.session.context_id,
-  runId: null,
+  runId: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run?.run_id || null,
   contextReady: true,
   pending: null,
-  run: null,
+  run: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.run || null,
   session: ({ event }: { event: { output: ChatSessionSnapshot } }) => event.output.session,
   requestedSession: null,
   sessionOperation: null,
   deletedSessionId: null,
-  approvalStatuses: {},
+  approvalStatuses: ({ event }: { event: { output: ChatSessionSnapshot } }) =>
+    event.output.run ? readRunDecisions(event.output.run) : {},
   connection: 'live' as const,
   error: null,
   skillIssues: [],
@@ -268,7 +270,7 @@ export const chatMachine = setup({
         src: 'loadSession',
         input: ({ context }) => sessionInput(context),
         onDone: {
-          target: 'idle',
+          target: 'evaluatingRun',
           actions: assign(sessionLoadedContext),
         },
         onError: {
@@ -663,8 +665,10 @@ export const chatMachine = setup({
             ? reconcileRunTranscript(context.transcript, context.run)
             : context.transcript,
         connection: 'live',
+        skillIssues: ({ context }) => runSkillIssues(context.run, context.skills),
       }),
       always: [
+        { guard: ({ context }) => !context.run, target: 'idle' },
         { guard: ({ context }) => context.run?.status === 'running', target: 'recovering' },
         { guard: ({ context }) => context.run?.status === 'canceled', target: 'canceled' },
         {

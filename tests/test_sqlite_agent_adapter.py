@@ -80,7 +80,9 @@ def test_sqlite_agent_state_register_persists_states(tmp_path: Path) -> None:
 
     try:
         assert reopened.get_state("run-1") == state
-        assert reopened.list_states() == [state]
+        listed = reopened.list_states()[0]
+        assert listed.model_copy(update={"metadata": state.metadata}) == state
+        assert isinstance(listed.metadata["agent_runtime"]["history_started_at"], str)
 
         updated = state.model_copy(update={"status": AgentRunStatus.FINISHED})
         reopened.save_state(updated)

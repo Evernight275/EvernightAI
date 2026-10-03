@@ -348,12 +348,13 @@ describe('chatMachine', () => {
     actor.send({ type: 'RETRY' })
     const snapshot = await waitFor(
       actor,
-      (state) => state.matches('idle') && state.context.transcript.length === 2,
+      (state) => state.matches('idle') && state.context.transcript.some(entry => entry.text === 'recovered run'),
     )
 
     expect(retries.map((retry) => retry.run.run_id)).toEqual(['run-failed'])
     expect(snapshot.context.runId).toBe(retries[0]?.runId)
-    expect(snapshot.context.transcript[1]?.text).toBe('recovered run')
+    expect(snapshot.context.transcript.at(-1)?.text).toBe('recovered run')
+    expect(snapshot.context.transcript.find(entry => entry.runNotice)?.runNotice).toBe('failed')
     actor.stop()
   })
 

@@ -84,6 +84,7 @@ export type AgentStep = {
 }
 
 export type AgentTraceEvent = {
+  occurred_at?: string | null
   sequence?: number | null
   event_type: AgentTraceEventType
   summary?: string | null
@@ -163,8 +164,9 @@ export function startAgentRunStream(
   )
 }
 
-export function listAgentRuns(signal?: AbortSignal): Promise<AgentRunState[]> {
-  return requestJson<AgentRunState[]>('/agent-runs', { signal })
+export function listAgentRuns(signal?: AbortSignal, contextId?: string): Promise<AgentRunState[]> {
+  const query = contextId ? `?context_id=${encodeURIComponent(contextId)}` : ''
+  return requestJson<AgentRunState[]>(`/agent-runs${query}`, { signal })
 }
 
 export function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunState> {

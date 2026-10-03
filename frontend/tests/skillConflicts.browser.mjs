@@ -116,7 +116,7 @@ try {
     await page.getByText('技能与上下文', { exact: true }).click()
     await page.screenshot({ path: `${screenshots}/${width}-edited-skill-draft.png` })
     await page.getByRole('button', { name: '发送', exact: true }).click()
-    await page.getByText('等待工具审批（1）', { exact: true }).waitFor()
+    await page.locator('.chat-transcript .chat-tool-approval').waitFor()
     const sent = calls.find(call => call.path === '/agent-runs/stream').data
     assert.notEqual(sent.metadata.run_id, 'old')
     assert.equal(sent.working_directory, 'C:/work')
@@ -133,24 +133,25 @@ try {
     run = fixture(); run.request.messages = [run.request.messages[0]]; run.request.skills = [run.request.skills[0]]; run.skill_revisions = { style: 'v1' }
     skills[0].revision = 'v1'; conflictOnResume = true; cancelFails = true
     await page.goto(`${base}/chat.html?run=old`)
-    await page.getByText('等待工具审批（2）', { exact: true }).waitFor()
-    await page.locator('.chat-request-status .chat-approval-actions').getByRole('button', { name: '批准', exact: true }).nth(0).click()
+    await page.locator('.chat-transcript .chat-tool-approval').first().waitFor()
+    assert.equal(await page.locator('.chat-transcript .chat-tool-approval').count(), 2)
+    await page.locator('.chat-transcript .chat-approval-actions').getByRole('button', { name: '批准', exact: true }).nth(0).click()
     await page.reload()
-    await page.locator('.chat-request-status').getByText('已批准', { exact: true }).waitFor()
+    await page.locator('.chat-transcript').getByText('已批准', { exact: true }).waitFor()
     assert.equal(calls.filter(call => call.path.endsWith('/resume/stream')).length, 0)
-    await page.locator('.chat-request-status .chat-approval-actions').getByRole('button', { name: '批准', exact: true }).nth(1).click()
+    await page.locator('.chat-transcript .chat-approval-actions').getByRole('button', { name: '批准', exact: true }).nth(1).click()
     await page.getByText('style：版本已变更', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '重试', exact: true }).count(), 0)
     assert.equal(calls.filter(call => call.path.endsWith('/resume/stream')).length, 1)
-    assert.equal(await page.locator('.chat-request-status').getByText('已批准', { exact: true }).count(), 2)
+    assert.equal(await page.locator('.chat-transcript').getByText('已批准', { exact: true }).count(), 2)
     await page.getByRole('button', { name: '取消运行并编辑', exact: true }).click()
     await page.getByRole('button', { name: '确认取消并编辑', exact: true }).click()
     await page.getByRole('alert').filter({ hasText: '取消暂时失败' }).waitFor()
-    assert.equal(await page.locator('.chat-request-status').getByText('已批准', { exact: true }).count(), 2)
+    assert.equal(await page.locator('.chat-transcript').getByText('已批准', { exact: true }).count(), 2)
     await page.screenshot({ path: `${screenshots}/${width}-chat-skill-conflict.png` })
     await page.reload()
     await page.getByText('style：版本已变更', { exact: true }).waitFor()
-    assert.equal(await page.locator('.chat-request-status').getByText('已批准', { exact: true }).count(), 2)
+    assert.equal(await page.locator('.chat-transcript').getByText('已批准', { exact: true }).count(), 2)
     for (const [kind, text] of [['disabled', '已停用'], ['deleted', '已删除'], ['legacy', '原运行未记录版本']]) {
       skills = [{ name: 'style', description: 'Style', capabilities: ['agent'], revision: 'v1', is_enabled: kind !== 'disabled' }]
       if (kind === 'deleted') skills = []

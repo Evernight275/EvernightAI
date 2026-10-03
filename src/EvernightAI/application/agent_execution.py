@@ -185,6 +185,16 @@ class AgentExecutionApplication:
         request: AgentRunRequest,
         state: AgentRunState,
     ) -> AsyncIterator[AgentTraceEvent]:
+        context = await self._runtime.contexts.get(
+            request.context_id,
+            principal_scope=_owner_scope(request.owner_id),
+        )
+        state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata,
+            context_message_offset=len(context.messages),
+            context_message_indices=[],
+            context_history_generation=context.metadata.get("chat_history_generation"),
+        )
         state.skill_revisions = {
             skill.skill_name: self._runtime.skills.get_skill(skill.skill_name).revision
             for skill in request.skills or []
@@ -1006,11 +1016,17 @@ class AgentExecutionApplication:
         state: AgentRunState,
     ) -> None:
         principal_scope = _owner_scope(state.owner_id)
+        indices: list[int] = []
         for message in self._run_transcript(state):
-            await self._runtime.contexts.append(
+            context = await self._runtime.contexts.append(
                 context_id,
                 message,
                 principal_scope=principal_scope,
+            )
+            indices.append(len(context.messages) - 1)
+            state.metadata = AgentRunMetadata.with_runtime(
+                state.metadata,
+                context_message_indices=list(indices),
             )
 
     def _run_transcript(self, state: AgentRunState) -> list[Content]:
@@ -1387,7 +1403,10 @@ class AgentExecutionApplication:
             request=request,
             remaining_tool_rounds=request.max_tool_rounds,
             applied_trace_sequence=0,
-            metadata=dict(request.metadata),
+            metadata=AgentRunMetadata.with_runtime(
+                request.metadata,
+                history_started_at=datetime.now(timezone.utc).isoformat(),
+            ),
         )
 
     def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
