@@ -30,7 +30,7 @@ export type ChatTranscriptEntry = {
   toolActivity?: {
     callId: string
     name: string
-    status: 'pending' | 'approval' | 'running' | 'completed' | 'failed'
+    status: 'pending' | 'approval' | 'running' | 'completed' | 'failed' | 'canceled'
     argumentsText: string
     resultText?: string
     errorType?: string
@@ -283,6 +283,7 @@ export const toolStatusLabels = {
   running: '执行中',
   completed: '完成',
   failed: '失败',
+  canceled: '已取消',
 }
 
 export function reconcileRunTranscript(
@@ -316,7 +317,7 @@ export function reconcileRunTranscript(
         (entry) =>
           entry.streamRunId === run.run_id && entry.toolActivity?.callId === approval.tool_call_id,
       )?.toolActivity
-    if (recorded && ['running', 'completed', 'failed'].includes(recorded.status)) continue
+    if (recorded && ['running', 'completed', 'failed', 'canceled'].includes(recorded.status)) continue
     if (
       recorded?.status === 'pending' &&
       events.some(
@@ -342,7 +343,7 @@ export function reconcileRunTranscript(
             streaming: false,
             toolActivity:
               entry.toolActivity &&
-              !['completed', 'failed'].includes(entry.toolActivity.status) &&
+              !['completed', 'failed', 'canceled'].includes(entry.toolActivity.status) &&
               !(
                 entry.toolActivity.status === 'approval' &&
                 run.status === 'paused' &&
@@ -352,9 +353,12 @@ export function reconcileRunTranscript(
               )
                 ? {
                     ...entry.toolActivity,
-                    status: 'pending',
+                    status: run.status === 'canceled' && entry.toolActivity.status === 'approval'
+                      ? 'canceled' : 'pending',
                     notice:
-                      run.status === 'paused' ? '运行已暂停，等待继续' : '运行已停止，结果尚未确认',
+                      run.status === 'paused' ? '运行已暂停，等待继续'
+                        : run.status === 'canceled' && entry.toolActivity.status === 'approval'
+                          ? '审批已取消，工具未执行' : '运行已停止，结果尚未确认',
                   }
                 : entry.toolActivity,
           },

@@ -203,3 +203,22 @@ it('recovers pending approval cards even if the connection dropped before their 
   const restored = reconcileRunTranscript([], run)
   expect(restored[0]?.toolActivity).toMatchObject({ status: 'approval', name: 'read_text_file' })
 })
+
+it('marks cancellation before approval as unexecuted and keeps reconciliation stable', () => {
+  const run: AgentRunState = {
+    run_id: 'run',
+    request: { provider_id: 'p', model_id: 'm', context_id: 'ctx' },
+    status: 'canceled',
+    pending_approval_requests: [],
+    trace: [
+      { event_type: 'tool_approval_requested', tool_call: call },
+      { event_type: 'run_stopped', metadata: { reason: 'canceled' } },
+    ],
+  }
+  const restored = reconcileRunTranscript([], run)
+  expect(restored[0]?.toolActivity).toMatchObject({
+    status: 'canceled', notice: '审批已取消，工具未执行',
+  })
+  expect(reconcileRunTranscript(restored, run)).toEqual(restored)
+  expect(reconcileRunTranscript(restored, { ...run, trace: [] })).toEqual(restored)
+})
