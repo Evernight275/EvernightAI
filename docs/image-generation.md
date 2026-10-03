@@ -71,7 +71,13 @@ Remote archival uses verified public IP addresses, preserves the original HTTP
 Host and TLS identity, rejects credential URLs and HTTPS downgrades, and validates
 every redirect. It sends no provider credentials or cookies. Limits are 20 MB per
 remote image, 50 MB of downloaded data per response, three redirects, and 30
-seconds total. Content must be PNG, JPEG, or WebP. Inaccessible, private, oversized
+seconds total. When system DNS returns only proxy Fake-IP addresses in
+`198.18.0.0/15` or `2001:2::/48`, archival resolves the hostname through
+[Cloudflare DNS over HTTPS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/)
+at `https://1.1.1.1/dns-query`. The resulting addresses still undergo public-IP
+validation and connection pinning. Literal IP URLs and other private DNS
+destinations remain blocked; a failed fallback preserves the URL and warning.
+Content must be PNG, JPEG, or WebP. Inaccessible, private, oversized
 or unsupported URL results remain saved as references with a warning. Their
 remote links may expire, so download them promptly. Cross-origin browser
 download restrictions may require opening the original URL to save it.

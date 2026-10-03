@@ -96,16 +96,21 @@ leaves the current instance untouched. Missing providers return `404` and invali
 patches return `400`.
 
 Omit both credential fields to retain credentials. Set `api_key` to replace the
-runtime key and clear its previous secret reference, or set `api_key_secret_ref`
+key and clear its previous secret reference, or set `api_key_secret_ref`
 to replace the reference and resolve its key. Do not supply both non-null values.
 Set both fields to `null` to clear credentials; `base_url: null` restores the
 adapter's default address. Other fields cannot be explicitly null.
 
-Raw keys remain runtime-only. Configurations using a secret reference, such as
-`env:PROVIDER_API_KEY`, persist when a configuration store is configured. Switching
-to a raw-key-only configuration removes the previous stored configuration, so
-that runtime update does not survive restart. Persisted configurations take
-precedence over configuration-file defaults at startup.
+SQLite runtimes persist configurations, including keys supplied by the web
+settings page. Keys are encrypted into a secret reference using a local
+`<database_path>.provider-key` file; provider payloads never contain plaintext
+keys. The key file is created with owner-only permissions on POSIX and excluded
+from version control. Keep it alongside the database when backing up or moving
+the runtime. Missing or invalid key files produce a configuration error instead
+of silently replacing the encryption key. Memory runtimes retain configuration
+only for the lifetime of the process. Existing environment references, such as
+`env:PROVIDER_API_KEY`, continue to work. Persisted configurations take precedence
+over configuration-file defaults at startup.
 
 Updates build and persist a replacement before publishing it. A failed update
 keeps the existing provider available. In-flight calls and streams finish using
@@ -140,8 +145,8 @@ does not verify that the remote service will accept a subsequent request.
 
 Persisted disabled configurations are restored as manageable records at startup,
 even if their secret references cannot currently resolve. Their saved state takes
-precedence over configuration-file defaults. Runtime-only raw-key configurations
-remain subject to the persistence rules above.
+precedence over configuration-file defaults. SQLite also retains disabled
+configurations created with a raw key, following the encryption rules above.
 
 In web settings, each service has an enable/disable action. Chat model selection
 offers enabled services only. A conversation whose selected service is disabled

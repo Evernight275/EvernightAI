@@ -142,7 +142,7 @@ async function toggleEnabled(provider: ProviderInfo) {
           <label>接口类型<select v-model="type"><option value="openai">OpenAI 兼容</option><option value="openai_responses">OpenAI Responses</option><option value="google">Gemini</option><option value="anthropic">Anthropic</option></select></label>
           <label>服务地址<input v-model="baseUrl" type="url" placeholder="留空使用官方默认地址" /></label>
           <template v-if="editing">
-            <label>凭据变更<select v-model="credentialMode"><option value="keep">保留现有凭据{{ editing.has_api_key ? '（已配置）' : '（未配置）' }}</option><option value="key">更换当前运行密钥</option><option value="reference">更换密钥引用</option><option value="clear">清除凭据</option></select></label>
+            <label>凭据变更<select v-model="credentialMode"><option value="keep">保留现有凭据{{ editing.has_api_key ? '（已配置）' : '（未配置）' }}</option><option value="key">更换服务密钥</option><option value="reference">更换密钥引用</option><option value="clear">清除凭据</option></select></label>
             <label v-if="credentialMode === 'key'">新的服务密钥<input v-model="apiKey" type="password" autocomplete="off" required /></label>
             <label v-if="credentialMode === 'reference'">密钥引用<input v-model="secretRef" placeholder="env:PROVIDER_API_KEY" required /></label>
             <div v-for="(entry, index) in modelEntries" :key="index" class="provider-model-entry">

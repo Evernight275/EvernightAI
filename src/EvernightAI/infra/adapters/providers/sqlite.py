@@ -1,8 +1,15 @@
 from pathlib import Path
 
 from EvernightAI.core.error.provider import ProviderNotFoundError
-from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
+from EvernightAI.core.protocol.provider import (
+    ProviderConfigStoreProtocol,
+    ProviderSecretResolverProtocol,
+)
 from EvernightAI.core.schema.provider import ProviderConfig
+from EvernightAI.infra.adapters.providers.secrets import (
+    EnvironmentProviderSecretResolver,
+    LocalProviderSecretCipher,
+)
 from EvernightAI.infra.sqlite import (
     SQLiteMigrationRunner,
     connect_sqlite,
@@ -10,15 +17,27 @@ from EvernightAI.infra.sqlite import (
 )
 
 
-class SQLiteProviderConfigStore(ProviderConfigStoreProtocol):
+class SQLiteProviderConfigStore(
+    ProviderConfigStoreProtocol, ProviderSecretResolverProtocol
+):
     def __init__(self, database_path: str | Path) -> None:
         self._database_path = str(database_path)
         self._connection = connect_sqlite(self._database_path)
         SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._secret_cipher = LocalProviderSecretCipher(database_path)
 
     def save(self, provider: ProviderConfig) -> None:
         sanitized = provider.model_copy(update={"api_key": None})
         with sqlite_transaction(self._connection, immediate=True):
+            if provider.api_key is not None and provider.api_key_secret_ref is None:
+                encrypted = self._connection.execute(
+                    "SELECT secret_ref FROM provider_configs WHERE secret_ref LIKE 'encrypted:%' LIMIT 1"
+                ).fetchone()
+                if encrypted is not None:
+                    self._secret_cipher.decrypt(encrypted[0])
+                sanitized.api_key_secret_ref = self._secret_cipher.encrypt(
+                    provider.api_key, allow_create=encrypted is None
+                )
             self._connection.execute(
                 """
                 INSERT INTO provider_configs (
@@ -40,6 +59,11 @@ class SQLiteProviderConfigStore(ProviderConfigStoreProtocol):
                     sanitized.model_dump_json(exclude={"api_key"}),
                 ),
             )
+
+    def resolve(self, secret_ref: str) -> str:
+        if secret_ref.startswith(LocalProviderSecretCipher.PREFIX):
+            return self._secret_cipher.decrypt(secret_ref)
+        return EnvironmentProviderSecretResolver().resolve(secret_ref)
 
     def get(self, provider_id: str) -> ProviderConfig:
         row = self._connection.execute(

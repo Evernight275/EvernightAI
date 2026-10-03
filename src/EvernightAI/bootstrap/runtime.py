@@ -37,7 +37,7 @@ from EvernightAI.core.protocol.agent import (
     AgentTraceRegisterProtocol,
     ToolExecutionRegisterProtocol,
 )
-from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol
+from EvernightAI.core.protocol.provider import ProviderConfigStoreProtocol, ProviderSecretResolverProtocol
 from EvernightAI.core.protocol.image import ImageGenerationStoreProtocol
 from EvernightAI.infra.adapters.images.archive import PublicImageArchive
 from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
@@ -400,13 +400,15 @@ def create_sqlite_runtime(
         include_agent_sources=include_agent_storage,
     )
 
+    provider_config_store = SQLiteProviderConfigStore(database_path)
     return _create_runtime(
         tool_register=tool_register,
         tool_sources=tool_sources,
         context_register=SQLiteContextRegister(database_path),
         memory_register=SQLiteMemoryRegister(database_path),
         session_register=SQLiteSessionRegister(database_path),
-        provider_config_store=SQLiteProviderConfigStore(database_path),
+        provider_config_store=provider_config_store,
+        provider_secret_resolver=provider_config_store,
         skill_template_store=SQLiteSkillTemplateStore(database_path),
         image_records=SQLiteImageGenerationStore(database_path),
         data_analysis_register=data_analysis_register,
@@ -437,6 +439,7 @@ def _create_runtime(
     memory_register: MemoryRegisterProtocol,
     session_register: SessionRegisterProtocol,
     provider_config_store: ProviderConfigStoreProtocol | None = None,
+    provider_secret_resolver: ProviderSecretResolverProtocol | None = None,
     skill_template_store: SkillTemplateStoreProtocol | None = None,
     image_records: ImageGenerationStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
@@ -464,7 +467,7 @@ def _create_runtime(
     providers = ProviderManager(
         provider_factory,
         config_store=provider_config_store,
-        secret_resolver=EnvironmentProviderSecretResolver(),
+        secret_resolver=provider_secret_resolver or EnvironmentProviderSecretResolver(),
     )
     tool_register = tool_register or ToolRegister()
     tool_safety_policy = tool_safety_policy or BasicToolSafetyPolicy()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Download, ExternalLink, ImagePlus, LoaderCircle, Square } from '@lucide/vue'
+import { Download, ExternalLink, ImagePlus, Image, LoaderCircle, SlidersHorizontal, Square } from '@lucide/vue'
 import { generateImages, type GeneratedImage, type ImageGenerationRecord, type ImageGenerationRequest, type ImageGenerationResponse, type ProviderInfo } from '../../api'
 import { downloadImage, imageSource } from '../../domain/images'
 
@@ -93,11 +93,11 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
 <template>
   <div class="image-workspace">
     <form class="image-controls" @submit.prevent="generate">
-      <h2>生成参数</h2>
+      <header class="image-controls-header"><SlidersHorizontal :size="17" aria-hidden="true" /><h2>生成参数</h2></header>
       <fieldset :disabled="busy">
         <label>服务商<select v-model="providerId" required aria-label="服务商"><option value="" disabled>选择服务商</option><option v-for="p in providers" :key="p.provider_id" :value="p.provider_id">{{ p.name }}</option></select></label>
-        <label>模型<input v-model="modelId" list="image-models" required maxlength="256" aria-label="模型" autocomplete="off" /><datalist id="image-models"><option v-for="m in models" :key="m.model_id" :value="m.model_id" /></datalist></label>
-        <label>提示词<textarea v-model="prompt" required maxlength="32000" rows="7" aria-label="提示词" /></label>
+        <label>模型<input v-model="modelId" list="image-models" required maxlength="256" aria-label="模型" autocomplete="off" placeholder="选择或输入模型名称" /><datalist id="image-models"><option v-for="m in models" :key="m.model_id" :value="m.model_id" /></datalist></label>
+        <label>提示词<textarea v-model="prompt" required maxlength="32000" rows="6" aria-label="提示词" placeholder="描述你想生成的画面、风格与细节…" /></label>
         <div class="image-options">
           <label>数量<input v-model.number="count" type="number" min="1" max="10" step="1" required aria-label="数量" /></label>
           <label>尺寸<input v-model="size" list="image-sizes" maxlength="64" placeholder="模型默认" aria-label="尺寸" /><datalist id="image-sizes"><option value="1024x1024" /><option value="1536x1024" /><option value="1024x1536" /><option value="1792x1024" /><option value="1024x1792" /></datalist></label>
@@ -117,7 +117,11 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
     </form>
     <section class="image-results" tabindex="-1" aria-label="生成结果" :aria-busy="busy">
       <header><h2>生成结果</h2><span v-if="result" class="image-muted">{{ result.images.length }} 张 · {{ result.model_id }}</span></header>
-      <p v-if="!result" class="image-empty" role="status">{{ busy ? '正在生成…' : '暂无图片' }}</p>
+      <div v-if="!result" class="image-empty" role="status">
+        <span class="image-empty-icon"><LoaderCircle v-if="busy" :size="26" class="image-spinner" aria-hidden="true" /><Image v-else :size="26" aria-hidden="true" /></span>
+        <h3>{{ busy ? '正在生成…' : '暂无图片' }}</h3>
+        <p>{{ busy ? '画面正在成形，请稍候' : '写下画面描述，开始创作你的第一张图片' }}</p>
+      </div>
       <template v-else>
         <p v-if="result.persistence_warning" class="image-error" role="status">{{ result.persistence_warning === 'save_failed' ? '图片已生成，但保存失败。请先下载图片，避免重新生成。' : result.persistence_warning === 'record_deleted' ? '记录已在其他窗口删除，当前图片仍可下载。' : '部分图片未能归档，远程链接可能过期。请先下载图片。' }}</p>
         <p v-else-if="result.record_id" class="image-muted">已保存</p>

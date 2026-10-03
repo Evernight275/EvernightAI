@@ -1,7 +1,8 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
+import logging
 import socket
 from time import monotonic
 
@@ -12,11 +13,54 @@ from EvernightAI.core.schema.image import GeneratedImage, ImageGenerationRespons
 from EvernightAI.infra.adapters.images.bitmap import bitmap_mime
 
 
+LOGGER = logging.getLogger("EvernightAI.images")
+FAKE_IP_NETWORKS = (ip_network("198.18.0.0/15"), ip_network("2001:2::/48"))
+
+
 async def resolve_addresses(host: str, port: int) -> list[str]:
+    try:
+        address = ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return [str(address)]
     answers = await asyncio.get_running_loop().getaddrinfo(
         host, port, type=socket.SOCK_STREAM
     )
-    return list(dict.fromkeys(str(answer[4][0]) for answer in answers))
+    addresses = list(dict.fromkeys(str(answer[4][0]) for answer in answers))
+    # Proxy DNS may synthesize benchmark addresses instead of the remote IPs.
+    if addresses and all(
+        any(ip_address(address) in network for network in FAKE_IP_NETWORKS)
+        for address in addresses
+    ):
+        return await _resolve_public_addresses(host)
+    return addresses
+
+
+async def _resolve_public_addresses(
+    host: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> list[str]:
+    addresses: list[str] = []
+    async with httpx.AsyncClient(
+        transport=transport, trust_env=False, follow_redirects=False, timeout=10
+    ) as client:
+        for record_type in (1, 28):
+            response = await client.get(
+                "https://1.1.1.1/dns-query",
+                params={"name": host, "type": str(record_type)},
+                headers={"Accept": "application/dns-json"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("Status") != 0:
+                raise ValueError("Image DNS lookup failed")
+            for answer in payload.get("Answer", []):
+                if answer.get("type") == record_type:
+                    address = ip_address(answer["data"])
+                    if address.version != (4 if record_type == 1 else 6):
+                        raise ValueError("Invalid image DNS address")
+                    addresses.append(str(address))
+    return list(dict.fromkeys(addresses))
 
 
 class PublicImageArchive(ImageArchiveProtocol):
@@ -51,7 +95,8 @@ class PublicImageArchive(ImageArchiveProtocol):
                         str(image.url), min(self._max_bytes, remaining)
                     )
                 mime = bitmap_mime(content)
-            except Exception:
+            except Exception as exc:
+                LOGGER.warning("Image archive download failed (%s)", type(exc).__name__)
                 images.append(image)
             else:
                 remaining -= len(content)

@@ -291,7 +291,7 @@ async def test_shutdown_waits_for_calls_on_a_disabled_provider() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_key_survives_disable_edit_and_reenable_without_persistence() -> None:
+async def test_raw_key_configuration_survives_disable_edit_and_reenable() -> None:
     built: list[ProviderConfig] = []
 
     async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
@@ -310,7 +310,8 @@ async def test_runtime_key_survives_disable_edit_and_reenable_without_persistenc
     assert len(built) == 2
     assert built[-1].api_key == "runtime-only"
     assert built[-1].base_url == "https://edited.example/v1"
-    assert store.list_configs() == []
+    assert store.get("provider-1").base_url == "https://edited.example/v1"
+    assert store.get("provider-1").is_enabled
     await manager.close()
 
 
@@ -437,8 +438,8 @@ async def test_update_builder_failure_preserves_configuration_and_instance() -> 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fail_delete", [False, True])
-async def test_raw_key_update_removes_old_persisted_reference_atomically(fail_delete: bool) -> None:
+@pytest.mark.parametrize("fail_save", [False, True])
+async def test_raw_key_update_replaces_persisted_reference_atomically(fail_save: bool) -> None:
     built: list[FakeProvider] = []
 
     async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
@@ -453,16 +454,17 @@ async def test_raw_key_update_removes_old_persisted_reference_atomically(fail_de
     await manager.create(make_config().model_copy(update={
         "api_key": "old-key", "api_key_secret_ref": "env:OLD_KEY",
     }))
-    store.fail_deletes = fail_delete
-    if fail_delete:
-        with pytest.raises(RuntimeError, match="config delete failed"):
+    store.fail_saves = fail_save
+    if fail_save:
+        with pytest.raises(RuntimeError, match="config save failed"):
             await manager.update("provider-1", ProviderConfigUpdate(api_key="new-key"))
         assert await manager.get("provider-1") is built[0]
         assert not built[0].closed and built[1].closed
         assert store.get("provider-1").api_key_secret_ref == "env:OLD_KEY"
     else:
         await manager.update("provider-1", ProviderConfigUpdate(api_key="new-key"))
-        assert store.list_configs() == []
+        assert store.get("provider-1").api_key == "new-key"
+        assert store.get("provider-1").api_key_secret_ref is None
         assert built[0].closed
         assert (await manager.get_config("provider-1")).api_key_secret_ref is None
     await manager.close()

@@ -20,6 +20,7 @@ wheels/
 
 
 .evernight/
+*.provider-key
 config.toml
 
 # Logs

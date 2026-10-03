@@ -78,7 +78,7 @@ async def get_provider_config(
         "and metadata maps replace their entire current values. Active calls "
         "finish on the previous instance. Setting is_enabled=false blocks new "
         "model calls and retains the configuration; enabling builds an instance "
-        "before publishing the change. Raw API keys remain runtime-only."
+        "before publishing the change. SQLite runtimes persist encrypted credentials."
     ),
     operation_id="update_provider",
 )

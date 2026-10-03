@@ -18,6 +18,7 @@ dependencies = [
     "openai",
     "uvicorn[standard]",
     "pyjwt[crypto]>=2.13.0",
+    "cryptography",
     "ruff",
     "mcp>=1.0,<2",
 ]
@@ -68,6 +69,7 @@ exclude_also = [
     "raise NotImplementedError",
 ]
 
-[[index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
 default = true

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { RefreshCw, Trash2 } from '@lucide/vue'
+import { History, RefreshCw, Trash2 } from '@lucide/vue'
 import { deleteImageRecord, getImageRecord, listImageRecords, type ImageGenerationRecord, type ImageGenerationSummary } from '../../api'
 import { useDialog } from '../common/dialog'
 
@@ -82,10 +82,10 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="image-history" aria-label="生成历史">
-    <header><h2>生成历史</h2><button class="icon-button" title="刷新生成历史" aria-label="刷新生成历史" :disabled="loading" @click="load()"><RefreshCw :size="18" /></button></header>
+    <header><div class="image-history-heading"><History :size="17" aria-hidden="true" /><h2>生成历史</h2></div><button class="icon-button" title="刷新生成历史" aria-label="刷新生成历史" :disabled="loading" @click="load()"><RefreshCw :size="18" /></button></header>
     <p v-if="error" class="image-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="image-muted" role="status">正在加载记录…</p>
-    <p v-else-if="!items.length && !error" class="image-muted">暂无生成记录</p>
+    <p v-else-if="!items.length && !error" class="image-history-empty image-muted">暂无生成记录</p>
     <ul class="image-history-list"><li v-for="item in items" :key="item.record_id">
       <button type="button" class="image-history-record" :aria-label="`查看生成记录 ${item.prompt_preview}`" :aria-pressed="selectedId === item.record_id" :disabled="disabled || deleting" @click="select(item)">
         <strong>{{ item.prompt_preview }}</strong><span class="image-muted">{{ item.model_id }} · {{ item.provider_id }} · {{ item.image_count }} 张<span v-if="!item.archived"> · 部分图片未归档</span><span v-if="readingId === item.record_id"> · 正在读取</span></span>
@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
       <time :datetime="item.created_at" class="image-muted">{{ new Date(item.created_at).toLocaleString() }}</time>
       <button class="icon-button" type="button" title="删除生成记录" :aria-label="`删除生成记录 ${item.prompt_preview}`" :disabled="disabled || deleting" @click="confirmDelete(item)"><Trash2 :size="17" /></button>
     </li></ul>
-    <button v-if="nextCursor" type="button" :disabled="loading" @click="load(true)">加载更多记录</button>
+    <button v-if="nextCursor" class="image-history-more" type="button" :disabled="loading" @click="load(true)">加载更多记录</button>
   </section>
   <dialog :ref="dialog.setDialog" class="chat-confirm-dialog" aria-labelledby="delete-image-title" @cancel="dialog.onCancel" @click="dialog.onBackdropClick" @keydown="dialog.onKeydown">
     <h2 id="delete-image-title">删除生成记录？</h2>

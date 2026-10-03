@@ -215,7 +215,7 @@ class ProviderManager(ProviderManageProtocol):
                 **config.model_dump(), **changes,
             })
             instance = await self._replace_provider(
-                provider, previous, remove_stale_config=True,
+                provider, previous,
             )
         if previous is not None:
             await self._close_if_idle(
@@ -225,7 +225,6 @@ class ProviderManager(ProviderManageProtocol):
 
     async def _replace_provider(
         self, provider: ProviderConfig, previous: _ProviderSlot | None,
-        *, remove_stale_config: bool = False,
     ) -> ProviderInstanceProtocol | None:
         provider = provider.model_copy(deep=True)
         instance = None
@@ -235,14 +234,10 @@ class ProviderManager(ProviderManageProtocol):
         try:
             info = self._provider_info(provider)
             if self._config_store is not None:
-                if provider.api_key is not None and provider.api_key_secret_ref is None:
-                    if remove_stale_config:
-                        try:
-                            self._config_store.delete(provider.provider_id)
-                        except ProviderNotFoundError:
-                            pass
-                else:
-                    self._config_store.save(provider.model_copy(update={"api_key": None}))
+                stored = provider.model_copy(deep=True)
+                if stored.api_key_secret_ref is not None:
+                    stored.api_key = None
+                self._config_store.save(stored)
         except Exception:
             if instance is not None:
                 await self._close_unpublished_instance(

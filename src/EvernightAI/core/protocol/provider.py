@@ -69,7 +69,7 @@ class ProviderRegisterProtocol(Protocol):
 
 
 class ProviderConfigStoreProtocol(Protocol):
-    """可恢复的脱敏Provider配置存储。"""
+    """可恢复的Provider配置存储；实现须加密密钥并以引用替代明文。"""
 
     def save(self, provider: ProviderConfig) -> None: ...
 
