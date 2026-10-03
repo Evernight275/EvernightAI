@@ -47,6 +47,20 @@ describe('streamed transcript', () => {
     )
     expect(entries.map((entry) => entry.text)).toEqual(['partial', 'new answer'])
   })
+
+  it.each(['complete answer', ''])('completes an older stream in place with %j', (text) => {
+    const partial = applyChatTrace([], { event_type: 'chat_delta', text_delta: 'partial' }, 'first')
+    const later = transcriptFromMessages([
+      { role: 'user', content: [{ type: 'text', text: 'later question' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'later answer' }] },
+    ])
+    const entries = completeStreamedResponse([...partial, ...later], response(text), 'first')
+    expect(entries.slice(text ? 1 : 0)).toEqual(later)
+    expect(entries.map(entry => entry.text)).toEqual([
+      ...(text ? [text] : []), 'later question', 'later answer',
+    ])
+    expect(entries.every(entry => !entry.streaming)).toBe(true)
+  })
 })
 
 import { transcriptFromMessages } from '../src/domain/chat'

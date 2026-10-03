@@ -48,6 +48,21 @@ try {
           ],
         },
       }
+      function finishRun(request, responseId, text) {
+        const response = { response_id: responseId, model_id: 'm', message: content('assistant', text) }
+        const offset = context.messages.length
+        runs[request.metadata.run_id] = {
+          run_id: request.metadata.run_id, request, status: 'finished', stop_reason: 'finished',
+          response, pending_approval_requests: [],
+          metadata: { agent_runtime: {
+            history_started_at: responseId === 'retried' ? '2026-10-03T08:00:30Z' : '2026-10-03T08:01:00Z',
+            context_message_offset: offset, context_message_indices: [offset, offset + 1],
+            context_history_generation: context.metadata.chat_history_generation ?? null,
+          } },
+          trace: [{ event_type: 'chat_completed', response }],
+        }
+        context.messages = [...context.messages, ...request.messages, response.message]
+      }
       await page.addInitScript(() => { window.EVERNIGHTAI_API_BASE = '/mock-api' })
       await page.route('**/mock-api/**', async route => {
         const path = new URL(route.request().url()).pathname.replace('/mock-api', '')
@@ -65,19 +80,14 @@ try {
         if (path === '/agent-runs/stream') {
           const request = route.request().postDataJSON()
           posted.push(request)
-          const response = { response_id: 'continued', model_id: 'm', message: content('assistant', 'continued answer') }
-          const offset = context.messages.length
-          runs[request.metadata.run_id] = {
-            run_id: request.metadata.run_id, request, status: 'finished', stop_reason: 'finished',
-            response, pending_approval_requests: [],
-            metadata: { agent_runtime: {
-              history_started_at: '2026-10-03T08:01:00Z', context_message_offset: offset,
-              context_message_indices: [offset, offset + 1],
-              context_history_generation: context.metadata.chat_history_generation ?? null,
-            } },
-            trace: [{ event_type: 'chat_completed', response }],
-          }
-          context.messages = [...context.messages, ...request.messages, response.message]
+          finishRun(request, 'continued', 'continued answer')
+          return route.fulfill({ contentType: 'text/event-stream', body: 'data: [DONE]\n\n' })
+        }
+        if (path === '/agent-runs/interrupted/retry/stream') {
+          const { retried_run_id } = route.request().postDataJSON()
+          const source = runs.interrupted.request
+          finishRun({ ...source, metadata: { ...source.metadata, run_id: retried_run_id, retry_of: 'interrupted' } },
+            'retried', 'retried answer')
           return route.fulfill({ contentType: 'text/event-stream', body: 'data: [DONE]\n\n' })
         }
         if (path === '/agent-runs') return json(Object.values(runs))
@@ -109,6 +119,18 @@ try {
       await page.waitForFunction(() => document.querySelector('.chat-header-title').textContent === '会话 two')
       await selectSession('one')
       await restored()
+      if (status === 'failed') {
+        await page.getByRole('button', { name: '重试', exact: true }).click()
+        await page.getByText('retried answer', { exact: true }).waitFor()
+        await restored()
+        await page.reload()
+        await page.getByText('retried answer', { exact: true }).waitFor()
+        await restored()
+        assert.equal(await page.getByText('retried answer', { exact: true }).count(), 1)
+        await page.goto(`${base}/chat.html?run=interrupted`)
+        await restored()
+        assert.equal(await page.getByText('retried answer', { exact: true }).count(), 1)
+      }
       await page.locator('#chat-message').fill('continue question')
       await page.getByRole('button', { name: '发送', exact: true }).click()
       await page.getByText('continued answer', { exact: true }).waitFor()

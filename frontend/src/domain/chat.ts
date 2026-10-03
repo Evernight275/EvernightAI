@@ -192,6 +192,9 @@ export function completeStreamedResponse(
   response: ChatResponse,
   runId: string,
 ): ChatTranscriptEntry[] {
+  const end = lastIndex(entries, item => item.streamRunId === runId)
+  const trailing = end < 0 ? [] : entries.slice(end + 1)
+  if (end >= 0) entries = entries.slice(0, end + 1)
   let result = entries
   const last = entries.filter(item => item.streamRunId === runId).at(-1)
   const text = visibleTextFromContent(response.message)
@@ -225,7 +228,7 @@ export function completeStreamedResponse(
   }
   for (const call of response.message.tool_calls || [])
     result = upsertTool(result, call, runId, 'pending', undefined, true)
-  return result
+  return [...result, ...trailing]
 }
 
 function upsertTool(
@@ -447,6 +450,7 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
       item.offset = history[i + 1]!.offset
   }
   let result: ChatTranscriptEntry[] = []
+  const displayedRequests = new Map<string, Content[]>()
   let stored: Content[] = []
   let storedOffset = 0
   function flushStored() {
@@ -458,13 +462,19 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
   for (let index = 0; index <= messages.length; index++) {
     for (const { run } of history.filter(item => item.offset === index)) {
       flushStored()
-      const request = transcriptFromMessages(run.request.messages || []).map((entry, position) => ({
+      const messages = run.request.messages || []
+      const retryOf = run.request.metadata?.retry_of
+      const source = typeof retryOf === 'string' ? displayedRequests.get(retryOf) : undefined
+      const repeatedRetry = source && source.length === messages.length &&
+        source.every((message, position) => sameMessage(message, messages[position]!))
+      const request = transcriptFromMessages(repeatedRetry ? [] : messages).map((entry, position) => ({
         ...entry, entryId: `${run.run_id}-request-${position}`,
       }))
       let turn = reconcileRunTranscript(request, run)
       if (run.status === 'finished' && run.response)
         turn = completeStreamedResponse(turn, run.response, run.run_id)
       result.push(...turn)
+      displayedRequests.set(run.run_id, messages)
     }
     if (index < messages.length && !claimed.has(index)) {
       if (!stored.length) storedOffset = index

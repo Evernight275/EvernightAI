@@ -70,6 +70,25 @@ describe('persisted chat history', () => {
     expect(completeStreamedResponse(reconciled, first.response!, first.run_id)).toEqual(entries)
   })
 
+  it('keeps an older tool response and its result in place when focused again', () => {
+    const first = run('1', 0)
+    const call = { tool_call_id: 'read', tool_call: { name: 'read_file', arguments: { path: 'a.txt' } } }
+    first.response!.message.tool_calls = [call]
+    const result: Content = { role: 'tool', tool_call_id: 'read', content: [{ type: 'text', text: 'contents' }] }
+    first.trace!.push({ event_type: 'tool_completed', tool_call: call,
+      tool_result: { tool_call_id: 'read', tool_call_result: { content: 'contents' } } })
+    first.metadata!.agent_runtime = { context_message_offset: 0, context_message_indices: [0, 1, 2], history_started_at: '1' }
+    const second = run('2', 3)
+    const context = { context_id: 'ctx', messages: [
+      ...first.request.messages!, first.response!.message, result,
+      ...second.request.messages!, second.response!.message,
+    ] }
+    const entries = restoreChatHistory(context, [first, second])
+    const reconciled = reconcileRunTranscript(entries, first)
+    expect(reconciled).toEqual(entries)
+    expect(completeStreamedResponse(reconciled, first.response!, first.run_id)).toEqual(entries)
+  })
+
   it('retains context-only tool results when no run snapshot is available', () => {
     const call = { tool_call_id: 'read', tool_call: { name: 'read_file', arguments: { path: 'a.txt' } } }
     const entries = restoreChatHistory({ context_id: 'ctx', messages: [
@@ -78,6 +97,31 @@ describe('persisted chat history', () => {
     ] }, [])
     expect(entries).toHaveLength(2)
     expect(entries[1]?.toolActivity).toMatchObject({ status: 'completed', resultText: 'file contents' })
+  })
+
+  it('restores a retried failure without repeating the original user question', () => {
+    const failed = run('1', 0, 'failed')
+    const retried = run('2', 0)
+    retried.request.metadata = { retry_of: failed.run_id }
+    const entries = restoreChatHistory({ context_id: 'ctx', messages: [
+      ...retried.request.messages!, retried.response!.message,
+    ] }, [failed, retried])
+    expect(entries.map(entry => entry.text)).toEqual([
+      'same question', '1 partial', '运行失败：provider unavailable', 'same answer',
+    ])
+  })
+
+  it.each(['missing source', 'changed request'])('retains retry questions with %s', (caseName) => {
+    const failed = run('1', 0, 'failed')
+    const retried = run('2', 0)
+    retried.request.metadata = { retry_of: failed.run_id }
+    if (caseName === 'changed request') retried.request.messages = [message('user', 'changed question')]
+    const entries = restoreChatHistory({ context_id: 'ctx', messages: [
+      ...retried.request.messages!, retried.response!.message,
+    ] }, caseName === 'missing source' ? [retried] : [failed, retried])
+    expect(entries.filter(entry => entry.role === 'user').map(entry => entry.text)).toEqual(
+      caseName === 'missing source' ? ['same question'] : ['same question', 'changed question'],
+    )
   })
 
   it('does not match different tool arguments when a legacy call contains an explicit null', () => {
