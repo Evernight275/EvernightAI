@@ -46,6 +46,11 @@ history list contains summaries only, with the original image data loaded on
 detail access. Records and images are deleted together; an archival completion
 cannot recreate a deleted record.
 
+Each preview has an editable download filename. This also applies to images
+opened from history. Blank names use `evernight-image-<number>`; PNG, JPEG and
+WebP extensions follow the downloaded bitmap's actual format. Download naming
+is local to the current preview and does not change the saved generation record.
+
 ### History API
 
 | Endpoint | Permission | Result |

@@ -24,6 +24,7 @@ const result = ref<ImageGenerationResponse | null>(null)
 const submitted = ref<ImageGenerationRequest | null>(null)
 const failedImages = ref(new Set<number>())
 const downloading = ref<number | null>(null)
+const downloadNames = ref<string[]>([])
 let controller: AbortController | null = null
 let downloadController: AbortController | null = null
 let generation = 0
@@ -35,6 +36,9 @@ watch(providers, value => {
 }, { immediate: true })
 watch(providerId, () => { modelId.value = models.value[0]?.model_id || '' }, { immediate: true, flush: 'sync' })
 watch(busy, value => emit('busy', value))
+watch(result, value => {
+  downloadNames.value = value?.images.map((_, index) => `evernight-image-${index + 1}`) || []
+}, { flush: 'sync' })
 watch(() => props.record, record => {
   if (!record || busy.value) return
   generation++; downloadVersion++; downloadController?.abort(); downloading.value = null
@@ -83,7 +87,7 @@ async function download(image: GeneratedImage, index: number): Promise<void> {
   downloading.value = index; error.value = ''
   const current = ++downloadVersion
   downloadController = new AbortController()
-  try { await downloadImage(image, index, downloadController.signal) }
+  try { await downloadImage(image, index, downloadController.signal, downloadNames.value[index]) }
   catch (cause) { if (current === downloadVersion) error.value = cause instanceof Error ? cause.message : '下载失败，可打开原图保存' }
   finally { if (current === downloadVersion) { downloading.value = null; downloadController = null } }
 }
@@ -128,8 +132,10 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
         <div class="image-grid"><figure v-for="(image, index) in result.images" :key="index">
           <div class="image-preview"><img v-if="imageSource(image) && !failedImages.has(index)" :src="imageSource(image)" :alt="`生成图片 ${index + 1}`" referrerpolicy="no-referrer" @error="failedImages.add(index)" /><span v-else>图片无法加载</span></div>
           <figcaption><span>图片 {{ index + 1 }}</span><div class="image-actions"><button class="icon-button" type="button" :disabled="downloading !== null || !imageSource(image)" :aria-label="`下载图片 ${index + 1}`" title="下载图片" @click="download(image, index)"><Download :size="18" /></button><a v-if="imageSource(image) && !imageSource(image).startsWith('data:')" class="icon-button" :href="imageSource(image)" target="_blank" rel="noopener noreferrer" :aria-label="`打开原图 ${index + 1}`" title="打开原图"><ExternalLink :size="18" /></a></div></figcaption>
+          <label class="image-filename">文件名<input v-model="downloadNames[index]" :aria-label="`图片 ${index + 1} 文件名`" :placeholder="`evernight-image-${index + 1}`" maxlength="80" autocomplete="off" :disabled="downloading !== null" /></label>
           <details v-if="image.revised_prompt"><summary>调整后的提示词</summary><p>{{ image.revised_prompt }}</p></details>
         </figure></div>
+        <p class="image-muted">可修改文件名后下载，扩展名按图片格式自动添加。</p>
         <details class="image-submitted"><summary>本次生成参数</summary><p>{{ submitted?.prompt }}</p><p class="image-muted">{{ submitted?.size || '默认尺寸' }} · {{ submitted?.quality || '默认质量' }} · {{ submitted?.output_format || '默认格式' }}</p></details>
         <p v-if="result.usage" class="image-muted">输入 {{ result.usage.input_tokens ?? '未知' }} · 输出 {{ result.usage.output_tokens ?? '未知' }} · 总计 {{ result.usage.total_tokens ?? '未知' }} tokens</p>
       </template>

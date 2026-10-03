@@ -33,6 +33,7 @@ try {
         if (currentMode === 'failure') return route.fulfill({ status: 503, json: { error: { message: '生图服务暂时不可用' } } })
         if (currentMode === 'hold') await new Promise(resolve => { release = resolve })
         const response = currentMode === 'url' ? { ...result, images: [{ url: 'https://images.example/leaf.png' }] }
+          : currentMode === 'multiple' ? { ...result, images: [result.images[0], result.images[0]] }
           : currentMode === 'hold' ? { ...result, model_id: 'late-response' } : result
         return route.fulfill({ json: response }).catch(() => {})
       }
@@ -71,16 +72,22 @@ try {
     const downloaded = page.waitForEvent('download')
     await page.getByRole('button', { name: '下载图片 1', exact: true }).click()
     assert.equal((await downloaded).suggestedFilename(), 'evernight-image-1.png')
+    await page.getByLabel('图片 1 文件名', { exact: true }).fill('绿色叶子.jpg')
+    const customDownload = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载图片 1', exact: true }).click()
+    assert.equal((await customDownload).suggestedFilename(), '绿色叶子.png')
     await img.scrollIntoViewIfNeeded()
     await page.screenshot({ path: `${screenshots}/images-${width}.png`, fullPage: true })
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     mode = 'url'
     await page.getByRole('button', { name: '生成图片', exact: true }).click()
     await page.getByRole('link', { name: '打开原图 1', exact: true }).waitFor()
+    assert.equal(await page.getByLabel('图片 1 文件名', { exact: true }).inputValue(), 'evernight-image-1')
+    await page.getByLabel('图片 1 文件名', { exact: true }).fill('远程叶子')
     assert.equal(await page.getByRole('link', { name: '打开原图 1', exact: true }).getAttribute('rel'), 'noopener noreferrer')
     const urlDownload = page.waitForEvent('download')
     await page.getByRole('button', { name: '下载图片 1', exact: true }).click()
-    assert.equal((await urlDownload).suggestedFilename(), 'evernight-image-1.png')
+    assert.equal((await urlDownload).suggestedFilename(), '远程叶子.png')
     mode = 'failure'
     await page.getByRole('button', { name: '生成图片', exact: true }).click()
     await page.getByRole('alert').filter({ hasText: '生图服务暂时不可用' }).waitFor()
@@ -105,8 +112,26 @@ try {
     await page.waitForFunction(() => document.querySelector('textarea')?.value === '')
     assert.equal(await img.count(), 0)
     assert.equal(await page.getByText('late-response', { exact: false }).count(), 0)
+    assert.equal(await page.getByLabel('图片 1 文件名', { exact: true }).count(), 0)
+    mode = 'multiple'
+    await page.getByLabel('模型', { exact: true }).fill('manual-image')
+    await page.getByLabel('提示词', { exact: true }).fill('两片绿色叶子')
+    await page.getByLabel('数量', { exact: true }).fill('2')
+    await page.getByRole('button', { name: '生成图片', exact: true }).click()
+    await page.getByLabel('图片 2 文件名', { exact: true }).waitFor()
+    for (const [index, name] of ['第一片叶子', '第二片叶子'].entries()) {
+      await page.getByLabel(`图片 ${index + 1} 文件名`, { exact: true }).fill(name)
+      const saved = page.waitForEvent('download')
+      await page.getByRole('button', { name: `下载图片 ${index + 1}`, exact: true }).click()
+      assert.equal((await saved).suggestedFilename(), `${name}.png`)
+    }
+    await page.getByLabel('图片 2 文件名', { exact: true }).fill('')
+    const defaultDownload = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载图片 2', exact: true }).click()
+    assert.equal((await defaultDownload).suggestedFilename(), 'evernight-image-2.png')
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     assert.deepEqual(errors, [])
     await page.close()
   }
-  console.log('Image generation desktop/mobile checks passed')
+  console.log('Image generation and custom download filename desktop/mobile checks passed')
 } finally { await browser.close() }
