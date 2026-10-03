@@ -8,6 +8,7 @@ from pydantic import HttpUrl
 from EvernightAI.core.error.provider import ProviderRequestError, ProviderResponseError
 from EvernightAI.core.schema.image import (
     GeneratedImage,
+    ImageEditRequest,
     ImageGenerationRequest,
     ImageGenerationResponse,
     ImageGenerationUsage,
@@ -80,6 +81,20 @@ def from_openai_images(
             if key not in {"data", "usage", "created"} and value is not None
         },
     )
+
+
+def image_edit_params(request: ImageEditRequest) -> dict[str, Any]:
+    params = image_generation_params(request)
+    files = []
+    for index, image in enumerate(request.images):
+        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[image.mime_type]
+        files.append((
+            f"reference-{index + 1}.{extension}",
+            base64.b64decode(image.base64_data, validate=True),
+            image.mime_type,
+        ))
+    params["image"] = files[0] if len(files) == 1 else files
+    return params
 
 
 def _image_mime(value: str) -> Literal["image/png", "image/jpeg", "image/webp"]:

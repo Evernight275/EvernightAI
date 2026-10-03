@@ -1,6 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
-from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 
 from EvernightAI.core.protocol.auth import AuthorizerProtocol
 from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
@@ -517,6 +517,13 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
     ) -> ImageGenerationResponse:
         self._require("images", "generate", provider_id)
         return await self._inner.generate_images(provider_id, request, principal_scope=PrincipalScope.for_principal(self._principal))
+
+    async def edit_images(
+        self, provider_id: str, request: ImageEditRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse:
+        self._require("images", "generate", provider_id)
+        return await self._inner.edit_images(provider_id, request, principal_scope=PrincipalScope.for_principal(self._principal))
 
     def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
                            principal_scope: PrincipalScope | None = None) -> ImageHistoryPage:

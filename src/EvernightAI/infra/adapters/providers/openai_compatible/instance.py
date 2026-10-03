@@ -7,10 +7,11 @@ from openai.types.chat import ChatCompletionChunk
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
-from EvernightAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse
 from EvernightAI.infra.adapters.providers.openai_compatible.images import (
     from_openai_images,
     image_generation_params,
+    image_edit_params,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -55,6 +56,15 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
 
     async def generate_images(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         params = image_generation_params(request)
+        return await self._images(request, params, edit=False)
+
+    async def edit_images(self, request: ImageEditRequest) -> ImageGenerationResponse:
+        params = image_edit_params(request)
+        return await self._images(request, params, edit=True)
+
+    async def _images(
+        self, request: ImageGenerationRequest, params: dict[str, Any], *, edit: bool,
+    ) -> ImageGenerationResponse:
         model = next(
             (model for model in self._models.values() if model.model_id == request.model_id),
             None,
@@ -63,7 +73,8 @@ class OpenAICompatibleProviderInstance(ProviderInstanceProtocol):
             model.timeout.total_seconds() if model else 180.0
         )
         try:
-            response = await self._client.with_options(max_retries=0).images.generate(**params)
+            images = self._client.with_options(max_retries=0).images
+            response = await images.edit(**params) if edit else await images.generate(**params)
         except OpenAIError as error:
             raise_openai_compatible_error(error)
         return from_openai_images(response, request)

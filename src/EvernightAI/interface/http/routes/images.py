@@ -6,7 +6,7 @@ from EvernightAI.core.schema.image import (
     ImageHistoryPage,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
-from EvernightAI.interface.http.schema import DirectImageGenerationRequest
+from EvernightAI.interface.http.schema import DirectImageEditRequest, DirectImageGenerationRequest
 
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -28,6 +28,22 @@ async def generate_images(
     return await interface.providers.generate_images(
         request.provider_id, request.request
     )
+
+
+@router.post(
+    "/edits",
+    response_model=ImageGenerationResponse,
+    response_model_exclude_none=True,
+    summary="Edit an uploaded image with a text prompt",
+    operation_id="edit_images",
+)
+async def edit_images(
+    request: DirectImageEditRequest,
+    interface: InterfaceDependency,
+    response: Response,
+) -> ImageGenerationResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return await interface.providers.edit_images(request.provider_id, request.request)
 
 
 @router.get(

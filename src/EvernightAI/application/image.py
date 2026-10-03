@@ -10,6 +10,7 @@ from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.image import (
     ImageGenerationRecord,
+    ImageEditRequest,
     ImageGenerationRequest,
     ImageGenerationResponse,
     ImageHistoryCursor,
@@ -33,6 +34,26 @@ class ImageApplication:
     ) -> ImageGenerationResponse:
         request = request.model_copy(deep=True)
         response = await self._runtime.providers.generate_images(provider_id, request)
+        return await self._persist(provider_id, request, response, principal_scope)
+
+    async def edit(
+        self,
+        provider_id: str,
+        request: ImageEditRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse:
+        request = request.model_copy(deep=True)
+        response = await self._runtime.providers.edit_images(provider_id, request)
+        return await self._persist(provider_id, request, response, principal_scope)
+
+    async def _persist(
+        self,
+        provider_id: str,
+        request: ImageGenerationRequest | ImageEditRequest,
+        response: ImageGenerationResponse,
+        principal_scope: PrincipalScope | None,
+    ) -> ImageGenerationResponse:
         record = ImageGenerationRecord(
             owner_id=principal_scope.owner_id if principal_scope is not None else None,
             provider_id=provider_id,

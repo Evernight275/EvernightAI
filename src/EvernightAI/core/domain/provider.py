@@ -13,9 +13,10 @@ from EvernightAI.core.protocol.provider import (
     ProviderConfigStoreProtocol,
     ProviderSecretResolverProtocol,
     ImageGenerationProviderProtocol,
+    ImageEditProviderProtocol,
 )
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.image import ImageGenerationRequest, ImageGenerationResponse
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -316,6 +317,16 @@ class ProviderManager(ProviderManageProtocol):
     async def generate_images(
         self, provider_id: str, request: ImageGenerationRequest,
     ) -> ImageGenerationResponse:
+        return await self._run_images(provider_id, request)
+
+    async def edit_images(
+        self, provider_id: str, request: ImageEditRequest,
+    ) -> ImageGenerationResponse:
+        return await self._run_images(provider_id, request)
+
+    async def _run_images(
+        self, provider_id: str, request: ImageGenerationRequest | ImageEditRequest,
+    ) -> ImageGenerationResponse:
         slot = await self._acquire_slot(provider_id)
         started = perf_counter()
         usage = None
@@ -331,11 +342,18 @@ class ProviderManager(ProviderManageProtocol):
                 raise ProviderCapabilityUnsupportedError(
                     f"The model {request.model_id} does not support image generation"
                 )
-            if not isinstance(slot.instance, ImageGenerationProviderProtocol):
-                raise ProviderCapabilityUnsupportedError(
-                    f"The provider {provider_id} does not support image generation"
-                )
-            response = await slot.instance.generate_images(request)
+            if isinstance(request, ImageEditRequest):
+                if not isinstance(slot.instance, ImageEditProviderProtocol):
+                    raise ProviderCapabilityUnsupportedError(
+                        f"The provider {provider_id} does not support image editing"
+                    )
+                response = await slot.instance.edit_images(request)
+            else:
+                if not isinstance(slot.instance, ImageGenerationProviderProtocol):
+                    raise ProviderCapabilityUnsupportedError(
+                        f"The provider {provider_id} does not support image generation"
+                    )
+                response = await slot.instance.generate_images(request)
             if response.usage is not None:
                 usage = ChatUsage(
                     prompt_tokens=response.usage.input_tokens,

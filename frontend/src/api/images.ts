@@ -17,6 +17,12 @@ export type GeneratedImage = {
   mime_type?: 'image/png' | 'image/jpeg' | 'image/webp'
   revised_prompt?: string
 }
+export type ImageEditInput = {
+  base64_data: string
+  mime_type: 'image/png' | 'image/jpeg' | 'image/webp'
+}
+export type ImageEditRequest = ImageGenerationRequest & { images: ImageEditInput[] }
+export type LegacyImageEditRequest = ImageGenerationRequest & { image: ImageEditInput }
 export type ImageGenerationResponse = {
   model_id: string
   images: GeneratedImage[]
@@ -37,13 +43,17 @@ export type ImageGenerationSummary = {
 export type ImageGenerationRecord = {
   record_id: string
   provider_id: string
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest | ImageEditRequest | LegacyImageEditRequest
   response: ImageGenerationResponse
   created_at: string
 }
 export type ImageHistoryPage = { items: ImageGenerationSummary[]; next_cursor?: string }
 export function generateImages(providerId: string, request: ImageGenerationRequest, signal?: AbortSignal): Promise<ImageGenerationResponse> {
   return requestJson('/images/generations', { method: 'POST', body: { provider_id: providerId, request }, signal })
+}
+
+export function editImages(providerId: string, request: ImageEditRequest, signal?: AbortSignal): Promise<ImageGenerationResponse> {
+  return requestJson('/images/edits', { method: 'POST', body: { provider_id: providerId, request }, signal })
 }
 
 export function listImageRecords(cursor?: string, signal?: AbortSignal): Promise<ImageHistoryPage> {

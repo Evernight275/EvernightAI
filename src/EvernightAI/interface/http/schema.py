@@ -4,7 +4,7 @@ from EvernightAI.core.schema.auth import Principal, PrincipalType
 from EvernightAI.core.schema.agent import ToolExecutionResolution
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatRequest, ChatSkill, Content
-from EvernightAI.core.schema.image import ImageGenerationRequest
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest
 from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
 
@@ -64,6 +64,11 @@ class DirectChatRequest(EvernightAISchema):
 class DirectImageGenerationRequest(EvernightAISchema):
     provider_id: str = Field(min_length=1)
     request: ImageGenerationRequest
+
+
+class DirectImageEditRequest(EvernightAISchema):
+    provider_id: str = Field(min_length=1)
+    request: ImageEditRequest
 
 
 class ResumeAgentRunRequest(EvernightAISchema):

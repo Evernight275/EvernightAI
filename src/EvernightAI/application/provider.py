@@ -16,7 +16,7 @@ from EvernightAI.core.error.provider import (
 from EvernightAI.core.schema.content import ChatRequest, Content, ContentPart, ContentPartType, MessageRole
 from EvernightAI.core.protocol.interface import ProviderInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
-from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
@@ -41,6 +41,12 @@ class ProviderApplication(ProviderInterfaceProtocol):
         *, principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse:
         return await ImageApplication(self._runtime).generate(provider_id, request, principal_scope=principal_scope)
+
+    async def edit_images(
+        self, provider_id: str, request: ImageEditRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse:
+        return await ImageApplication(self._runtime).edit(provider_id, request, principal_scope=principal_scope)
 
     def list_image_records(self, *, limit: int = 20, cursor: str | None = None,
                            principal_scope: PrincipalScope | None = None) -> ImageHistoryPage:

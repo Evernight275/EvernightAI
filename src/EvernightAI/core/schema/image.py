@@ -1,3 +1,5 @@
+import base64
+import binascii
 from typing import Any, Literal
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -41,6 +43,56 @@ class GeneratedImage(EvernightAISchema):
             raise ValueError("Image URL or Base64 data is required")
         if self.base64_data is not None and self.mime_type is None:
             raise ValueError("Base64 images require a MIME type")
+        return self
+
+
+MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_INPUT_COUNT = 16
+MAX_IMAGE_INPUT_TOTAL_BYTES = 50 * 1024 * 1024
+
+
+class ImageEditInput(EvernightAISchema):
+    model_config = ConfigDict(extra="forbid")
+
+    base64_data: str = Field(
+        min_length=1, max_length=4 * ((MAX_IMAGE_INPUT_BYTES + 2) // 3), repr=False
+    )
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"]
+
+    @model_validator(mode="after")
+    def valid_bitmap(self) -> "ImageEditInput":
+        try:
+            data = base64.b64decode(self.base64_data, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("Original image must contain valid Base64 data") from exc
+        if len(data) > MAX_IMAGE_INPUT_BYTES:
+            raise ValueError("Original image must not exceed 20 MiB")
+        signatures = {
+            "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+            "image/jpeg": data.startswith(b"\xff\xd8\xff"),
+            "image/webp": data[:4] == b"RIFF" and data[8:12] == b"WEBP",
+        }
+        if not signatures[self.mime_type]:
+            raise ValueError("Original image format does not match its MIME type")
+        return self
+
+
+class ImageEditRequest(ImageGenerationRequest):
+    images: list[ImageEditInput] = Field(min_length=1, max_length=MAX_IMAGE_INPUT_COUNT)
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_single_image(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "image" in value and "images" not in value:
+            value = dict(value)
+            value["images"] = [value.pop("image")]
+        return value
+
+    @model_validator(mode="after")
+    def input_size_limit(self) -> "ImageEditRequest":
+        total = sum(len(base64.b64decode(image.base64_data, validate=True)) for image in self.images)
+        if total > MAX_IMAGE_INPUT_TOTAL_BYTES:
+            raise ValueError("Reference images must not exceed 50 MiB in total")
         return self
 
 
@@ -89,7 +141,7 @@ class ImageGenerationRecord(EvernightAISchema):
     record_id: str = Field(default_factory=lambda: uuid4().hex)
     owner_id: str | None = None
     provider_id: str
-    request: ImageGenerationRequest
+    request: ImageEditRequest | ImageGenerationRequest
     response: ImageGenerationResponse
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

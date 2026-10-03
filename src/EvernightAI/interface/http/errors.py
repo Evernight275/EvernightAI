@@ -64,13 +64,20 @@ async def handle_request_validation_error(
 ) -> JSONResponse:
     error = cast(RequestValidationError, exc)
     details = error.errors()
-    if request.url.path == "/providers" or request.url.path.startswith("/providers/"):
+    if (
+        request.url.path == "/providers"
+        or request.url.path.startswith("/providers/")
+        or request.url.path.startswith("/images/")
+    ):
         details = [
             {key: item[key] for key in ("type", "loc", "msg") if key in item}
             for item in details
         ]
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
+        headers={"Cache-Control": "no-store"}
+        if request.url.path.startswith("/images/")
+        else None,
         content={
             "error": {
                 "type": "ValidationError",

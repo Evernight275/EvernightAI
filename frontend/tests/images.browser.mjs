@@ -23,12 +23,14 @@ try {
     const result = { model_id: 'manual-image', images: [{ base64_data: bitmap, mime_type: 'image/png', revised_prompt: 'A green leaf' }], usage: { input_tokens: 0, output_tokens: 12 } }
     let mode = 'success'
     let release
+    let receivedCall
     const calls = []
     await page.addInitScript(() => { window.EVERNIGHTAI_API_BASE = '/mock-api' })
     await page.route('**/mock-api/**', async route => {
       const path = new URL(route.request().url()).pathname.replace('/mock-api', '')
       if (path === '/images/generations') {
         calls.push(route.request().postDataJSON())
+        receivedCall?.()
         const currentMode = mode
         if (currentMode === 'failure') return route.fulfill({ status: 503, json: { error: { message: '生图服务暂时不可用' } } })
         if (currentMode === 'hold') await new Promise(resolve => { release = resolve })
@@ -94,7 +96,9 @@ try {
     assert.equal(await page.getByLabel('提示词', { exact: true }).inputValue(), '一片清晰的绿色叶子')
     assert.equal(await img.count(), 1)
     mode = 'hold'
+    const heldRequest = new Promise(resolve => { receivedCall = resolve })
     await page.getByRole('button', { name: '生成图片', exact: true }).click()
+    await heldRequest
     await page.waitForFunction(() => document.querySelector('button[type=submit]')?.disabled)
     assert.equal(calls.length, 4)
     await page.getByRole('button', { name: '取消等待', exact: true }).click()
@@ -104,7 +108,9 @@ try {
     await page.getByRole('button', { name: '生成图片', exact: true }).click()
     await page.getByRole('button', { name: '生成图片', exact: true }).waitFor()
     mode = 'hold'
+    const identityRequest = new Promise(resolve => { receivedCall = resolve })
     await page.getByRole('button', { name: '生成图片', exact: true }).click()
+    await identityRequest
     await page.getByRole('button', { name: '取消等待', exact: true }).waitFor()
     await page.waitForFunction(() => document.querySelector('button[type=submit]')?.disabled)
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-access-token-change')))

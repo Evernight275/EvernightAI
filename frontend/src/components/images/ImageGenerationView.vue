@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Download, ExternalLink, ImagePlus, Image, LoaderCircle, SlidersHorizontal, Square } from '@lucide/vue'
-import { generateImages, type GeneratedImage, type ImageGenerationRecord, type ImageGenerationRequest, type ImageGenerationResponse, type ProviderInfo } from '../../api'
-import { downloadImage, imageSource } from '../../domain/images'
+import { Download, ExternalLink, ImagePlus, Image, LoaderCircle, SlidersHorizontal, Square, ChevronLeft, ChevronRight, X } from '@lucide/vue'
+import { editImages, generateImages, type GeneratedImage, type ImageEditInput, type ImageEditRequest, type ImageGenerationRecord, type ImageGenerationRequest, type ImageGenerationResponse, type ProviderInfo } from '../../api'
+import { downloadImage, imageSource, imageEditInputs, imageErrorMessage, imageInputSize, MAX_IMAGE_INPUT_COUNT, readImageUpload, validateImageUploads } from '../../domain/images'
 
 const props = defineProps<{ providers: ProviderInfo[]; record?: ImageGenerationRecord | null; clearedRecordId?: string }>()
 const emit = defineEmits<{ generated: [response: ImageGenerationResponse]; busy: [value: boolean] }>()
@@ -10,6 +10,14 @@ const providers = computed(() => props.providers.filter(p => p.type === 'openai'
 const providerId = ref('')
 const modelId = ref('')
 const prompt = ref('')
+const mode = ref<'generate' | 'edit'>('generate')
+type ReferenceImage = { id: number; image: ImageEditInput; name: string; size: number }
+const references = ref<ReferenceImage[]>([])
+let imageSequence = 0
+const uploadInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+let uploadController: AbortController | null = null
+let uploadVersion = 0
 const count = ref(1)
 const size = ref('')
 const quality = ref('')
@@ -35,7 +43,8 @@ watch(providers, value => {
   if (!value.some(p => p.provider_id === providerId.value)) providerId.value = value[0]?.provider_id || ''
 }, { immediate: true })
 watch(providerId, () => { modelId.value = models.value[0]?.model_id || '' }, { immediate: true, flush: 'sync' })
-watch(busy, value => emit('busy', value))
+watch([busy, uploading], ([generating, reading]) => emit('busy', generating || reading))
+watch(mode, () => { clearReferences(); error.value = ''; notice.value = '' }, { flush: 'sync' })
 watch(result, value => {
   downloadNames.value = value?.images.map((_, index) => `evernight-image-${index + 1}`) || []
 }, { flush: 'sync' })
@@ -43,6 +52,10 @@ watch(() => props.record, record => {
   if (!record || busy.value) return
   generation++; downloadVersion++; downloadController?.abort(); downloading.value = null
   const request = record.request
+  clearReferences()
+  const images = imageEditInputs(request)
+  mode.value = images.length ? 'edit' : 'generate'
+  references.value = images.map((image, index) => ({ id: ++imageSequence, image, name: `历史参考图 ${index + 1}`, size: imageInputSize(image) }))
   providerId.value = providers.value.some(p => p.provider_id === record.provider_id) ? record.provider_id : ''
   modelId.value = request.model_id; prompt.value = request.prompt; count.value = request.count ?? 1
   size.value = request.size ?? ''; quality.value = request.quality ?? ''; outputFormat.value = request.output_format ?? ''
@@ -51,11 +64,14 @@ watch(() => props.record, record => {
   error.value = ''; notice.value = ''
 })
 watch(() => props.clearedRecordId, id => {
-  if (id && result.value?.record_id === id) { result.value = null; submitted.value = null; generation++; downloadVersion++; downloadController?.abort(); downloading.value = null }
+  if (id && result.value?.record_id === id) {
+    if (submitted.value && imageEditInputs(submitted.value).length) clearReferences()
+    result.value = null; submitted.value = null; generation++; downloadVersion++; downloadController?.abort(); downloading.value = null
+  }
 })
 
 async function generate(): Promise<void> {
-  if (busy.value || !providerId.value || !modelId.value.trim() || !prompt.value.trim()) return
+  if (busy.value || uploading.value || !providerId.value || !modelId.value.trim() || !prompt.value.trim() || (mode.value === 'edit' && !references.value.length)) return
   const request: ImageGenerationRequest = {
     model_id: modelId.value.trim(), prompt: prompt.value, count: count.value, timeout_seconds: timeout.value,
     ...(size.value ? { size: size.value } : {}), ...(quality.value ? { quality: quality.value } : {}),
@@ -63,20 +79,66 @@ async function generate(): Promise<void> {
     ...(background.value ? { background: background.value } : {}),
     ...(resultFormat.value ? { result_format: resultFormat.value } : {}),
   }
+  const editRequest: ImageEditRequest | null = mode.value === 'edit' && references.value.length ? { ...request, images: references.value.map(item => ({ ...item.image })) } : null
   const current = ++generation
   controller = new AbortController()
   busy.value = true; error.value = ''; notice.value = ''
   try {
-    const response = await generateImages(providerId.value, request, controller.signal)
+    const response = editRequest
+      ? await editImages(providerId.value, editRequest, controller.signal)
+      : await generateImages(providerId.value, request, controller.signal)
     if (current !== generation) return
     downloadVersion++; downloadController?.abort(); downloading.value = null
-    result.value = response; submitted.value = request; failedImages.value = new Set()
+    result.value = response; submitted.value = editRequest || request; failedImages.value = new Set()
     emit('generated', response)
   } catch (cause) {
-    if (current === generation) error.value = cause instanceof Error ? cause.message : '生成失败，请重试'
+    if (current === generation) error.value = imageErrorMessage(cause)
   } finally {
     if (current === generation) { busy.value = false; controller = null }
   }
+}
+function clearReferences(): void {
+  uploadVersion++; uploadController?.abort(); uploadController = null; uploading.value = false
+  references.value = []
+  if (uploadInput.value) uploadInput.value.value = ''
+}
+async function upload(event: Event): Promise<void> {
+  const files = Array.from((event.target as HTMLInputElement).files || [])
+  if (uploadInput.value) uploadInput.value.value = ''
+  if (!files.length || busy.value || uploading.value) return
+  error.value = ''
+  try { validateImageUploads(files, references.value) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : '无法读取图片'; return }
+  const current = ++uploadVersion
+  const readController = new AbortController()
+  uploadController = readController
+  uploading.value = true
+  try {
+    const added: ReferenceImage[] = []
+    for (const file of files) {
+      const image = await readImageUpload(file, readController.signal)
+      if (current !== uploadVersion) return
+      added.push({ id: ++imageSequence, image, name: file.name, size: file.size })
+    }
+    references.value = [...references.value, ...added]
+  } catch (cause) {
+    if (current === uploadVersion) error.value = cause instanceof Error ? cause.message : '无法读取图片'
+  } finally {
+    if (current === uploadVersion) { uploading.value = false; uploadController = null }
+  }
+}
+function removeReference(index: number): void {
+  if (busy.value || uploading.value) return
+  references.value.splice(index, 1); error.value = ''
+}
+function moveReference(index: number, direction: -1 | 1): void {
+  const target = index + direction
+  if (busy.value || uploading.value || target < 0 || target >= references.value.length) return
+  const items = [...references.value]
+  const [item] = items.splice(index, 1)
+  if (!item) return
+  items.splice(target, 0, item)
+  references.value = items
 }
 function cancel(): void {
   generation++; controller?.abort(); controller = null; busy.value = false
@@ -91,7 +153,7 @@ async function download(image: GeneratedImage, index: number): Promise<void> {
   catch (cause) { if (current === downloadVersion) error.value = cause instanceof Error ? cause.message : '下载失败，可打开原图保存' }
   finally { if (current === downloadVersion) { downloading.value = null; downloadController = null } }
 }
-onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); downloadController?.abort() })
+onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); downloadController?.abort(); clearReferences() })
 </script>
 
 <template>
@@ -99,9 +161,31 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
     <form class="image-controls" @submit.prevent="generate">
       <header class="image-controls-header"><SlidersHorizontal :size="17" aria-hidden="true" /><h2>生成参数</h2></header>
       <fieldset :disabled="busy">
+        <div class="image-mode" role="group" aria-label="创作方式">
+          <button type="button" :aria-pressed="mode === 'generate'" @click="mode = 'generate'">文字生图</button>
+          <button type="button" :aria-pressed="mode === 'edit'" @click="mode = 'edit'">上传改图</button>
+        </div>
         <label>服务商<select v-model="providerId" required aria-label="服务商"><option value="" disabled>选择服务商</option><option v-for="p in providers" :key="p.provider_id" :value="p.provider_id">{{ p.name }}</option></select></label>
         <label>模型<input v-model="modelId" list="image-models" required maxlength="256" aria-label="模型" autocomplete="off" placeholder="选择或输入模型名称" /><datalist id="image-models"><option v-for="m in models" :key="m.model_id" :value="m.model_id" /></datalist></label>
-        <label>提示词<textarea v-model="prompt" required maxlength="32000" rows="6" aria-label="提示词" placeholder="描述你想生成的画面、风格与细节…" /></label>
+        <div v-if="mode === 'edit'" class="image-upload">
+          <div class="image-upload-field"><span>参考图 <span class="image-muted">{{ references.length }} / {{ MAX_IMAGE_INPUT_COUNT }}</span></span><button type="button" class="image-upload-picker" :disabled="uploading || references.length >= MAX_IMAGE_INPUT_COUNT" @click="uploadInput?.click()"><ImagePlus :size="16" />{{ references.length ? '继续添加图片' : '选择图片' }}</button></div>
+          <input ref="uploadInput" type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="uploading" aria-label="上传参考图" hidden @change="upload" />
+          <p class="image-muted">支持 PNG、JPEG、WebP，单张最大 20 MiB，总计 50 MiB。请选择支持多图改图的模型。</p>
+          <p v-if="uploading" class="image-muted" role="status">正在读取图片…</p>
+          <div v-if="references.length" class="image-reference-grid">
+            <figure v-for="(item, index) in references" :key="item.id">
+              <div class="image-original-preview"><img :src="imageSource(item.image)" :alt="`参考图 ${index + 1}`" /></div>
+              <figcaption><strong>图 {{ index + 1 }}</strong><span :title="item.name">{{ item.name }}</span></figcaption>
+              <div class="image-actions">
+                <button class="icon-button" type="button" :aria-label="`前移参考图 ${index + 1}`" title="前移" :disabled="uploading || index === 0" @click="moveReference(index, -1)"><ChevronLeft :size="16" /></button>
+                <button class="icon-button" type="button" :aria-label="`后移参考图 ${index + 1}`" title="后移" :disabled="uploading || index === references.length - 1" @click="moveReference(index, 1)"><ChevronRight :size="16" /></button>
+                <button class="icon-button" type="button" :aria-label="`移除参考图 ${index + 1}`" title="移除" :disabled="uploading" @click="removeReference(index)"><X :size="16" /></button>
+              </div>
+            </figure>
+          </div>
+          <p v-if="references.length" class="image-muted">可在修改要求中使用“图 1”“图 2”指定参考图。顺序与提交顺序一致。</p>
+        </div>
+        <label>{{ mode === 'edit' ? '修改要求' : '提示词' }}<textarea v-model="prompt" required maxlength="32000" rows="6" :aria-label="mode === 'edit' ? '修改要求' : '提示词'" :placeholder="mode === 'edit' ? '例如：保留图 1 的主体，使用图 2 的背景和图 3 的配色…' : '描述你想生成的画面、风格与细节…'" /></label>
         <div class="image-options">
           <label>数量<input v-model.number="count" type="number" min="1" max="10" step="1" required aria-label="数量" /></label>
           <label>尺寸<input v-model="size" list="image-sizes" maxlength="64" placeholder="模型默认" aria-label="尺寸" /><datalist id="image-sizes"><option value="1024x1024" /><option value="1536x1024" /><option value="1024x1536" /><option value="1792x1024" /><option value="1024x1792" /></datalist></label>
@@ -115,7 +199,7 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
         </div></details>
       </fieldset>
       <p v-if="!providers.length" class="image-muted">暂无可用的 OpenAI-compatible 服务商</p>
-      <div class="image-actions"><button class="button-primary" :disabled="busy || !providerId || !modelId.trim() || !prompt.trim()" type="submit"><LoaderCircle v-if="busy" :size="17" class="image-spinner" /><ImagePlus v-else :size="17" />{{ busy ? '正在生成' : '生成图片' }}</button><button v-if="busy" type="button" @click="cancel"><Square :size="16" />取消等待</button></div>
+      <div class="image-actions"><button class="button-primary" :disabled="busy || uploading || !providerId || !modelId.trim() || !prompt.trim() || (mode === 'edit' && !references.length)" type="submit"><LoaderCircle v-if="busy" :size="17" class="image-spinner" /><ImagePlus v-else :size="17" />{{ busy ? '正在生成' : mode === 'edit' ? '开始改图' : '生成图片' }}</button><button v-if="busy" type="button" @click="cancel"><Square :size="16" />取消等待</button></div>
       <p v-if="error" role="alert" class="image-error">{{ error }}</p>
       <p v-if="notice" role="status" class="image-muted">{{ notice }}</p>
     </form>
@@ -124,7 +208,7 @@ onBeforeUnmount(() => { generation++; downloadVersion++; controller?.abort(); do
       <div v-if="!result" class="image-empty" role="status">
         <span class="image-empty-icon"><LoaderCircle v-if="busy" :size="26" class="image-spinner" aria-hidden="true" /><Image v-else :size="26" aria-hidden="true" /></span>
         <h3>{{ busy ? '正在生成…' : '暂无图片' }}</h3>
-        <p>{{ busy ? '画面正在成形，请稍候' : '写下画面描述，开始创作你的第一张图片' }}</p>
+        <p>{{ busy ? '画面正在成形，请稍候' : mode === 'edit' ? '上传参考图并描述修改要求，开始创作' : '写下画面描述，开始创作你的第一张图片' }}</p>
       </div>
       <template v-else>
         <p v-if="result.persistence_warning" class="image-error" role="status">{{ result.persistence_warning === 'save_failed' ? '图片已生成，但保存失败。请先下载图片，避免重新生成。' : result.persistence_warning === 'record_deleted' ? '记录已在其他窗口删除，当前图片仍可下载。' : '部分图片未能归档，远程链接可能过期。请先下载图片。' }}</p>

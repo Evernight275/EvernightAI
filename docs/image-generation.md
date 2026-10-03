@@ -1,4 +1,4 @@
-# Image Generation
+# Image Generation and Editing
 
 The first image generation adapter uses the OpenAI-compatible Images API.
 Configure an enabled `openai` provider with its API key and optional base URL,
@@ -88,8 +88,63 @@ remote links may expire, so download them promptly. Cross-origin browser
 download restrictions may require opening the original URL to save it.
 
 Image requests disable automatic SDK retries. Cancelling browser waiting does
-not guarantee upstream cancellation and may still incur charges. Image editing,
-streaming generation and agent image tools are outside this initial interface.
+not guarantee upstream cancellation and may still incur charges. Streaming generation, masks and agent image tools are
+outside this interface.
+
+## Upload and Edit
+
+On `/images.html`, choose **上传改图**, select reference images and a model,
+and describe the desired changes. Select several images at once or append more
+in later batches. Each preview shows its current number. Images can be removed
+or moved forward/backward; refer to them as "图 1", "图 2", etc. in the prompt.
+The submitted list follows exactly the displayed order.
+
+The project accepts 1–16 PNG, JPEG or WebP references, with a 20 MiB per-image
+limit and a 50 MiB total decoded-input limit. Empty, unsupported or unreadable
+files are rejected before submission. Uploads detect the actual bitmap signature
+instead of trusting the filename or browser-reported MIME type. A JPEG or WebP
+named `.png` is sent using its actual type without modifying its bytes. An invalid batch adds no images and keeps
+existing selections. Uploading temporarily disables submission and reference
+changes. The model and service must support multiple images via the
+[OpenAI-compatible image edit endpoint](https://developers.openai.com/api/reference/resources/images/methods/edit).
+Model discovery is not required; unsupported upstream requests surface the
+provider error and are not retried automatically.
+
+`POST /images/edits` uses the same authentication and `images:generate` permission
+as text generation. Its JSON body adds a required ordered `images` list to the
+normal request:
+
+```json
+{
+  "provider_id": "main",
+  "request": {
+    "model_id": "gpt-image-2.5-sunburst",
+    "prompt": "Combine the leaf from image 1 with the background from image 2",
+    "images": [
+      { "base64_data": "<first reference encoded as Base64>", "mime_type": "image/png" },
+      { "base64_data": "<second reference encoded as Base64>", "mime_type": "image/jpeg" }
+    ]
+  }
+}
+```
+
+The previous single `image` field is still accepted and normalized into an
+`images` list, including when reading existing saved records. Providing both
+fields is rejected. History responses and new records use `images`.
+
+The backend validates Base64, per-image and total decoded size, image count and
+bitmap signature against the supplied MIME type, then uploads the bytes to the
+provider as multipart form data. A single reference uses `image`; multiple
+references use ordered `image[]` file parts. Remote URLs, local filesystem paths
+and caller-provided filenames are not accepted as input. Results have the same
+response shape, archival and custom download naming behavior as text generation.
+
+All reference images are saved with the edit request and result. Opening its
+history record restores the complete ordered reference list and editing
+parameters without another provider call; deleting the record removes references
+and result. Ownership checks apply to every saved reference. Upload contents are
+cleared on identity changes, page closure and switching to text generation.
+Validation responses omit submitted image data.
 
 ## Opt-in Real Test
 

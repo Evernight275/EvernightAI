@@ -23,7 +23,7 @@ from EvernightAI.core.schema.content import (
     Content,
 )
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.image import ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
+from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRecord, ImageGenerationRequest, ImageGenerationResponse, ImageHistoryPage
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery, MemorySelection
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.provider import (
@@ -198,6 +198,11 @@ class ChatInterfaceProtocol(Protocol):
 class ProviderInterfaceProtocol(Protocol):
     async def generate_images(
         self, provider_id: str, request: ImageGenerationRequest,
+        *, principal_scope: PrincipalScope | None = None,
+    ) -> ImageGenerationResponse: ...
+
+    async def edit_images(
+        self, provider_id: str, request: ImageEditRequest,
         *, principal_scope: PrincipalScope | None = None,
     ) -> ImageGenerationResponse: ...
 
