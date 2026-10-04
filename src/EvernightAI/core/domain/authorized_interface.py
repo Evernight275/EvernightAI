@@ -1,5 +1,10 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
+from EvernightAI.core.schema.image_task import (
+    ImageTaskPage,
+    ImageTaskSubmit,
+    ImageTaskSummary,
+)
 from EvernightAI.core.schema.image import (
     ImageEditRequest,
     ImageGenerationRecord,
@@ -82,7 +87,12 @@ from EvernightAI.core.schema.skill import (
     SkillTemplateUpdate,
     SkillRenderRequest,
 )
-from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolDefinition,
+    ToolAccessMode,
+    ToolPolicySummary,
+)
 
 
 ScopedResult = TypeVar("ScopedResult")
@@ -509,6 +519,43 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
         self._authorizer = authorizer
         self._principal = principal
 
+    async def submit_image_task(
+        self,
+        submission: ImageTaskSubmit,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskSummary:
+        self._require("images", "generate", submission.provider_id)
+        if submission.session_id is not None:
+            self._require("sessions", "get", submission.session_id)
+        return await self._inner.submit_image_task(
+            submission, principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
+    def get_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ImageTaskSummary:
+        self._require("images", "get", task_id)
+        return self._inner.get_image_task(
+            task_id, principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
+    def list_image_tasks(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        session_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskPage:
+        self._require("images", "list")
+        return self._inner.list_image_tasks(
+            limit=limit,
+            cursor=cursor,
+            session_id=session_id,
+            principal_scope=PrincipalScope.for_principal(self._principal),
+        )
+
     async def create_provider(self, config: ProviderConfig) -> ProviderInfo:
         self._require("providers", "create", config.provider_id)
         return await self._inner.create_provider(config)
@@ -648,9 +695,37 @@ class AuthorizedToolInterface(ToolInterfaceProtocol):
         self._authorizer = authorizer
         self._principal = principal
 
-    def list_tools(self) -> list[ToolDefinition]:
+    def list_tools(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolDefinition]:
         require_permission(self._authorizer, self._principal, "tools", "list")
-        return self._inner.list_tools()
+        return self._inner.list_tools(
+            principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
+    def list_tool_policies(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolPolicySummary]:
+        require_permission(self._authorizer, self._principal, "tools", "list")
+        return self._inner.list_tool_policies(
+            principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
+    def set_tool_policy(
+        self,
+        tool_name: str,
+        mode: ToolAccessMode | None,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolPolicySummary:
+        require_permission(
+            self._authorizer, self._principal, "tools", "configure", tool_name
+        )
+        return self._inner.set_tool_policy(
+            tool_name,
+            mode,
+            principal_scope=PrincipalScope.for_principal(self._principal),
+        )
 
 
 class AuthorizedDataAnalysisInterface(DataAnalysisManageProtocol):

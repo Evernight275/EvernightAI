@@ -926,3 +926,13 @@ paths inside that directory, including resumed runs and approval previews. Chang
 the sidebar selection affects subsequent requests only. Shell, Git, and project
 commands retain their separately configured directories. This selection is not a
 replacement for server-side permissions or the configured filesystem root boundary.
+
+
+### Tool policy management
+
+`GET /tools` returns the current principal's available tools. Manage all registered
+tools, including forbidden tools, using `GET /tools/policies`. Save a per-tool mode
+with `PUT /tools/{tool_name}/policy` and `{ "mode": "allow" }`, `"ask"`, or `"deny"`.
+Use `DELETE /tools/{tool_name}/policy` to restore defaults. Reading requires
+`tools:list`; mutation requires `tools:configure`. Policies persist in SQLite and
+remain subject to server execution restrictions. See [tool permissions](tool-permissions.md).

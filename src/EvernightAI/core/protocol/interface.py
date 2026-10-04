@@ -16,6 +16,11 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionResolution,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
+from EvernightAI.core.schema.image_task import (
+    ImageTaskPage,
+    ImageTaskSubmit,
+    ImageTaskSummary,
+)
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -56,7 +61,12 @@ from EvernightAI.core.schema.skill import (
     SkillTemplateConfig,
     SkillTemplateUpdate,
 )
-from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolDefinition
+from EvernightAI.core.schema.tool import (
+    ToolApprovalDecision,
+    ToolDefinition,
+    ToolAccessMode,
+    ToolPolicySummary,
+)
 
 
 class ChatInterfaceProtocol(Protocol):
@@ -202,6 +212,26 @@ class ChatInterfaceProtocol(Protocol):
 
 
 class ProviderInterfaceProtocol(Protocol):
+    async def submit_image_task(
+        self,
+        submission: ImageTaskSubmit,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskSummary: ...
+
+    def get_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ImageTaskSummary: ...
+
+    def list_image_tasks(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        session_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskPage: ...
+
     async def generate_images(
         self,
         provider_id: str,
@@ -273,7 +303,21 @@ class ProviderInterfaceProtocol(Protocol):
 
 
 class ToolInterfaceProtocol(Protocol):
-    def list_tools(self) -> list[ToolDefinition]: ...
+    def list_tools(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolDefinition]: ...
+
+    def list_tool_policies(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolPolicySummary]: ...
+
+    def set_tool_policy(
+        self,
+        tool_name: str,
+        mode: ToolAccessMode | None,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolPolicySummary: ...
 
 
 class AgentInterfaceProtocol(Protocol):

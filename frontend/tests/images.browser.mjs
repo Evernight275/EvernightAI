@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { imageTaskRoutes } from './imageTaskRoutes.mjs';
 
 const base = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 const screenshots = process.env.SCREENSHOT_DIR || '/tmp/evernight-images';
@@ -46,46 +47,52 @@ try {
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
     });
-    await page.route('**/mock-api/**', async (route) => {
-      const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
-      if (path === '/images/generations') {
-        calls.push(route.request().postDataJSON());
-        receivedCall?.();
-        const currentMode = mode;
-        if (currentMode === 'failure')
-          return route.fulfill({ status: 503, json: { error: { message: '生图服务暂时不可用' } } });
-        if (currentMode === 'hold')
-          await new Promise((resolve) => {
-            release = resolve;
+    await page.route(
+      '**/mock-api/**',
+      imageTaskRoutes(async (route) => {
+        const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
+        if (path === '/images/generations') {
+          calls.push(route.request().postDataJSON());
+          receivedCall?.();
+          const currentMode = mode;
+          if (currentMode === 'failure')
+            return route.fulfill({
+              status: 503,
+              json: { error: { message: '生图服务暂时不可用' } },
+            });
+          if (currentMode === 'hold')
+            await new Promise((resolve) => {
+              release = resolve;
+            });
+          const response =
+            currentMode === 'url'
+              ? { ...result, images: [{ url: 'https://images.example/leaf.png' }] }
+              : currentMode === 'multiple'
+                ? { ...result, images: [result.images[0], result.images[0]] }
+                : currentMode === 'hold'
+                  ? { ...result, model_id: 'late-response' }
+                  : result;
+          return route.fulfill({ json: response }).catch(() => {});
+        }
+        if (path === '/health' || path === '/ready')
+          return route.fulfill({ json: { status: 'ready' } });
+        if (path === '/images/records') return route.fulfill({ json: { items: [] } });
+        if (path === '/providers')
+          return route.fulfill({
+            json: [
+              {
+                provider_id: 'main',
+                name: 'Image Provider',
+                type: 'openai',
+                model: { leaf: { model_id: 'declared-image', capabilities: ['image_generation'] } },
+              },
+              { provider_id: 'disabled', name: 'Disabled', type: 'openai', is_enabled: false },
+              { provider_id: 'google', name: 'Google', type: 'google' },
+            ],
           });
-        const response =
-          currentMode === 'url'
-            ? { ...result, images: [{ url: 'https://images.example/leaf.png' }] }
-            : currentMode === 'multiple'
-              ? { ...result, images: [result.images[0], result.images[0]] }
-              : currentMode === 'hold'
-                ? { ...result, model_id: 'late-response' }
-                : result;
-        return route.fulfill({ json: response }).catch(() => {});
-      }
-      if (path === '/health' || path === '/ready')
-        return route.fulfill({ json: { status: 'ready' } });
-      if (path === '/images/records') return route.fulfill({ json: { items: [] } });
-      if (path === '/providers')
-        return route.fulfill({
-          json: [
-            {
-              provider_id: 'main',
-              name: 'Image Provider',
-              type: 'openai',
-              model: { leaf: { model_id: 'declared-image', capabilities: ['image_generation'] } },
-            },
-            { provider_id: 'disabled', name: 'Disabled', type: 'openai', is_enabled: false },
-            { provider_id: 'google', name: 'Google', type: 'google' },
-          ],
-        });
-      return route.fulfill({ json: [] });
-    });
+        return route.fulfill({ json: [] });
+      }),
+    );
     await page.route('https://images.example/leaf.png', (route) => {
       const headers = route.request().headers();
       assert.equal(headers.authorization, undefined);

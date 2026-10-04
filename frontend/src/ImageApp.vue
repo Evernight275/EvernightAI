@@ -6,6 +6,7 @@ import { authGeneration } from './runtime/workspaceRuntime';
 import ImageGenerationView from './components/images/ImageGenerationView.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
 import ImageHistoryView from './components/images/ImageHistoryView.vue';
+import ImageTaskList from './components/images/ImageTaskList.vue';
 import type { ImageGenerationRecord, ImageGenerationResponse } from './api/images';
 const snapshot = shallowRef(workspaceActor.getSnapshot());
 const subscription = workspaceActor.subscribe((value) => {
@@ -14,6 +15,7 @@ const subscription = workspaceActor.subscribe((value) => {
 const settingsOpen = ref(false);
 const imageBusy = ref(false);
 const historyRefresh = ref(0);
+const taskRefresh = ref(0);
 const selectedRecord = ref<ImageGenerationRecord | null>(null);
 const clearedRecordId = ref('');
 const pageRoot = ref<HTMLElement | null>(null);
@@ -96,6 +98,13 @@ onBeforeUnmount(() => subscription.unsubscribe());
         :cleared-record-id="clearedRecordId"
         @generated="generated"
         @busy="imageBusy = $event"
+        @queued="taskRefresh++"
+      />
+      <ImageTaskList
+        :key="authGeneration"
+        :refresh="taskRefresh"
+        :disabled="imageBusy"
+        @select="selectRecord"
       />
       <ImageHistoryView
         :key="authGeneration"

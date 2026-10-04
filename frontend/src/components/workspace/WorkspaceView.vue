@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef } from 'vue';
-import { X, KeyRound, Server, SlidersHorizontal, ImagePlus } from '@lucide/vue';
+import { X, KeyRound, Server, SlidersHorizontal, ImagePlus, Wrench } from '@lucide/vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import { workspaceActor } from '../../state/workspaceMachine';
 import ApiKeySettings from '../settings/ApiKeySettings.vue';
@@ -13,6 +13,7 @@ import ResourceSettings from '../settings/ResourceSettings.vue';
 import RunSettings from '../settings/RunSettings.vue';
 import DataSettings from '../settings/DataSettings.vue';
 import SkillSettings from '../settings/SkillSettings.vue';
+import ToolSettings from '../settings/ToolSettings.vue';
 
 defineProps<{ embedded?: boolean; active?: boolean }>();
 defineEmits<{ close: [] }>();
@@ -29,6 +30,7 @@ const sections = [
   { id: 'connections', label: '连接与认证', icon: Server },
   { id: 'privacy', label: '数据控制', icon: KeyRound },
   { id: 'memories', label: '记忆管理', icon: SlidersHorizontal },
+  { id: 'tools', label: '工具管理', icon: Wrench },
   { id: 'skills', label: '技能管理', icon: SlidersHorizontal },
   { id: 'resources', label: '工作区资源', icon: Server },
   { id: 'runs', label: '运行管理', icon: SlidersHorizontal },
@@ -133,6 +135,11 @@ function refresh(): void {
         <MemorySettings
           :key="authGeneration"
           v-else-if="activeSection === 'memories'"
+          @changed="refresh"
+        />
+        <ToolSettings
+          :key="authGeneration"
+          v-else-if="activeSection === 'tools'"
           @changed="refresh"
         />
         <SkillSettings

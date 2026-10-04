@@ -98,6 +98,12 @@ def image_edit_params(request: ImageEditRequest) -> dict[str, Any]:
             )
         )
     params["image"] = files[0] if len(files) == 1 else files
+    if request.mask is not None:
+        params["mask"] = (
+            "mask.png",
+            base64.b64decode(request.mask.base64_data, validate=True),
+            "image/png",
+        )
     return params
 
 

@@ -36,6 +36,7 @@ const browser = await chromium.launch({
 });
 try {
   for (const [width, height] of [
+    [2534, 1416],
     [1440, 900],
     [1024, 600],
     [390, 844],
@@ -160,6 +161,16 @@ try {
 
     await page.goto(`${base}/chat.html`);
     await page.locator('.chat-welcome').waitFor();
+    const centers = await page.evaluate(() =>
+      ['.chat-welcome', '.chat-composer form', '.chat-composer-hint'].flatMap((selector) => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return rect.width ? [rect.left + rect.width / 2] : [];
+      }),
+    );
+    assert.ok(
+      centers.every((center) => Math.abs(center - centers[0]) <= 1),
+      JSON.stringify(centers),
+    );
     await page.screenshot({ path: `${screenshots}/${width}x${height}-welcome.png` });
     if (width > 760) {
       await page.getByRole('button', { name: '收起侧栏', exact: true }).click();
@@ -167,6 +178,38 @@ try {
       assert.equal((await page.locator('.chat-main').boundingBox()).width, width);
     }
     await page.getByRole('button', { name: '会话管理', exact: true }).click();
+    const navigation = await page.evaluate(() => {
+      const items = [
+        document.querySelector('button.chat-sidebar-new'),
+        document.querySelector('a.chat-sidebar-new'),
+        document.querySelector('.chat-workspace-button'),
+        document.querySelector('.chat-sidebar-search'),
+      ];
+      return items.map((item) => {
+        const icon = item.querySelector('svg').getBoundingClientRect();
+        const text = item.querySelector('span, input');
+        let textLeft;
+        if (text) textLeft = text.getBoundingClientRect().left;
+        else {
+          const node = [...item.childNodes].find(
+            (node) => node.nodeType === 3 && node.textContent.trim(),
+          );
+          const range = document.createRange();
+          range.setStart(node, node.textContent.search(/\S/));
+          range.setEnd(node, node.textContent.trimEnd().length);
+          textLeft = range.getBoundingClientRect().left;
+        }
+        return { iconLeft: icon.left, textLeft };
+      });
+    });
+    assert.ok(
+      navigation.every(
+        (item) =>
+          Math.abs(item.iconLeft - navigation[0].iconLeft) <= 1 &&
+          Math.abs(item.textLeft - navigation[0].textLeft) <= 1,
+      ),
+      JSON.stringify(navigation),
+    );
     await page.getByRole('searchbox', { name: '搜索会话' }).fill('不存在的标题');
     await page.getByText('没有找到匹配的会话').waitFor();
     assert.equal(await page.getByRole('button', { name: '热传导计算', exact: true }).count(), 0);

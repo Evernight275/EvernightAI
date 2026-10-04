@@ -1,5 +1,11 @@
 from fastapi import APIRouter, Query, Response
 
+from EvernightAI.core.schema.image_task import (
+    ImageTaskPage,
+    ImageTaskSubmit,
+    ImageTaskSummary,
+)
+
 from EvernightAI.core.schema.image import (
     ImageGenerationRecord,
     ImageGenerationResponse,
@@ -13,6 +19,53 @@ from EvernightAI.interface.http.schema import (
 
 
 router = APIRouter(prefix="/images", tags=["images"])
+
+
+@router.post(
+    "/tasks",
+    status_code=202,
+    response_model=ImageTaskSummary,
+    response_model_exclude_none=True,
+    operation_id="submit_image_task",
+)
+async def submit_image_task(
+    request: ImageTaskSubmit, interface: InterfaceDependency, response: Response
+) -> ImageTaskSummary:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Location"] = f"/images/tasks/{request.task_id}"
+    return await interface.providers.submit_image_task(request)
+
+
+@router.get(
+    "/tasks",
+    response_model=ImageTaskPage,
+    response_model_exclude_none=True,
+    operation_id="list_image_tasks",
+)
+async def list_image_tasks(
+    interface: InterfaceDependency,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=512),
+    session_id: str | None = Query(default=None, max_length=256),
+) -> ImageTaskPage:
+    response.headers["Cache-Control"] = "no-store"
+    return interface.providers.list_image_tasks(
+        limit=limit, cursor=cursor, session_id=session_id
+    )
+
+
+@router.get(
+    "/tasks/{task_id}",
+    response_model=ImageTaskSummary,
+    response_model_exclude_none=True,
+    operation_id="get_image_task",
+)
+async def get_image_task(
+    task_id: str, interface: InterfaceDependency, response: Response
+) -> ImageTaskSummary:
+    response.headers["Cache-Control"] = "no-store"
+    return interface.providers.get_image_task(task_id)
 
 
 @router.post(

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Wrench, Check, Clock, CircleAlert } from '@lucide/vue';
 import { useChatToolActivity, type ChatToolActivityProps } from './chatToolActivity';
+import JsonCode from '../common/JsonCode.vue';
 
 const props = defineProps<ChatToolActivityProps>();
 const { activities } = useChatToolActivity(props);
@@ -33,13 +34,17 @@ const { activities } = useChatToolActivity(props);
         </div>
         <details class="chat-raw-details">
           <summary>调用参数</summary>
-          <pre tabindex="0" :aria-label="activity.name + ' 调用参数'">{{ activity.callText }}</pre>
+          <pre
+            tabindex="0"
+            :aria-label="activity.name + ' 调用参数'"
+          ><JsonCode :source="activity.callText" /></pre>
         </details>
         <details v-if="activity.resultText" class="chat-raw-details">
           <summary>调用结果</summary>
-          <pre tabindex="0" :aria-label="activity.name + ' 调用结果'">{{
-            activity.resultText
-          }}</pre>
+          <pre
+            tabindex="0"
+            :aria-label="activity.name + ' 调用结果'"
+          ><JsonCode :source="activity.resultText" /></pre>
         </details>
       </li>
     </ol>

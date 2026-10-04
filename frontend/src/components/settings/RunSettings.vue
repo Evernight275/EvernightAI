@@ -24,6 +24,7 @@ import {
 import { cancelForEditing, readRunDecisions, saveRunDecisions } from '../../runtime/runEditor';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import RunSkillConflict from '../skills/RunSkillConflict.vue';
+import JsonCode from '../common/JsonCode.vue';
 const emit = defineEmits<{ changed: [] }>();
 const props = defineProps<{ active?: boolean }>();
 const runs = ref<AgentRunState[]>([]);
@@ -268,7 +269,7 @@ onMounted(() => perform(load));
       >
         <h4>{{ approval.tool_name }}</h4>
         <p>{{ approval.permissions?.join('、') }} · {{ approval.safety_level }}</p>
-        <pre>{{ JSON.stringify(approval.tool_call, null, 2) }}</pre>
+        <pre><JsonCode :source="JSON.stringify(approval.tool_call, null, 2)" /></pre>
         <label
           >审批决定<select
             v-model="decisions[approval.approval_id]"
@@ -300,7 +301,10 @@ onMounted(() => perform(load));
         <button :disabled="busy" @click="confirm = null">返回</button
         ><button :disabled="busy" @click="control">确认操作</button>
       </div>
-      <pre v-if="details" class="settings-result">{{ JSON.stringify(details, null, 2) }}</pre>
+      <pre
+        v-if="details"
+        class="settings-result"
+      ><JsonCode :source="JSON.stringify(details, null, 2)" /></pre>
     </section>
   </section>
 </template>

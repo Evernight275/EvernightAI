@@ -2,7 +2,8 @@
 
 EvernightAI is a small layered runtime for chat providers, skills, tools,
 context, memory, and agent runs. Image generation through OpenAI-compatible
-providers is available at `/images.html`; see [Image Generation](docs/image-generation.md).
+providers supports background tasks, partial editing, and creation within chat.
+The standalone page is `/images.html`; see [Image Generation](docs/image-generation.md).
 
 The main runtime loop is:
 
@@ -192,6 +193,14 @@ safety, approvals, ownership, memory selection, or context composition.
 Legacy templates receive a persisted revision on restore. Legacy paused runs
 with skill declarations but no recorded revisions must be canceled and started
 again; they cannot silently adopt the current template configuration.
+
+## Tool Permissions
+
+Use **Settings → 工具管理** to choose allow, ask each time, or deny for each tool.
+SQLite saves these choices per principal; anonymous local workspaces share settings.
+Forbidden tools are removed from chat and blocked during execution. Server path,
+command, network and blocked-permission checks still apply. See
+[tool permissions](docs/tool-permissions.md) for defaults and API permissions.
 
 ## Remote MCP Tools
 

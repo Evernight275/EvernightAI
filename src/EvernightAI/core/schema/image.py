@@ -1,5 +1,7 @@
 import base64
 import binascii
+import struct
+import zlib
 from typing import Any, Literal
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -77,8 +79,41 @@ class ImageEditInput(EvernightAISchema):
         return self
 
 
+def png_dimensions(data: bytes) -> tuple[int, int]:
+    if (
+        len(data) < 33
+        or not data.startswith(b"\x89PNG\r\n\x1a\n")
+        or data[8:16] != b"\x00\x00\x00\rIHDR"
+        or zlib.crc32(data[12:29]) & 0xFFFFFFFF != struct.unpack("!I", data[29:33])[0]
+    ):
+        raise ValueError("Mask editing requires valid PNG images")
+    width, height = struct.unpack("!II", data[16:24])
+    if not width or not height or width * height > 32_000_000:
+        raise ValueError("Mask image dimensions are invalid or too large")
+    return width, height
+
+
+class ImageMaskInput(EvernightAISchema):
+    model_config = ConfigDict(extra="forbid")
+
+    base64_data: str = Field(
+        min_length=1, max_length=4 * ((MAX_IMAGE_INPUT_BYTES + 2) // 3), repr=False
+    )
+    mime_type: Literal["image/png"] = "image/png"
+
+    @model_validator(mode="after")
+    def valid_mask(self) -> "ImageMaskInput":
+        ImageEditInput(base64_data=self.base64_data, mime_type=self.mime_type)
+        data = base64.b64decode(self.base64_data, validate=True)
+        png_dimensions(data)
+        if data[25] not in (4, 6):
+            raise ValueError("Mask must contain an alpha channel")
+        return self
+
+
 class ImageEditRequest(ImageGenerationRequest):
     images: list[ImageEditInput] = Field(min_length=1, max_length=MAX_IMAGE_INPUT_COUNT)
+    mask: ImageMaskInput | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -94,6 +129,19 @@ class ImageEditRequest(ImageGenerationRequest):
             len(base64.b64decode(image.base64_data, validate=True))
             for image in self.images
         )
+        if self.mask is not None:
+            total += len(base64.b64decode(self.mask.base64_data, validate=True))
+            first = self.images[0]
+            if first.mime_type != "image/png":
+                raise ValueError("The first image must be PNG when a mask is provided")
+            image_size = png_dimensions(
+                base64.b64decode(first.base64_data, validate=True)
+            )
+            mask_size = png_dimensions(
+                base64.b64decode(self.mask.base64_data, validate=True)
+            )
+            if image_size != mask_size:
+                raise ValueError("Mask dimensions must match the first image")
         if total > MAX_IMAGE_INPUT_TOTAL_BYTES:
             raise ValueError("Reference images must not exceed 50 MiB in total")
         return self

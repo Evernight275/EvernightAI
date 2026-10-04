@@ -501,6 +501,7 @@ def test_create_interface_from_config_wraps_configured_runtime(
             "copy_path",
             "read_json_file",
             "write_json_file",
+            "generate_image",
         ]
     finally:
         import asyncio
@@ -632,6 +633,7 @@ def test_create_app_from_config_serves_health_and_tools(
         "copy_path",
         "read_json_file",
         "write_json_file",
+        "generate_image",
     ]
     assert models_response.status_code == 200
     assert [model["model_id"] for model in models_response.json()] == ["gpt-4.1-mini"]

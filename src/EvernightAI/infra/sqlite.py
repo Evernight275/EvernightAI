@@ -457,6 +457,37 @@ def _add_image_records(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_image_tasks(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS image_tasks (
+            task_id TEXT PRIMARY KEY, owner_id TEXT, session_id TEXT,
+            status TEXT NOT NULL, created_at TEXT NOT NULL,
+            worker_id TEXT, lease_expires_at TEXT,
+            summary TEXT NOT NULL, payload TEXT NOT NULL
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_image_tasks_owner ON image_tasks(owner_id, created_at DESC, task_id DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_image_tasks_queue ON image_tasks(status, created_at, task_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_image_tasks_session ON image_tasks(owner_id, session_id, created_at DESC, task_id DESC)"
+    )
+
+
+def _add_tool_policies(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS tool_policies (
+            owner_key TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('allow', 'ask', 'deny')),
+            PRIMARY KEY(owner_key, tool_name)
+        )
+    """)
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
@@ -466,4 +497,6 @@ DEFAULT_MIGRATIONS = (
     ),
     SQLiteMigration(5, "add skill templates", _add_skill_templates),
     SQLiteMigration(6, "add image records", _add_image_records),
+    SQLiteMigration(7, "add background image tasks", _add_image_tasks),
+    SQLiteMigration(8, "add scoped tool policies", _add_tool_policies),
 )

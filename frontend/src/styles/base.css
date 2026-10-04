@@ -638,3 +638,35 @@ a:hover {
 .settings-auth .settings-actions button {
   white-space: nowrap;
 }
+.tool-policy-row {
+  align-items: flex-start;
+  gap: 20px;
+}
+.tool-policy-description {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tool-policy-controls {
+  display: grid;
+  gap: 10px;
+  flex: 0 0 210px;
+}
+.tool-policy-controls label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .tool-policy-row {
+    flex-direction: column;
+  }
+  .tool-settings .tool-policy-row > div:first-child {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+  .tool-policy-controls {
+    flex: auto;
+    width: 100%;
+  }
+}

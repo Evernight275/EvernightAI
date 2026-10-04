@@ -4,7 +4,9 @@ import { Check, ChevronRight, CircleAlert, Clock, LoaderCircle, Wrench } from '@
 import { toolStatusLabels, type ChatTranscriptEntry } from '../../domain/chat';
 import type { ChatApprovalItem } from './chatRequestStatus';
 import ChatToolApproval from './ChatToolApproval.vue';
-import { toolResultSummary } from './toolResult';
+import { imageToolRecordId, toolResultSummary } from './toolResult';
+import ChatImageResult from './ChatImageResult.vue';
+import JsonCode from '../common/JsonCode.vue';
 
 const props = defineProps<{
   activity: NonNullable<ChatTranscriptEntry['toolActivity']>;
@@ -21,6 +23,7 @@ const status = computed(() =>
       : props.activity.status,
 );
 const summary = computed(() => toolResultSummary(props.activity.resultText));
+const imageRecordId = computed(() => imageToolRecordId(props.activity.resultText));
 const target = computed(() => {
   try {
     const args = JSON.parse(props.activity.argumentsText);
@@ -63,17 +66,20 @@ async function locateError() {
       <div class="chat-inline-tool-details">
         <p v-if="activity.notice">{{ activity.notice }}</p>
         <h4>调用参数</h4>
-        <pre tabindex="0" :aria-label="activity.name + ' 调用参数'">{{
-          activity.argumentsText
-        }}</pre>
+        <pre
+          tabindex="0"
+          :aria-label="activity.name + ' 调用参数'"
+        ><JsonCode :source="activity.argumentsText" /></pre>
         <template v-if="activity.resultText">
           <h4>{{ status === 'failed' ? '错误详情' : '调用结果' }}</h4>
           <p v-if="status === 'failed'" class="chat-tool-error-location">
             {{ activity.errorType || '工具调用失败' }}<span v-if="target"> · {{ target }}</span>
           </p>
-          <pre ref="result" tabindex="0" :aria-label="activity.name + ' 调用结果'">{{
-            activity.resultText
-          }}</pre>
+          <pre
+            ref="result"
+            tabindex="0"
+            :aria-label="activity.name + ' 调用结果'"
+          ><JsonCode :source="activity.resultText" /></pre>
         </template>
         <p v-if="status === 'failed'" class="chat-tool-call-id">调用 ID：{{ activity.callId }}</p>
       </div>
@@ -84,6 +90,7 @@ async function locateError() {
         定位错误
       </button>
     </div>
+    <ChatImageResult v-if="status === 'completed' && imageRecordId" :record-id="imageRecordId" />
     <ChatToolApproval
       v-if="approval"
       :approval="approval"

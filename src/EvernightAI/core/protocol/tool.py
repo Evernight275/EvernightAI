@@ -3,7 +3,10 @@ from EvernightAI.core.schema.tool import (
     ToolCallResult,
     ToolDefinition,
     ToolSafetyDecision,
+    ToolAccessMode,
+    ToolPolicySummary,
 )
+from EvernightAI.core.schema.auth import PrincipalScope
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -39,7 +42,21 @@ class ToolManageProtocol(Protocol):
     工具管理协议
     """
 
-    def list_tools(self) -> list[ToolDefinition]: ...
+    def list_tools(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolDefinition]: ...
+
+    def list_tool_policies(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolPolicySummary]: ...
+
+    def set_tool_policy(
+        self,
+        tool_name: str,
+        mode: ToolAccessMode | None,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolPolicySummary: ...
 
     def authorize(self, call: ToolCall) -> ToolSafetyDecision: ...
 
@@ -90,3 +107,21 @@ class ToolSourceProtocol(Protocol):
     def is_ready(self) -> bool: ...
 
     async def close(self) -> None: ...
+
+
+class ToolPolicyStoreProtocol(Protocol):
+    def get(
+        self, tool_name: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ToolAccessMode | None: ...
+
+    def set(
+        self,
+        tool_name: str,
+        mode: ToolAccessMode,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> None: ...
+
+    def delete(
+        self, tool_name: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None: ...

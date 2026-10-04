@@ -2,11 +2,19 @@ from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
+from EvernightAI.application.image_tool import ImageToolApplication
+from EvernightAI.infra.registrations.tool.image import register_image_tool
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 
 
 def create_interface(runtime: RuntimeProtocol) -> EvernightInterface:
+    if runtime.image_task_executor is not None and not runtime.tool_register.has(
+        "generate_image"
+    ):
+        register_image_tool(
+            runtime.tool_register, ImageToolApplication(runtime).execute
+        )
     agent = AgentApplication(runtime)
     return EvernightInterface(
         runtime=runtime,

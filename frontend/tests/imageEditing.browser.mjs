@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { imageTaskRoutes } from './imageTaskRoutes.mjs';
 
 const base = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 const screenshots = process.env.SCREENSHOT_DIR || '/tmp/evernight-images';
@@ -46,66 +47,72 @@ try {
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
     });
-    await page.route('**/mock-api/**', async (route) => {
-      const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
-      if (path === '/health' || path === '/ready')
-        return route.fulfill({ json: { status: 'ready' } });
-      if (path === '/providers')
-        return route.fulfill({
-          json: [{ provider_id: 'main', name: 'Images', type: 'openai', model: {} }],
-        });
-      if (path === '/images/edits' || path === '/images/generations') {
-        const body = route.request().postDataJSON();
-        calls.push({ path, body });
-        receivedCall?.();
-        const current = mode;
-        if (current === 'failure')
-          return route.fulfill({ status: 400, json: { error: { message: '当前模型不支持改图' } } });
-        if (current === 'hold')
-          await new Promise((resolve) => {
-            release = resolve;
+    await page.route(
+      '**/mock-api/**',
+      imageTaskRoutes(async (route) => {
+        const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
+        if (path === '/health' || path === '/ready')
+          return route.fulfill({ json: { status: 'ready' } });
+        if (path === '/providers')
+          return route.fulfill({
+            json: [{ provider_id: 'main', name: 'Images', type: 'openai', model: {} }],
           });
-        const response = {
-          record_id: 'edited-1',
-          model_id: body.request.model_id,
-          images: [{ base64_data: bitmaps.result, mime_type: 'image/png' }],
-        };
-        record = {
-          record_id: 'edited-1',
-          provider_id: body.provider_id,
-          request: body.request,
-          response,
-          created_at: new Date().toISOString(),
-        };
-        return route.fulfill({ json: response }).catch(() => {});
-      }
-      if (path === '/images/records')
-        return route.fulfill({
-          json: {
-            items: record
-              ? [
-                  {
-                    record_id: record.record_id,
-                    provider_id: record.provider_id,
-                    model_id: record.request.model_id,
-                    prompt_preview: record.request.prompt,
-                    image_count: 1,
-                    created_at: record.created_at,
-                    archived: true,
-                  },
-                ]
-              : [],
-          },
-        });
-      if (path === '/images/records/edited-1') {
-        if (route.request().method() === 'DELETE') {
-          record = null;
-          return route.fulfill({ status: 204 });
+        if (path === '/images/edits' || path === '/images/generations') {
+          const body = route.request().postDataJSON();
+          calls.push({ path, body });
+          receivedCall?.();
+          const current = mode;
+          if (current === 'failure')
+            return route.fulfill({
+              status: 400,
+              json: { error: { message: '当前模型不支持改图' } },
+            });
+          if (current === 'hold')
+            await new Promise((resolve) => {
+              release = resolve;
+            });
+          const response = {
+            record_id: 'edited-1',
+            model_id: body.request.model_id,
+            images: [{ base64_data: bitmaps.result, mime_type: 'image/png' }],
+          };
+          record = {
+            record_id: 'edited-1',
+            provider_id: body.provider_id,
+            request: body.request,
+            response,
+            created_at: new Date().toISOString(),
+          };
+          return route.fulfill({ json: response }).catch(() => {});
         }
-        return route.fulfill({ json: record });
-      }
-      return route.fulfill({ json: [] });
-    });
+        if (path === '/images/records')
+          return route.fulfill({
+            json: {
+              items: record
+                ? [
+                    {
+                      record_id: record.record_id,
+                      provider_id: record.provider_id,
+                      model_id: record.request.model_id,
+                      prompt_preview: record.request.prompt,
+                      image_count: 1,
+                      created_at: record.created_at,
+                      archived: true,
+                    },
+                  ]
+                : [],
+            },
+          });
+        if (path === '/images/records/edited-1') {
+          if (route.request().method() === 'DELETE') {
+            record = null;
+            return route.fulfill({ status: 204 });
+          }
+          return route.fulfill({ json: record });
+        }
+        return route.fulfill({ json: [] });
+      }),
+    );
     await page.goto(`${base}/images.html`);
     await page.getByRole('option', { name: 'Images', exact: true }).waitFor({ state: 'attached' });
     await page.getByRole('button', { name: '上传改图', exact: true }).click();

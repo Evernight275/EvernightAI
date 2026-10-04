@@ -64,3 +64,29 @@ export type ToolCallResult = {
 export function listTools(signal?: AbortSignal): Promise<ToolDefinition[]> {
   return requestJson<ToolDefinition[]>('/tools', { signal });
 }
+
+export type ToolAccessMode = 'allow' | 'ask' | 'deny';
+export type ToolPolicySummary = {
+  tool: ToolDefinition;
+  mode: ToolAccessMode;
+  default_mode: ToolAccessMode;
+  configured_mode: ToolAccessMode | null;
+  blocked_reason: string | null;
+};
+export function listToolPolicies(signal?: AbortSignal): Promise<ToolPolicySummary[]> {
+  return requestJson('/tools/policies', { signal });
+}
+export function setToolPolicy(
+  name: string,
+  mode: ToolAccessMode,
+  signal?: AbortSignal,
+): Promise<ToolPolicySummary> {
+  return requestJson(`/tools/${encodeURIComponent(name)}/policy`, {
+    method: 'PUT',
+    body: { mode },
+    signal,
+  });
+}
+export function resetToolPolicy(name: string, signal?: AbortSignal): Promise<ToolPolicySummary> {
+  return requestJson(`/tools/${encodeURIComponent(name)}/policy`, { method: 'DELETE', signal });
+}

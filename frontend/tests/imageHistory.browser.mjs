@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { imageTaskRoutes } from './imageTaskRoutes.mjs';
 
 const base = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 const screenshots = process.env.SCREENSHOT_DIR || '/tmp/evernight-images';
@@ -60,71 +61,78 @@ try {
     });
     for (let index = 0; index < 21; index++)
       records.set(`seed-${index}`, makeRecord(`seed-${index}`, `历史图片 ${index}`));
-    await page.route('**/mock-api/**', async (route) => {
-      const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
-      const method = route.request().method();
-      const owner = route.request().headers()['x-evernight-api-key'] || 'alice';
-      if (path === '/health' || path === '/ready')
-        return route.fulfill({ json: { status: 'ready' } });
-      if (path === '/providers')
-        return route.fulfill({
-          json: [{ provider_id: 'main', name: 'Images', type: 'openai', model: {} }],
-        });
-      if (path === '/images/generations') {
-        generations++;
-        const request = route.request().postDataJSON().request;
-        const record = makeRecord(`generated-${generations}`, request.prompt, owner);
-        record.request = request;
-        if (mode === 'save_failed')
+    await page.route(
+      '**/mock-api/**',
+      imageTaskRoutes(async (route) => {
+        const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
+        const method = route.request().method();
+        const owner = route.request().headers()['x-evernight-api-key'] || 'alice';
+        if (path === '/health' || path === '/ready')
+          return route.fulfill({ json: { status: 'ready' } });
+        if (path === '/providers')
           return route.fulfill({
-            json: { ...record.response, record_id: undefined, persistence_warning: 'save_failed' },
+            json: [{ provider_id: 'main', name: 'Images', type: 'openai', model: {} }],
           });
-        records.set(record.record_id, record);
-        return route.fulfill({ json: record.response });
-      }
-      if (path === '/images/records') {
-        const offset = Number(new URL(route.request().url()).searchParams.get('cursor') || 0);
-        const all = [...records.values()].filter((record) => record.owner_id === owner).reverse();
-        return route.fulfill({
-          json: {
-            items: all.slice(offset, offset + 20).map((record) => ({
-              record_id: record.record_id,
-              provider_id: record.provider_id,
-              model_id: record.request.model_id,
-              prompt_preview: record.request.prompt,
-              image_count: 1,
-              created_at: record.created_at,
-              archived: true,
-            })),
-            next_cursor: all.length > offset + 20 ? String(offset + 20) : undefined,
-          },
-        });
-      }
-      if (path.startsWith('/images/records/')) {
-        const id = path.split('/').at(-1);
-        const record = records.get(id);
-        if (!record || record.owner_id !== owner)
-          return route.fulfill({
-            status: 404,
-            json: { error: { message: 'Image record not found' } },
-          });
-        if (method === 'DELETE') {
-          if (failDelete) {
-            failDelete = false;
-            return route.fulfill({ status: 503, json: { error: { message: '暂时无法删除' } } });
-          }
-          records.delete(id);
-          return route.fulfill({ status: 204 });
+        if (path === '/images/generations') {
+          generations++;
+          const request = route.request().postDataJSON().request;
+          const record = makeRecord(`generated-${generations}`, request.prompt, owner);
+          record.request = request;
+          if (mode === 'save_failed')
+            return route.fulfill({
+              json: {
+                ...record.response,
+                record_id: undefined,
+                persistence_warning: 'save_failed',
+              },
+            });
+          records.set(record.record_id, record);
+          return route.fulfill({ json: record.response });
         }
-        if (mode === 'hold_read')
-          await new Promise((resolve) => {
-            releaseRead = resolve;
-            receivedRead();
+        if (path === '/images/records') {
+          const offset = Number(new URL(route.request().url()).searchParams.get('cursor') || 0);
+          const all = [...records.values()].filter((record) => record.owner_id === owner).reverse();
+          return route.fulfill({
+            json: {
+              items: all.slice(offset, offset + 20).map((record) => ({
+                record_id: record.record_id,
+                provider_id: record.provider_id,
+                model_id: record.request.model_id,
+                prompt_preview: record.request.prompt,
+                image_count: 1,
+                created_at: record.created_at,
+                archived: true,
+              })),
+              next_cursor: all.length > offset + 20 ? String(offset + 20) : undefined,
+            },
           });
-        return route.fulfill({ json: record }).catch(() => {});
-      }
-      return route.fulfill({ json: [] });
-    });
+        }
+        if (path.startsWith('/images/records/')) {
+          const id = path.split('/').at(-1);
+          const record = records.get(id);
+          if (!record || record.owner_id !== owner)
+            return route.fulfill({
+              status: 404,
+              json: { error: { message: 'Image record not found' } },
+            });
+          if (method === 'DELETE') {
+            if (failDelete) {
+              failDelete = false;
+              return route.fulfill({ status: 503, json: { error: { message: '暂时无法删除' } } });
+            }
+            records.delete(id);
+            return route.fulfill({ status: 204 });
+          }
+          if (mode === 'hold_read')
+            await new Promise((resolve) => {
+              releaseRead = resolve;
+              receivedRead();
+            });
+          return route.fulfill({ json: record }).catch(() => {});
+        }
+        return route.fulfill({ json: [] });
+      }),
+    );
     await page.goto(`${base}/images.html`);
     await page.getByRole('button', { name: '查看生成记录 历史图片 20', exact: true }).waitFor();
     await page.getByRole('button', { name: '加载更多记录', exact: true }).click();
@@ -164,8 +172,8 @@ try {
     assert.equal(records.has('generated-1'), false);
     mode = 'save_failed';
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '保存失败' }).waitFor();
-    assert.equal(await image.count(), 1);
+    await page.getByRole('alert').filter({ hasText: '保存失败' }).waitFor();
+    assert.equal(await image.count(), 0);
     assert.equal(generations, 2);
     assert.equal(records.has('generated-2'), false);
     mode = 'hold_read';

@@ -87,9 +87,87 @@ or unsupported URL results remain saved as references with a warning. Their
 remote links may expire, so download them promptly. Cross-origin browser
 download restrictions may require opening the original URL to save it.
 
-Image requests disable automatic SDK retries. Cancelling browser waiting does
-not guarantee upstream cancellation and may still incur charges. Streaming generation, masks and agent image tools are
-outside this interface.
+Image requests disable automatic SDK retries. Cancelling browser waiting leaves
+the background task running. Streaming provider progress is outside this interface.
+
+## Background Tasks
+
+The image page submits `POST /images/tasks`. The server
+returns **202** with a task summary and `Location: /images/tasks/{task_id}` before
+calling the provider. Browsers poll saved status; refreshing
+or leaving the page never cancels or resubmits an accepted task.
+
+```json
+{
+  "task_id": "0123456789abcdef0123456789abcdef",
+  "provider_id": "main",
+  "request": { "model_id": "your-image-model", "prompt": "A green leaf" },
+  "session_id": "optional-existing-session"
+}
+```
+
+`request` accepts generation parameters or the same ordered edit references and
+optional mask described below. `task_id` is an optional 32-character lowercase
+hexadecimal ID; the server allocates one when omitted. Repeat the same ID,
+principal, provider, request and session to retrieve the existing task, including
+after a lost response. Reusing an ID for a different request returns 409. The UI
+retains the ID when the initial submission response is lost.
+
+| Endpoint | Permission | Result |
+| --- | --- | --- |
+| `POST /images/tasks` | `images:generate` | 202 task summary |
+| `GET /images/tasks?limit=20&cursor=...&session_id=...` | `images:list` | Summary page, newest first |
+| `GET /images/tasks/{task_id}` | `images:get` | Saved status and optional result record ID |
+
+Tasks use `queued`, `running`, `succeeded`, `failed`, and `interrupted`. Status
+reads contain no reference or mask Base64. A successful task's `record_id` can
+be read through the existing history API. Ownership and `no-store` rules also
+apply to tasks; cross-owner IDs return 404. An optional session association
+requires `sessions:get` and an existing session owned by the principal.
+
+SQLite retains task inputs, session association, status and results across
+restarts. Queued tasks resume after provider restoration. Workers claim each
+task atomically and renew a 30-second lease every 10 seconds; expired running
+tasks become interrupted instead of automatically replaying a potentially paid
+request. Graceful shutdown also marks running work interrupted. A result saved
+before interrupted URL archival remains accessible through the task and history.
+Two tasks execute concurrently per process, with at most ten unfinished tasks
+per principal. Memory runtimes retain tasks only for their lifetime. Deleting a
+result history record also deletes its associated task inputs and mask.
+
+The synchronous `/images/generations` and `/images/edits` endpoints remain
+available. Background tasks require a saved result to report success; persistence
+failures report failure and do not repeat the provider call.
+
+## Image Tool in Chat
+
+The assembled interface registers `generate_image` in the tool catalog. Ask in
+chat, for example “帮我生成一张海边日落” and then “把刚才的天空改成紫色”. The
+chat model chooses the tool; approve its execution in the existing tool card.
+Images appear in that card, support a custom download filename, and are restored
+from saved tool traces when the session is reopened. There is no separate image
+composer or dialog inside chat.
+
+The tool accepts `prompt`, optional `provider_id`, `model_id`, `count`, `size`,
+`quality`, `output_format`, `timeout_seconds`, and up to 16 ordered `references`
+with `record_id` and `image_index` (zero-based). With no references it generates;
+with references it edits archived images after checking ownership. Without explicit model choices,
+editing keeps the referenced image's provider/model, and generation selects the
+first enabled OpenAI-compatible provider's declared `image_generation` model.
+Configure that capability in provider settings; chat keeps its own model.
+
+The image tool defaults to a 180-second request timeout, independently of the
+model's configured timeout. Set `timeout_seconds` to a positive number up to 600
+for slower generation or editing. Failed tool calls preserve the image task's
+error type and message in the chat trace and execution record.
+
+Tool calls reuse background tasks and history storage. The agent supplies trusted
+owner, session, run and call identity; models cannot set those execution fields.
+The tool requires approval and records an idempotency key so replay retrieves the
+same task instead of repeating generation. It returns saved record references to
+the model, without image Base64; the browser reads images through the authenticated
+history API. Cancelling the chat wait leaves accepted image work running, and its
+status and result remain available on the image page.
 
 ## Upload and Edit
 
@@ -145,6 +223,32 @@ parameters without another provider call; deleting the record removes references
 and result. Ownership checks apply to every saved reference. Upload contents are
 cleared on identity changes, page closure and switching to text generation.
 Validation responses omit submitted image data.
+
+## Partial Editing
+
+After uploading references, enable **局部涂抹修改图 1**. Paint the area to change,
+adjust brush size, restore selected areas or clear the selection, then enter the
+edit instruction. The mask always applies to the first reference; moving or
+replacing that reference clears its selection. History restores a saved mask.
+
+The browser converts the first reference to PNG only when submitting a masked
+edit. It preserves the original dimensions and sends a matching PNG mask with
+transparent pixels for selected areas and opaque pixels elsewhere. Other
+references retain their original bytes and format. The backend requires a PNG
+mask with an alpha channel matching the first PNG reference's dimensions, up to
+32 million pixels and 20 MiB. References plus mask must fit the 50 MiB decoded
+input limit. An empty browser selection does not submit a task.
+
+Add an optional `mask` to the edit request:
+
+```json
+"mask": { "base64_data": "<PNG mask encoded as Base64>", "mime_type": "image/png" }
+```
+
+The adapter uploads the mask as a real multipart `mask` file alongside the
+ordered references. The selected provider/model must support masks. Masks guide
+the model and do not guarantee an exact pixel boundary; see the official
+[image editing guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 ## Opt-in Real Test
 

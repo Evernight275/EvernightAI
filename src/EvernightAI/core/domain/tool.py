@@ -1,3 +1,5 @@
+from EvernightAI.core.domain.tool_policy import ToolPolicyStore
+from EvernightAI.core.schema.auth import PrincipalScope
 from typing import Any
 from dataclasses import dataclass
 
@@ -16,6 +18,7 @@ from EvernightAI.core.protocol.tool import (
     ToolRegistration,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
+    ToolPolicyStoreProtocol,
 )
 from EvernightAI.core.schema.tool import (
     ToolCall,
@@ -27,6 +30,8 @@ from EvernightAI.core.schema.tool import (
     ToolPermission,
     ToolSafetyDecision,
     ToolSafetyLevel,
+    ToolAccessMode,
+    ToolPolicySummary,
 )
 
 
@@ -173,17 +178,108 @@ class ToolManager(ToolManageProtocol):
         self,
         register: ToolRegisterProtocol,
         safety_policy: ToolSafetyPolicyProtocol | None = None,
+        policy_store: ToolPolicyStoreProtocol | None = None,
     ) -> None:
         self._register = register
         self._safety_policy = safety_policy or BasicToolSafetyPolicy()
+        self._policy_store = (
+            policy_store if policy_store is not None else ToolPolicyStore()
+        )
 
-    def list_tools(self) -> list[ToolDefinition]:
-        return self._register.list_tools()
+    def list_tools(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolDefinition]:
+        tools = []
+        for setting in self.list_tool_policies(principal_scope=principal_scope):
+            if setting.mode is ToolAccessMode.DENY:
+                continue
+            tools.append(
+                self._effective_definition(
+                    setting.tool, setting.configured_mode
+                ).model_copy(
+                    update={"requires_approval": setting.mode is ToolAccessMode.ASK}
+                )
+            )
+        return tools
+
+    def list_tool_policies(
+        self, *, principal_scope: PrincipalScope | None = None
+    ) -> list[ToolPolicySummary]:
+        return [
+            self._policy_summary(tool, principal_scope)
+            for tool in self._register.list_tools()
+        ]
+
+    def set_tool_policy(
+        self,
+        tool_name: str,
+        mode: ToolAccessMode | None,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ToolPolicySummary:
+        tool = self._register.get(tool_name)
+        if mode is None:
+            self._policy_store.delete(tool_name, principal_scope=principal_scope)
+        else:
+            self._policy_store.set(tool_name, mode, principal_scope=principal_scope)
+        return self._policy_summary(tool, principal_scope)
+
+    def _policy_summary(
+        self, tool: ToolDefinition, scope: PrincipalScope | None
+    ) -> ToolPolicySummary:
+        configured = self._policy_store.get(tool.name, principal_scope=scope)
+        call = ToolCall(
+            tool_call_id="policy-preview",
+            tool_call={"name": tool.name, "arguments": {}},
+            metadata={"owner_id": scope.owner_id if scope else None},
+        )
+        default = self._safety_policy.authorize(tool, call)
+        effective = self._safety_policy.authorize(
+            self._effective_definition(tool, configured), call
+        )
+        mode = self._decision_mode(effective)
+        if configured is ToolAccessMode.DENY:
+            mode = ToolAccessMode.DENY
+        return ToolPolicySummary(
+            tool=tool,
+            mode=mode,
+            default_mode=self._decision_mode(default),
+            configured_mode=configured,
+            blocked_reason=effective.reason
+            if not effective.allowed and not effective.requires_approval
+            else None,
+        )
+
+    def _decision_mode(self, decision: ToolSafetyDecision) -> ToolAccessMode:
+        if decision.allowed:
+            return ToolAccessMode.ALLOW
+        return ToolAccessMode.ASK if decision.requires_approval else ToolAccessMode.DENY
+
+    def _effective_definition(
+        self, tool: ToolDefinition, mode: ToolAccessMode | None
+    ) -> ToolDefinition:
+        if mode not in (ToolAccessMode.ALLOW, ToolAccessMode.ASK):
+            return tool
+        return tool.model_copy(
+            update={
+                "approval_mode": ToolApprovalMode.NEVER
+                if mode is ToolAccessMode.ALLOW
+                else ToolApprovalMode.REQUIRED,
+                "requires_approval": mode is ToolAccessMode.ASK,
+            }
+        )
 
     def authorize(self, call: ToolCall) -> ToolSafetyDecision:
         tool_name = self._get_tool_name(call.tool_call)
         arguments = self._execution_arguments(call)
         tool = self._register.get(tool_name)
+        scope = PrincipalScope(owner_id=call.metadata.get("owner_id"))
+        mode = self._policy_store.get(tool_name, principal_scope=scope)
+        if mode is ToolAccessMode.DENY:
+            return ToolSafetyDecision(
+                allowed=False, reason="Tool is disabled by your tool policy"
+            )
+        tool = self._effective_definition(tool, mode)
         preflight_policy = self._register.get_preflight_policy(tool_name)
         if preflight_policy is not None:
             preflight_decision = preflight_policy(tool, arguments)
@@ -214,6 +310,12 @@ class ToolManager(ToolManageProtocol):
 
         try:
             result = await executor(arguments)
+        except ToolExecutionError as exc:
+            raise ToolExecutionError(
+                f"The tool {tool_name} execution failed: {exc}",
+                detail=exc.detail,
+                cause=exc,
+            ) from exc
         except Exception as exc:
             raise ToolExecutionError(
                 f"The tool {tool_name} execution failed", cause=exc
@@ -228,6 +330,14 @@ class ToolManager(ToolManageProtocol):
     def _execution_arguments(self, call: ToolCall) -> dict[str, Any]:
         arguments = dict(self._get_arguments(call.tool_call))
         tool = self._register.get(self._get_tool_name(call.tool_call))
+        if tool.metadata.get("supports_execution_context"):
+            arguments["_execution_context"] = {
+                "owner_id": call.metadata.get("owner_id"),
+                "session_id": call.metadata.get("session_id"),
+                "run_id": call.metadata.get("run_id"),
+                "tool_call_id": call.tool_call_id,
+            }
+            arguments.pop("_idempotency_key", None)
         if tool.metadata.get("supports_working_directory"):
             arguments.pop("_working_directory", None)
             directory = call.metadata.get("working_directory")
@@ -261,17 +371,25 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
         blocked_permissions: set[ToolPermission] | None = None,
         approval_required_permissions: set[ToolPermission] | None = None,
     ) -> None:
-        self._blocked_permissions = blocked_permissions or {
-            ToolPermission.SHELL,
-            ToolPermission.DESTRUCTIVE,
-        }
-        self._approval_required_permissions = approval_required_permissions or {
-            ToolPermission.WRITE,
-            ToolPermission.PROCESS,
-            ToolPermission.NETWORK,
-            ToolPermission.DATABASE,
-            ToolPermission.EXTERNAL_API,
-        }
+        self._blocked_permissions = (
+            blocked_permissions
+            if blocked_permissions is not None
+            else {
+                ToolPermission.SHELL,
+                ToolPermission.DESTRUCTIVE,
+            }
+        )
+        self._approval_required_permissions = (
+            approval_required_permissions
+            if approval_required_permissions is not None
+            else {
+                ToolPermission.WRITE,
+                ToolPermission.PROCESS,
+                ToolPermission.NETWORK,
+                ToolPermission.DATABASE,
+                ToolPermission.EXTERNAL_API,
+            }
+        )
 
     def authorize(
         self,
@@ -297,6 +415,18 @@ class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):
                 or bool(permissions & self._approval_required_permissions)
             )
         approval = call.approval
+        if (
+            approval is not None
+            and approval.tool_call_id == call.tool_call_id
+            and approval.status
+            in (ToolApprovalStatus.DENIED, ToolApprovalStatus.EXPIRED)
+        ):
+            return ToolSafetyDecision(
+                allowed=False,
+                reason=approval.reason or f"Tool approval {approval.status.value}",
+                requires_approval=True,
+                approval_request=self._approval_request(tool, call),
+            )
         approved = (
             approval is not None
             and approval.tool_call_id == call.tool_call_id

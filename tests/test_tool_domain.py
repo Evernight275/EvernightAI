@@ -199,6 +199,29 @@ async def test_tool_manager_wraps_executor_errors() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_manager_preserves_specific_execution_errors() -> None:
+    error = ToolExecutionError(
+        "Image request timed out", detail="ProviderRequestTimeoutError"
+    )
+
+    async def broken(arguments: dict[str, object]) -> dict[str, object]:
+        raise error
+
+    register = ToolRegister()
+    register.register(make_tool(), broken)
+    with pytest.raises(ToolExecutionError) as exc_info:
+        await ToolManager(register).execute(
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "add", "arguments": {}},
+            )
+        )
+    assert exc_info.value.cause is error
+    assert exc_info.value.detail == error.detail
+    assert "Image request timed out" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
 async def test_tool_manager_rejects_non_dictionary_results() -> None:
     async def invalid_result(arguments: dict[str, object]) -> dict[str, object]:
         return "not a dictionary"  # type: ignore[return-value]

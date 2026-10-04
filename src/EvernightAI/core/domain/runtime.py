@@ -1,8 +1,11 @@
 import inspect
 from EvernightAI.core.domain.image import ImageGenerationStore
+from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.protocol.image import (
     ImageArchiveProtocol,
     ImageGenerationStoreProtocol,
+    ImageTaskStoreProtocol,
+    ImageTaskExecutorProtocol,
 )
 from typing import Any
 
@@ -46,6 +49,7 @@ from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
+    ToolPolicyStoreProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
     ToolSourceProtocol,
@@ -64,9 +68,12 @@ class RuntimeKernel(RuntimeProtocol):
         provider_config_store: ProviderConfigStoreProtocol | None = None,
         image_records: ImageGenerationStoreProtocol | None = None,
         image_archive: ImageArchiveProtocol | None = None,
+        image_tasks: ImageTaskStoreProtocol | None = None,
+        image_task_executor: ImageTaskExecutorProtocol | None = None,
         tool_register: ToolRegisterProtocol,
         tools: ToolManageProtocol,
         tool_safety_policy: ToolSafetyPolicyProtocol,
+        tool_policy_store: ToolPolicyStoreProtocol | None = None,
         tool_sources: list[ToolSourceProtocol] | None = None,
         context_register: ContextRegisterProtocol,
         contexts: ContextManageProtocol,
@@ -95,11 +102,14 @@ class RuntimeKernel(RuntimeProtocol):
         self._provider_config_store = provider_config_store
         self._image_records = image_records or ImageGenerationStore()
         self._image_archive = image_archive
+        self._image_tasks = image_tasks or ImageTaskStore()
+        self._image_task_executor = image_task_executor
         self._initialized = False
         self._initialization_error: Exception | None = None
         self._tool_register = tool_register
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
+        self._tool_policy_store = tool_policy_store
         self._tool_sources = list(tool_sources or [])
         self._sandbox = sandbox
         self._skill_register = skill_register or SkillRegister()
@@ -130,6 +140,14 @@ class RuntimeKernel(RuntimeProtocol):
         return self._image_records
 
     @property
+    def image_tasks(self) -> ImageTaskStoreProtocol:
+        return self._image_tasks
+
+    @property
+    def image_task_executor(self) -> ImageTaskExecutorProtocol | None:
+        return self._image_task_executor
+
+    @property
     def image_archive(self) -> ImageArchiveProtocol | None:
         return self._image_archive
 
@@ -152,6 +170,10 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def tools(self) -> ToolManageProtocol:
         return self._tools
+
+    @property
+    def tool_policy_store(self) -> ToolPolicyStoreProtocol | None:
+        return self._tool_policy_store
 
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol:
@@ -267,6 +289,8 @@ class RuntimeKernel(RuntimeProtocol):
             for source in self._tool_sources:
                 await source.load(self._tool_register)
                 loaded_sources.append(source)
+            if self._image_task_executor is not None:
+                await self._image_task_executor.start()
         except BaseException as exc:
             for source in reversed(loaded_sources):
                 await source.close()
@@ -277,6 +301,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._initialized = True
 
     async def close(self) -> None:
+        if self._image_task_executor is not None:
+            await self._image_task_executor.close()
         for source in reversed(self._tool_sources):
             await source.close()
         await self._providers.close()
@@ -285,8 +311,10 @@ class RuntimeKernel(RuntimeProtocol):
 
     def _persistent_resources(self) -> list[Any]:
         return [
+            self._tool_policy_store,
             self._skills,
             self._image_records,
+            self._image_tasks,
             self._provider_config_store,
             self._context_register,
             self._data_analysis_register,

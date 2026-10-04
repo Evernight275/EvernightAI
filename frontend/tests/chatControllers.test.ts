@@ -297,7 +297,7 @@ describe('chat component controllers', () => {
   });
 });
 
-import { toolResultSummary } from '../src/components/chat/toolResult';
+import { imageToolRecordId, toolResultSummary } from '../src/components/chat/toolResult';
 
 it('summarizes text, command output, arrays and persisted results without hiding raw data', () => {
   expect(toolResultSummary('{"tool_call_result":{"content":"line one\\nline two"}}')).toBe(
@@ -328,4 +328,16 @@ it('shows live tool execution in diagnostics even when the last snapshot was pau
       [{ approval_id: 'a', tool_call_id: 'c', tool_name: 'write_file' }],
     )[0]?.statusLabel,
   ).toBe('执行中');
+});
+
+it('image tool results expose only valid saved record references', () => {
+  const record_id = 'a'.repeat(32);
+  const result = { type: 'image_generation', record_id, images: [{ record_id, image_index: 0 }] };
+  expect(toolResultSummary(JSON.stringify(result))).toBe('已生成 1 张图片');
+  expect(imageToolRecordId(JSON.stringify(result))).toBe(record_id);
+  expect(imageToolRecordId(JSON.stringify({ tool_call_result: result }))).toBe(record_id);
+  expect(imageToolRecordId('plain text')).toBeUndefined();
+  expect(imageToolRecordId(JSON.stringify({ record_id }))).toBeUndefined();
+  expect(imageToolRecordId(JSON.stringify({ ...result, record_id: '../private' }))).toBeUndefined();
+  expect(imageToolRecordId()).toBeUndefined();
 });

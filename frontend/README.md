@@ -152,3 +152,33 @@ not automatically reattach to an active run.
 
 `tests/toolProgress.browser.mjs` checks disconnect recovery, linked approvals,
 error focus and layout at desktop and mobile widths with a mocked backend.
+
+
+### Image tasks and the chat image tool
+
+`/images.html` submits durable background tasks and polls saved status. Its task
+list survives refresh, supports pagination and opens saved results. Upload edits
+support multiple references and painting a PNG alpha mask on the first image.
+Chat exposes `generate_image` through the existing tool catalog. Ask for an image
+in a message, approve the tool call, and view/download the result in the tool card.
+Follow-up messages can edit saved images by reference. Reopening a session restores
+the cards and images; the composer has no separate image button or dialog.
+Identity changes abort browser reads and clear image drafts and previews.
+
+`pnpm run test:images:browser` covers existing image flows plus background refresh,
+idempotent retry after a lost submission response, mask dimensions and alpha
+pixels, and chat generation/edit/history on desktop and mobile. The browser
+suite uses mocked API responses and never sends paid provider requests.
+
+
+### Tool permissions
+
+**设置 → 工具管理** lists every registered tool and its effective/default policy.
+Users with `tools:configure` can save allow/ask/deny overrides or restore defaults.
+The settings are stored per principal on the backend. Identity changes abort reads
+and updates, and discard previews and feedback from the previous principal.
+Successful changes refresh the workspace catalog so chat uses the updated tools.
+
+`tests/toolPolicies.browser.mjs` checks save/retry, all three modes, default reset,
+refresh persistence, chat catalog filtering, read-only access, and identity changes
+during a pending update at desktop, mobile and narrow mobile widths.

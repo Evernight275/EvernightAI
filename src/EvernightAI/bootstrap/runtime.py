@@ -12,6 +12,9 @@ from EvernightAI.core.domain.context import (
     WindowTrimmingContextStrategy,
 )
 from EvernightAI.application.agent import recover_interrupted_agent_runs
+from EvernightAI.application.image_task import ImageTaskApplication
+from EvernightAI.core.domain.image_task import ImageTaskStore
+from EvernightAI.core.schema.image_task import ImageTask
 from EvernightAI.core.domain.data_analysis import (
     DataAnalysisManager,
     DataAnalysisRegister,
@@ -41,8 +44,13 @@ from EvernightAI.core.protocol.provider import (
     ProviderConfigStoreProtocol,
     ProviderSecretResolverProtocol,
 )
-from EvernightAI.core.protocol.image import ImageGenerationStoreProtocol
+from EvernightAI.core.protocol.image import (
+    ImageGenerationStoreProtocol,
+    ImageTaskStoreProtocol,
+)
 from EvernightAI.infra.adapters.images.archive import PublicImageArchive
+from EvernightAI.infra.adapters.images.executor import SingleProcessImageTaskExecutor
+from EvernightAI.infra.adapters.images.tasks import SQLiteImageTaskStore
 from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.protocol.context import (
@@ -73,6 +81,7 @@ from EvernightAI.infra.adapters.skill.template import create_template_renderer
 from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
 from EvernightAI.core.protocol.tool import (
     ToolRegisterProtocol,
+    ToolPolicyStoreProtocol,
     ToolSafetyPolicyProtocol,
     ToolSourceProtocol,
 )
@@ -90,6 +99,7 @@ from EvernightAI.infra.adapters.providers.secrets import (
     EnvironmentProviderSecretResolver,
 )
 from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
+from EvernightAI.infra.adapters.tool.sqlite import SQLiteToolPolicyStore
 from EvernightAI.infra.sqlite import SQLiteMigrationRunner
 from EvernightAI.infra.registrations.provider.anthropic import (
     register_anthropic_provider,
@@ -418,6 +428,8 @@ def create_sqlite_runtime(
         provider_secret_resolver=provider_config_store,
         skill_template_store=SQLiteSkillTemplateStore(database_path),
         image_records=SQLiteImageGenerationStore(database_path),
+        image_tasks=SQLiteImageTaskStore(database_path),
+        tool_policy_store=SQLiteToolPolicyStore(database_path),
         data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
@@ -441,6 +453,7 @@ def _create_runtime(
     *,
     tool_register: ToolRegisterProtocol | None = None,
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
+    tool_policy_store: ToolPolicyStoreProtocol | None = None,
     tool_sources: list[ToolSourceProtocol] | None = None,
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
@@ -449,6 +462,7 @@ def _create_runtime(
     provider_secret_resolver: ProviderSecretResolverProtocol | None = None,
     skill_template_store: SkillTemplateStoreProtocol | None = None,
     image_records: ImageGenerationStoreProtocol | None = None,
+    image_tasks: ImageTaskStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
     data_analysis: DataAnalysisManageProtocol | None = None,
     sessions: SessionManageProtocol | None = None,
@@ -479,7 +493,7 @@ def _create_runtime(
     tool_register = tool_register or ToolRegister()
     tool_safety_policy = tool_safety_policy or BasicToolSafetyPolicy()
     sandbox = sandbox or SubprocessSandboxExecutor()
-    tools = ToolManager(tool_register, tool_safety_policy)
+    tools = ToolManager(tool_register, tool_safety_policy, tool_policy_store)
     skill_register = skill_register or SkillRegister()
     register_echo_skill(skill_register)
     skills = skills or create_skill_manager(skill_register, skill_template_store)
@@ -509,15 +523,23 @@ def _create_runtime(
             sessions=sessions,
         )
 
-    return RuntimeKernel(
+    async def execute_image_task(task: ImageTask) -> ImageTask:
+        return await ImageTaskApplication(runtime).execute(task)
+
+    image_tasks = image_tasks or ImageTaskStore()
+    executor = SingleProcessImageTaskExecutor(image_tasks, execute_image_task)
+    runtime = RuntimeKernel(
         provider_factory=provider_factory,
         providers=providers,
         provider_config_store=provider_config_store,
         image_records=image_records,
         image_archive=PublicImageArchive(),
+        image_tasks=image_tasks,
+        image_task_executor=executor,
         tool_register=tool_register,
         tools=tools,
         tool_safety_policy=tool_safety_policy,
+        tool_policy_store=tool_policy_store,
         tool_sources=tool_sources,
         sandbox=sandbox,
         skill_register=skill_register,
@@ -541,3 +563,4 @@ def _create_runtime(
         agent_run_executor=agent_run_executor,
         tool_execution_register=tool_execution_register,
     )
+    return runtime

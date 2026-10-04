@@ -31,10 +31,13 @@ class ImageApplication:
         request: ImageGenerationRequest,
         *,
         principal_scope: PrincipalScope | None = None,
+        record_id: str | None = None,
     ) -> ImageGenerationResponse:
         request = request.model_copy(deep=True)
         response = await self._runtime.providers.generate_images(provider_id, request)
-        return await self._persist(provider_id, request, response, principal_scope)
+        return await self._persist(
+            provider_id, request, response, principal_scope, record_id
+        )
 
     async def edit(
         self,
@@ -42,10 +45,13 @@ class ImageApplication:
         request: ImageEditRequest,
         *,
         principal_scope: PrincipalScope | None = None,
+        record_id: str | None = None,
     ) -> ImageGenerationResponse:
         request = request.model_copy(deep=True)
         response = await self._runtime.providers.edit_images(provider_id, request)
-        return await self._persist(provider_id, request, response, principal_scope)
+        return await self._persist(
+            provider_id, request, response, principal_scope, record_id
+        )
 
     async def _persist(
         self,
@@ -53,6 +59,7 @@ class ImageApplication:
         request: ImageGenerationRequest | ImageEditRequest,
         response: ImageGenerationResponse,
         principal_scope: PrincipalScope | None,
+        record_id: str | None = None,
     ) -> ImageGenerationResponse:
         record = ImageGenerationRecord(
             owner_id=principal_scope.owner_id if principal_scope is not None else None,
@@ -60,6 +67,8 @@ class ImageApplication:
             request=request.model_copy(deep=True),
             response=response,
         )
+        if record_id is not None:
+            record = record.model_copy(update={"record_id": record_id})
         response = response.model_copy(
             update={
                 "record_id": record.record_id,
@@ -149,3 +158,4 @@ class ImageApplication:
         self, record_id: str, *, principal_scope: PrincipalScope | None = None
     ) -> None:
         self._runtime.image_records.delete(record_id, principal_scope=principal_scope)
+        self._runtime.image_tasks.delete_for_record(record_id)

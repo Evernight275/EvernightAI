@@ -125,7 +125,7 @@ async def test_authorized_interface_delegates_when_permission_is_allowed() -> No
 
     assert provider.provider_id == "provider-1"
     assert context.context_id == "ctx-1"
-    assert tools == []
+    assert [tool.name for tool in tools] == ["generate_image"]
     assert data_sources == []
 
 
@@ -909,7 +909,7 @@ class FakeToolInterface:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def list_tools(self) -> str:
+    def list_tools(self, *, principal_scope=None) -> str:
         self.calls.append("list_tools")
         return "delegated"
 

@@ -1,7 +1,7 @@
 from EvernightAI.core.schema.base import EvernightAISchema
 from typing import Any
 from enum import StrEnum
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 
 class ToolPermission(StrEnum):
@@ -41,6 +41,12 @@ class ToolApprovalMode(StrEnum):
     NEVER = "never"
 
 
+class ToolAccessMode(StrEnum):
+    ALLOW = "allow"
+    ASK = "ask"
+    DENY = "deny"
+
+
 class ToolReplayPolicy(StrEnum):
     SAFE = "safe"
     IDEMPOTENT = "idempotent"
@@ -71,6 +77,20 @@ class ToolDefinition(EvernightAISchema):
         ):
             raise ValueError("Idempotent tools must declare idempotency_key_parameter")
         return self
+
+
+class ToolPolicyUpdate(EvernightAISchema):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: ToolAccessMode
+
+
+class ToolPolicySummary(EvernightAISchema):
+    tool: ToolDefinition
+    mode: ToolAccessMode
+    default_mode: ToolAccessMode
+    configured_mode: ToolAccessMode | None = None
+    blocked_reason: str | None = None
 
 
 class ToolApprovalRequest(EvernightAISchema):

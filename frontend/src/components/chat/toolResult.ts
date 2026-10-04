@@ -1,3 +1,19 @@
+export function imageToolRecordId(text?: string): string | undefined {
+  if (!text) return;
+  try {
+    const parsed = JSON.parse(text);
+    const value = parsed?.tool_call_result ?? parsed;
+    if (
+      value?.type === 'image_generation' &&
+      typeof value.record_id === 'string' &&
+      /^[a-f0-9]{32}$/.test(value.record_id)
+    )
+      return value.record_id;
+  } catch {
+    /* Other tool results need no image preview. */
+  }
+}
+
 export function toolResultSummary(text?: string): string {
   if (!text) return '';
   let value: unknown = text;
@@ -10,6 +26,8 @@ export function toolResultSummary(text?: string): string {
     const record = value as Record<string, unknown>;
     if (record.tool_call_result != null)
       return toolResultSummary(JSON.stringify(record.tool_call_result));
+    if (record.type === 'image_generation' && Array.isArray(record.images))
+      return `已生成 ${record.images.length} 张图片`;
     const preview = [
       'error_message',
       'error',

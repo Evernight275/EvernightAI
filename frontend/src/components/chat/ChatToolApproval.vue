@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, X } from '@lucide/vue';
 import type { ChatApprovalItem } from './chatRequestStatus';
+import JsonCode from '../common/JsonCode.vue';
 
 defineProps<{
   approval: ChatApprovalItem;
@@ -54,9 +55,10 @@ defineEmits<{
     </div>
     <details class="chat-approval-payload">
       <summary>查看调用参数</summary>
-      <pre tabindex="0" :aria-label="approval.tool_name + ' 调用参数'">{{
-        approval.toolCallText
-      }}</pre>
+      <pre
+        tabindex="0"
+        :aria-label="approval.tool_name + ' 调用参数'"
+      ><JsonCode :source="approval.toolCallText" /></pre>
     </details>
   </article>
 </template>

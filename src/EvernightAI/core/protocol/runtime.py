@@ -3,6 +3,8 @@ from typing import Protocol
 from EvernightAI.core.protocol.image import (
     ImageArchiveProtocol,
     ImageGenerationStoreProtocol,
+    ImageTaskStoreProtocol,
+    ImageTaskExecutorProtocol,
 )
 from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
@@ -39,6 +41,7 @@ from EvernightAI.core.protocol.session import (
 from EvernightAI.core.protocol.skill import SkillManageProtocol, SkillRegisterProtocol
 from EvernightAI.core.protocol.tool import (
     ToolManageProtocol,
+    ToolPolicyStoreProtocol,
     ToolRegisterProtocol,
     ToolSafetyPolicyProtocol,
     ToolSourceProtocol,
@@ -53,6 +56,12 @@ class RuntimeProtocol(Protocol):
 
     @property
     def image_records(self) -> ImageGenerationStoreProtocol: ...
+
+    @property
+    def image_tasks(self) -> ImageTaskStoreProtocol: ...
+
+    @property
+    def image_task_executor(self) -> ImageTaskExecutorProtocol | None: ...
 
     @property
     def image_archive(self) -> ImageArchiveProtocol | None: ...
@@ -71,6 +80,9 @@ class RuntimeProtocol(Protocol):
 
     @property
     def tools(self) -> ToolManageProtocol: ...
+
+    @property
+    def tool_policy_store(self) -> ToolPolicyStoreProtocol | None: ...
 
     @property
     def tool_safety_policy(self) -> ToolSafetyPolicyProtocol: ...

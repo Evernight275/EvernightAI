@@ -1,4 +1,10 @@
 import asyncio
+from EvernightAI.application.image_task import ImageTaskApplication
+from EvernightAI.core.schema.image_task import (
+    ImageTaskPage,
+    ImageTaskSubmit,
+    ImageTaskSummary,
+)
 from EvernightAI.application.image import ImageApplication
 from EvernightAI.core.schema.auth import PrincipalScope
 from time import perf_counter
@@ -47,6 +53,38 @@ PROVIDER_TEST_TIMEOUT_SECONDS = 30.0
 class ProviderApplication(ProviderInterfaceProtocol):
     def __init__(self, runtime: RuntimeProtocol) -> None:
         self._runtime = runtime
+
+    async def submit_image_task(
+        self,
+        submission: ImageTaskSubmit,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskSummary:
+        return await ImageTaskApplication(self._runtime).submit(
+            submission, principal_scope=principal_scope
+        )
+
+    def get_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> ImageTaskSummary:
+        return ImageTaskApplication(self._runtime).get(
+            task_id, principal_scope=principal_scope
+        )
+
+    def list_image_tasks(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        session_id: str | None = None,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ImageTaskPage:
+        return ImageTaskApplication(self._runtime).list(
+            limit=limit,
+            cursor=cursor,
+            session_id=session_id,
+            principal_scope=principal_scope,
+        )
 
     async def generate_images(
         self,

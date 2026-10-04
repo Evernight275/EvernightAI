@@ -64,8 +64,8 @@ def test_migration_runner_versions_schema_and_configures_connections(
 ) -> None:
     database_path = tmp_path / "runtime.sqlite3"
 
-    assert SQLiteMigrationRunner(database_path).run() == 6
-    assert SQLiteMigrationRunner(database_path).run() == 6
+    assert SQLiteMigrationRunner(database_path).run() == 8
+    assert SQLiteMigrationRunner(database_path).run() == 8
 
     connection = connect_sqlite(database_path)
     try:
@@ -78,7 +78,7 @@ def test_migration_runner_versions_schema_and_configures_connections(
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )
         }
-        assert versions == [(1,), (2,), (3,), (4,), (5,), (6,)]
+        assert versions == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)

@@ -13,8 +13,6 @@ import {
   X,
 } from '@lucide/vue';
 import {
-  editImages,
-  generateImages,
   type GeneratedImage,
   type ImageEditInput,
   type ImageEditRequest,
@@ -23,6 +21,15 @@ import {
   type ImageGenerationResponse,
   type ProviderInfo,
 } from '../../api';
+import {
+  getImageRecord,
+  submitImageTask,
+  type ImageMaskInput,
+  type ImageTask,
+  type ImageTaskSubmission,
+} from '../../api/images';
+import { imageTaskLabels, waitForImageTask } from '../../runtime/imageTasks';
+import ImageMaskEditor from './ImageMaskEditor.vue';
 import {
   downloadImage,
   imageSource,
@@ -38,10 +45,13 @@ const props = defineProps<{
   providers: ProviderInfo[];
   record?: ImageGenerationRecord | null;
   clearedRecordId?: string;
+  sessionId?: string;
+  editImage?: { id: string; image: GeneratedImage; providerId: string; modelId: string } | null;
 }>();
 const emit = defineEmits<{
   generated: [response: ImageGenerationResponse];
   busy: [value: boolean];
+  queued: [task: ImageTask];
 }>();
 const providers = computed(() =>
   props.providers.filter((p) => p.type === 'openai' && p.is_enabled !== false),
@@ -52,6 +62,12 @@ const prompt = ref('');
 const mode = ref<'generate' | 'edit'>('generate');
 type ReferenceImage = { id: number; image: ImageEditInput; name: string; size: number };
 const references = ref<ReferenceImage[]>([]);
+const maskEnabled = ref(false);
+const maskBusy = ref(false);
+const initialMask = ref<ImageMaskInput | null>(null);
+const preparedMask = ref<{ image: ImageEditInput; mask: ImageMaskInput } | null>(null);
+const activeTask = ref<ImageTask | null>(null);
+let pendingSubmission: ImageTaskSubmission | null = null;
 let imageSequence = 0;
 const uploadInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
@@ -96,7 +112,25 @@ watch(
   },
   { immediate: true, flush: 'sync' },
 );
-watch([busy, uploading], ([generating, reading]) => emit('busy', generating || reading));
+watch([busy, uploading, maskBusy], ([generating, reading, masking]) =>
+  emit('busy', generating || reading || masking),
+);
+watch(
+  () => references.value[0]?.id,
+  () => {
+    preparedMask.value = null;
+    initialMask.value = null;
+    maskEnabled.value = false;
+  },
+  { flush: 'sync' },
+);
+watch(
+  () => props.editImage,
+  (value) => {
+    if (value) continueEditing(value.image, value.providerId, value.modelId);
+  },
+  { immediate: true },
+);
 watch(
   mode,
   () => {
@@ -131,6 +165,8 @@ watch(
       name: `历史参考图 ${index + 1}`,
       size: imageInputSize(image),
     }));
+    initialMask.value = 'mask' in request ? request.mask || null : null;
+    maskEnabled.value = !!initialMask.value;
     providerId.value = providers.value.some((p) => p.provider_id === record.provider_id)
       ? record.provider_id
       : '';
@@ -169,6 +205,7 @@ async function generate(): Promise<void> {
   if (
     busy.value ||
     uploading.value ||
+    maskBusy.value ||
     !providerId.value ||
     !modelId.value.trim() ||
     !prompt.value.trim() ||
@@ -186,19 +223,56 @@ async function generate(): Promise<void> {
     ...(background.value ? { background: background.value } : {}),
     ...(resultFormat.value ? { result_format: resultFormat.value } : {}),
   };
+  if (mode.value === 'edit' && maskEnabled.value && !preparedMask.value) {
+    error.value = '请先涂抹需要修改的区域，或关闭局部修改。';
+    return;
+  }
   const editRequest: ImageEditRequest | null =
     mode.value === 'edit' && references.value.length
       ? { ...request, images: references.value.map((item) => ({ ...item.image })) }
       : null;
+  if (editRequest && maskEnabled.value && preparedMask.value) {
+    editRequest.images[0] = preparedMask.value.image;
+    editRequest.mask = preparedMask.value.mask;
+    const total = [...editRequest.images, editRequest.mask].reduce(
+      (sum, input) => sum + imageInputSize(input),
+      0,
+    );
+    if (total > 50 * 1024 * 1024) {
+      error.value = '参考图与遮罩总大小不能超过 50 MiB';
+      return;
+    }
+  }
   const current = ++generation;
   controller = new AbortController();
   busy.value = true;
   error.value = '';
   notice.value = '';
+  activeTask.value = null;
   try {
-    const response = editRequest
-      ? await editImages(providerId.value, editRequest, controller.signal)
-      : await generateImages(providerId.value, request, controller.signal);
+    const next = {
+      provider_id: providerId.value,
+      request: editRequest || request,
+      ...(props.sessionId ? { session_id: props.sessionId } : {}),
+    };
+    if (
+      !pendingSubmission ||
+      JSON.stringify({ ...pendingSubmission, task_id: undefined }) !== JSON.stringify(next)
+    ) {
+      pendingSubmission = { ...next, task_id: crypto.randomUUID().replaceAll('-', '') };
+    }
+    const task = await submitImageTask(pendingSubmission, controller.signal);
+    if (current !== generation) return;
+    activeTask.value = task;
+    emit('queued', task);
+    pendingSubmission = null;
+    const finished = await waitForImageTask(task, controller.signal, (value) => {
+      if (current === generation) activeTask.value = value;
+    });
+    if (finished.status !== 'succeeded' || !finished.record_id)
+      throw new Error(finished.error_message || '图片任务未完成，请检查任务列表。');
+    const record = await getImageRecord(finished.record_id, controller.signal);
+    const response = record.response;
     if (current !== generation) return;
     downloadVersion++;
     downloadController?.abort();
@@ -208,7 +282,11 @@ async function generate(): Promise<void> {
     failedImages.value = new Set();
     emit('generated', response);
   } catch (cause) {
-    if (current === generation) error.value = imageErrorMessage(cause);
+    if (current === generation) {
+      error.value = imageErrorMessage(cause);
+      if (activeTask.value && ['queued', 'running'].includes(activeTask.value.status))
+        notice.value = '任务仍在后台执行，请在图片任务中查看进度。';
+    }
   } finally {
     if (current === generation) {
       busy.value = false;
@@ -222,6 +300,9 @@ function clearReferences(): void {
   uploadController = null;
   uploading.value = false;
   references.value = [];
+  maskEnabled.value = false;
+  preparedMask.value = null;
+  initialMask.value = null;
   if (uploadInput.value) uploadInput.value.value = '';
 }
 async function upload(event: Event): Promise<void> {
@@ -276,7 +357,27 @@ function cancel(): void {
   controller?.abort();
   controller = null;
   busy.value = false;
-  notice.value = '已取消等待，服务商可能仍在生成并计费。';
+  notice.value = '已取消等待，任务会继续在后台生成，可在图片任务中查看结果。';
+}
+function continueEditing(
+  image: GeneratedImage,
+  provider = providerId.value,
+  model = modelId.value,
+): void {
+  if (busy.value || !image.base64_data || !image.mime_type) return;
+  clearReferences();
+  mode.value = 'edit';
+  const input = { base64_data: image.base64_data, mime_type: image.mime_type };
+  references.value = [
+    { id: ++imageSequence, image: input, name: '生成图片', size: imageInputSize(input) },
+  ];
+  providerId.value = providers.value.some((p) => p.provider_id === provider)
+    ? provider
+    : providers.value[0]?.provider_id || '';
+  modelId.value = model;
+  prompt.value = '';
+  error.value = '';
+  notice.value = '已将生成图片设为参考图，描述修改要求后开始改图。';
 }
 async function download(image: GeneratedImage, index: number): Promise<void> {
   if (downloading.value !== null) return;
@@ -369,6 +470,22 @@ onBeforeUnmount(() => {
           <p class="image-muted">
             支持 PNG、JPEG、WebP，单张最大 20 MiB，总计 50 MiB。请选择支持多图改图的模型。
           </p>
+          <label v-if="references.length" class="image-mask-toggle"
+            ><input
+              v-model="maskEnabled"
+              type="checkbox"
+              :disabled="busy || uploading"
+            />局部涂抹修改图 1</label
+          >
+          <ImageMaskEditor
+            v-if="maskEnabled && references[0]"
+            :key="references[0].id"
+            :image="references[0].image"
+            :initial-mask="initialMask"
+            :disabled="busy || uploading"
+            @change="preparedMask = $event"
+            @busy="maskBusy = $event"
+          />
           <p v-if="uploading" class="image-muted" role="status">正在读取图片…</p>
           <div v-if="references.length" class="image-reference-grid">
             <figure v-for="(item, index) in references" :key="item.id">
@@ -515,6 +632,7 @@ onBeforeUnmount(() => {
           :disabled="
             busy ||
             uploading ||
+            maskBusy ||
             !providerId ||
             !modelId.trim() ||
             !prompt.trim() ||
@@ -530,6 +648,9 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="error" role="alert" class="image-error">{{ error }}</p>
       <p v-if="notice" role="status" class="image-muted">{{ notice }}</p>
+      <p v-if="activeTask" role="status" class="image-muted">
+        {{ imageTaskLabels[activeTask.status] }} · 刷新页面后可在图片任务中继续查看。
+      </p>
     </form>
     <section class="image-results" tabindex="-1" aria-label="生成结果" :aria-busy="busy">
       <header>
@@ -581,6 +702,14 @@ onBeforeUnmount(() => {
             <figcaption>
               <span>图片 {{ index + 1 }}</span>
               <div class="image-actions">
+                <button
+                  type="button"
+                  :disabled="busy || !image.base64_data"
+                  :aria-label="`继续修改图片 ${index + 1}`"
+                  @click="continueEditing(image)"
+                >
+                  继续修改
+                </button>
                 <button
                   class="icon-button"
                   type="button"

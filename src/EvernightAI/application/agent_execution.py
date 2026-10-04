@@ -243,7 +243,7 @@ class AgentExecutionApplication:
             messages=request.messages,
             memory_query=request.memory_query,
             skills=request.skills,
-            tools=request.tools,
+            tools=self._available_tools(request),
             metadata=request.metadata,
         ):
             if event.response is not None:
@@ -464,6 +464,9 @@ class AgentExecutionApplication:
                         "metadata": {
                             **call.metadata,
                             "working_directory": request.working_directory,
+                            "owner_id": state.owner_id,
+                            "session_id": request.metadata.get("session_id"),
+                            "run_id": state.run_id,
                         }
                     }
                 )
@@ -649,7 +652,7 @@ class AgentExecutionApplication:
             model_id=request.model_id,
             messages=self._run_transcript(state),
             skills=request.skills,
-            tools=request.tools,
+            tools=self._available_tools(request),
             metadata=request.metadata,
         ):
             if event.response is not None:
@@ -1091,15 +1094,27 @@ class AgentExecutionApplication:
         approvals.update(self._tool_approvals_by_call_id(new))
         return list(approvals.values())
 
-    def _apply_tool_approval(
-        self,
-        call: ToolCall,
-        approval: ToolApprovalDecision | None,
-    ) -> ToolCall:
-        if approval is None:
-            return call
+    def _available_tools(self, request: AgentRunRequest) -> list[ToolDefinition] | None:
+        if request.tools is None:
+            return None
+        available = {
+            tool.name: tool
+            for tool in self._runtime.tools.list_tools(
+                principal_scope=_owner_scope(request.owner_id)
+            )
+        }
+        return [
+            available.get(tool.name, tool)
+            for tool in request.tools
+            if tool.name in available or not self._runtime.tool_register.has(tool.name)
+        ]
 
-        return call.model_copy(update={"approval": approval})
+    def _apply_tool_approval(
+        self, call: ToolCall, approval: ToolApprovalDecision | None
+    ) -> ToolCall:
+        metadata = dict(call.metadata)
+        metadata.pop("approved", None)
+        return call.model_copy(update={"approval": approval, "metadata": metadata})
 
     def _trace_tool_approval(
         self,

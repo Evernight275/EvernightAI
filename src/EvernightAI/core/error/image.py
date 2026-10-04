@@ -1,4 +1,9 @@
-from EvernightAI.core.error.base import ConflictError, NotFoundError, ValidationError
+from EvernightAI.core.error.base import (
+    ConflictError,
+    NotFoundError,
+    RateLimitError,
+    ValidationError,
+)
 
 
 class ImageRecordNotFoundError(NotFoundError):
@@ -10,4 +15,16 @@ class ImageRecordConflictError(ConflictError):
 
 
 class ImageHistoryInputError(ValidationError):
+    pass
+
+
+class ImageTaskNotFoundError(NotFoundError):
+    pass
+
+
+class ImageTaskConflictError(ConflictError):
+    pass
+
+
+class ImageTaskLimitError(RateLimitError):
     pass

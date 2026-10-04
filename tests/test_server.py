@@ -542,4 +542,5 @@ def assert_http_app(app) -> None:
         "copy_path",
         "read_json_file",
         "write_json_file",
+        "generate_image",
     ]
