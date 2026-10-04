@@ -32,6 +32,7 @@ import { imageTaskLabels, waitForImageTask } from '../../runtime/imageTasks';
 import ImageMaskEditor from './ImageMaskEditor.vue';
 import {
   downloadImage,
+  defaultImageDownloadName,
   imageSource,
   imageEditInputs,
   imageErrorMessage,
@@ -143,7 +144,9 @@ watch(
 watch(
   result,
   (value) => {
-    downloadNames.value = value?.images.map((_, index) => `evernight-image-${index + 1}`) || [];
+    const date = new Date();
+    downloadNames.value =
+      value?.images.map((_, index) => defaultImageDownloadName(index, date)) || [];
   },
   { flush: 'sync' },
 );
@@ -735,7 +738,7 @@ onBeforeUnmount(() => {
               >文件名<input
                 v-model="downloadNames[index]"
                 :aria-label="`图片 ${index + 1} 文件名`"
-                :placeholder="`evernight-image-${index + 1}`"
+                placeholder="留空自动使用名称和时间戳"
                 maxlength="80"
                 autocomplete="off"
                 :disabled="downloading !== null"

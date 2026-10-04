@@ -47,7 +47,9 @@ detail access. Records and images are deleted together; an archival completion
 cannot recreate a deleted record.
 
 Each preview has an editable download filename. This also applies to images
-opened from history. Blank names use `evernight-image-<number>`; PNG, JPEG and
+opened from history. Default and blank names use
+`evernight-image-<number>_<YYYYMMDD>_<HHmmss>_<SSS>` in the browser's local time;
+custom names are preserved. PNG, JPEG and
 WebP extensions follow the downloaded bitmap's actual format. Download naming
 is local to the current preview and does not change the saved generation record.
 
@@ -155,6 +157,12 @@ with references it edits archived images after checking ownership. Without expli
 editing keeps the referenced image's provider/model, and generation selects the
 first enabled OpenAI-compatible provider's declared `image_generation` model.
 Configure that capability in provider settings; chat keeps its own model.
+
+New image tool calls request `quality: high` and `output_format: png` by default.
+Explicit values override these defaults; `null` uses the provider's default.
+Providers may return a different format or resolution. Archival and download
+preserve the returned bytes, without resizing or re-encoding. Replaying an
+existing task keeps its original omitted quality, format and timeout values.
 
 The image tool defaults to a 180-second request timeout, independently of the
 model's configured timeout. Set `timeout_seconds` to a positive number up to 600

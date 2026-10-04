@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef } from 'vue';
-import { X, KeyRound, Server, SlidersHorizontal, ImagePlus, Wrench } from '@lucide/vue';
+import { X, KeyRound, Server, SlidersHorizontal, Wrench } from '@lucide/vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import { workspaceActor } from '../../state/workspaceMachine';
 import ApiKeySettings from '../settings/ApiKeySettings.vue';
@@ -60,7 +60,6 @@ function refresh(): void {
         /></a>
       </header>
       <nav class="settings-nav" aria-label="设置分类">
-        <a href="/images.html"><ImagePlus :size="18" aria-hidden="true" /><span>图像生成</span></a>
         <button
           v-for="section in sections"
           :key="section.id"

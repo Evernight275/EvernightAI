@@ -136,7 +136,10 @@ try {
     assert.notDeepEqual(pixels[0], pixels[1]);
     const downloaded = page.waitForEvent('download');
     await page.getByRole('button', { name: '下载图片 1', exact: true }).click();
-    assert.equal((await downloaded).suggestedFilename(), 'evernight-image-1.png');
+    assert.match(
+      (await downloaded).suggestedFilename(),
+      /^evernight-image-1_\d{8}_\d{6}_\d{3}\.png$/,
+    );
     await page.getByLabel('图片 1 文件名', { exact: true }).fill('绿色叶子.jpg');
     const customDownload = page.waitForEvent('download');
     await page.getByRole('button', { name: '下载图片 1', exact: true }).click();
@@ -147,9 +150,9 @@ try {
     mode = 'url';
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
     await page.getByRole('link', { name: '打开原图 1', exact: true }).waitFor();
-    assert.equal(
+    assert.match(
       await page.getByLabel('图片 1 文件名', { exact: true }).inputValue(),
-      'evernight-image-1',
+      /^evernight-image-1_\d{8}_\d{6}_\d{3}$/,
     );
     await page.getByLabel('图片 1 文件名', { exact: true }).fill('远程叶子');
     assert.equal(
@@ -212,7 +215,10 @@ try {
     await page.getByLabel('图片 2 文件名', { exact: true }).fill('');
     const defaultDownload = page.waitForEvent('download');
     await page.getByRole('button', { name: '下载图片 2', exact: true }).click();
-    assert.equal((await defaultDownload).suggestedFilename(), 'evernight-image-2.png');
+    assert.match(
+      (await defaultDownload).suggestedFilename(),
+      /^evernight-image-2_\d{8}_\d{6}_\d{3}\.png$/,
+    );
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     assert.deepEqual(errors, []);
     await page.close();

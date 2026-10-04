@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getImageRecord, type GeneratedImage, type ImageGenerationRecord } from '../../api/images';
-import { downloadImage, imageSource } from '../../domain/images';
+import { defaultImageDownloadName, downloadImage, imageSource } from '../../domain/images';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 
 const props = defineProps<{ recordId: string }>();
@@ -25,7 +25,8 @@ async function load(): Promise<void> {
     const saved = await getImageRecord(props.recordId, controller.signal);
     if (current !== version) return;
     record.value = saved;
-    names.value = saved.response.images.map((_, index) => `evernight-image-${index + 1}`);
+    const date = new Date();
+    names.value = saved.response.images.map((_, index) => defaultImageDownloadName(index, date));
   } catch (cause) {
     if (current === version && !controller.signal.aborted)
       error.value = cause instanceof Error ? cause.message : '无法读取生成图片';

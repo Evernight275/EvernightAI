@@ -45,8 +45,16 @@ class ImageToolRequest(EvernightAISchema):
     )
     count: int = Field(default=1, ge=1, le=10, strict=True)
     size: str | None = Field(default=None, min_length=1, max_length=64)
-    quality: str | None = Field(default=None, min_length=1, max_length=64)
-    output_format: Literal["png", "jpeg", "webp"] | None = None
+    quality: str | None = Field(
+        default="high",
+        min_length=1,
+        max_length=64,
+        description="Requested image quality; defaults to high. Set null to use the provider default.",
+    )
+    output_format: Literal["png", "jpeg", "webp"] | None = Field(
+        default="png",
+        description="Requested image format; defaults to lossless PNG. Set null to use the provider default.",
+    )
     timeout_seconds: float = Field(
         default=180,
         gt=0,

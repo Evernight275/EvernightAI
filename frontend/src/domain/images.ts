@@ -161,6 +161,13 @@ export function imageSource(image: GeneratedImage): string {
   return '';
 }
 
+export function defaultImageDownloadName(index: number, date = new Date()): string {
+  const pad = (value: number, length = 2): string => String(value).padStart(length, '0');
+  const day = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+  const time = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `evernight-image-${index + 1}_${day}_${time}_${pad(date.getMilliseconds(), 3)}`;
+}
+
 export function imageDownloadFilename(name: string, index: number, mimeType: string): string {
   const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[mimeType];
   if (!extension) throw new Error('返回内容不是支持的图片格式');
@@ -169,7 +176,7 @@ export function imageDownloadFilename(name: string, index: number, mimeType: str
     .replace(/\.(png|jpe?g|webp)$/i, '')
     .replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_')
     .replace(/^[. ]+|[. ]+$/g, '');
-  if (!base) base = `evernight-image-${index + 1}`;
+  if (!base) base = defaultImageDownloadName(index);
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(base)) base = `_${base}`;
   return `${base}.${extension}`;
 }

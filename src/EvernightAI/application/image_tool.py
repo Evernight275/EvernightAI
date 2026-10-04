@@ -73,8 +73,10 @@ class ImageToolApplication:
         parameters = request.model_dump(
             exclude={"provider_id", "model_id", "references"}, exclude_none=True
         )
-        if previous is not None and "timeout_seconds" not in values:
-            parameters["timeout_seconds"] = previous.request.timeout_seconds
+        if previous is not None:
+            for name in ("quality", "output_format", "timeout_seconds"):
+                if name not in values:
+                    parameters[name] = getattr(previous.request, name)
         image_request = (
             ImageEditRequest(model_id=model_id, images=images, **parameters)
             if images

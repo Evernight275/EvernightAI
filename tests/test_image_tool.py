@@ -105,6 +105,8 @@ class ChatImageProvider(EditProvider):
             result = result.get("tool_call_result", result)
             args["references"] = [{"record_id": result["record_id"]}]
             args["timeout_seconds"] = 420
+            args["quality"] = "low"
+            args["output_format"] = "webp"
         return ChatResponse(
             model_id=request.model_id,
             message=Content(
@@ -189,6 +191,10 @@ async def test_agent_image_tool_approval_generation_editing_ownership_and_slim_c
             assert runtime.image_tasks.get(result["task_id"]).session_id == "session"
             assert len(provider.requests) == index + 1
             assert provider.requests[-1].timeout_seconds == (180 if index == 0 else 420)
+            assert provider.requests[-1].quality == ("high" if index == 0 else "low")
+            assert provider.requests[-1].output_format == (
+                "png" if index == 0 else "webp"
+            )
             assert "base64_data" not in json.dumps(result)
             assert PNG not in json.dumps(result)
         assert isinstance(provider.requests[1], ImageEditRequest)
@@ -271,7 +277,7 @@ async def test_image_tool_timeout_reason_is_persisted_in_agent_execution(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timeout", [None, 60])
-async def test_existing_image_task_keeps_original_timeout_on_replay(
+async def test_existing_image_task_keeps_original_defaults_on_replay(
     tmp_path: Path, timeout
 ):
     runtime = create_sqlite_runtime(tmp_path / "runtime.sqlite3")
@@ -299,6 +305,8 @@ async def test_existing_image_task_keeps_original_timeout_on_replay(
         with pytest.raises(ToolExecutionError, match="ProviderRequestTimeoutError"):
             await runtime.tools.execute(call)
         assert runtime.image_tasks.get(task_id).request.timeout_seconds == timeout
+        assert runtime.image_tasks.get(task_id).request.quality is None
+        assert runtime.image_tasks.get(task_id).request.output_format is None
         assert not provider.requests
     finally:
         await runtime.close()

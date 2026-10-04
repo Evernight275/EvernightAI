@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   imageDownloadFilename,
+  defaultImageDownloadName,
   imageSource,
   imageEditInputs,
   imageErrorMessage,
@@ -136,6 +137,11 @@ describe('image sources', () => {
 });
 
 describe('image download filenames', () => {
+  it('includes image number and a padded local timestamp in default names', () => {
+    const date = new Date(2026, 9, 5, 1, 3, 2, 7);
+    expect(defaultImageDownloadName(0, date)).toBe('evernight-image-1_20261005_010302_007');
+    expect(defaultImageDownloadName(1, date)).toBe('evernight-image-2_20261005_010302_007');
+  });
   it('supports Chinese names and matches the actual bitmap format', () => {
     expect(imageDownloadFilename('  绿色叶子  ', 0, 'image/png')).toBe('绿色叶子.png');
     expect(imageDownloadFilename('作品.JPG', 0, 'image/png')).toBe('作品.png');
@@ -144,7 +150,9 @@ describe('image download filenames', () => {
   });
   it('uses each image number when the name is blank', () => {
     for (const name of ['', '   ', '...', '.png'])
-      expect(imageDownloadFilename(name, 1, 'image/png')).toBe('evernight-image-2.png');
+      expect(imageDownloadFilename(name, 1, 'image/png')).toMatch(
+        /^evernight-image-2_\d{8}_\d{6}_\d{3}\.png$/,
+      );
   });
   it('normalizes directory separators, control characters and reserved names', () => {
     expect(imageDownloadFilename('../作品\\叶子:1\n', 0, 'image/png')).toBe('_作品_叶子_1.png');
