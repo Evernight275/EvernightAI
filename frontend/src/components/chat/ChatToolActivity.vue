@@ -2,6 +2,9 @@
 import { Wrench, Check, Clock, CircleAlert } from '@lucide/vue';
 import { useChatToolActivity, type ChatToolActivityProps } from './chatToolActivity';
 import JsonCode from '../common/JsonCode.vue';
+import ToolOutput from '../common/ToolOutput.vue';
+import ToolDuration from './ToolDuration.vue';
+import ChatToolDisplay from './ChatToolDisplay.vue';
 
 const props = defineProps<ChatToolActivityProps>();
 const { activities } = useChatToolActivity(props);
@@ -26,25 +29,39 @@ const { activities } = useChatToolActivity(props);
               :size="15"
               aria-hidden="true" /><Clock v-else :size="15" aria-hidden="true" /></span
           ><strong>{{ activity.name }}</strong
-          ><span
+          ><ToolDuration
+            :started-at="activity.startedAt"
+            :finished-at="activity.finishedAt"
+            :duration-ms="activity.durationMs"
+            :running="activity.status === 'running'"
+          /><span
             class="chat-tool-entry-status"
             :class="{ 'is-error': activity.status === 'failed' }"
             >{{ activity.statusLabel }}</span
           >
         </div>
+        <ChatToolDisplay
+          v-if="activity.status === 'completed'"
+          :name="activity.name"
+          :result-text="activity.resultText ?? undefined"
+        />
         <details class="chat-raw-details">
           <summary>调用参数</summary>
-          <pre
-            tabindex="0"
-            :aria-label="activity.name + ' 调用参数'"
-          ><JsonCode :source="activity.callText" /></pre>
+          <ToolOutput :source="activity.callText" :label="activity.name + ' 调用参数'">
+            <pre
+              tabindex="0"
+              :aria-label="activity.name + ' 调用参数'"
+            ><JsonCode :source="activity.callText" /></pre>
+          </ToolOutput>
         </details>
         <details v-if="activity.resultText" class="chat-raw-details">
           <summary>调用结果</summary>
-          <pre
-            tabindex="0"
-            :aria-label="activity.name + ' 调用结果'"
-          ><JsonCode :source="activity.resultText" /></pre>
+          <ToolOutput :source="activity.resultText" :label="activity.name + ' 调用结果'">
+            <pre
+              tabindex="0"
+              :aria-label="activity.name + ' 调用结果'"
+            ><JsonCode :source="activity.resultText" /></pre>
+          </ToolOutput>
         </details>
       </li>
     </ol>

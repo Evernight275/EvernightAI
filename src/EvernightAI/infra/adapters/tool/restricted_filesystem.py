@@ -15,6 +15,7 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
+from EvernightAI.infra.adapters.tool.text_diff import file_diff, text_snapshot
 
 
 class _ProjectAwareFilesystemTool:
@@ -188,6 +189,7 @@ class RestrictedWriteTextFileTool(_ProjectAwareFilesystemTool):
         if existed and not self._allow_overwrite:
             raise ToolInputError(f"The file {path.name} already exists")
 
+        before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
@@ -196,6 +198,12 @@ class RestrictedWriteTextFileTool(_ProjectAwareFilesystemTool):
                 "path": _relative_path(root_directory, path),
                 "bytes_written": len(content.encode("utf-8")),
                 "overwritten": existed,
+                **file_diff(
+                    before,
+                    path,
+                    _relative_path(root_directory, path),
+                    created=not existed,
+                ),
             },
             project,
         )
@@ -250,6 +258,7 @@ class RestrictedAppendTextFileTool(_ProjectAwareFilesystemTool):
         if not existed and not create:
             raise ToolInputError(f"The file {path.name} does not exist")
 
+        before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as file:
             file.write(content)
@@ -259,6 +268,12 @@ class RestrictedAppendTextFileTool(_ProjectAwareFilesystemTool):
                 "path": _relative_path(root_directory, path),
                 "bytes_written": len(content.encode("utf-8")),
                 "created": not existed,
+                **file_diff(
+                    before,
+                    path,
+                    _relative_path(root_directory, path),
+                    created=not existed,
+                ),
             },
             project,
         )
@@ -789,6 +804,7 @@ class RestrictedApplyTextPatchTool(_ProjectAwareFilesystemTool):
         if not isinstance(replace_all, bool):
             raise ToolInputError("The replace_all value must be a boolean")
 
+        before = text_snapshot(path)
         text = path.read_text(encoding="utf-8")
         replacements = text.count(old_text)
         if replacements == 0:
@@ -806,6 +822,7 @@ class RestrictedApplyTextPatchTool(_ProjectAwareFilesystemTool):
                 "path": _relative_path(root_directory, path),
                 "replacements": replacements,
                 "bytes_written": len(next_text.encode("utf-8")),
+                **file_diff(before, path, _relative_path(root_directory, path)),
             },
             project,
         )
@@ -1179,6 +1196,7 @@ class RestrictedWriteJsonFileTool(_ProjectAwareFilesystemTool):
         except TypeError as exc:
             raise ToolInputError("The data value must be JSON serializable") from exc
 
+        before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{content}\n", encoding="utf-8")
         return _with_project(
@@ -1186,6 +1204,12 @@ class RestrictedWriteJsonFileTool(_ProjectAwareFilesystemTool):
                 "path": _relative_path(root_directory, path),
                 "bytes_written": len(f"{content}\n".encode("utf-8")),
                 "overwritten": existed,
+                **file_diff(
+                    before,
+                    path,
+                    _relative_path(root_directory, path),
+                    created=not existed,
+                ),
             },
             project,
         )

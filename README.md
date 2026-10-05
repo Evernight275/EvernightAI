@@ -150,6 +150,10 @@ provider adapters first map provider-specific stream chunks into chat stream
 events, normalizing text deltas, tool-call deltas, completed tool calls, usage,
 and completion events when possible. Chunks that cannot be safely normalized are
 kept as raw events. The HTTP layer serializes chat stream events to SSE.
+The Responses adapter also recovers text and tool calls from final output
+snapshots when incremental events are missing, without replaying content already
+received. Stream failures preserve the upstream error, and streams without
+visible text or tool calls fail explicitly instead of saving a blank success.
 
 Bootstrap registers a small built-in `echo` skill by default so the skill
 registry has an end-to-end smoke path before external skill sources are added.

@@ -260,6 +260,46 @@ describe('chat runtime', () => {
     ]);
   });
 
+  it('keeps failed run tool results and the specific upstream error without resubmission', async () => {
+    const persisted = {
+      ...finishedRun(),
+      status: 'failed',
+      trace: [
+        {
+          event_type: 'tool_completed',
+          tool_call: { tool_call_id: 'c', tool_call: { name: 'generate_image' } },
+        },
+        {
+          event_type: 'run_stopped',
+          error_type: 'ProviderResponseError',
+          error_message: 'Upstream quota exhausted',
+        },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          'event: error\ndata: {"error":{"type":"ProviderResponseError","message":"Upstream quota exhausted"}}\n\n',
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(persisted)));
+    vi.stubGlobal('fetch', fetchMock);
+    const onSnapshot = vi.fn();
+    await expect(
+      streamChatRun(
+        { ...requestInput(), runId: 'run-1', onSnapshot },
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual(persisted);
+    expect(onSnapshot).toHaveBeenCalledWith(persisted);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/agent-runs/stream',
+      '/agent-runs/run-1',
+    ]);
+  });
+
   it('streams a retry under a caller-known run id', async () => {
     const stream = 'data: [DONE]\n\n';
     const retried = { ...finishedRun(), run_id: 'run-retried' };

@@ -2,6 +2,7 @@
 import { Check, X } from '@lucide/vue';
 import type { ChatApprovalItem } from './chatRequestStatus';
 import JsonCode from '../common/JsonCode.vue';
+import ToolOutput from '../common/ToolOutput.vue';
 
 defineProps<{
   approval: ChatApprovalItem;
@@ -24,6 +25,7 @@ defineEmits<{
       {{ approval.reason }}
     </p>
     <p class="chat-approval-permissions">权限：{{ approval.permissionsText }}</p>
+    <p class="chat-approval-reason">批准仅适用于本次调用及下列参数，不会更改工具的默认权限。</p>
     <dl v-if="approval.targets.length" class="chat-approval-targets">
       <div v-for="target in approval.targets" :key="target.name">
         <dt>{{ target.name }}</dt>
@@ -55,10 +57,12 @@ defineEmits<{
     </div>
     <details class="chat-approval-payload">
       <summary>查看调用参数</summary>
-      <pre
-        tabindex="0"
-        :aria-label="approval.tool_name + ' 调用参数'"
-      ><JsonCode :source="approval.toolCallText" /></pre>
+      <ToolOutput :source="approval.toolCallText" :label="approval.tool_name + ' 调用参数'">
+        <pre
+          tabindex="0"
+          :aria-label="approval.tool_name + ' 调用参数'"
+        ><JsonCode :source="approval.toolCallText" /></pre>
+      </ToolOutput>
     </details>
   </article>
 </template>

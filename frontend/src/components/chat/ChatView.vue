@@ -26,6 +26,7 @@ const {
   transcript,
   hasTranscript,
   run,
+  retryTools,
   session,
   trace,
   runId,
@@ -34,6 +35,7 @@ const {
   cancelableRun,
   send,
   retry,
+  replyOnly,
   clear,
   cancel,
   approve,
@@ -62,6 +64,7 @@ const {
       <div class="chat-content">
         <ChatTranscript
           :entries="transcript"
+          :tools="toolCatalog"
           :run-id="runId"
           :pending-approvals="pendingApprovals"
           :approval-statuses="approvalStatuses"
@@ -100,7 +103,11 @@ const {
           :approval-statuses="approvalStatuses"
           :skill-conflict="skillIssues.length > 0"
           :retry-blocked="run?.status === 'finished'"
+          :retry-tools="retryTools"
+          :run-id="runId"
+          :can-reply-only="!!run && ['failed', 'canceled'].includes(run.status || '')"
           @retry="retry"
+          @reply-only="replyOnly"
           @resume="resume"
           @details="openDetails"
         />

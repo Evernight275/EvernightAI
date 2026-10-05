@@ -1,6 +1,7 @@
 import { computed, type ComputedRef } from 'vue';
-import type { ToolApprovalRequest, ToolApprovalStatus } from '../../api';
+import type { ToolApprovalRequest, ToolApprovalStatus, ToolDefinition } from '../../api';
 import type { ApprovalStatuses } from '../../runtime/chatRuntime';
+import { commandText } from './toolDisplay';
 
 export type ChatRequestStatusProps = {
   state: string;
@@ -10,12 +11,16 @@ export type ChatRequestStatusProps = {
   approvalStatuses: ApprovalStatuses;
   skillConflict?: boolean;
   retryBlocked?: boolean;
+  retryTools?: string[];
+  runId?: string | null;
+  canReplyOnly?: boolean;
 };
 
 export type ChatRequestStatusEmits = {
   retry: [];
   resume: [];
   details: [];
+  replyOnly: [];
 };
 
 export function useChatRequestStatus(props: ChatRequestStatusProps): {
@@ -80,6 +85,7 @@ export type ChatApprovalItem = ToolApprovalRequest & {
 export function approvalItem(
   approval: ToolApprovalRequest,
   status?: Extract<ToolApprovalStatus, 'approved' | 'denied'>,
+  tool?: ToolDefinition,
 ): ChatApprovalItem {
   return {
     ...approval,
@@ -99,9 +105,40 @@ export function approvalItem(
       ...(typeof approval.metadata?.working_directory === 'string'
         ? [{ name: '工作文件夹', value: approval.metadata.working_directory }]
         : []),
+      ...(!approval.metadata?.working_directory &&
+      typeof tool?.metadata?.root_directory === 'string'
+        ? [{ name: '默认文件根目录', value: tool.metadata.root_directory }]
+        : []),
+      ...(!approval.metadata?.working_directory &&
+      typeof tool?.metadata?.working_directory === 'string'
+        ? [{ name: '默认命令目录', value: tool.metadata.working_directory }]
+        : []),
       ...approvalTargets(approval.tool_call?.arguments),
+      ...projectTaskTargets(approval, tool),
     ],
   };
+}
+
+function projectTaskTargets(
+  approval: ToolApprovalRequest,
+  tool?: ToolDefinition,
+): { name: string; value: string }[] {
+  if (approval.tool_name !== 'run_project_task' || !tool) return [];
+  const args = approval.tool_call?.arguments as Record<string, unknown> | undefined;
+  if (!args || typeof args.task !== 'string') return [];
+  const commands = tool.metadata?.task_commands as Record<string, unknown> | undefined;
+  const projects = tool.metadata?.project_task_commands as
+    Record<string, Record<string, unknown>> | undefined;
+  const roots = tool.metadata?.project_roots as Record<string, unknown> | undefined;
+  const project = typeof args.project === 'string' ? args.project : '';
+  const command = projects?.[project]?.[args.task] ?? commands?.[args.task];
+  const directory = roots?.[project] ?? tool.metadata?.working_directory;
+  return [
+    ...(Array.isArray(command) && command.every((part) => typeof part === 'string')
+      ? [{ name: '配置命令', value: commandText(command) }]
+      : []),
+    ...(typeof directory === 'string' ? [{ name: '任务执行目录', value: directory }] : []),
+  ];
 }
 
 function approvalTargets(value: unknown): { name: string; value: string }[] {
@@ -111,16 +148,36 @@ function approvalTargets(value: unknown): { name: string; value: string }[] {
     path: '路径',
     file_path: '文件',
     directory: '目录',
+    cwd: '命令目录',
+    task: '项目任务',
     command: '命令',
+    source_path: '来源路径',
+    destination_path: '目标路径',
+    provider_id: '生图服务',
+    model_id: '生图模型',
+    n: '图片数量',
+    overwrite: '覆盖已有文件',
+    recursive: '递归操作',
     url: '地址',
     query: '查询',
     source: '来源',
     destination: '目标',
   };
   return Object.entries(value).flatMap(([key, target]) =>
-    Object.hasOwn(labels, key) && typeof target === 'string'
-      ? [{ name: labels[key] as string, value: target }]
-      : [],
+    !Object.hasOwn(labels, key)
+      ? []
+      : key === 'command' &&
+          Array.isArray(target) &&
+          target.every((part) => typeof part === 'string')
+        ? [{ name: '命令', value: commandText(target) }]
+        : typeof target === 'string' || typeof target === 'number' || typeof target === 'boolean'
+          ? [
+              {
+                name: labels[key] as string,
+                value: typeof target === 'boolean' ? (target ? '是' : '否') : String(target),
+              },
+            ]
+          : [],
   );
 }
 

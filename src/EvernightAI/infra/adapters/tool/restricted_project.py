@@ -69,6 +69,17 @@ class RestrictedProjectTaskTool:
             metadata={
                 "working_directory": str(self._working_directory),
                 "tasks": sorted(self._commands),
+                "task_commands": dict(self._commands),
+                "project_task_commands": {
+                    project: dict(tasks)
+                    for project, tasks in self._project_commands.items()
+                },
+                "project_roots": {
+                    project: str(
+                        self._roots.resolve(project, require_configured=True)[1]
+                    )
+                    for project in self._roots.project_names
+                },
                 "projects": {
                     project: sorted(tasks)
                     for project, tasks in sorted(self._project_commands.items())

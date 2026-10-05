@@ -33,6 +33,7 @@ export function toolResultSummary(text?: string): string {
       'error',
       'message',
       'stdout',
+      'stderr',
       'content',
       'text',
       'output',
@@ -45,12 +46,17 @@ export function toolResultSummary(text?: string): string {
           typeof item === 'number' ||
           typeof item === 'boolean',
       );
-    if (preview !== undefined) value = preview;
+    if (typeof record.path === 'string' && typeof record.bytes_written === 'number')
+      value = `已写入 ${record.path}（${record.bytes_written} 字节）`;
+    else if (preview !== undefined) value = preview;
+    else if (Array.isArray(record.command) && typeof record.returncode === 'number')
+      value = '命令未产生输出';
     else {
       const items = Object.values(record).find(Array.isArray);
       value = items ? `${items.length} 项结果` : Object.keys(record).join(' · ');
     }
-    if (typeof record.exit_code === 'number') value = `退出码 ${record.exit_code} · ${value}`;
+    const exitCode = record.exit_code ?? record.returncode;
+    if (typeof exitCode === 'number') value = `退出码 ${exitCode} · ${value}`;
   } else if (Array.isArray(value)) value = `${value.length} 项结果`;
   const compact = String(value ?? '')
     .replace(/\s+/g, ' ')

@@ -433,7 +433,7 @@ class ProviderManager(ProviderManageProtocol):
         try:
             self._validate_request_capabilities(slot.info, request)
             stream = await slot.instance.chat_stream(request)
-        except Exception as exc:
+        except BaseException as exc:
             self._record_call(
                 slot,
                 request,

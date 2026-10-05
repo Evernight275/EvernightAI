@@ -275,6 +275,55 @@ async def test_concurrent_enable_and_edit_preserve_latest_config() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("disable", [False, True])
+@pytest.mark.parametrize("interruption", ["cancel", "timeout"])
+async def test_interrupted_stream_opening_releases_provider_for_shutdown(
+    disable: bool,
+    interruption: str,
+) -> None:
+    started = asyncio.Event()
+
+    class WaitingProvider(FakeProvider):
+        async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+            started.set()
+            await asyncio.Event().wait()
+            return FakeChatStream()
+
+    instance = WaitingProvider()
+
+    async def build(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return instance
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build)
+    manager = ProviderManager(factory)
+    await manager.create(make_config())
+
+    async def open_stream() -> ChatStreamProtocol:
+        async with asyncio.timeout(0.1 if interruption == "timeout" else None):
+            return await manager.chat_stream(
+                "provider-1", ChatRequest(model_id="model-1", messages=[])
+            )
+
+    opening = asyncio.create_task(open_stream())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        if disable:
+            await manager.update("provider-1", ProviderConfigUpdate(is_enabled=False))
+        if interruption == "cancel":
+            opening.cancel()
+        with pytest.raises(
+            asyncio.CancelledError if interruption == "cancel" else TimeoutError
+        ):
+            await opening
+        await asyncio.wait_for(manager.close(), timeout=1)
+        assert instance.closed
+    finally:
+        opening.cancel()
+        await asyncio.gather(opening, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_shutdown_waits_for_calls_on_a_disabled_provider() -> None:
     started = {name: asyncio.Event() for name in ("first", "last")}
     release = {name: asyncio.Event() for name in started}

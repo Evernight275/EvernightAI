@@ -34,6 +34,9 @@ export type ChatTranscriptEntry = {
     callId: string;
     name: string;
     status: 'pending' | 'approval' | 'running' | 'completed' | 'failed' | 'canceled';
+    startedAt?: string;
+    finishedAt?: string;
+    durationMs?: number;
     argumentsText: string;
     resultText?: string;
     errorType?: string;
@@ -170,6 +173,15 @@ export function applyChatTrace(
             : undefined),
       false,
       event.error_type || undefined,
+      undefined,
+      {
+        startedAt: event.event_type === 'tool_started' ? event.occurred_at || undefined : undefined,
+        finishedAt: ['tool_completed', 'tool_failed'].includes(event.event_type)
+          ? event.occurred_at || undefined
+          : undefined,
+        durationMs:
+          typeof event.metadata?.duration_ms === 'number' ? event.metadata.duration_ms : undefined,
+      },
     );
   }
   if (event.event_type !== 'chat_delta' || !event.text_delta) return entries;
@@ -243,6 +255,7 @@ function upsertTool(
   preserveStatus = false,
   errorType?: string,
   notice?: string,
+  timing?: { startedAt?: string; finishedAt?: string; durationMs?: number },
 ): ChatTranscriptEntry[] {
   const turnStart = lastIndex(entries, (entry) => entry.role === 'user');
   const index = lastIndex(
@@ -263,6 +276,11 @@ function upsertTool(
     status,
     errorType,
     notice,
+    startedAt: timing?.startedAt ?? previousActivity?.startedAt,
+    finishedAt:
+      status === 'running' ? undefined : (timing?.finishedAt ?? previousActivity?.finishedAt),
+    durationMs:
+      status === 'running' ? undefined : (timing?.durationMs ?? previousActivity?.durationMs),
     argumentsText:
       args === undefined ? previousActivity?.argumentsText || '{}' : JSON.stringify(args, null, 2),
     resultText: resultText ?? previousActivity?.resultText,
@@ -514,7 +532,12 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
         source &&
         source.length === messages.length &&
         source.every((message, position) => sameMessage(message, messages[position]!));
-      const request = transcriptFromMessages(repeatedRetry ? [] : messages).map(
+      const replyLabel = run.request.metadata?.chat_display_text;
+      const displayMessages: Content[] =
+        typeof run.request.metadata?.reply_only_of === 'string' && typeof replyLabel === 'string'
+          ? [{ role: 'user', content: [{ type: 'text', text: replyLabel }] }]
+          : messages;
+      const request = transcriptFromMessages(repeatedRetry ? [] : displayMessages).map(
         (entry, position) => ({
           ...entry,
           entryId: `${run.run_id}-request-${position}`,

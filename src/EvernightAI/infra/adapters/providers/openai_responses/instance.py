@@ -4,6 +4,7 @@ from typing import Any, cast
 from openai import AsyncOpenAI, OpenAIError
 from openai.types.responses import ResponseStreamEvent
 
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
@@ -136,10 +137,25 @@ class OpenAIResponsesChatStream:
         return self._iter_events()
 
     async def _iter_events(self) -> AsyncIterator[ChatStreamEvent]:
+        has_output = False
         try:
             async for event in self._stream:
-                yield self._normalizer.map_event(event)
+                for mapped in self._normalizer.map_events(event):
+                    if mapped.event_type is ChatStreamEventType.ERROR:
+                        raise ProviderResponseError(
+                            mapped.error_message or "OpenAI Responses stream failed",
+                            detail=mapped.error_type,
+                        )
+                    if (
+                        mapped.text_delta and mapped.text_delta.strip()
+                    ) or mapped.tool_call is not None:
+                        has_output = True
+                    yield mapped
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
+        if not has_output:
+            raise ProviderResponseError(
+                "OpenAI Responses stream ended without text or tool calls"
+            )
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

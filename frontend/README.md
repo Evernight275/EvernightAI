@@ -63,7 +63,24 @@ On small screens the sidebar becomes a modal navigation panel, while the
 transcript remains scrollable and the composer stays at the viewport bottom.
 `ChatTranscript` delegates each visible user or assistant turn to `ChatMessage`;
 tool calls appear between assistant messages as `ChatInlineTool` cards, while
-system messages stay hidden. `ChatSidebar`
+system messages stay hidden. `ChatToolDisplay` renders completed file writes,
+appends, text patches, and JSON writes as a unified diff with line numbers;
+command tools render captured stdout/stderr and exit codes in a terminal panel.
+Both views also appear in run details, with the original JSON available to expand.
+File tools save the actual before/after diff in their result, so refreshed history
+does not depend on the file's current contents. Diff inputs are limited to 64,000
+characters and 2,000 lines, and the saved diff to 12,000 characters. Missing or
+oversized snapshots and truncated output are labeled explicitly. Old results
+without a saved diff show an unavailable notice. Terminal panels display captured
+output after execution; they are not interactive terminals.
+`ToolOutput` adds folding, literal text search with match navigation, and copying
+to diff, terminal, and raw JSON output. Copy failures remain visible without
+claiming success. Tool start/end times and measured durations are stored with
+trace events; completed durations survive refresh, and legacy records without
+timing leave the duration blank. Approvals show command argv, paths, overwrite
+and recursive options, configured task commands, and execution directories.
+Approval applies only to that invocation.
+`ChatSidebar`
 creates, selects, and deletes persisted sessions and keeps the settings entry at the
 bottom of the layout. Its `chatMachine` owns session
 creation/loading/deletion, context history, agent runs, tool approval, retry,
@@ -82,6 +99,18 @@ Contexts are deleted.
 An Agent Run only returns to `idle` after a genuinely finished response.
 `tool_rounds_exhausted` remains in `failed` and can continue through the retry
 lifecycle instead of appearing as a completed conversation turn.
+Transport recovery only reads the existing run. A full retry after tools have
+started requires confirmation because the original request can repeat effects.
+Users can instead choose “仅重试回复”: the new request carries saved execution
+records, supplies no tools, and allows zero tool rounds. This preserves existing
+images/files without repeating their operations. The server's original request
+and results remain available in history.
+
+`tests/taskControl.browser.mjs` checks active refresh, explicit stop, retained
+results after a provider failure, and both retry choices on desktop/mobile.
+`tests/test_server_shutdown_process.py` sends a real SIGINT to an isolated local
+server with a fake provider and temporary SQLite database, checking process exit,
+provider closure, and persisted terminal/paused state.
 
 Assistant text is rendered by `MarkdownContent` through `markdown-it`. Raw HTML
 is disabled, unsafe link schemes are rejected, and external links receive

@@ -154,12 +154,78 @@ class OpenAIResponsesStreamNormalizer:
     def __init__(self) -> None:
         self._function_calls: dict[str, dict[str, Any]] = {}
         self._completed_item_ids: set[str] = set()
+        self._text_parts: dict[tuple[int, int, str], str] = {}
+
+    def map_events(self, event: ResponseStreamEvent) -> list[ChatStreamEvent]:
+        payload = event.model_dump(mode="json", exclude_none=True)
+        events: list[ChatStreamEvent] = []
+        event_type = payload.get("type")
+        response = payload.get("response")
+        if event_type in {"error", "response.failed"} or (
+            isinstance(response, dict) and isinstance(response.get("error"), dict)
+        ):
+            return [self._map_error(payload)]
+        if event_type == "response.output_item.done":
+            events.extend(self._final_item_text(payload.get("item"), payload))
+        elif event_type in {"response.completed", "response.incomplete"}:
+            if isinstance(response, dict) and isinstance(response.get("output"), list):
+                for index, item in enumerate(response["output"]):
+                    events.extend(self._final_item_text(item, {"output_index": index}))
+                    mapped = self._map_output_item_done(
+                        {**payload, "item": item, "output_index": index}
+                    )
+                    if mapped is not None:
+                        events.append(mapped)
+        events.append(self._map_payload(payload))
+        return events
+
+    def _final_item_text(
+        self, item: object, payload: dict[str, Any]
+    ) -> list[ChatStreamEvent]:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            return []
+        content = item.get("content")
+        if not isinstance(content, list):
+            return []
+        events: list[ChatStreamEvent] = []
+        for index, part in enumerate(content):
+            if not isinstance(part, dict):
+                continue
+            kind = part.get("type")
+            if kind not in {"output_text", "refusal"}:
+                continue
+            text = part.get("text" if kind == "output_text" else "refusal")
+            if not isinstance(text, str):
+                continue
+            mapped = self._map_text(
+                {**payload, "content_index": index}, text, kind, final=True
+            )
+            if mapped is not None:
+                events.append(mapped)
+        return events
 
     def map_event(self, event: ResponseStreamEvent) -> ChatStreamEvent:
         return self._map_payload(event.model_dump(mode="json", exclude_none=True))
 
     def _map_payload(self, payload: dict[str, Any]) -> ChatStreamEvent:
         event_type = payload.get("type")
+        if event_type in {"error", "response.failed"}:
+            return self._map_error(payload)
+
+        if event_type in {"response.output_text.done", "response.refusal.done"}:
+            kind = "refusal" if event_type == "response.refusal.done" else "output_text"
+            text = payload.get("refusal" if kind == "refusal" else "text")
+            if isinstance(text, str):
+                mapped = self._map_text(payload, text, kind, final=True)
+                if mapped is not None:
+                    return mapped
+
+        if event_type == "response.refusal.delta":
+            delta = payload.get("delta")
+            if isinstance(delta, str) and delta:
+                mapped = self._map_text(payload, delta, "refusal")
+                if mapped is not None:
+                    return mapped
         if event_type == "response.output_item.added":
             mapped = self._map_output_item_added(payload)
             if mapped is not None:
@@ -185,7 +251,7 @@ class OpenAIResponsesStreamNormalizer:
             if mapped is not None:
                 return mapped
 
-        if event_type == "response.completed":
+        if event_type in {"response.completed", "response.incomplete"}:
             mapped = self._map_response_completed(payload)
             if mapped is not None:
                 return mapped
@@ -243,6 +309,29 @@ class OpenAIResponsesStreamNormalizer:
         if not isinstance(delta, str) or not delta:
             return None
 
+        return self._map_text(payload, delta, "output_text")
+
+    def _map_text(
+        self, payload: dict[str, Any], text: str, kind: str, *, final: bool = False
+    ) -> ChatStreamEvent | None:
+        output_index = payload.get("output_index", 0)
+        content_index = payload.get("content_index", 0)
+        if not isinstance(output_index, int) or not isinstance(content_index, int):
+            return None
+        key = (output_index, content_index, kind)
+        previous = self._text_parts.get(key, "")
+        if final:
+            if not text.startswith(previous):
+                raise ProviderResponseError(
+                    "OpenAI Responses final text does not match streamed text"
+                )
+            delta = text[len(previous) :]
+            self._text_parts[key] = text
+        else:
+            delta = text
+            self._text_parts[key] = previous + delta
+        if not delta:
+            return None
         return ChatStreamEvent(
             event_type=ChatStreamEventType.MESSAGE_DELTA,
             response_id=_string_value(payload.get("response_id")),
@@ -257,6 +346,28 @@ class OpenAIResponsesStreamNormalizer:
                     "content_index": payload.get("content_index"),
                 }
             ),
+        )
+
+    def _map_error(self, payload: dict[str, Any]) -> ChatStreamEvent:
+        response = payload.get("response")
+        error = response.get("error") if isinstance(response, dict) else None
+        if not isinstance(error, dict):
+            error = payload.get("error")
+        if not isinstance(error, dict):
+            error = payload
+        return ChatStreamEvent(
+            event_type=ChatStreamEventType.ERROR,
+            response_id=(
+                _string_value(response.get("id"))
+                if isinstance(response, dict)
+                else None
+            ),
+            error_type=_string_value(error.get("code")),
+            error_message=(
+                _string_value(error.get("message")) or "OpenAI Responses stream failed"
+            ),
+            raw_event=_string_value(payload.get("type")),
+            raw_data=payload,
         )
 
     def _map_function_arguments_delta(
@@ -337,7 +448,7 @@ class OpenAIResponsesStreamNormalizer:
         if not isinstance(item, dict) or item.get("type") != "function_call":
             return None
 
-        item_id = _string_value(item.get("id"))
+        item_id = _string_value(item.get("id")) or _string_value(item.get("call_id"))
         if item_id is not None and item_id in self._completed_item_ids:
             return None
 

@@ -143,6 +143,11 @@ async def test_write_text_file_writes_inside_root_when_approved(tmp_path) -> Non
         "path": "nested/note.txt",
         "bytes_written": 5,
         "overwritten": False,
+        "diff": (
+            "--- /dev/null\n+++ b/nested/note.txt\n@@ -0,0 +1 @@\n"
+            "+hello\n\\ No newline at end of file\n"
+        ),
+        "diff_truncated": False,
     }
 
 

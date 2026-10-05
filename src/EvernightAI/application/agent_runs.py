@@ -48,6 +48,7 @@ from EvernightAI.application.agent_execution import (
     _AgentTraceStream,
 )
 from EvernightAI.application.agent_state import (
+    LOGGER,
     AgentRunMetadata,
     AgentRunControl,
     AgentRunRetryPlan,
@@ -718,7 +719,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         )
         executor = self._runtime.agent_run_executor
         if executor is not None:
+            LOGGER.info("EvernightAI agent shutdown: closing run executor")
             await executor.close()
+            LOGGER.info("EvernightAI agent shutdown: run executor closed")
 
     async def _stream_and_store(
         self,

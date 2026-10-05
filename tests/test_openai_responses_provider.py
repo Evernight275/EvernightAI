@@ -15,6 +15,7 @@ from openai.types.responses import (
     ResponseOutputMessage,
     ResponseOutputRefusal,
     ResponseOutputText,
+    ResponseStreamEvent,
     ResponseTextDeltaEvent,
 )
 
@@ -833,9 +834,11 @@ async def test_openai_responses_instance_stream_allows_undeclared_model() -> Non
         "stream": True,
     }
     assert [event.event_type for event in events] == [
+        ChatStreamEventType.MESSAGE_DELTA,
         ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
+    assert events[0].text_delta == "Hi"
 
     await instance.close()
 
@@ -975,6 +978,60 @@ async def test_openai_responses_stream_maps_text_delta_and_item_done() -> None:
     )
 
     await instance.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_item_done", [False, True])
+async def test_responses_final_tool_calls_are_recovered_without_duplicates(
+    include_item_done,
+) -> None:
+    item = ResponseFunctionToolCall(
+        arguments='{"left": 1}',
+        call_id="call-1",
+        id="item-1",
+        name="add",
+        type="function_call",
+    )
+    stream_events: list[ResponseStreamEvent] = (
+        [
+            ResponseOutputItemDoneEvent(
+                item=item,
+                output_index=0,
+                sequence_number=0,
+                type="response.output_item.done",
+            )
+        ]
+        if include_item_done
+        else []
+    )
+    stream_events.append(
+        ResponseCompletedEvent(
+            response=make_response(output=[item]),
+            sequence_number=1,
+            type="response.completed",
+        )
+    )
+    instance = OpenAIResponsesProviderInstance(make_config())
+    cast(Any, instance)._client = FakeClient(FakeResponses(stream_events=stream_events))
+    try:
+        stream = await instance.chat_stream(
+            ChatRequest(model_id="gpt-test", messages=make_messages())
+        )
+        events = [event async for event in stream]
+        calls = [
+            event.tool_call
+            for event in events
+            if event.event_type is ChatStreamEventType.TOOL_CALL_COMPLETED
+        ]
+        assert calls == [
+            ToolCall(
+                tool_call_id="call-1",
+                tool_call={"name": "add", "arguments": {"left": 1}},
+            )
+        ]
+        assert events[-1].event_type is ChatStreamEventType.DONE
+    finally:
+        await instance.close()
 
 
 @pytest.mark.asyncio

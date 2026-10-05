@@ -187,6 +187,7 @@ try {
       await restored();
       if (status === 'failed') {
         await page.getByRole('button', { name: '重试', exact: true }).click();
+        await page.getByRole('button', { name: '确认重新执行', exact: true }).click();
         await page.getByText('retried answer', { exact: true }).waitFor();
         await restored();
         await page.reload();

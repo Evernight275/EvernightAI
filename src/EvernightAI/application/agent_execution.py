@@ -517,6 +517,7 @@ class AgentExecutionApplication:
                         started=tool_started,
                         success=True,
                     )
+                    duration_ms = round((perf_counter() - tool_started) * 1000, 3)
                     tool_message = self._tool_result_to_message(tool_result)
                     state.steps.append(
                         AgentStep(
@@ -524,6 +525,7 @@ class AgentExecutionApplication:
                             message=tool_message,
                             tool_call=call,
                             tool_result=tool_result,
+                            metadata={"duration_ms": duration_ms},
                         )
                     )
                     yield self._add_trace(
@@ -534,6 +536,7 @@ class AgentExecutionApplication:
                             message=tool_message,
                             tool_call=call,
                             tool_result=tool_result,
+                            metadata={"duration_ms": duration_ms},
                         ),
                     )
                 except Exception as exc:
@@ -544,6 +547,7 @@ class AgentExecutionApplication:
                         success=False,
                         error=exc,
                     )
+                    duration_ms = round((perf_counter() - tool_started) * 1000, 3)
                     tool_message = self._tool_error_to_message(call, exc)
                     state.steps.append(
                         AgentStep(
@@ -552,6 +556,7 @@ class AgentExecutionApplication:
                             tool_call=call,
                             error_type=exc.__class__.__name__,
                             error_message=str(exc),
+                            metadata={"duration_ms": duration_ms},
                         )
                     )
                     yield self._add_trace(
@@ -563,6 +568,7 @@ class AgentExecutionApplication:
                             tool_call=call,
                             error_type=exc.__class__.__name__,
                             error_message=str(exc),
+                            metadata={"duration_ms": duration_ms},
                         ),
                     )
                     if not request.recover_tool_errors:
@@ -1280,6 +1286,12 @@ class AgentExecutionApplication:
         state: AgentRunState,
         event: AgentTraceEvent,
     ) -> AgentTraceEvent:
+        if event.occurred_at is None and event.event_type in {
+            AgentTraceEventType.TOOL_STARTED,
+            AgentTraceEventType.TOOL_COMPLETED,
+            AgentTraceEventType.TOOL_FAILED,
+        }:
+            event.occurred_at = datetime.now(timezone.utc)
         if event.event_type is AgentTraceEventType.CHAT_COMPLETED:
             event.metadata = {
                 **event.metadata,

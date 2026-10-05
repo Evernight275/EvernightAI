@@ -145,6 +145,15 @@ async def test_restricted_project_task_uses_configured_project_directory(
     assert result.tool_call_result["command_scope"] == "project"
     assert result.tool_call_result["working_directory"] == str(project_directory)
     assert result.tool_call_result["stdout"].splitlines() == ["other-project"]
+    tool = manager.list_tools()[0]
+    assert (
+        tool.metadata["project_task_commands"]["OtherProject"]["inspect"]
+        == result.tool_call_result["command"]
+    )
+    assert (
+        tool.metadata["project_roots"]["OtherProject"]
+        == result.tool_call_result["working_directory"]
+    )
 
 
 def test_restricted_project_task_requires_existing_absolute_project_directory(

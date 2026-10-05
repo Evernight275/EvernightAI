@@ -1,4 +1,5 @@
 import inspect
+import logging
 from EvernightAI.core.domain.image import ImageGenerationStore
 from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.protocol.image import (
@@ -57,6 +58,9 @@ from EvernightAI.core.protocol.tool import (
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
+
+
+LOGGER = logging.getLogger("EvernightAI.runtime")
 
 
 class RuntimeKernel(RuntimeProtocol):
@@ -302,12 +306,20 @@ class RuntimeKernel(RuntimeProtocol):
 
     async def close(self) -> None:
         if self._image_task_executor is not None:
+            LOGGER.info("EvernightAI runtime shutdown: closing image task executor")
             await self._image_task_executor.close()
         for source in reversed(self._tool_sources):
+            LOGGER.info(
+                "EvernightAI runtime shutdown: closing tool source %s",
+                type(source).__name__,
+            )
             await source.close()
+        LOGGER.info("EvernightAI runtime shutdown: closing provider connections")
         await self._providers.close()
+        LOGGER.info("EvernightAI runtime shutdown: closing persistent resources")
         for resource in [*self._persistent_resources(), self._sandbox]:
             await _close_if_supported(resource)
+        LOGGER.info("EvernightAI runtime shutdown: resources closed")
 
     def _persistent_resources(self) -> list[Any]:
         return [

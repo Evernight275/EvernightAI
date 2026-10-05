@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ToolApprovalRequest } from '../../api';
+import type { ToolApprovalRequest, ToolDefinition } from '../../api';
 import type { ApprovalStatuses } from '../../runtime/chatRuntime';
 import { approvalItem } from './chatRequestStatus';
 import type { ChatTranscriptEntry } from '../../domain/chat';
@@ -14,6 +14,7 @@ const props = defineProps<{
   pendingApprovals?: ToolApprovalRequest[];
   approvalStatuses?: ApprovalStatuses;
   canApprove?: boolean;
+  tools?: ToolDefinition[];
 }>();
 
 defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>();
@@ -24,7 +25,11 @@ function inlineApproval(entry: ChatTranscriptEntry) {
   );
   if (!approval || !['approval', 'pending'].includes(entry.toolActivity?.status || ''))
     return undefined;
-  const item = approvalItem(approval, props.approvalStatuses?.[approval.approval_id]);
+  const item = approvalItem(
+    approval,
+    props.approvalStatuses?.[approval.approval_id],
+    props.tools?.find((tool) => tool.name === approval.tool_name),
+  );
   return { ...item, decided: item.decided || !props.canApprove };
 }
 const { setEndMarker } = useChatTranscript(() => props.entries);

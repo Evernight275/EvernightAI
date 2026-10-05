@@ -17,6 +17,9 @@ export type ChatToolActivityEntry = {
   name: string;
   status: NonNullable<ChatTranscriptEntry['toolActivity']>['status'];
   statusLabel: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
   callText: string;
   resultText: string | null;
 };
@@ -58,6 +61,9 @@ export function toolActivities(
             name: activity.name,
             status: activity.status,
             statusLabel: toolStatusLabels[activity.status],
+            startedAt: activity.startedAt,
+            finishedAt: activity.finishedAt,
+            durationMs: activity.durationMs,
             callText: activity.argumentsText,
             resultText: activity.resultText || null,
           },

@@ -709,6 +709,10 @@ async def test_agent_streams_tool_loop_events() -> None:
         "Agent run stopped: finished",
     ]
     assert events[3].tool_result is not None
+    assert events[3].metadata["duration_ms"] >= 0
+    assert events[2].occurred_at is not None
+    assert events[3].occurred_at is not None
+    assert events[3].occurred_at >= events[2].occurred_at
     assert events[-1].metadata["reason"] == AgentStopReason.FINISHED.value
     assert [message.role for message in context.messages] == [
         MessageRole.USER,
@@ -900,6 +904,8 @@ async def test_agent_can_stop_on_tool_error() -> None:
         AgentTraceEventType.RUN_STOPPED,
     ]
     assert result.trace[2].summary == "Tool missing failed with ToolNotFoundError"
+    assert result.trace[2].metadata["duration_ms"] >= 0
+    assert result.steps[2].metadata["duration_ms"] >= 0
 
 
 @pytest.mark.asyncio
@@ -2050,6 +2056,67 @@ async def test_agent_run_application_shutdown_blocks_new_runs_and_waits_for_acti
 
     assert state.status is AgentRunStatus.FINISHED
     assert state_register.get_state("run-active").status is AgentRunStatus.FINISHED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["cancel", "timeout"])
+async def test_interface_shutdown_after_disconnected_stream_opening(
+    ending: str,
+) -> None:
+    from EvernightAI.bootstrap.interface import create_interface
+    from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
+
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class WaitingProvider(FinalAnswerProvider):
+        closed = False
+
+        async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+            started.set()
+            await release.wait()
+            return EventStream([])
+
+        async def close(self) -> None:
+            self.closed = True
+
+    provider = WaitingProvider()
+    states = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=states,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        agent_run_executor=SingleProcessAgentRunExecutor(states),
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    interface = create_interface(runtime)
+    stream = interface.agent_runs.start_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Wait for stream connection")],
+            metadata={"run_id": "opening-stream", "stream": True},
+            timeout_seconds=0.1 if ending == "timeout" else 5,
+        )
+    )
+    iterator = cast(AsyncGenerator[AgentTraceEvent, None], stream.__aiter__())
+    try:
+        assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_STARTED
+        await asyncio.wait_for(started.wait(), 1)
+        await iterator.aclose()
+        if ending == "cancel":
+            await interface.agent_runs.cancel("opening-stream")
+        await asyncio.wait_for(interface.close(), 2)
+        assert provider.closed
+        state = states.get_state("opening-stream")
+        if ending == "cancel":
+            assert state.status is AgentRunStatus.CANCELED
+        else:
+            assert state.status in {AgentRunStatus.FAILED, AgentRunStatus.PAUSED}
+    finally:
+        release.set()
+        await iterator.aclose()
 
 
 @pytest.mark.asyncio

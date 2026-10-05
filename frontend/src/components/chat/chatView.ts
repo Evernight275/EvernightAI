@@ -11,6 +11,7 @@ import { runSkillIssues, skillErrorIssues } from '../../domain/runSkills';
 import { reconcileRunTranscript } from '../../domain/chat';
 import { cancelForEditing, readRunDecisions, saveRunDecisions } from '../../runtime/runEditor';
 import { authGeneration } from '../../runtime/workspaceRuntime';
+import { replyOnlySubmission, retryToolNames } from '../../domain/runRetry';
 
 export function useChatView() {
   const workspaceSnapshot = shallowRef(workspaceActor.getSnapshot());
@@ -231,6 +232,7 @@ export function useChatView() {
     transcript: computed(() => chatSnapshot.value.context.transcript),
     hasTranscript: computed(() => chatSnapshot.value.context.transcript.length > 0),
     run: computed(() => chatSnapshot.value.context.run),
+    retryTools: computed(() => retryToolNames(chatSnapshot.value.context.run)),
     session: computed(() => chatSnapshot.value.context.session),
     trace: computed(() => chatSnapshot.value.context.trace),
     runId: computed(() => chatSnapshot.value.context.runId),
@@ -280,6 +282,17 @@ export function useChatView() {
     },
     retry(): void {
       chatActor.send({ type: 'RETRY' });
+    },
+    replyOnly(): void {
+      const context = chatActor.getSnapshot().context;
+      const run = context.run;
+      if (
+        !run ||
+        run.run_id !== context.runId ||
+        !['failed', 'canceled'].includes(run.status || '')
+      )
+        return;
+      chatActor.send({ type: 'SEND', submission: replyOnlySubmission(run), tools: [] });
     },
     clear(): void {
       chatActor.send({ type: 'CLEAR' });

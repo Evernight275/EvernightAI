@@ -1,5 +1,4 @@
 import { ApiError } from '../api/client';
-import { skillErrorIssues } from '../domain/runSkills';
 import { editableRunOptions } from './runEditor';
 import {
   cancelAgentRun,
@@ -322,11 +321,11 @@ async function streamAndReadRun(
   } catch (error) {
     signal.throwIfAborted();
     if (!canReconnect(error)) {
-      if (skillErrorIssues(error, null).length) {
+      if (error instanceof ApiError) {
         try {
           observer.onSnapshot?.(await getAgentRun(runId, signal));
         } catch {
-          /* Preserve the conflict if state lookup fails. */
+          /* Preserve the original error if the run was never created. */
         }
       }
       throw error;
