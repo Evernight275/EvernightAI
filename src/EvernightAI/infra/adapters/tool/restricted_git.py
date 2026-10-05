@@ -1,8 +1,16 @@
-import asyncio
 from pathlib import Path
 from typing import Any
 
-from EvernightAI.core.error.tool import ToolExecutionError, ToolInputError
+from EvernightAI.core.error.tool import ToolInputError
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
+from EvernightAI.core.schema.sandbox import (
+    SandboxCommand,
+    SandboxExecutionRequest,
+    SandboxFilesystemAccess,
+    SandboxFilesystemMount,
+    SandboxPolicy,
+    SandboxResourceLimits,
+)
 from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
@@ -11,6 +19,7 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
+from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 
 
 class _ProjectAwareGitTool:
@@ -21,6 +30,7 @@ class _ProjectAwareGitTool:
         project_directories: dict[str, str | Path] | None = None,
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
+        sandbox: SandboxExecuteProtocol | None = None,
     ) -> None:
         self._roots = ProjectRootResolver(
             default_root=repository_directory,
@@ -29,6 +39,25 @@ class _ProjectAwareGitTool:
         self._repository_directory = self._roots.default_root
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
+        self._sandbox = sandbox or SubprocessSandboxExecutor()
+
+    async def _run_git(
+        self,
+        repository_directory: Path,
+        arguments: list[str],
+        *,
+        project: str | None,
+        timeout_seconds: float,
+        max_output_chars: int,
+    ) -> dict[str, Any]:
+        return await _run_git(
+            repository_directory,
+            arguments,
+            project=project,
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+            sandbox=self._sandbox,
+        )
 
     def _resolve_repository(
         self,
@@ -94,7 +123,7 @@ class RestrictedGitStatusTool(_ProjectAwareGitTool):
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         project, repository_directory = self._resolve_repository(arguments)
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             ["status", "--short", "--branch"],
             project=project,
@@ -139,7 +168,7 @@ class RestrictedGitDiffTool(_ProjectAwareGitTool):
         if path is not None:
             command.extend(["--", path])
 
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             command,
             project=project,
@@ -182,7 +211,7 @@ class RestrictedGitLogTool(_ProjectAwareGitTool):
         if path is not None:
             command.extend(["--", path])
 
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             command,
             project=project,
@@ -225,7 +254,7 @@ class RestrictedGitShowTool(_ProjectAwareGitTool):
         if path is not None:
             command.extend(["--", path])
 
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             command,
             project=project,
@@ -269,14 +298,14 @@ class RestrictedGitCommitTool(_ProjectAwareGitTool):
             repository_directory,
             arguments.get("paths", ["."]),
         )
-        add_result = await _run_git(
+        add_result = await self._run_git(
             repository_directory,
             ["add", "--", *paths],
             project=project,
             timeout_seconds=self._timeout_seconds,
             max_output_chars=self._max_output_chars,
         )
-        commit_result = await _run_git(
+        commit_result = await self._run_git(
             repository_directory,
             ["commit", "-m", message],
             project=project,
@@ -310,7 +339,7 @@ class RestrictedGitListBranchesTool(_ProjectAwareGitTool):
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         project, repository_directory = self._resolve_repository(arguments)
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             ["branch", "--list"],
             project=project,
@@ -344,7 +373,7 @@ class RestrictedGitCheckoutBranchTool(_ProjectAwareGitTool):
         if not isinstance(name, str) or not name:
             raise ToolInputError("The branch name must be a non-empty string")
 
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             ["checkout", name],
             project=project,
@@ -388,7 +417,7 @@ class RestrictedGitCreateBranchTool(_ProjectAwareGitTool):
                 raise ToolInputError("The start_point value must be a string")
             command.append(start_point)
 
-        return await _run_git(
+        return await self._run_git(
             repository_directory,
             command,
             project=project,
@@ -404,42 +433,44 @@ async def _run_git(
     project: str | None,
     timeout_seconds: float,
     max_output_chars: int,
+    sandbox: SandboxExecuteProtocol,
 ) -> dict[str, Any]:
     _ensure_repository(repository_directory)
-    process: asyncio.subprocess.Process | None = None
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            *arguments,
-            cwd=repository_directory,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    command = ["git", *arguments]
+    writing = arguments[0] in {"add", "commit", "checkout"} or (
+        arguments[0] == "branch" and "--list" not in arguments
+    )
+    result = await sandbox.execute(
+        SandboxExecutionRequest(
+            request_id="git:" + arguments[0],
+            command=SandboxCommand(
+                command=command, cwd="/workspace", timeout_seconds=timeout_seconds
+            ),
+            policy=SandboxPolicy(
+                command_allowlist=["git"],
+                filesystem_mounts=[
+                    SandboxFilesystemMount(
+                        host_path=str(repository_directory),
+                        mount_path="/workspace",
+                        access=SandboxFilesystemAccess.READ_WRITE
+                        if writing
+                        else SandboxFilesystemAccess.READ_ONLY,
+                    )
+                ],
+                resource_limits=SandboxResourceLimits(
+                    timeout_seconds=timeout_seconds, max_output_chars=max_output_chars
+                ),
+            ),
         )
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(),
-            timeout=timeout_seconds,
-        )
-    except asyncio.TimeoutError as exc:
-        if process is not None:
-            process.kill()
-            await process.wait()
-        raise ToolExecutionError("The git command timed out", cause=exc) from exc
-    except OSError as exc:
-        raise ToolExecutionError("The git command failed to start", cause=exc) from exc
-
-    stdout_text = _decode(stdout)
-    stderr_text = _decode(stderr)
-    truncated = (
-        len(stdout_text) > max_output_chars or len(stderr_text) > max_output_chars
     )
     return {
         "project": project,
         "repository_directory": str(repository_directory),
-        "command": ["git", *arguments],
-        "returncode": process.returncode,
-        "stdout": stdout_text[:max_output_chars],
-        "stderr": stderr_text[:max_output_chars],
-        "truncated": truncated,
+        "command": result.command,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "truncated": result.truncated,
     }
 
 
@@ -483,7 +514,3 @@ def _metadata(tool: Any) -> dict[str, Any]:
         "timeout_seconds": tool._timeout_seconds,
         "max_output_chars": tool._max_output_chars,
     }
-
-
-def _decode(value: bytes) -> str:
-    return value.decode(errors="replace")

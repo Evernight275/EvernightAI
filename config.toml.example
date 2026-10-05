@@ -10,6 +10,21 @@ database_path = ".evernight/runtime.sqlite3"
 # installed and permitted by the host.
 sandbox_backend = "subprocess"
 
+# Used when sandbox_backend = "bubblewrap". See docs/sandbox.md.
+[runtime.sandbox]
+workspace_root = "workspaces"
+readonly_paths = []
+protected_paths = []
+include_python_environment = true
+include_uv = true
+include_node = false
+timeout_seconds = 120.0
+max_output_chars = 32000
+memory_bytes = 2147483648
+max_processes = 1024
+cpu_seconds = 60
+file_size_bytes = 67108864
+
 [context_strategy]
 # Optional model-visible window controls. Basic composition is always first.
 # Summary requires an application-provided summarizer; leave disabled unless
@@ -76,7 +91,7 @@ allow_write = false
 [tools.shell]
 # Keep disabled unless you intentionally want shell tools exposed.
 enabled = false
-# A single executable allows its arguments; a multi-part entry matches exactly.
+# Trusted commands; other commands require approval. Literal-path checks still apply.
 allowed_commands = ["python --version", "uv"]
 # Blocked rules win over allowed commands and are rejected before approval or
 # execution. A single executable blocks every argument; a multi-part entry
@@ -86,9 +101,8 @@ working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
 is_need_approval = true
-# Set to a list to restrict per-call env overrides; leave unset to allow any
-# env key when the shell tool is enabled.
-# allowed_env_keys = ["PYTHONPATH"]
+# Environment overrides are rejected by restricted_shell.
+# allowed_env_keys remains a compatibility setting and does not grant overrides.
 
 [tools.web]
 # Keep disabled unless you intentionally want network tools exposed.

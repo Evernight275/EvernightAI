@@ -39,7 +39,7 @@ async def test_restricted_shell_requires_approval(tmp_path) -> None:
             )
         )
 
-    assert exc_info.value.detail == "Tool call requires approval"
+    assert exc_info.value.detail == "Interpreters and command wrappers require approval"
 
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
         )
 
     assert exc_info.value.detail is not None
-    assert "is not allowed" in exc_info.value.detail
+    assert "require approval" in exc_info.value.detail
     assert result.tool_call_result["stderr"] == ""
     assert result.tool_call_result["truncated"] is False
 
@@ -193,7 +193,9 @@ async def test_restricted_shell_rejects_blocked_command_rule(
 
 
 @pytest.mark.asyncio
-async def test_restricted_shell_rejects_unlisted_command(tmp_path) -> None:
+async def test_restricted_shell_requests_approval_for_unlisted_command(
+    tmp_path,
+) -> None:
     register = ToolRegister()
     register_restricted_shell_tool(
         register,
@@ -210,12 +212,11 @@ async def test_restricted_shell_rejects_unlisted_command(tmp_path) -> None:
                     "name": "restricted_shell",
                     "arguments": {"command": ["not-allowed"]},
                 },
-                metadata={"approved": True},
             )
         )
 
     assert exc_info.value.detail is not None
-    assert "is not allowed" in exc_info.value.detail
+    assert "require approval" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -251,7 +252,7 @@ async def test_restricted_shell_truncates_output(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_restricted_shell_accepts_cwd_env_and_returns_events(tmp_path) -> None:
+async def test_restricted_shell_accepts_cwd_and_returns_events(tmp_path) -> None:
     (tmp_path / "nested").mkdir()
     register = ToolRegister()
     register_restricted_shell_tool(
@@ -274,11 +275,10 @@ async def test_restricted_shell_accepts_cwd_env_and_returns_events(tmp_path) -> 
                         (
                             "import os, pathlib; "
                             "print(pathlib.Path.cwd().name); "
-                            "print(os.environ['EVERNIGHT_TEST_VALUE'])"
+                            "print('ok')"
                         ),
                     ],
                     "cwd": "nested",
-                    "env": {"EVERNIGHT_TEST_VALUE": "ok"},
                     "timeout_seconds": 5,
                 },
             },

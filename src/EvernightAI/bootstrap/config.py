@@ -1,4 +1,6 @@
 import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 from EvernightAI.bootstrap.interface import create_interface
@@ -7,11 +9,14 @@ from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.error.tool import ToolConfigurationError
+from EvernightAI.core.error.sandbox import SandboxConfigurationError
+from EvernightAI.core.schema.sandbox import SandboxResourceLimits
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolSourceProtocol
 from EvernightAI.core.schema.data_analysis import DataSourceDefinition
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
+from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import BubblewrapRuntimePolicy
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.registrations.data_analysis.sqlite import (
     register_sqlite_data_source,
@@ -32,10 +37,14 @@ from EvernightAI.interface.cli.schema import (
 
 
 def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
+    sandbox = create_sandbox_from_config(config)
+    options = _runtime_tool_options(config)
+    if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
+        _validate_sandbox_tool_roots(config)
     runtime = create_sqlite_runtime(
         config.runtime.database_path,
-        sandbox=create_sandbox_from_config(config),
-        **_runtime_tool_options(config),
+        sandbox=sandbox,
+        **options,
         **_runtime_context_options(config),
         prompt_cache_mode=config.prompt_cache.mode,
         prompt_cache_scope=config.prompt_cache.scope,
@@ -59,8 +68,62 @@ def register_configured_data_sources(
 
 def create_sandbox_from_config(config: EvernightConfig) -> SandboxExecuteProtocol:
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
-        return BubblewrapSandboxExecutor()
+        if os.name != "posix" or shutil.which("bwrap") is None:
+            raise SandboxConfigurationError(
+                "Bubblewrap requires Linux and an installed bwrap executable"
+            )
+        if shutil.which("prlimit") is None:
+            raise SandboxConfigurationError(
+                "Bubblewrap resource limits require prlimit"
+            )
+        settings = config.runtime.sandbox
+        database = Path(config.runtime.database_path).resolve()
+        policy = BubblewrapRuntimePolicy(
+            workspace_root=settings.workspace_root,
+            readonly_paths=settings.readonly_paths,
+            protected_paths=[
+                database,
+                Path(str(database) + ".provider-key"),
+                Path.cwd() / ".evernight",
+                Path.cwd() / "config.toml",
+                Path.cwd() / ".env",
+                *settings.protected_paths,
+            ],
+            include_python_environment=settings.include_python_environment,
+            include_uv=settings.include_uv,
+            include_node=settings.include_node,
+            limits=SandboxResourceLimits(
+                timeout_seconds=settings.timeout_seconds,
+                max_output_chars=settings.max_output_chars,
+                memory_bytes=settings.memory_bytes,
+                max_processes=settings.max_processes,
+                cpu_seconds=settings.cpu_seconds,
+                file_size_bytes=settings.file_size_bytes,
+            ),
+        )
+        return BubblewrapSandboxExecutor(runtime_policy=policy)
     return SubprocessSandboxExecutor()
+
+
+def _validate_sandbox_tool_roots(config: EvernightConfig) -> None:
+    root = Path(config.runtime.sandbox.workspace_root).resolve()
+    directories = list(config.tools.project.project_directories.values())
+    if config.tools.filesystem.enabled:
+        directories.append(config.tools.filesystem.root)
+    if config.tools.shell.enabled:
+        directories.append(config.tools.shell.working_directory or ".")
+    if config.tools.git.enabled:
+        directories.append(config.tools.git.repository_directory)
+    if config.tools.project.enabled:
+        directories.append(config.tools.project.working_directory)
+    if config.tools.web.enabled and config.tools.web.download_directory is not None:
+        directories.append(config.tools.web.download_directory)
+    for directory in directories:
+        if not Path(directory).resolve().is_relative_to(root):
+            raise SandboxConfigurationError(
+                "With bubblewrap enabled, filesystem, shell, Git, project and download directories must stay inside runtime.sandbox.workspace_root"
+            )
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
 def create_interface_from_config(

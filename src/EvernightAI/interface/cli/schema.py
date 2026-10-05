@@ -19,9 +19,25 @@ class SandboxBackend(StrEnum):
     BUBBLEWRAP = "bubblewrap"
 
 
+class SandboxConfig(EvernightAISchema):
+    workspace_root: str = "workspaces"
+    readonly_paths: list[str] = Field(default_factory=list)
+    protected_paths: list[str] = Field(default_factory=list)
+    include_python_environment: bool = True
+    include_uv: bool = True
+    include_node: bool = False
+    timeout_seconds: float = Field(default=120.0, gt=0)
+    max_output_chars: int = Field(default=32000, gt=0)
+    memory_bytes: int = Field(default=2_147_483_648, gt=0)
+    max_processes: int = Field(default=1024, gt=0)
+    cpu_seconds: int = Field(default=60, gt=0)
+    file_size_bytes: int = Field(default=67_108_864, gt=0)
+
+
 class RuntimeConfig(EvernightAISchema):
     database_path: str = ".evernight/runtime.sqlite3"
     sandbox_backend: SandboxBackend = SandboxBackend.SUBPROCESS
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
 
 
 class ContextStrategyConfig(EvernightAISchema):

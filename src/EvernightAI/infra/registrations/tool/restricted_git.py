@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
+from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.infra.adapters.tool.restricted_git import (
     RestrictedGitCheckoutBranchTool,
     RestrictedGitCommitTool,
@@ -20,6 +21,7 @@ def register_restricted_git_tools(
     project_directories: dict[str, str | Path] | None = None,
     timeout_seconds: float = 10.0,
     max_output_chars: int = 12000,
+    sandbox: SandboxExecuteProtocol | None = None,
 ) -> None:
     tools = [
         RestrictedGitStatusTool(
@@ -27,48 +29,56 @@ def register_restricted_git_tools(
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitDiffTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitLogTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitShowTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitCommitTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitListBranchesTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitCreateBranchTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
         RestrictedGitCheckoutBranchTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            sandbox=sandbox,
         ),
     ]
     for tool in tools:

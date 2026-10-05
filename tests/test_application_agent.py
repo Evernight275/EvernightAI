@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import datetime, timezone
 from typing import cast
@@ -1232,6 +1233,70 @@ async def test_agent_rejects_blocked_shell_command_without_approval(tmp_path) ->
         event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED
         for event in state.trace
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell syntax")
+async def test_agent_suspicious_shell_pauses_then_executes_once(tmp_path) -> None:
+    class ShellProvider(ToolCallingProvider):
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            self.requests.append(request)
+            if len(self.requests) > 1:
+                return make_response("Written")
+            return ChatResponse(
+                model_id=request.model_id,
+                message=Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id="tool-call-1",
+                            tool_call={
+                                "name": "restricted_shell",
+                                "arguments": {
+                                    "command": "echo hello >> note.txt && cat note.txt",
+                                },
+                            },
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+    runtime = make_runtime(provider=ShellProvider())
+    register_restricted_shell_tool(
+        runtime.tool_register,
+        allowed_commands={"echo", "cat"},
+        working_directory=tmp_path,
+        requires_approval=False,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    app = AgentApplication(runtime)
+    state = await app.run_agent_until_pause(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a note")],
+            tools=runtime.tools.list_tools(),
+        )
+    )
+    assert state.status is AgentRunStatus.PAUSED
+    assert not (tmp_path / "note.txt").exists()
+    approval = state.pending_approval_requests[0]
+    assert "redirection" in (approval.reason or "")
+    finished = await app.resume_agent_until_pause(
+        state,
+        [
+            ToolApprovalDecision(
+                approval_id=approval.approval_id,
+                tool_call_id=approval.tool_call_id,
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+    )
+    assert finished.status is AgentRunStatus.FINISHED
+    assert (tmp_path / "note.txt").read_text() == "hello\n"
 
 
 @pytest.mark.asyncio

@@ -205,6 +205,8 @@ SQLite saves these choices per principal; anonymous local workspaces share setti
 Forbidden tools are removed from chat and blocked during execution. Server path,
 command, network and blocked-permission checks still apply. See
 [tool permissions](docs/tool-permissions.md) for defaults and API permissions.
+Linux process tools can share a Bubblewrap sandbox with an independent workspace
+and read-only Python/uv runtimes. See [sandbox configuration](docs/sandbox.md).
 
 ## Remote MCP Tools
 

@@ -48,8 +48,12 @@ class SandboxNetworkRule(EvernightAISchema):
 class SandboxResourceLimits(EvernightAISchema):
     """沙盒资源限制"""
 
-    timeout_seconds: float = 30.0
-    max_output_chars: int = 12000
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    max_output_chars: int = Field(default=12000, gt=0)
+    memory_bytes: int | None = Field(default=None, gt=0)
+    max_processes: int | None = Field(default=None, gt=0)
+    cpu_seconds: int | None = Field(default=None, gt=0)
+    file_size_bytes: int | None = Field(default=None, gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

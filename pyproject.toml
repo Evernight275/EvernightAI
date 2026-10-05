@@ -40,10 +40,13 @@ target-version = "py312"
 line-length = 88
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["workspaces", ".git", ".venv", "node_modules"]
 addopts = [
     "-ra",
 ]
 markers = [
+    "sandbox: OS-level Bubblewrap isolation tests, run outside an existing process sandbox",
     "real_images: tests that call a real image generation provider (may incur charges)",
     "real_openai: tests that call a real OpenAI-compatible provider",
     "real_openai_responses: tests that call a real OpenAI Responses provider",

@@ -15,9 +15,10 @@ from EvernightAI.core.schema.sandbox import (
     SandboxExecutionRequest,
     SandboxExecutionResult,
     SandboxFilesystemMount,
-    SandboxOutputEvent,
     SandboxOutputStream,
 )
+from EvernightAI.infra.adapters.sandbox.process import terminate_process
+from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
 
 
 class SubprocessSandboxExecutor(SandboxExecuteProtocol):
@@ -42,9 +43,7 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
 
         command = request.command.command
         process: asyncio.subprocess.Process | None = None
-        stdout_chunks: list[bytes] = []
-        stderr_chunks: list[bytes] = []
-        events: list[SandboxOutputEvent] = []
+        output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -53,25 +52,22 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
                 stdin=(
                     asyncio.subprocess.PIPE
                     if request.command.stdin is not None
-                    else None
+                    else asyncio.subprocess.DEVNULL
                 ),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
             )
             await asyncio.wait_for(
                 asyncio.gather(
                     self._write_stdin(process, request.command.stdin),
-                    self._collect_stream(
+                    output.collect(
                         process.stdout,
                         SandboxOutputStream.STDOUT,
-                        stdout_chunks,
-                        events,
                     ),
-                    self._collect_stream(
+                    output.collect(
                         process.stderr,
                         SandboxOutputStream.STDERR,
-                        stderr_chunks,
-                        events,
                     ),
                     process.wait(),
                 ),
@@ -79,8 +75,7 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
             )
         except asyncio.TimeoutError as exc:
             if process is not None:
-                process.kill()
-                await process.wait()
+                await terminate_process(process)
             raise SandboxExecutionError(
                 f"The command {command[0]} timed out",
                 cause=exc,
@@ -90,21 +85,19 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
                 f"The command {command[0]} failed to start",
                 cause=exc,
             ) from exc
+        except BaseException:
+            if process is not None:
+                await terminate_process(process)
+            raise
 
-        stdout = b"".join(stdout_chunks)
-        stderr = b"".join(stderr_chunks)
-        max_output_chars = request.policy.resource_limits.max_output_chars
         return SandboxExecutionResult(
             request_id=request.request_id,
             command=command,
             returncode=process.returncode,
-            stdout=self._decode_and_truncate(stdout, max_output_chars),
-            stderr=self._decode_and_truncate(stderr, max_output_chars),
-            events=self._truncate_events(events, max_output_chars),
-            truncated=(
-                len(self._decode(stdout)) > max_output_chars
-                or len(self._decode(stderr)) > max_output_chars
-            ),
+            stdout=output.stdout,
+            stderr=output.stderr,
+            events=output.events,
+            truncated=output.truncated,
         )
 
     async def _write_stdin(
@@ -118,25 +111,6 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
         await process.stdin.drain()
         process.stdin.close()
         await process.stdin.wait_closed()
-
-    async def _collect_stream(
-        self,
-        stream: asyncio.StreamReader | None,
-        stream_name: SandboxOutputStream,
-        chunks: list[bytes],
-        events: list[SandboxOutputEvent],
-    ) -> None:
-        if stream is None:
-            return
-
-        while True:
-            chunk = await stream.readline()
-            if not chunk:
-                return
-            chunks.append(chunk)
-            events.append(
-                SandboxOutputEvent(stream=stream_name, text=self._decode(chunk))
-            )
 
     def _resolve_cwd(self, request: SandboxExecutionRequest) -> Path | None:
         cwd = request.command.cwd
@@ -182,39 +156,3 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
         if not path.is_absolute():
             path = PurePosixPath("/") / path
         return path
-
-    def _decode_and_truncate(self, value: bytes, max_chars: int) -> str:
-        text = self._decode(value)
-        if len(text) <= max_chars:
-            return text
-        return text[:max_chars]
-
-    def _decode(self, value: bytes) -> str:
-        return value.decode(errors="replace")
-
-    def _truncate_events(
-        self,
-        events: list[SandboxOutputEvent],
-        max_chars: int,
-    ) -> list[SandboxOutputEvent]:
-        remaining = max_chars
-        truncated_events: list[SandboxOutputEvent] = []
-        for event in events:
-            text = event.text
-            if len(text) > remaining:
-                truncated_events.append(
-                    event.model_copy(
-                        update={
-                            "text": text[:remaining],
-                            "truncated": True,
-                        }
-                    )
-                )
-                break
-
-            truncated_events.append(event.model_copy(update={"truncated": False}))
-            remaining -= len(text)
-            if remaining <= 0:
-                break
-
-        return truncated_events

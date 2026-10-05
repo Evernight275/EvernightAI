@@ -19,8 +19,13 @@ from EvernightAI.core.schema.sandbox import (
     SandboxFilesystemAccess,
     SandboxFilesystemMount,
     SandboxNetworkMode,
-    SandboxOutputEvent,
     SandboxOutputStream,
+)
+from EvernightAI.infra.adapters.sandbox.process import terminate_process
+from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
+from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import (
+    BubblewrapRuntimePolicy,
+    resource_command,
 )
 
 
@@ -30,9 +35,11 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         *,
         bubblewrap_path: str | None = None,
         policy: SandboxPolicyProtocol | None = None,
+        runtime_policy: BubblewrapRuntimePolicy | None = None,
     ) -> None:
         self._bubblewrap_path = bubblewrap_path or shutil.which("bwrap")
         self._policy = policy or BasicSandboxPolicy()
+        self._runtime_policy = runtime_policy or BubblewrapRuntimePolicy()
 
     async def execute(
         self,
@@ -41,6 +48,32 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         """执行 bubblewrap 隔离沙盒命令"""
         if self._bubblewrap_path is None:
             raise SandboxConfigurationError("The bwrap executable is not available")
+        self._runtime_policy.validate_mounts(request.policy.filesystem_mounts)
+        effective_policy = request.policy.model_copy(
+            update={
+                "resource_limits": self._runtime_policy.effective_limits(
+                    request.policy.resource_limits
+                ),
+            }
+        )
+        if self._runtime_policy.workspace_root is not None:
+            effective_policy = effective_policy.model_copy(
+                update={"network_mode": SandboxNetworkMode.DISABLED}
+            )
+        request = request.model_copy(
+            update={
+                "policy": effective_policy,
+                "command": request.command.model_copy(
+                    update={
+                        "timeout_seconds": min(
+                            request.command.timeout_seconds
+                            or effective_policy.resource_limits.timeout_seconds,
+                            effective_policy.resource_limits.timeout_seconds,
+                        )
+                    }
+                ),
+            }
+        )
 
         decision = self._policy.authorize(request)
         if not decision.allowed:
@@ -51,9 +84,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
 
         process_command = self._bubblewrap_command(request)
         process: asyncio.subprocess.Process | None = None
-        stdout_chunks: list[bytes] = []
-        stderr_chunks: list[bytes] = []
-        events: list[SandboxOutputEvent] = []
+        output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
         try:
             process = await asyncio.create_subprocess_exec(
                 *process_command,
@@ -61,25 +92,22 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 stdin=(
                     asyncio.subprocess.PIPE
                     if request.command.stdin is not None
-                    else None
+                    else asyncio.subprocess.DEVNULL
                 ),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
             )
             await asyncio.wait_for(
                 asyncio.gather(
                     self._write_stdin(process, request.command.stdin),
-                    self._collect_stream(
+                    output.collect(
                         process.stdout,
                         SandboxOutputStream.STDOUT,
-                        stdout_chunks,
-                        events,
                     ),
-                    self._collect_stream(
+                    output.collect(
                         process.stderr,
                         SandboxOutputStream.STDERR,
-                        stderr_chunks,
-                        events,
                     ),
                     process.wait(),
                 ),
@@ -87,8 +115,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             )
         except asyncio.TimeoutError as exc:
             if process is not None:
-                process.kill()
-                await process.wait()
+                await terminate_process(process)
             raise SandboxExecutionError(
                 f"The command {request.command.command[0]} timed out",
                 cause=exc,
@@ -98,21 +125,19 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 f"The command {request.command.command[0]} failed to start",
                 cause=exc,
             ) from exc
+        except BaseException:
+            if process is not None:
+                await terminate_process(process)
+            raise
 
-        stdout = b"".join(stdout_chunks)
-        stderr = b"".join(stderr_chunks)
-        max_output_chars = request.policy.resource_limits.max_output_chars
         return SandboxExecutionResult(
             request_id=request.request_id,
             command=request.command.command,
             returncode=process.returncode,
-            stdout=self._decode_and_truncate(stdout, max_output_chars),
-            stderr=self._decode_and_truncate(stderr, max_output_chars),
-            events=self._truncate_events(events, max_output_chars),
-            truncated=(
-                len(self._decode(stdout)) > max_output_chars
-                or len(self._decode(stderr)) > max_output_chars
-            ),
+            stdout=output.stdout,
+            stderr=output.stderr,
+            events=output.events,
+            truncated=output.truncated,
             metadata={"sandbox_backend": "bubblewrap"},
         )
 
@@ -126,6 +151,10 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             [
                 "--die-with-parent",
                 "--new-session",
+                "--unshare-user",
+                "--disable-userns",
+                "--cap-drop",
+                "ALL",
                 "--unshare-pid",
                 "--unshare-ipc",
                 "--unshare-uts",
@@ -142,13 +171,18 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         )
         command.extend(self._network_options(request))
         command.extend(self._system_mount_options())
+        command.extend(self._runtime_policy.runtime_mount_options())
         command.extend(self._filesystem_mount_options(request.policy.filesystem_mounts))
         for key, value in self._sandbox_env(request).items():
             command.extend(["--setenv", key, value])
         if request.command.cwd is not None:
             command.extend(["--chdir", request.command.cwd])
         command.append("--")
-        command.extend(self._sandbox_command(request))
+        command.extend(
+            resource_command(
+                self._sandbox_command(request), request.policy.resource_limits
+            )
+        )
         return command
 
     def _network_options(self, request: SandboxExecutionRequest) -> list[str]:
@@ -188,6 +222,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
 
     def _sandbox_command(self, request: SandboxExecutionRequest) -> list[str]:
         command = list(request.command.command)
+        command[0] = self._runtime_policy.map_runtime_executable(command[0])
         command[0] = self._map_host_path_to_sandbox(
             command[0],
             request.policy.filesystem_mounts,
@@ -218,7 +253,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
 
     def _sandbox_env(self, request: SandboxExecutionRequest) -> dict[str, str]:
         return {
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            **self._runtime_policy.environment(),
             **request.command.env,
         }
 
@@ -242,25 +277,6 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         process.stdin.close()
         await process.stdin.wait_closed()
 
-    async def _collect_stream(
-        self,
-        stream: asyncio.StreamReader | None,
-        stream_name: SandboxOutputStream,
-        chunks: list[bytes],
-        events: list[SandboxOutputEvent],
-    ) -> None:
-        if stream is None:
-            return
-
-        while True:
-            chunk = await stream.readline()
-            if not chunk:
-                return
-            chunks.append(chunk)
-            events.append(
-                SandboxOutputEvent(stream=stream_name, text=self._decode(chunk))
-            )
-
     def _timeout_seconds(self, request: SandboxExecutionRequest) -> float:
         return (
             request.command.timeout_seconds
@@ -272,39 +288,3 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         if not path.is_absolute():
             path = PurePosixPath("/") / path
         return path
-
-    def _decode_and_truncate(self, value: bytes, max_chars: int) -> str:
-        text = self._decode(value)
-        if len(text) <= max_chars:
-            return text
-        return text[:max_chars]
-
-    def _decode(self, value: bytes) -> str:
-        return value.decode(errors="replace")
-
-    def _truncate_events(
-        self,
-        events: list[SandboxOutputEvent],
-        max_chars: int,
-    ) -> list[SandboxOutputEvent]:
-        remaining = max_chars
-        truncated_events: list[SandboxOutputEvent] = []
-        for event in events:
-            text = event.text
-            if len(text) > remaining:
-                truncated_events.append(
-                    event.model_copy(
-                        update={
-                            "text": text[:remaining],
-                            "truncated": True,
-                        }
-                    )
-                )
-                break
-
-            truncated_events.append(event.model_copy(update={"truncated": False}))
-            remaining -= len(text)
-            if remaining <= 0:
-                break
-
-        return truncated_events

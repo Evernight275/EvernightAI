@@ -45,7 +45,9 @@ def load_config(path: str | Path) -> EvernightConfig:
     except OSError as exc:
         raise ConfigurationError(f"Could not read config file: {path}") from exc
 
-    return parse_config(data)
+    config = parse_config(data)
+    config.runtime.sandbox.protected_paths.append(str(Path(path).resolve()))
+    return config
 
 
 def parse_config(data: dict[str, Any]) -> EvernightConfig:

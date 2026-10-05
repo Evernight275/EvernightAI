@@ -135,7 +135,9 @@ export function toolDisplay(name: string, text?: string): ToolDisplay | undefine
   }
   return {
     kind: 'terminal',
-    command: terminalText(commandText(value.command)),
+    command: terminalText(
+      typeof value.shell_script === 'string' ? value.shell_script : commandText(value.command),
+    ),
     directory:
       [value.working_directory, value.repository_directory, value.cwd].find(
         (directory): directory is string => typeof directory === 'string',

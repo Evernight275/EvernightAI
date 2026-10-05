@@ -28,11 +28,64 @@ approval decisions. A denied or expired decision prevents execution even if the
 tool's policy later becomes `allow`.
 
 Allowing a tool only changes approval behavior. The server's blocked permission
-categories, tool preflight checks, configured filesystem roots, command allowlists,
+categories, tool preflight checks, configured filesystem roots, command restrictions,
 and network restrictions still apply. A server-blocked tool appears as forbidden
 in management and cannot be enabled by a user override. Tool permission categories
 such as `write` and `external_api` describe operations; API permissions govern
 access to management endpoints and Agent operations.
+
+## Shell commands
+
+`restricted_shell` accepts either a process argument array or a shell script string:
+
+```json
+{"command": "ls | head -n 5 && pwd"}
+```
+
+Strings execute using `/bin/sh -c` on POSIX or `cmd.exe /d /s /c` on Windows.
+Arrays keep their arguments literal. Pipes, redirection and command chains are
+available in script mode; the full script appears in approval and terminal cards,
+including after a page refresh.
+
+Common read commands can run without additional approval. `allowed_commands`
+identifies trusted commands rather than an exhaustive executable allowlist.
+Commands outside that list require approval instead of automatic rejection.
+Deletion, file changes, network/system operations, interpreters, command wrappers,
+redirection and complex scripts also require approval,
+even when the tool's configured mode is `allow`. An `ask` policy still asks for
+every call; a `deny` policy blocks every call.
+
+Paths must be literal relative or absolute paths. Shell variable expansion,
+command/process substitution, home-directory expansion and unquoted wildcards
+are rejected even after approval. Environment overrides through `env`, inline
+assignments and environment-setting commands are forbidden. Bubblewrap supplies
+a fixed runtime environment; it does not inherit service secrets. The explicit
+`subprocess` backend inherits the host environment.
+
+Special characters in filenames must use the executing shell's literal syntax.
+For POSIX, `rm './a$*.txt'`, `rm ./a\$\*.txt`, or the argument array
+`["rm", "./a$*.txt"]` address one literal filename and require deletion approval.
+`rm *.txt` and `rm "$HOME/a"` are rejected. Argument arrays bypass shell parsing;
+their arguments are already literal and must not contain shell quoting added by
+the caller. Windows filename rules do not permit literal `*` or `?`; quoting a
+wildcard deletion target does not make it acceptable. CMD environment expansion
+is forbidden even inside double quotes. PowerShell special-filename deletion
+requires `-LiteralPath` as well as correct quoting.
+
+Deletion using discovered/piped targets (`find -delete`, `xargs rm`) is rejected;
+provide each target explicitly instead.
+Explicit `blocked_commands` remain hard denials and are inspected in script
+segments too. Inspection is conservative, not a proof of arbitrary program
+behavior: code inside interpreters still requires review of the complete script.
+Literal path checks do not constrain filesystem operations inside arbitrary
+Python or other programs.
+
+Working-directory validation, timeouts and output limits
+remain in effect. The `subprocess` backend runs as the host user and does not
+isolate filesystem access; use the `bubblewrap` backend when OS isolation is
+needed. On POSIX, timeout and cancellation kill the command's process group.
+See [process sandbox configuration](sandbox.md) for isolated workspaces, read-only
+Python/uv mounts, Git execution and resource limits.
 
 ## HTTP API
 

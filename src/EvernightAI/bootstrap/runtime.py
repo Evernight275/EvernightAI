@@ -228,6 +228,7 @@ def register_builtin_tools(
             project_directories=project_directories,
             timeout_seconds=git_timeout_seconds,
             max_output_chars=git_max_output_chars,
+            sandbox=sandbox,
         )
 
     if project_working_directory is not None and project_commands is not None:

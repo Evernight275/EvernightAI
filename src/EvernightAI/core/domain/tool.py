@@ -2,6 +2,7 @@ from EvernightAI.core.domain.tool_policy import ToolPolicyStore
 from EvernightAI.core.schema.auth import PrincipalScope
 from typing import Any
 from dataclasses import dataclass
+from EvernightAI.core.error.sandbox import SandboxError
 
 from EvernightAI.core.error.tool import (
     ToolExecutionError,
@@ -284,7 +285,25 @@ class ToolManager(ToolManageProtocol):
         if preflight_policy is not None:
             preflight_decision = preflight_policy(tool, arguments)
             if preflight_decision is not None and not preflight_decision.allowed:
-                return preflight_decision
+                if not preflight_decision.requires_approval:
+                    return preflight_decision
+                tool = self._effective_definition(tool, ToolAccessMode.ASK)
+                decision = self._safety_policy.authorize(tool, call)
+                if decision.approval_request is not None:
+                    decision.approval_request.reason = preflight_decision.reason
+                    decision.approval_request.metadata.update(
+                        preflight_decision.metadata
+                    )
+                if (
+                    not decision.allowed
+                    and decision.requires_approval
+                    and (
+                        call.approval is None
+                        or call.approval.status is ToolApprovalStatus.REQUESTED
+                    )
+                ):
+                    decision.reason = preflight_decision.reason
+                return decision
         return self._safety_policy.authorize(tool, call)
 
     async def execute(self, call: ToolCall) -> ToolCallResult:
@@ -310,7 +329,7 @@ class ToolManager(ToolManageProtocol):
 
         try:
             result = await executor(arguments)
-        except ToolExecutionError as exc:
+        except (ToolExecutionError, SandboxError) as exc:
             raise ToolExecutionError(
                 f"The tool {tool_name} execution failed: {exc}",
                 detail=exc.detail,

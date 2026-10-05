@@ -74,6 +74,23 @@ describe('specialized tool displays', () => {
     ).toBeUndefined();
   });
 
+  it('restores the original shell script and directory from saved results', () => {
+    expect(
+      toolDisplay(
+        'restricted_shell',
+        JSON.stringify({
+          ...commandResult,
+          command: ['/bin/sh', '-c', 'echo hello | head -n 1 && pwd'],
+          shell_script: 'echo hello | head -n 1 && pwd',
+          cwd: '/workspace/project',
+        }),
+      ),
+    ).toMatchObject({
+      command: 'echo hello | head -n 1 && pwd',
+      directory: '/workspace/project',
+    });
+  });
+
   it('renders diff and terminal text safely, with distinct styles', async () => {
     const file = await renderToString(
       createSSRApp(ChatToolDisplay, {

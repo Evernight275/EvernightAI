@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from EvernightAI.core.error.sandbox import SandboxExecutionError
 
 from EvernightAI.core.domain.tool import (
     BasicToolSafetyPolicy,
@@ -199,9 +200,14 @@ async def test_tool_manager_wraps_executor_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_manager_preserves_specific_execution_errors() -> None:
-    error = ToolExecutionError(
-        "Image request timed out", detail="ProviderRequestTimeoutError"
+@pytest.mark.parametrize("sandbox_error", [False, True])
+async def test_tool_manager_preserves_specific_execution_errors(sandbox_error) -> None:
+    error = (
+        SandboxExecutionError("Sandbox request timed out", detail="timeout")
+        if sandbox_error
+        else ToolExecutionError(
+            "Image request timed out", detail="ProviderRequestTimeoutError"
+        )
     )
 
     async def broken(arguments: dict[str, object]) -> dict[str, object]:
@@ -218,7 +224,7 @@ async def test_tool_manager_preserves_specific_execution_errors() -> None:
         )
     assert exc_info.value.cause is error
     assert exc_info.value.detail == error.detail
-    assert "Image request timed out" in str(exc_info.value)
+    assert str(error) in str(exc_info.value)
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,8 @@ from EvernightAI.core.schema.sandbox import (
 )
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 
+pytestmark = pytest.mark.sandbox
+
 
 def make_request(
     *,
