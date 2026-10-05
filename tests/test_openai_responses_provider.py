@@ -232,7 +232,14 @@ def test_maps_tool_definition_to_openai_response_tool() -> None:
     tool = ToolDefinition(
         name="lookup",
         description="Lookup a value",
-        parameters_schema={"type": "object"},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+        },
     )
 
     assert to_openai_response_tools([tool]) == [
@@ -240,7 +247,15 @@ def test_maps_tool_definition_to_openai_response_tool() -> None:
             "type": "function",
             "name": "lookup",
             "description": "Lookup a value",
-            "parameters": {"type": "object"},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "default": 10},
+                },
+                "required": ["query"],
+            },
+            "strict": False,
         }
     ]
 
@@ -754,7 +769,7 @@ async def test_openai_responses_instance_chat_maps_reasoning_effort_metadata() -
         "model": "gpt-test",
         "input": to_openai_response_input(make_messages()),
         "timeout": 30.0,
-        "reasoning_effort": "high",
+        "reasoning": {"effort": "high"},
     }
 
     await instance.close()
@@ -866,7 +881,7 @@ async def test_openai_responses_instance_stream_maps_reasoning_effort_metadata()
         "input": to_openai_response_input(make_messages()),
         "timeout": 30.0,
         "stream": True,
-        "reasoning_effort": "medium",
+        "reasoning": {"effort": "medium"},
     }
 
     await instance.close()

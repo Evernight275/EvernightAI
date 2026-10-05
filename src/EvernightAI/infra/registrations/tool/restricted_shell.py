@@ -2,6 +2,7 @@ from pathlib import Path
 
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.infra.adapters.tool.restricted_shell import RestrictedShellTool
 
 
@@ -16,6 +17,7 @@ def register_restricted_shell_tool(
     requires_approval: bool = True,
     allowed_env_keys: set[str] | None = None,
     sandbox: SandboxExecuteProtocol | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
 ) -> None:
     tool = RestrictedShellTool(
         allowed_commands=allowed_commands,
@@ -26,6 +28,7 @@ def register_restricted_shell_tool(
         requires_approval=requires_approval,
         allowed_env_keys=allowed_env_keys,
         sandbox=sandbox,
+        workspace_directories=workspace_directories,
     )
     register.register(
         tool.definition,

@@ -189,3 +189,220 @@ def test_toml_root_is_shared_by_browser_and_file_tools(
             assert not (config_dir / "new-project").exists()
     finally:
         asyncio.run(app.state.interface.close())
+
+
+def test_external_projects_persist_and_enforce_their_boundaries(tmp_path: Path) -> None:
+    root = tmp_path / "default"
+    project = tmp_path / "projects" / "现有项目"
+    root.mkdir()
+    project.mkdir(parents=True)
+    private = tmp_path / "service"
+    private.mkdir()
+    (private / "runtime.db").touch()
+    database = private / "runtime.db"
+    store = WorkspaceDirectoryStore(
+        root, database_path=database, protected_paths=[private]
+    )
+    try:
+        with pytest.raises(ValidationError):
+            store.browse(str(project))
+        opened = store.add_project(str(project))
+        assert opened.path == str(project)
+        assert opened.root == str(project)
+        assert opened.parent is None
+        created = store.create(opened.path, "src")
+        assert created.parent == str(project)
+        assert store.resolve(created.path) == str(project / "src")
+        with pytest.raises(ValidationError):
+            store.add_project(str(tmp_path))
+        with pytest.raises(ValidationError):
+            store.add_project(str(private))
+        (project / "escape").symlink_to(private, target_is_directory=True)
+        with pytest.raises(ValidationError):
+            store.resolve(str(project / "escape"))
+        assert "escape" not in [
+            entry.name for entry in store.browse(str(project)).entries
+        ]
+    finally:
+        store.close()
+    restored = WorkspaceDirectoryStore(
+        root, database_path=database, protected_paths=[private]
+    )
+    try:
+        assert {item.path for item in restored.list_projects()} == {
+            str(root),
+            str(project),
+        }
+        assert restored.browse(str(project)).root == str(project)
+        moved = project.with_name("moved")
+        project.rename(moved)
+        project.symlink_to(private, target_is_directory=True)
+        with pytest.raises(ValidationError):
+            restored.resolve(str(project))
+    finally:
+        restored.close()
+
+
+@pytest.mark.asyncio
+async def test_all_project_tools_follow_each_calls_workspace(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    from EvernightAI.bootstrap.runtime import register_builtin_tools
+
+    default = tmp_path / "default"
+    default.mkdir()
+    projects = [tmp_path / "one", tmp_path / "two"]
+    workspaces = WorkspaceDirectoryStore(default)
+    for project in projects:
+        project.mkdir()
+        (project / "name.txt").write_text(project.name)
+        (project / f"{project.name}.txt").touch()
+        subprocess.run(["git", "init", "-q", str(project)], check=True)
+        workspaces.add_project(str(project))
+    register = ToolRegister()
+    register_builtin_tools(
+        register,
+        filesystem_root=default,
+        workspace_directories=workspaces,
+        shell_allowed_commands={sys.executable},
+        shell_working_directory=default,
+        git_repository_directory=default,
+        project_working_directory=default,
+        project_commands={
+            "where": [sys.executable, "-c", "import os; print(os.getcwd())"]
+        },
+    )
+    manager = ToolManager(register)
+
+    def call(project, name, arguments, *, selected=True):
+        return ToolCall(
+            tool_call_id=f"{project.name}-{name}",
+            tool_call={
+                "name": name,
+                "arguments": {**arguments, "_working_directory": str(projects[1])},
+            },
+            metadata={
+                "approved": True,
+                **({"working_directory": str(project)} if selected else {}),
+            },
+        )
+
+    async def inspect(project):
+        read = await manager.execute(
+            call(project, "read_text_file", {"path": "name.txt"})
+        )
+        shell = await manager.execute(
+            call(
+                project,
+                "restricted_shell",
+                {"command": [sys.executable, "-c", "import os; print(os.getcwd())"]},
+            )
+        )
+        git = await manager.execute(call(project, "git_status", {}))
+        task = await manager.execute(
+            call(project, "run_project_task", {"task": "where"})
+        )
+        assert read.tool_call_result["content"] == project.name
+        assert shell.tool_call_result["stdout"].strip() == str(project)
+        assert task.tool_call_result["stdout"].strip() == str(project)
+        assert f"{project.name}.txt" in git.tool_call_result["stdout"]
+        assert git.tool_call_result["repository_directory"] == str(project)
+
+    await asyncio.gather(*(inspect(project) for project in projects))
+    (default / "name.txt").write_text("default")
+    read = await manager.execute(
+        call(projects[0], "read_text_file", {"path": "name.txt"}, selected=False)
+    )
+    assert read.tool_call_result["content"] == "default"
+    for name, arguments in [
+        ("read_text_file", {"path": "name.txt"}),
+        ("restricted_shell", {"command": ["pwd"]}),
+        ("git_status", {}),
+        ("run_project_task", {"task": "where"}),
+    ]:
+        with pytest.raises(ToolPolicyError):
+            await manager.execute(call(tmp_path, name, arguments))
+    with pytest.raises(ToolPolicyError):
+        await manager.execute(
+            call(
+                projects[0],
+                "restricted_shell",
+                {"command": ["pwd"], "cwd": str(projects[1])},
+            )
+        )
+    with pytest.raises(ToolPolicyError):
+        await manager.execute(call(projects[0], "git_status", {"project": "other"}))
+    approval_call = call(
+        projects[0], "write_text_file", {"path": "new.txt", "content": "hi"}
+    )
+    approval_call.metadata.pop("approved")
+    decision = manager.authorize(approval_call)
+    assert decision.approval_request is not None
+    assert decision.approval_request.metadata["working_directory"] == str(projects[0])
+
+
+def test_project_registration_requires_permission_and_persists(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    project = tmp_path / "existing"
+    project.mkdir()
+    monkeypatch.setenv("EVERNIGHTAI_HTTP_API_KEY", "test-key")
+    headers = {"x-evernight-api-key": "test-key"}
+    for permissions, expected in [
+        ("workspaces:list,workspaces:create", 403),
+        ("workspaces:list,workspaces:register", 201),
+    ]:
+        monkeypatch.setenv("EVERNIGHTAI_HTTP_AUTH_PERMISSIONS", permissions)
+        app = create_app(
+            database_path=tmp_path / "runtime.db",
+            filesystem_root=root,
+            close_on_shutdown=False,
+        )
+        try:
+            with TestClient(app) as client:
+                assert (
+                    client.post(
+                        "/workspaces/projects", json={"path": str(project)}
+                    ).status_code
+                    == 401
+                )
+                response = client.post(
+                    "/workspaces/projects", headers=headers, json={"path": str(project)}
+                )
+                assert response.status_code == expected
+                if expected == 201:
+                    assert response.json()["path"] == str(project)
+                    assert any(
+                        item["path"] == str(project)
+                        for item in client.get(
+                            "/workspaces/projects", headers=headers
+                        ).json()
+                    )
+        finally:
+            asyncio.run(app.state.interface.close())
+    app = create_app(
+        database_path=tmp_path / "runtime.db",
+        filesystem_root=root,
+        close_on_shutdown=False,
+    )
+    try:
+        with TestClient(app) as client:
+            assert (
+                client.get(
+                    "/workspaces", headers=headers, params={"path": str(project)}
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(
+                    "/workspaces/projects",
+                    headers=headers,
+                    json={"path": str(tmp_path)},
+                ).status_code
+                == 400
+            )
+    finally:
+        asyncio.run(app.state.interface.close())

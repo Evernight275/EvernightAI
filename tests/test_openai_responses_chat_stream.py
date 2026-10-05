@@ -69,6 +69,11 @@ def text_event(event_type, text):
     [
         "completed_only",
         "text_done",
+        "part_done",
+        "part_done_only",
+        "part_done_partial",
+        "part_done_duplicate",
+        "part_done_refusal",
         "item_done",
         "partial_delta",
         "full_delta",
@@ -88,6 +93,32 @@ async def test_responses_wire_events_reach_chat_sse_and_persist(case):
     error = None
     if case == "text_done":
         payloads.insert(0, text_event("response.output_text.done", "Hello"))
+    elif case.startswith("part_done"):
+        part = final["response"]["output"][0]["content"][0]
+        if case == "part_done_refusal":
+            expected = "Cannot comply."
+            final = final_response(expected, refusal=True)
+            part = final["response"]["output"][0]["content"][0]
+        part_done = {
+            "type": "response.content_part.done",
+            "sequence_number": 1,
+            "item_id": "msg-1",
+            "output_index": 0,
+            "content_index": 0,
+            "part": part,
+        }
+        payloads = [part_done, final]
+        if case == "part_done_only":
+            payloads = [part_done]
+        elif case == "part_done_partial":
+            payloads.insert(0, text_event("response.output_text.delta", "He"))
+        elif case == "part_done_duplicate":
+            payloads = [
+                text_event("response.output_text.done", "Hello"),
+                part_done,
+                part_done,
+                final,
+            ]
     elif case == "item_done":
         payloads.insert(
             0,
@@ -212,6 +243,18 @@ async def test_responses_wire_events_reach_chat_sse_and_persist(case):
                 assert not any(
                     event.get("event_type") == "chat_completed" for event in events
                 )
+                if case in {"empty", "whitespace"}:
+                    stopped = next(
+                        event
+                        for event in state["trace"]
+                        if event["event_type"] == "run_stopped"
+                    )
+                    detail = json.loads(stopped["payload"]["error_detail"])
+                    assert detail["last_event"] == (
+                        "response.completed"
+                        if case == "empty"
+                        else "response.output_text.delta"
+                    )
             else:
                 assert state["status"] == "finished"
                 assert (
@@ -248,6 +291,8 @@ async def test_responses_wire_tool_call_executes_once_and_survives_state_reload(
     def upstream(request):
         body = json.loads(request.content)
         requests.append(body)
+        for tool in body.get("tools", []):
+            assert tool["strict"] is False
         final = final_response("The result is 3")
         payloads = []
         if len(requests) == 1:

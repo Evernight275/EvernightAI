@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
 from EvernightAI.infra.adapters.tool.restricted_filesystem import (
     RestrictedAppendTextFileTool,
@@ -30,77 +31,94 @@ def register_restricted_filesystem_tools(
     max_search_results: int = 100,
     allow_overwrite: bool = False,
     project_directories: dict[str, str | Path] | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
 ) -> None:
     read_tool = RestrictedReadTextFileTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         max_chars=max_read_chars,
     )
     write_tool = RestrictedWriteTextFileTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         allow_overwrite=allow_overwrite,
     )
     append_tool = RestrictedAppendTextFileTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     list_tool = RestrictedListDirectoryTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         max_entries=max_directory_entries,
     )
     find_tool = RestrictedFindPathsTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         max_results=max_search_results,
     )
     search_tool = RestrictedSearchTextFilesTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         max_results=max_search_results,
     )
     read_lines_tool = RestrictedReadTextFileLinesTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     move_tool = RestrictedMovePathTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         allow_overwrite=allow_overwrite,
     )
     delete_tool = RestrictedDeletePathTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     patch_tool = RestrictedApplyTextPatchTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     hash_tool = RestrictedFileHashTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     info_tool = RestrictedPathInfoTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     mkdir_tool = RestrictedMakeDirectoryTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     copy_tool = RestrictedCopyPathTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         allow_overwrite=allow_overwrite,
     )
     read_json_tool = RestrictedReadJsonFileTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
     )
     write_json_tool = RestrictedWriteJsonFileTool(
         root_directory=root_directory,
         project_directories=project_directories,
+        workspace_directories=workspace_directories,
         allow_overwrite=allow_overwrite,
     )
 

@@ -246,6 +246,15 @@ OpenAI-compatible chat and OpenAI Responses adapters currently support:
 
 - `reasoning_effort`: `"low"`, `"medium"`, or `"high"`
 
+Responses maps this control to `reasoning.effort`; Chat Completions uses the
+top-level `reasoning_effort` field. Neither adapter adds an output token limit
+by default. Responses empty-output diagnostics include the upstream's
+`max_output_tokens` when available; an unavailable limit remains `null`.
+
+Responses function tools explicitly use `strict: false` to preserve optional
+parameters and the registered JSON schemas. Tool argument validation and
+permission checks still run locally before execution.
+
 Example:
 
 ```json
@@ -519,6 +528,12 @@ Ordinary and streaming runs honor pause requests at the next safe checkpoint.
 Text deltas preserve a pending pause request without interrupting the model
 response halfway through. Provider error events and streams that end without a
 completion signal fail the run instead of committing a successful response.
+Responses streams also recover finalized text/refusal content from
+`response.content_part.done` without duplicating deltas. Empty output failures
+distinguish premature stream termination, incomplete responses and reasoning-only
+output. The failed trace retains bounded event counts, response status and known
+usage counts in `payload.error_detail`, without storing output text in diagnostics.
+These failures do not automatically resend the request.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/agent-runs \
@@ -916,16 +931,28 @@ inside their configured root. `POST /workspaces` with `{"path":".","name":"demo"
 creates a child directory. Authentication requires `workspaces:list` or
 `workspaces:create` respectively (or `*`). The configured filesystem root is shared
 by principals granted these permissions; these are not private per-user folders.
-Absolute paths, parent traversal, and symlinks escaping the root are rejected.
+Parent traversal and symlinks escaping an authorized project are rejected.
 
-The chat sidebar provides browsing, folder creation, and selection. Selection is
+`GET /workspaces/projects` lists the default root and added projects. Register an
+existing directory on the backend host with `POST /workspaces/projects` and
+`{"path":"/home/user/projects/example"}`. Registration requires
+`workspaces:register` (or `*`), validates the real directory, and persists it in
+SQLite. Projects are shared by principals with workspace access. Service data,
+credentials and configured runtime directories cannot be registered as projects.
+The API returns the opened directory; it does not copy or relocate project files.
+
+The chat sidebar provides project registration, browsing, folder creation, and selection. Selection is
 stored in this browser, validated on reload, and cleared on authentication changes.
 `AgentRunRequest.working_directory` (also accepted by session agent requests) stores
-the relative directory on each run. Restricted filesystem tools resolve their
-paths inside that directory, including resumed runs and approval previews. Changing
-the sidebar selection affects subsequent requests only. Shell, Git, and project
-commands retain their separately configured directories. This selection is not a
-replacement for server-side permissions or the configured filesystem root boundary.
+the selected directory on each run: a relative path within the default root, or an
+absolute path within an added project. Filesystem, Shell, Git and project tasks
+resolve the same selection per call, including resumed runs and approval previews.
+Changing the sidebar selection affects subsequent requests only. With no selection,
+each tool retains its configured default. A selected directory cannot be combined
+with a tool's named `project` argument. Model-supplied `_working_directory` values
+are discarded; only the request's execution context supplies the selection.
+Shell `cwd` remains bounded to the selected project. Bubblewrap mounts only that
+project at `/workspace`; registration does not expose other projects or service data.
 
 
 ### Tool policy management

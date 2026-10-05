@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
 from EvernightAI.core.schema.tool import (
@@ -24,31 +25,20 @@ class _ProjectAwareFilesystemTool:
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         self._roots = ProjectRootResolver(
             default_root=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._root_directory = self._roots.default_root
 
     def _resolve_root(self, arguments: dict[str, Any]) -> tuple[str | None, Path]:
-        directory = arguments.get("_working_directory")
-        if directory is not None:
-            if (
-                not isinstance(directory, str)
-                or Path(directory).is_absolute()
-                or ".." in Path(directory).parts
-            ):
-                raise ToolInputError("工作目录必须是根目录内的相对路径")
-            if arguments.get("project") is not None:
-                raise ToolInputError("已选择工作文件夹，不能同时指定其他项目")
-            root = (self._root_directory / directory).resolve()
-            if not root.is_relative_to(self._root_directory) or not root.is_dir():
-                raise ToolInputError("工作文件夹不存在或超出根目录")
-            return None, root
         return self._roots.resolve(
             arguments.get("project"),
             require_configured=True,
+            working_directory=arguments.get("_working_directory"),
         )
 
     def _root_metadata(self) -> dict[str, Any]:
@@ -85,11 +75,13 @@ class RestrictedReadTextFileTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         max_chars: int = 12000,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._max_chars = max_chars
 
@@ -145,11 +137,13 @@ class RestrictedWriteTextFileTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         allow_overwrite: bool = False,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._allow_overwrite = allow_overwrite
 
@@ -215,10 +209,12 @@ class RestrictedAppendTextFileTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -285,11 +281,13 @@ class RestrictedListDirectoryTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         max_entries: int = 100,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._max_entries = max_entries
 
@@ -350,11 +348,13 @@ class RestrictedFindPathsTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         max_results: int = 100,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._max_results = max_results
 
@@ -431,12 +431,14 @@ class RestrictedSearchTextFilesTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         max_results: int = 100,
         max_file_chars: int = 200000,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._max_results = max_results
         self._max_file_chars = max_file_chars
@@ -543,11 +545,13 @@ class RestrictedReadTextFileLinesTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         max_lines: int = 200,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._max_lines = max_lines
 
@@ -615,11 +619,13 @@ class RestrictedMovePathTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         allow_overwrite: bool = False,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._allow_overwrite = allow_overwrite
 
@@ -694,10 +700,12 @@ class RestrictedDeletePathTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -756,10 +764,12 @@ class RestrictedApplyTextPatchTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -834,10 +844,12 @@ class RestrictedFileHashTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -894,10 +906,12 @@ class RestrictedPathInfoTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -947,10 +961,12 @@ class RestrictedMakeDirectoryTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -1005,11 +1021,13 @@ class RestrictedCopyPathTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         allow_overwrite: bool = False,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._allow_overwrite = allow_overwrite
 
@@ -1090,10 +1108,12 @@ class RestrictedReadJsonFileTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
 
     @property
@@ -1144,11 +1164,13 @@ class RestrictedWriteJsonFileTool(_ProjectAwareFilesystemTool):
         *,
         root_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         allow_overwrite: bool = False,
     ) -> None:
         super().__init__(
             root_directory=root_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._allow_overwrite = allow_overwrite
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.infra.adapters.tool.restricted_git import (
@@ -19,6 +20,7 @@ def register_restricted_git_tools(
     *,
     repository_directory: str | Path,
     project_directories: dict[str, str | Path] | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
     timeout_seconds: float = 10.0,
     max_output_chars: int = 12000,
     sandbox: SandboxExecuteProtocol | None = None,
@@ -27,6 +29,7 @@ def register_restricted_git_tools(
         RestrictedGitStatusTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -34,6 +37,7 @@ def register_restricted_git_tools(
         RestrictedGitDiffTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -41,6 +45,7 @@ def register_restricted_git_tools(
         RestrictedGitLogTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -48,6 +53,7 @@ def register_restricted_git_tools(
         RestrictedGitShowTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -55,6 +61,7 @@ def register_restricted_git_tools(
         RestrictedGitCommitTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -62,6 +69,7 @@ def register_restricted_git_tools(
         RestrictedGitListBranchesTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -69,6 +77,7 @@ def register_restricted_git_tools(
         RestrictedGitCreateBranchTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,
@@ -76,6 +85,7 @@ def register_restricted_git_tools(
         RestrictedGitCheckoutBranchTool(
             repository_directory=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
             sandbox=sandbox,

@@ -543,3 +543,36 @@ def test_missing_sandbox_executable_never_falls_back(tmp_path, monkeypatch):
     config = parse_config({"runtime": {"sandbox_backend": "bubblewrap"}})
     with pytest.raises(SandboxConfigurationError, match="bwrap"):
         create_sandbox_from_config(config)
+
+
+@pytest.mark.asyncio
+async def test_added_project_is_the_only_mounted_workspace(tmp_path):
+    from EvernightAI.infra.adapters.tool.workspace_directory import (
+        WorkspaceDirectoryStore,
+    )
+
+    default = tmp_path / "default"
+    project = tmp_path / "external"
+    other = tmp_path / "other"
+    for directory in (default, project, other):
+        directory.mkdir()
+    (project / "name.txt").write_text("external project")
+    (other / "private.txt").write_text("not mounted")
+    (project / "escape").symlink_to(other, target_is_directory=True)
+    store = WorkspaceDirectoryStore(default, protected_paths=[other])
+    sandbox = BubblewrapSandboxExecutor(
+        runtime_policy=BubblewrapRuntimePolicy(
+            workspace_root=default,
+            workspace_directories=store,
+            include_python_environment=True,
+            protected_paths=[other],
+        )
+    )
+    script = "from pathlib import Path; print(Path('name.txt').read_text()); print(Path('escape/private.txt').exists())"
+    with pytest.raises(SandboxConfigurationError, match="added project"):
+        await sandbox.execute(request(project, ["python", "-c", script]))
+    store.add_project(str(project))
+    result = await sandbox.execute(request(project, ["python", "-c", script]))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "external project\nFalse\n"
+    assert not (default / "name.txt").exists()

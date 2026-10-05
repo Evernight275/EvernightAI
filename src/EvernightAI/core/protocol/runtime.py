@@ -1,5 +1,6 @@
 from typing import Protocol
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.image import (
     ImageArchiveProtocol,
     ImageGenerationStoreProtocol,
@@ -80,6 +81,9 @@ class RuntimeProtocol(Protocol):
 
     @property
     def tools(self) -> ToolManageProtocol: ...
+
+    @property
+    def workspace_directories(self) -> WorkspaceDirectoryProtocol | None: ...
 
     @property
     def tool_policy_store(self) -> ToolPolicyStoreProtocol | None: ...

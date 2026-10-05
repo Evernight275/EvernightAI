@@ -1,27 +1,130 @@
 from pathlib import Path
+from threading import RLock
 
 from EvernightAI.core.error.base import ConflictError, NotFoundError, ValidationError
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
-from EvernightAI.core.schema.workspace import WorkspaceDirectory, WorkspaceEntry
+from EvernightAI.core.schema.workspace import (
+    WorkspaceDirectory,
+    WorkspaceEntry,
+    WorkspaceProject,
+)
+from EvernightAI.infra.sqlite import (
+    SQLiteConnection,
+    SQLiteMigrationRunner,
+    connect_sqlite,
+)
 
 
 class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        database_path: str | Path | None = None,
+        protected_paths: list[str | Path] | None = None,
+    ) -> None:
         self._root = Path(root).resolve()
+        self._protected = [Path(path).resolve() for path in protected_paths or []]
+        self._projects: set[str] = set()
+        self._database_path = database_path
+        self._connection: SQLiteConnection | None = None
+        self._lock = RLock()
 
-    def _directory(self, path: str) -> Path:
-        relative = Path(path)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ValidationError("工作目录必须位于已配置的根目录内")
-        target = (self._root / relative).resolve()
-        if not target.is_relative_to(self._root):
+    def _project_connection(self) -> SQLiteConnection | None:
+        with self._lock:
+            if self._connection is None and self._database_path is not None:
+                connection = connect_sqlite(self._database_path)
+                try:
+                    SQLiteMigrationRunner(self._database_path).run(connection)
+                except Exception:
+                    connection.close()
+                    raise
+                self._connection = connection
+            return self._connection
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.close()
+
+    def list_projects(self) -> list[WorkspaceProject]:
+        paths = self._registered_paths()
+        return [
+            WorkspaceProject(name=path.name or str(path), path=str(path))
+            for path in [self._root, *sorted(paths - {self._root})]
+        ]
+
+    def _registered_paths(self) -> set[Path]:
+        connection = self._project_connection()
+        if connection is not None:
+            return {
+                Path(row[0])
+                for row in connection.execute("SELECT path FROM workspace_projects")
+            }
+        return {Path(path) for path in self._projects}
+
+    def _check_project(self, path: Path) -> None:
+        if any(
+            path.is_relative_to(protected) or protected.is_relative_to(path)
+            for protected in self._protected
+        ):
+            raise ValidationError(
+                "此目录包含服务数据或运行环境，请选择独立的项目文件夹"
+            )
+
+    def add_project(self, path: str) -> WorkspaceDirectory:
+        if "\0" in path:
+            raise ValidationError("请输入有效的项目路径")
+        target = Path(path).expanduser()
+        if not target.is_absolute():
+            raise ValidationError("请输入后端主机上项目文件夹的绝对路径")
+        target = target.resolve()
+        self._check_project(target)
+        if not target.is_dir():
+            raise NotFoundError("项目文件夹不存在")
+        connection = self._project_connection()
+        if connection is not None:
+            connection.execute(
+                "INSERT OR IGNORE INTO workspace_projects (path) VALUES (?)",
+                (str(target),),
+            )
+        else:
+            self._projects.add(str(target))
+        return self.browse(str(target))
+
+    def resolve(self, path: str) -> str:
+        return str(self._directory(path)[0])
+
+    def _directory(self, path: str) -> tuple[Path, Path]:
+        if "\0" in path:
+            raise ValidationError("请输入有效的工作目录")
+        raw = Path(path)
+        if ".." in raw.parts:
             raise ValidationError("不能访问工作根目录之外的路径")
+        target = (self._root / raw).resolve()
+        root = self._root
+        if not target.is_relative_to(root):
+            roots = [
+                candidate
+                for candidate in self._registered_paths()
+                if target.is_relative_to(candidate) and candidate.resolve() == candidate
+            ]
+            if not roots:
+                raise ValidationError("请先添加此项目文件夹，再选择工作目录")
+            root = max(roots, key=lambda candidate: len(candidate.parts))
+            self._check_project(root)
         if not target.is_dir():
             raise NotFoundError("工作文件夹不存在")
-        return target
+        return target, root
+
+    def _path(self, directory: Path, root: Path) -> str:
+        return (
+            directory.relative_to(self._root).as_posix()
+            if root == self._root
+            else str(directory)
+        )
 
     def browse(self, path: str) -> WorkspaceDirectory:
-        directory = self._directory(path)
+        directory, root = self._directory(path)
         entries = []
         truncated = False
         try:
@@ -34,7 +137,7 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
                 entries.append(
                     WorkspaceEntry(
                         name=entry.name,
-                        path=entry.relative_to(self._root).as_posix(),
+                        path=self._path(entry, root),
                         is_directory=entry.is_dir(),
                     )
                 )
@@ -42,8 +145,9 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
             raise ValidationError("无法读取此工作文件夹") from exc
         entries.sort(key=lambda entry: (not entry.is_directory, entry.name.casefold()))
         return WorkspaceDirectory(
-            root=str(self._root),
-            path=directory.relative_to(self._root).as_posix(),
+            root=str(root),
+            path=self._path(directory, root),
+            parent=self._path(directory.parent, root) if directory != root else None,
             entries=entries,
             truncated=truncated,
         )
@@ -55,11 +159,12 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
             or any(char in name for char in "/\\\0")
         ):
             raise ValidationError("请输入有效的文件夹名称")
-        target = self._directory(path) / name
+        directory, root = self._directory(path)
+        target = directory / name
         try:
             target.mkdir()
         except FileExistsError as exc:
             raise ConflictError("此名称已存在") from exc
         except OSError as exc:
             raise ValidationError("无法创建工作文件夹") from exc
-        return self.browse(target.relative_to(self._root).as_posix())
+        return self.browse(self._path(target, root))

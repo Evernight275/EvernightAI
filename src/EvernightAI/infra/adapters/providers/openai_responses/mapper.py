@@ -18,6 +18,9 @@ from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import image_url
+from EvernightAI.infra.adapters.providers.openai_responses.stream_diagnostics import (
+    ResponsesStreamDiagnostics,
+)
 
 
 def to_openai_response_input(messages: Iterable[Content]) -> list[dict[str, Any]]:
@@ -106,6 +109,7 @@ def to_openai_response_tool(tool: ToolDefinition) -> dict[str, Any]:
             "name": tool.name,
             "description": tool.description,
             "parameters": tool.parameters_schema,
+            "strict": False,
         }
     )
 
@@ -155,9 +159,11 @@ class OpenAIResponsesStreamNormalizer:
         self._function_calls: dict[str, dict[str, Any]] = {}
         self._completed_item_ids: set[str] = set()
         self._text_parts: dict[tuple[int, int, str], str] = {}
+        self.diagnostics = ResponsesStreamDiagnostics()
 
     def map_events(self, event: ResponseStreamEvent) -> list[ChatStreamEvent]:
         payload = event.model_dump(mode="json", exclude_none=True)
+        self.diagnostics.observe(payload)
         events: list[ChatStreamEvent] = []
         event_type = payload.get("type")
         response = payload.get("response")
@@ -211,6 +217,17 @@ class OpenAIResponsesStreamNormalizer:
         event_type = payload.get("type")
         if event_type in {"error", "response.failed"}:
             return self._map_error(payload)
+
+        if event_type == "response.content_part.done":
+            part = payload.get("part")
+            if isinstance(part, dict):
+                kind = part.get("type")
+                if kind in {"output_text", "refusal"}:
+                    text = part.get("refusal" if kind == "refusal" else "text")
+                    if isinstance(text, str):
+                        mapped = self._map_text(payload, text, kind, final=True)
+                        if mapped is not None:
+                            return mapped
 
         if event_type in {"response.output_text.done", "response.refusal.done"}:
             kind = "refusal" if event_type == "response.refusal.done" else "output_text"

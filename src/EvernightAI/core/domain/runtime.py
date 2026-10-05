@@ -1,5 +1,6 @@
 import inspect
 import logging
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.domain.image import ImageGenerationStore
 from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.protocol.image import (
@@ -78,6 +79,7 @@ class RuntimeKernel(RuntimeProtocol):
         tools: ToolManageProtocol,
         tool_safety_policy: ToolSafetyPolicyProtocol,
         tool_policy_store: ToolPolicyStoreProtocol | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         tool_sources: list[ToolSourceProtocol] | None = None,
         context_register: ContextRegisterProtocol,
         contexts: ContextManageProtocol,
@@ -114,6 +116,7 @@ class RuntimeKernel(RuntimeProtocol):
         self._tools = tools
         self._tool_safety_policy = tool_safety_policy
         self._tool_policy_store = tool_policy_store
+        self._workspace_directories = workspace_directories
         self._tool_sources = list(tool_sources or [])
         self._sandbox = sandbox
         self._skill_register = skill_register or SkillRegister()
@@ -174,6 +177,10 @@ class RuntimeKernel(RuntimeProtocol):
     @property
     def tools(self) -> ToolManageProtocol:
         return self._tools
+
+    @property
+    def workspace_directories(self) -> WorkspaceDirectoryProtocol | None:
+        return self._workspace_directories
 
     @property
     def tool_policy_store(self) -> ToolPolicyStoreProtocol | None:
@@ -324,6 +331,7 @@ class RuntimeKernel(RuntimeProtocol):
     def _persistent_resources(self) -> list[Any]:
         return [
             self._tool_policy_store,
+            self._workspace_directories,
             self._skills,
             self._image_records,
             self._image_tasks,

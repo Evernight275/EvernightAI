@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.schema.sandbox import (
@@ -28,6 +29,7 @@ class _ProjectAwareGitTool:
         *,
         repository_directory: str | Path,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
         sandbox: SandboxExecuteProtocol | None = None,
@@ -35,6 +37,7 @@ class _ProjectAwareGitTool:
         self._roots = ProjectRootResolver(
             default_root=repository_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._repository_directory = self._roots.default_root
         self._timeout_seconds = timeout_seconds
@@ -66,6 +69,7 @@ class _ProjectAwareGitTool:
         return self._roots.resolve(
             arguments.get("project"),
             require_configured=True,
+            working_directory=arguments.get("_working_directory"),
         )
 
     def _project_schema(self) -> dict[str, Any]:
@@ -509,6 +513,7 @@ def _parse_repo_paths(repository_directory: Path, raw_paths: object) -> list[str
 
 def _metadata(tool: Any) -> dict[str, Any]:
     return {
+        "supports_working_directory": True,
         "repository_directory": str(tool._repository_directory),
         "projects": tool._roots.project_names,
         "timeout_seconds": tool._timeout_seconds,

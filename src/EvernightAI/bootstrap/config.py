@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from EvernightAI.core.schema.sandbox import SandboxResourceLimits
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolSourceProtocol
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
 from EvernightAI.core.schema.data_analysis import DataSourceDefinition
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import BubblewrapRuntimePolicy
@@ -37,13 +40,33 @@ from EvernightAI.interface.cli.schema import (
 
 
 def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
-    sandbox = create_sandbox_from_config(config)
     options = _runtime_tool_options(config)
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
         _validate_sandbox_tool_roots(config)
+    workspaces = (
+        WorkspaceDirectoryStore(
+            config.tools.filesystem.root,
+            database_path=config.runtime.database_path,
+            protected_paths=[
+                *_protected_workspace_paths(config),
+                Path(sys.prefix),
+                Path(sys.base_prefix),
+                *config.runtime.sandbox.readonly_paths,
+            ],
+        )
+        if config.tools.filesystem.enabled
+        else None
+    )
+    try:
+        sandbox = create_sandbox_from_config(config, workspace_directories=workspaces)
+    except Exception:
+        if workspaces is not None:
+            workspaces.close()
+        raise
     runtime = create_sqlite_runtime(
         config.runtime.database_path,
         sandbox=sandbox,
+        workspace_directories=workspaces,
         **options,
         **_runtime_context_options(config),
         prompt_cache_mode=config.prompt_cache.mode,
@@ -66,7 +89,23 @@ def register_configured_data_sources(
         )
 
 
-def create_sandbox_from_config(config: EvernightConfig) -> SandboxExecuteProtocol:
+def _protected_workspace_paths(config: EvernightConfig) -> list[Path | str]:
+    database = Path(config.runtime.database_path).resolve()
+    return [
+        database,
+        Path(str(database) + ".provider-key"),
+        Path.cwd() / ".evernight",
+        Path.cwd() / "config.toml",
+        Path.cwd() / ".env",
+        *config.runtime.sandbox.protected_paths,
+    ]
+
+
+def create_sandbox_from_config(
+    config: EvernightConfig,
+    *,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
+) -> SandboxExecuteProtocol:
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
         if os.name != "posix" or shutil.which("bwrap") is None:
             raise SandboxConfigurationError(
@@ -77,18 +116,11 @@ def create_sandbox_from_config(config: EvernightConfig) -> SandboxExecuteProtoco
                 "Bubblewrap resource limits require prlimit"
             )
         settings = config.runtime.sandbox
-        database = Path(config.runtime.database_path).resolve()
         policy = BubblewrapRuntimePolicy(
             workspace_root=settings.workspace_root,
+            workspace_directories=workspace_directories,
             readonly_paths=settings.readonly_paths,
-            protected_paths=[
-                database,
-                Path(str(database) + ".provider-key"),
-                Path.cwd() / ".evernight",
-                Path.cwd() / "config.toml",
-                Path.cwd() / ".env",
-                *settings.protected_paths,
-            ],
+            protected_paths=_protected_workspace_paths(config),
             include_python_environment=settings.include_python_environment,
             include_uv=settings.include_uv,
             include_node=settings.include_node,

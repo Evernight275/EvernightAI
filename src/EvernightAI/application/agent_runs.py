@@ -13,6 +13,7 @@ from EvernightAI.core.error.skill import (
     SkillDisabledError,
     SkillNotFoundError,
 )
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.protocol.interface import (
     AgentRunInterfaceProtocol,
 )
@@ -993,7 +994,13 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         detail = (
             error.detail
             if isinstance(
-                error, (SkillConflictError, SkillDisabledError, SkillNotFoundError)
+                error,
+                (
+                    SkillConflictError,
+                    SkillDisabledError,
+                    SkillNotFoundError,
+                    ProviderResponseError,
+                ),
             )
             else None
         )

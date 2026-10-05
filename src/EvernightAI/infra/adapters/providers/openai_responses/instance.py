@@ -30,8 +30,8 @@ from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
 )
-from EvernightAI.infra.adapters.provider_metadata import (
-    provider_request_params_from_metadata,
+from EvernightAI.infra.adapters.providers.openai_responses.request_params import (
+    responses_request_params_from_metadata,
 )
 
 
@@ -60,7 +60,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
         params.update(openai_prompt_cache_params(self.config, request))
-        params.update(provider_request_params_from_metadata(request.metadata))
+        params.update(responses_request_params_from_metadata(request.metadata))
 
         try:
             response = await self._client.responses.create(**params)
@@ -81,7 +81,7 @@ class OpenAIResponsesProviderInstance(ProviderInstanceProtocol):
         if request.tools:
             params["tools"] = to_openai_response_tools(request.tools)
         params.update(openai_prompt_cache_params(self.config, request))
-        params.update(provider_request_params_from_metadata(request.metadata))
+        params.update(responses_request_params_from_metadata(request.metadata))
 
         try:
             stream = await self._client.responses.create(**params)
@@ -155,7 +155,5 @@ class OpenAIResponsesChatStream:
             raise_openai_compatible_error(error)
 
         if not has_output:
-            raise ProviderResponseError(
-                "OpenAI Responses stream ended without text or tool calls"
-            )
+            raise self._normalizer.diagnostics.empty_output_error()
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)

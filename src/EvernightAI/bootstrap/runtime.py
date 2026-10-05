@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.domain.context import (
     ApproximateContextTokenEstimator,
     BasicContextStrategy,
@@ -48,6 +50,7 @@ from EvernightAI.core.protocol.image import (
     ImageGenerationStoreProtocol,
     ImageTaskStoreProtocol,
 )
+from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
 from EvernightAI.infra.adapters.images.archive import PublicImageArchive
 from EvernightAI.infra.adapters.images.executor import SingleProcessImageTaskExecutor
 from EvernightAI.infra.adapters.images.tasks import SQLiteImageTaskStore
@@ -159,6 +162,7 @@ def register_builtin_tools(
     register: ToolRegisterProtocol,
     *,
     filesystem_root: str | Path | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
     max_read_chars: int = 12000,
     max_directory_entries: int = 100,
     max_search_results: int = 100,
@@ -191,6 +195,7 @@ def register_builtin_tools(
         register_restricted_filesystem_tools(
             register,
             root_directory=filesystem_root,
+            workspace_directories=workspace_directories,
             max_read_chars=max_read_chars,
             max_directory_entries=max_directory_entries,
             max_search_results=max_search_results,
@@ -204,6 +209,7 @@ def register_builtin_tools(
             allowed_commands=shell_allowed_commands,
             blocked_commands=shell_blocked_commands,
             working_directory=shell_working_directory or Path.cwd(),
+            workspace_directories=workspace_directories,
             timeout_seconds=shell_timeout_seconds,
             max_output_chars=shell_max_output_chars,
             requires_approval=shell_requires_approval,
@@ -225,6 +231,7 @@ def register_builtin_tools(
         register_restricted_git_tools(
             register,
             repository_directory=git_repository_directory,
+            workspace_directories=workspace_directories,
             project_directories=project_directories,
             timeout_seconds=git_timeout_seconds,
             max_output_chars=git_max_output_chars,
@@ -235,6 +242,7 @@ def register_builtin_tools(
         register_restricted_project_tools(
             register,
             working_directory=project_working_directory,
+            workspace_directories=workspace_directories,
             commands=project_commands,
             project_commands=project_command_overrides,
             project_directories=project_directories,
@@ -311,6 +319,7 @@ def create_sqlite_runtime(
     sandbox: SandboxExecuteProtocol | None = None,
     include_agent_storage: bool = True,
     filesystem_root: str | Path | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
     max_read_chars: int = 12000,
     max_directory_entries: int = 100,
     max_search_results: int = 100,
@@ -352,11 +361,26 @@ def create_sqlite_runtime(
     tool_sources: list[ToolSourceProtocol] | None = None,
 ) -> RuntimeKernel:
     SQLiteMigrationRunner(database_path).run()
+    if workspace_directories is None and filesystem_root is not None:
+        workspace_directories = WorkspaceDirectoryStore(
+            filesystem_root,
+            database_path=database_path,
+            protected_paths=[
+                Path(database_path).resolve(),
+                Path(str(database_path) + ".provider-key").resolve(),
+                Path.cwd() / ".evernight",
+                Path.cwd() / "config.toml",
+                Path.cwd() / ".env",
+                Path(sys.prefix),
+                Path(sys.base_prefix),
+            ],
+        )
     sandbox = sandbox or SubprocessSandboxExecutor()
     tool_register = ToolRegister()
     register_builtin_tools(
         tool_register,
         filesystem_root=filesystem_root,
+        workspace_directories=workspace_directories,
         max_read_chars=max_read_chars,
         max_directory_entries=max_directory_entries,
         max_search_results=max_search_results,
@@ -431,6 +455,7 @@ def create_sqlite_runtime(
         image_records=SQLiteImageGenerationStore(database_path),
         image_tasks=SQLiteImageTaskStore(database_path),
         tool_policy_store=SQLiteToolPolicyStore(database_path),
+        workspace_directories=workspace_directories,
         data_analysis_register=data_analysis_register,
         agent_state_register=agent_state_register,
         agent_trace_register=agent_trace_register,
@@ -455,6 +480,7 @@ def _create_runtime(
     tool_register: ToolRegisterProtocol | None = None,
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
     tool_policy_store: ToolPolicyStoreProtocol | None = None,
+    workspace_directories: WorkspaceDirectoryProtocol | None = None,
     tool_sources: list[ToolSourceProtocol] | None = None,
     context_register: ContextRegisterProtocol,
     memory_register: MemoryRegisterProtocol,
@@ -541,6 +567,7 @@ def _create_runtime(
         tools=tools,
         tool_safety_policy=tool_safety_policy,
         tool_policy_store=tool_policy_store,
+        workspace_directories=workspace_directories,
         tool_sources=tool_sources,
         sandbox=sandbox,
         skill_register=skill_register,

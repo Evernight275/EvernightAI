@@ -1,9 +1,10 @@
 from pathlib import Path
 from typing import Any
 
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
-from EvernightAI.core.protocol.tool import ToolExecutorProtocol
+from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -16,6 +17,7 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
     ToolSafetyLevel,
+    ToolSafetyDecision,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
@@ -32,6 +34,7 @@ class RestrictedProjectTaskTool:
         commands: dict[str, list[str]],
         project_commands: dict[str, dict[str, list[str]]] | None = None,
         project_directories: dict[str, str | Path] | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
         timeout_seconds: float = 120.0,
         max_output_chars: int = 20000,
         sandbox: SandboxExecuteProtocol | None = None,
@@ -39,6 +42,7 @@ class RestrictedProjectTaskTool:
         self._roots = ProjectRootResolver(
             default_root=working_directory,
             project_directories=project_directories,
+            workspace_directories=workspace_directories,
         )
         self._working_directory = self._roots.default_root
         self._commands = dict(commands)
@@ -68,6 +72,7 @@ class RestrictedProjectTaskTool:
             requires_approval=True,
             metadata={
                 "working_directory": str(self._working_directory),
+                "supports_working_directory": True,
                 "tasks": sorted(self._commands),
                 "task_commands": dict(self._commands),
                 "project_task_commands": {
@@ -94,6 +99,22 @@ class RestrictedProjectTaskTool:
     def executor(self) -> ToolExecutorProtocol:
         return self.execute
 
+    def preflight_policy(self) -> ToolPreflightPolicy:
+        return self.authorize
+
+    def authorize(
+        self, _tool: ToolDefinition, arguments: dict[str, Any]
+    ) -> ToolSafetyDecision | None:
+        try:
+            self._roots.resolve(
+                arguments.get("project"),
+                require_configured=False,
+                working_directory=arguments.get("_working_directory"),
+            )
+        except ToolInputError as exc:
+            return ToolSafetyDecision(allowed=False, reason=str(exc))
+        return None
+
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         task = arguments.get("task")
         if not isinstance(task, str) or not task:
@@ -118,6 +139,7 @@ class RestrictedProjectTaskTool:
         _, working_directory = self._roots.resolve(
             project,
             require_configured=False,
+            working_directory=arguments.get("_working_directory"),
         )
 
         result = await self._sandbox.execute(

@@ -1,9 +1,15 @@
 from typing import Protocol
 
-from EvernightAI.core.schema.workspace import WorkspaceDirectory
+from EvernightAI.core.schema.workspace import WorkspaceDirectory, WorkspaceProject
 
 
 class WorkspaceDirectoryProtocol(Protocol):
     def browse(self, path: str) -> WorkspaceDirectory: ...
 
     def create(self, path: str, name: str) -> WorkspaceDirectory: ...
+
+    def list_projects(self) -> list[WorkspaceProject]: ...
+
+    def add_project(self, path: str) -> WorkspaceDirectory: ...
+
+    def resolve(self, path: str) -> str: ...

@@ -14,3 +14,9 @@ class WorkspaceDirectory(EvernightAISchema):
     path: str
     entries: list[WorkspaceEntry] = Field(default_factory=list)
     truncated: bool = False
+    parent: str | None = None
+
+
+class WorkspaceProject(EvernightAISchema):
+    name: str
+    path: str

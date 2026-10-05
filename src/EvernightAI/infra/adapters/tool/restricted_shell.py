@@ -5,6 +5,8 @@ from typing import Any
 
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
     ToolPreflightPolicy,
@@ -47,10 +49,14 @@ class RestrictedShellTool:
         requires_approval: bool = True,
         allowed_env_keys: set[str] | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         self._allowed_commands = allowed_commands
         self._blocked_commands = set(blocked_commands or ())
         self._working_directory = Path(working_directory).resolve()
+        self._roots = ProjectRootResolver(
+            default_root=working_directory, workspace_directories=workspace_directories
+        )
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
         self._requires_approval = requires_approval
@@ -97,6 +103,7 @@ class RestrictedShellTool:
                 "allowed_commands": sorted(self._allowed_commands),
                 "blocked_commands": sorted(self._blocked_commands),
                 "working_directory": str(self._working_directory),
+                "supports_working_directory": True,
                 "timeout_seconds": self._timeout_seconds,
                 "max_output_chars": self._max_output_chars,
                 "allowed_env_keys": [],
@@ -115,6 +122,10 @@ class RestrictedShellTool:
         _tool: ToolDefinition,
         arguments: dict[str, Any],
     ) -> ToolSafetyDecision | None:
+        try:
+            self._host_cwd(arguments)
+        except ToolInputError as exc:
+            return ToolSafetyDecision(allowed=False, reason=str(exc))
         command = self._parse_command(arguments)
         if arguments.get("env"):
             return ToolSafetyDecision(
@@ -129,7 +140,7 @@ class RestrictedShellTool:
                 allowed=False,
                 reason=reason,
                 requires_approval=True,
-                metadata={"working_directory": str(self._working_directory)},
+                metadata={"working_directory": str(self._host_cwd(arguments))},
             )
         return None
 
@@ -148,7 +159,9 @@ class RestrictedShellTool:
                     env=self._parse_env(arguments),
                     timeout_seconds=self._parse_timeout(arguments),
                 ),
-                policy=self._sandbox_policy(process_command[0]),
+                policy=self._sandbox_policy(
+                    process_command[0], self._selected_root(arguments)
+                ),
             )
         )
 
@@ -170,12 +183,12 @@ class RestrictedShellTool:
             "truncated": result.truncated,
         }
 
-    def _sandbox_policy(self, executable: str) -> SandboxPolicy:
+    def _sandbox_policy(self, executable: str, root: Path) -> SandboxPolicy:
         return SandboxPolicy(
             command_allowlist=[executable],
             filesystem_mounts=[
                 SandboxFilesystemMount(
-                    host_path=str(self._working_directory),
+                    host_path=str(root),
                     mount_path=SANDBOX_MOUNT_PATH,
                     access=SandboxFilesystemAccess.READ_WRITE,
                 )
@@ -246,21 +259,22 @@ class RestrictedShellTool:
 
     def _parse_cwd(self, arguments: dict[str, Any]) -> str:
         cwd = self._host_cwd(arguments)
-        relative_cwd = cwd.relative_to(self._working_directory)
+        relative_cwd = cwd.relative_to(self._selected_root(arguments))
         if relative_cwd == Path("."):
             return SANDBOX_MOUNT_PATH
         return f"{SANDBOX_MOUNT_PATH}/{relative_cwd.as_posix()}"
 
     def _host_cwd(self, arguments: dict[str, Any]) -> Path:
+        root = self._selected_root(arguments)
         raw_cwd = arguments.get("cwd")
         if raw_cwd is None:
-            return self._working_directory
+            return root
         if not isinstance(raw_cwd, str) or not raw_cwd:
             raise ToolInputError("The working directory must be a non-empty string")
 
-        cwd = (self._working_directory / raw_cwd).resolve()
+        cwd = (root / raw_cwd).resolve()
         try:
-            cwd.relative_to(self._working_directory)
+            cwd.relative_to(root)
         except ValueError as exc:
             raise ToolInputError(
                 "The working directory must stay inside the configured root"
@@ -268,6 +282,13 @@ class RestrictedShellTool:
         if not cwd.is_dir():
             raise ToolInputError(f"The working directory {cwd.name} does not exist")
         return cwd
+
+    def _selected_root(self, arguments: dict[str, Any]) -> Path:
+        return self._roots.resolve(
+            None,
+            require_configured=True,
+            working_directory=arguments.get("_working_directory"),
+        )[1]
 
     def _parse_env(self, arguments: dict[str, Any]) -> dict[str, str]:
         raw_env = arguments.get("env")

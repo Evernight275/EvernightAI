@@ -79,6 +79,15 @@ writable workspace alias from modifying the shared runtime.
 File tools resolve paths and reject symlink escapes; process tools revalidate
 mounts for every execution.
 
+The chat sidebar can also open existing projects outside `workspace_root`. Add an
+absolute backend-host directory under **工作文件夹 → 打开已有项目**. Added projects
+persist in SQLite and are available in the project selector after restart. The
+default configured directories above remain the fallback when no project is selected.
+Files, Shell, Git and project tasks follow the selected directory for each request;
+already-running and resumed requests retain their original selection. Only the
+selected project is mounted at `/workspace`. Unregistered external directories,
+service data and overlaps with read-only runtime paths remain forbidden.
+
 ## Runtime and execution
 
 Each process sees its selected project directory at `/workspace`. `/usr`, `/bin`,

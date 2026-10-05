@@ -4,6 +4,8 @@ import shutil
 import sys
 
 from EvernightAI.core.error.sandbox import SandboxConfigurationError
+from EvernightAI.core.error.base import NotFoundError, ValidationError
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.schema.sandbox import (
     SandboxFilesystemMount,
     SandboxResourceLimits,
@@ -21,11 +23,13 @@ class BubblewrapRuntimePolicy:
         include_uv: bool = False,
         include_node: bool = False,
         limits: SandboxResourceLimits | None = None,
+        workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
         self.workspace_root = (
             Path(workspace_root).resolve() if workspace_root is not None else None
         )
         self.protected_paths = [Path(path).resolve() for path in protected_paths or []]
+        self._workspaces = workspace_directories
         self.limits = limits
         self.python_environment = (
             Path(sys.prefix).absolute() if include_python_environment else None
@@ -82,10 +86,32 @@ class BubblewrapRuntimePolicy:
             if self.workspace_root is not None and not host.is_relative_to(
                 self.workspace_root
             ):
-                raise SandboxConfigurationError(
-                    "Sandbox tool directories must stay inside workspace_root"
-                )
+                if self._workspaces is None:
+                    raise SandboxConfigurationError(
+                        "Sandbox tool directories must stay inside workspace_root"
+                    )
+                try:
+                    self._workspaces.resolve(str(host))
+                except (NotFoundError, ValidationError) as exc:
+                    raise SandboxConfigurationError(
+                        "Sandbox directory must be an added project"
+                    ) from exc
             self._check_protected(host)
+            runtime_paths = [
+                *self.readonly_paths,
+                *(
+                    Path(executable).resolve()
+                    for executable in [self.uv_path, self.node_path]
+                    if executable is not None
+                ),
+            ]
+            if any(
+                host.is_relative_to(path) or path.is_relative_to(host)
+                for path in runtime_paths
+            ):
+                raise SandboxConfigurationError(
+                    "Workspace mounts must not overlap read-only runtime paths"
+                )
             if mount.mount_path != "/workspace":
                 raise SandboxConfigurationError(
                     "Process tools must mount their directory at /workspace"
