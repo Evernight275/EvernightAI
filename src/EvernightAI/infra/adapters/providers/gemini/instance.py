@@ -12,9 +12,10 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.infra.adapters.providers.gemini.mapper import (
     from_gemini_response,
-    from_gemini_stream_chunk,
+    GeminiStreamNormalizer,
     to_gemini_request,
 )
 from EvernightAI.infra.adapters.http_errors import raise_httpx_provider_error
@@ -22,7 +23,11 @@ from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
 )
-from EvernightAI.infra.adapters.provider_metadata import timeout_seconds_from_metadata
+from EvernightAI.infra.adapters.provider_metadata import (
+    max_output_tokens_from_metadata,
+    timeout_seconds_from_metadata,
+)
+from EvernightAI.infra.adapters.providers.sse import iter_sse_json
 
 
 class GeminiProviderInstance(ProviderInstanceProtocol):
@@ -42,6 +47,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages, request.tools)
+        _set_output_limit(payload, request, model, self.config)
 
         try:
             response = await self._client.post(
@@ -59,6 +65,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages, request.tools)
+        _set_output_limit(payload, request, model, self.config)
         return GeminiChatStream(
             self._client,
             f"/v1beta/models/{model.model_id}:streamGenerateContent",
@@ -129,6 +136,7 @@ class GeminiChatStream:
         self._url = url
         self._payload = payload
         self._timeout = timeout
+        self._normalizer = GeminiStreamNormalizer()
 
     def __aiter__(self) -> AsyncIterator[ChatStreamEvent]:
         return self._iter_events()
@@ -143,25 +151,28 @@ class GeminiChatStream:
                 timeout=self._timeout,
             ) as response:
                 response.raise_for_status()
-                async for chunk in _iter_sse_json(response):
-                    for event in from_gemini_stream_chunk(chunk):
+                async for _raw_event, chunk in iter_sse_json(response):
+                    for event in self._normalizer.map_chunk(chunk):
                         yield event
+                        if event.event_type is ChatStreamEventType.ERROR:
+                            return
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
+        if not self._normalizer.is_complete:
+            raise ProviderResponseError("Gemini stream ended without finishReason")
+        yield self._normalizer.completed_event()
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
-async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
-    async for line in response.aiter_lines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-
-        data = line.removeprefix("data:").strip()
-        if not data or data == "[DONE]":
-            continue
-
-        parsed = httpx.Response(200, content=data).json()
-        if isinstance(parsed, dict):
-            yield parsed
+def _set_output_limit(
+    payload: dict[str, Any],
+    request: ChatRequest,
+    model: ProviderModelConfig,
+    config: ProviderConfig,
+) -> None:
+    value = max_output_tokens_from_metadata(
+        request.metadata, model.metadata, config.metadata
+    )
+    if value is not None:
+        payload["generationConfig"] = {"maxOutputTokens": value}

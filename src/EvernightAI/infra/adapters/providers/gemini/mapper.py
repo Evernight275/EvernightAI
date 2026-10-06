@@ -1,5 +1,7 @@
 from collections.abc import Iterable
+from copy import deepcopy
 from typing import Any
+from uuid import uuid4
 
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.error.provider import ProviderResponseError
@@ -20,24 +22,120 @@ from EvernightAI.infra.adapters.providers.image_input import (
 )
 
 
+class GeminiStreamNormalizer:
+    def __init__(self) -> None:
+        self._parts: list[dict[str, Any]] = []
+        self._response_id = f"gemini-{uuid4().hex}"
+        self._model_id: str | None = None
+        self._call_ids: set[str] = set()
+        self._calls: list[ToolCall] = []
+        self._final_candidate: dict[str, Any] | None = None
+        self._final_data: dict[str, Any] | None = None
+        self.is_complete = False
+
+    def map_chunk(self, chunk: dict[str, Any]) -> list[ChatStreamEvent]:
+        if isinstance(chunk.get("responseId"), str):
+            self._response_id = chunk["responseId"]
+        if isinstance(chunk.get("modelVersion"), str):
+            self._model_id = chunk["modelVersion"]
+        normalized = {**chunk, "responseId": self._response_id}
+        candidates = chunk.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            normalized["candidates"] = candidates[:1]
+        offset = len(self._parts)
+        events = from_gemini_stream_chunk(normalized, part_offset=offset)
+        for event in events:
+            if event.event_type is ChatStreamEventType.TOOL_CALL_COMPLETED:
+                if event.tool_call_id in self._call_ids:
+                    raise ProviderResponseError(
+                        "Gemini returned a duplicate tool call id"
+                    )
+                if event.tool_call_id is not None:
+                    self._call_ids.add(event.tool_call_id)
+                if event.tool_call is not None:
+                    self._calls.append(event.tool_call)
+        if (
+            isinstance(candidates, list)
+            and candidates
+            and isinstance(candidates[0], dict)
+        ):
+            content = candidates[0].get("content", {})
+            if isinstance(content, dict) and isinstance(content.get("parts"), list):
+                self._parts.extend(deepcopy(content["parts"]))
+            for event in events:
+                if event.event_type is ChatStreamEventType.MESSAGE_COMPLETED:
+                    self._final_candidate = deepcopy(candidates[0])
+                    self._final_data = deepcopy(chunk)
+                    self.is_complete = True
+        return [
+            event
+            for event in events
+            if event.event_type is not ChatStreamEventType.MESSAGE_COMPLETED
+        ]
+
+    def completed_event(self) -> ChatStreamEvent:
+        if self._final_candidate is None:
+            raise ProviderResponseError("Gemini stream ended without finishReason")
+        response = from_gemini_response(
+            {
+                "responseId": self._response_id,
+                "modelVersion": self._model_id,
+                "candidates": [
+                    {**self._final_candidate, "content": {"parts": self._parts}}
+                ],
+            },
+            self._model_id or "gemini",
+        )
+        response.message.tool_calls = self._calls or None
+        return ChatStreamEvent(
+            event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+            response_id=self._response_id,
+            model_id=self._model_id,
+            finish_reason=response.finish_reason,
+            message=response.message,
+            raw_event="gemini.generate_content.chunk",
+            raw_data=self._final_data,
+        )
+
+
 def to_gemini_request(
     messages: Iterable[Content],
     tools: Iterable[ToolDefinition] | None = None,
 ) -> dict[str, Any]:
     contents: list[dict[str, Any]] = []
     system_parts: list[dict[str, Any]] = []
+    calls_by_id: dict[str, dict[str, Any]] = {}
+    previous_was_tool = False
 
     for message in messages:
         if message.role is MessageRole.SYSTEM:
             system_parts.extend(_message_parts(message))
+            previous_was_tool = False
             continue
 
-        contents.append(
-            {
-                "role": _gemini_role(message),
-                "parts": _message_parts(message),
-            }
-        )
+        parts = _message_parts(message)
+        if message.role is MessageRole.ASSISTANT:
+            function_calls = [
+                part["functionCall"]
+                for part in parts
+                if isinstance(part.get("functionCall"), dict)
+                and isinstance(part["functionCall"].get("name"), str)
+                and part["functionCall"]["name"]
+            ]
+            for tool_call, function_call in zip(
+                message.tool_calls or [], function_calls
+            ):
+                calls_by_id[tool_call.tool_call_id] = function_call
+        if message.role is MessageRole.TOOL and message.tool_call_id in calls_by_id:
+            call = calls_by_id[message.tool_call_id]
+            parts[0]["functionResponse"]["name"] = call["name"]
+            if isinstance(call.get("id"), str) and call["id"]:
+                parts[0]["functionResponse"]["id"] = call["id"]
+        if message.role is MessageRole.TOOL and previous_was_tool:
+            contents[-1]["parts"].extend(parts)
+        else:
+            contents.append({"role": _gemini_role(message), "parts": parts})
+        previous_was_tool = message.role is MessageRole.TOOL
 
     request: dict[str, Any] = {"contents": contents}
     if system_parts:
@@ -82,15 +180,21 @@ def from_gemini_response(response: dict[str, Any], model_id: str) -> ChatRespons
     text = "".join(
         part.get("text", "")
         for part in parts
-        if isinstance(part, dict) and isinstance(part.get("text"), str)
+        if isinstance(part, dict)
+        and isinstance(part.get("text"), str)
+        and part.get("thought") is not True
     )
     tool_calls = [
         tool_call
-        for part in parts
+        for part_index, part in enumerate(parts)
         if isinstance(part, dict)
-        for tool_call in [_tool_call_from_gemini_part(part, response.get("responseId"))]
+        for tool_call in [
+            _tool_call_from_gemini_part(part, response.get("responseId"), part_index)
+        ]
         if tool_call is not None
     ]
+    if len({call.tool_call_id for call in tool_calls}) != len(tool_calls):
+        raise ProviderResponseError("Gemini returned a duplicate tool call id")
     message_content = (
         [ContentPart(type=ContentPartType.TEXT, text=text)] if text else None
     )
@@ -102,6 +206,7 @@ def from_gemini_response(response: dict[str, Any], model_id: str) -> ChatRespons
             role=MessageRole.ASSISTANT,
             content=message_content,
             tool_calls=tool_calls or None,
+            metadata={"gemini_parts": deepcopy(parts)},
         ),
         finish_reason=candidate.get("finishReason"),
         usage=_usage_from_gemini(response),
@@ -111,12 +216,30 @@ def from_gemini_response(response: dict[str, Any], model_id: str) -> ChatRespons
     )
 
 
-def from_gemini_stream_chunk(chunk: dict[str, Any]) -> list[ChatStreamEvent]:
+def from_gemini_stream_chunk(
+    chunk: dict[str, Any], *, part_offset: int = 0
+) -> list[ChatStreamEvent]:
     response_id = chunk.get("responseId")
     model_id = chunk.get("modelVersion")
     response_id = response_id if isinstance(response_id, str) else None
     model_id = model_id if isinstance(model_id, str) else None
     events: list[ChatStreamEvent] = []
+    error = chunk.get("error")
+    feedback = chunk.get("promptFeedback")
+    if isinstance(error, dict) or (
+        isinstance(feedback, dict) and feedback.get("blockReason")
+    ):
+        error = error if isinstance(error, dict) else (feedback or {})
+        return [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.ERROR,
+                error_type=str(
+                    error.get("status") or error.get("blockReason") or "gemini_error"
+                ),
+                error_message=str(error.get("message") or "Gemini blocked the prompt"),
+                raw_data=chunk,
+            )
+        ]
 
     usage = _usage_from_gemini(chunk)
     if usage is not None:
@@ -141,6 +264,7 @@ def from_gemini_stream_chunk(chunk: dict[str, Any]) -> list[ChatStreamEvent]:
                         response_id=response_id,
                         model_id=model_id,
                         raw_data=chunk,
+                        part_offset=part_offset,
                     )
                 )
 
@@ -153,6 +277,7 @@ def _gemini_candidate_stream_events(
     response_id: str | None,
     model_id: str | None,
     raw_data: dict[str, Any],
+    part_offset: int = 0,
 ) -> list[ChatStreamEvent]:
     events: list[ChatStreamEvent] = []
     candidate_index = candidate.get("index", 0)
@@ -166,9 +291,13 @@ def _gemini_candidate_stream_events(
                     continue
                 part_metadata = {
                     **metadata,
-                    "part_index": part_index,
+                    "part_index": part_index + part_offset,
                 }
-                if isinstance(part.get("text"), str) and part["text"]:
+                if (
+                    isinstance(part.get("text"), str)
+                    and part["text"]
+                    and part.get("thought") is not True
+                ):
                     events.append(
                         ChatStreamEvent(
                             event_type=ChatStreamEventType.MESSAGE_DELTA,
@@ -223,13 +352,18 @@ def _gemini_function_call_event(
     metadata: dict[str, Any],
 ) -> ChatStreamEvent | None:
     name = function_call.get("name")
-    args = function_call.get("args")
+    args = function_call.get("args", {})
     if not isinstance(name, str) or not name:
         return None
     if not isinstance(args, dict):
         return None
 
-    tool_call_id = _gemini_tool_call_id(response_id, metadata)
+    native_id = function_call.get("id")
+    tool_call_id = (
+        native_id
+        if isinstance(native_id, str) and native_id
+        else _gemini_tool_call_id(response_id, metadata)
+    )
     tool_call = ToolCall(
         tool_call_id=tool_call_id,
         tool_call={
@@ -289,6 +423,11 @@ def _message_parts(message: Content) -> list[dict[str, Any]]:
     if message.role is MessageRole.TOOL:
         return [_function_response_part(message)]
 
+    native_parts = message.metadata.get("gemini_parts")
+    if message.role is MessageRole.ASSISTANT and isinstance(native_parts, list):
+        _validate_preserved_parts(message, native_parts)
+        return deepcopy(native_parts)
+
     parts = message.content or []
     message_parts = [_content_part(part) for part in parts]
     message_parts.extend(
@@ -298,6 +437,46 @@ def _message_parts(message: Content) -> list[dict[str, Any]]:
         return [{"text": ""}]
 
     return message_parts
+
+
+def _validate_preserved_parts(message: Content, parts: list[Any]) -> None:
+    if any(not isinstance(part, dict) for part in parts):
+        raise ChatInputError("Preserved Gemini content must contain objects")
+    text = "".join(
+        part["text"]
+        for part in parts
+        if isinstance(part.get("text"), str) and part.get("thought") is not True
+    )
+    function_calls = [
+        call
+        for part in parts
+        if isinstance(call := part.get("functionCall"), dict)
+        and isinstance(call.get("name"), str)
+        and call["name"]
+    ]
+    calls = [
+        {
+            "name": call["name"],
+            "arguments": call.get("args", {})
+            if isinstance(call.get("args", {}), dict)
+            else {},
+        }
+        for call in function_calls
+    ]
+    native_ids_match = all(
+        not isinstance(native.get("id"), str)
+        or not native["id"]
+        or native["id"] == call.tool_call_id
+        for native, call in zip(function_calls, message.tool_calls or [])
+    )
+    if (
+        text != _text_content(message)
+        or calls != [call.tool_call for call in message.tool_calls or []]
+        or not native_ids_match
+    ):
+        raise ChatInputError(
+            "Preserved Gemini content does not match the assistant message"
+        )
 
 
 def _content_part(part: ContentPart) -> dict[str, Any]:
@@ -392,6 +571,7 @@ def _usage_from_gemini(response: dict[str, Any]) -> ChatUsage | None:
 def _tool_call_from_gemini_part(
     part: dict[str, Any],
     response_id: object,
+    part_index: int = 0,
 ) -> ToolCall | None:
     function_call = part.get("functionCall")
     if not isinstance(function_call, dict):
@@ -405,10 +585,15 @@ def _tool_call_from_gemini_part(
         arguments = {}
 
     call_id_prefix = (
-        response_id if isinstance(response_id, str) and response_id else "gemini"
+        response_id
+        if isinstance(response_id, str) and response_id
+        else f"gemini-{uuid4().hex}"
     )
+    native_id = function_call.get("id")
     return ToolCall(
-        tool_call_id=f"{call_id_prefix}:tool:0",
+        tool_call_id=native_id
+        if isinstance(native_id, str) and native_id
+        else f"{call_id_prefix}:tool:0:{part_index}",
         tool_call={
             "name": name,
             "arguments": arguments,

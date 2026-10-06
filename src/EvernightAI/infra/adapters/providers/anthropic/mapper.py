@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from copy import deepcopy
 from typing import Any
 
 from EvernightAI.core.error.chat import ChatInputError
@@ -26,6 +27,10 @@ class AnthropicStreamNormalizer:
         self._response_id: str | None = None
         self._model_id: str | None = None
         self._tool_calls: dict[int, dict[str, Any]] = {}
+        self._blocks: dict[int, dict[str, Any]] = {}
+        self._open_blocks: set[int] = set()
+        self._finish_reason: str | None = None
+        self.is_complete = False
 
     def map_event(
         self, event: str | None, data: dict[str, Any]
@@ -41,6 +46,45 @@ class AnthropicStreamNormalizer:
             return self._map_content_block_stop(raw_event, data)
         if raw_event == "message_delta":
             return self._map_message_delta(raw_event, data)
+        if raw_event == "error" or data.get("type") == "error":
+            error = data.get("error", {})
+            error = error if isinstance(error, dict) else {}
+            return [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.ERROR,
+                    error_type=str(error.get("type") or "anthropic_error"),
+                    error_message=str(
+                        error.get("message") or "Anthropic stream failed"
+                    ),
+                    raw_event=raw_event,
+                    raw_data=data,
+                )
+            ]
+        if raw_event == "message_stop":
+            if self._open_blocks or self._finish_reason is None:
+                raise ProviderResponseError(
+                    "Anthropic stream ended with incomplete content"
+                )
+            response = from_anthropic_response(
+                {
+                    "id": self._response_id,
+                    "model": self._model_id,
+                    "content": list(self._blocks.values()),
+                    "stop_reason": self._finish_reason,
+                }
+            )
+            self.is_complete = True
+            return [
+                ChatStreamEvent(
+                    event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                    response_id=self._response_id,
+                    model_id=self._model_id,
+                    finish_reason=self._finish_reason,
+                    message=response.message,
+                    raw_event=raw_event,
+                    raw_data=data,
+                )
+            ]
 
         return [from_anthropic_stream_event(event, data)]
 
@@ -92,7 +136,19 @@ class AnthropicStreamNormalizer:
         content_block = data.get("content_block")
         if not isinstance(index, int) or not isinstance(content_block, dict):
             return [from_anthropic_stream_event(raw_event, data)]
+        self._blocks[index] = deepcopy(content_block)
+        self._open_blocks.add(index)
         if content_block.get("type") != "tool_use":
+            text = content_block.get("text")
+            if content_block.get("type") == "text" and isinstance(text, str) and text:
+                return [
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_DELTA,
+                        text_delta=text,
+                        response_id=self._response_id,
+                        model_id=self._model_id,
+                    )
+                ]
             return []
 
         tool_call_id = content_block.get("id")
@@ -136,6 +192,20 @@ class AnthropicStreamNormalizer:
             return [from_anthropic_stream_event(raw_event, data)]
 
         delta_type = delta.get("type")
+        block = self._blocks.get(index) if isinstance(index, int) else None
+        field = (
+            {
+                "text_delta": "text",
+                "thinking_delta": "thinking",
+                "signature_delta": "signature",
+            }.get(delta_type)
+            if isinstance(delta_type, str)
+            else None
+        )
+        if block is not None and field is not None:
+            value = delta.get(field)
+            if isinstance(value, str):
+                block[field] = str(block.get(field, "")) + value
         if delta_type == "text_delta":
             text = delta.get("text")
             if not isinstance(text, str) or not text:
@@ -188,6 +258,7 @@ class AnthropicStreamNormalizer:
         index = data.get("index")
         if not isinstance(index, int):
             return [from_anthropic_stream_event(raw_event, data)]
+        self._open_blocks.discard(index)
 
         call_state = self._tool_calls.pop(index, None)
         if call_state is None:
@@ -195,7 +266,10 @@ class AnthropicStreamNormalizer:
 
         tool_call = _tool_call_from_anthropic_state(call_state)
         if tool_call is None:
-            return []
+            raise ProviderResponseError(
+                "Anthropic tool call contains invalid arguments"
+            )
+        self._blocks[index]["input"] = tool_call.tool_call["arguments"]
 
         return [
             ChatStreamEvent(
@@ -233,6 +307,7 @@ class AnthropicStreamNormalizer:
         delta = data.get("delta")
         finish_reason = delta.get("stop_reason") if isinstance(delta, dict) else None
         if isinstance(finish_reason, str) and finish_reason:
+            self._finish_reason = finish_reason
             events.append(
                 ChatStreamEvent(
                     event_type=ChatStreamEventType.MESSAGE_COMPLETED,
@@ -251,6 +326,8 @@ def to_anthropic_request(
     messages: Iterable[Content],
     model_id: str,
     tools: Iterable[ToolDefinition] | None = None,
+    *,
+    max_output_tokens: int = 4096,
 ) -> dict[str, Any]:
     request_messages: list[dict[str, Any]] = []
     system_texts: list[str] = []
@@ -269,7 +346,7 @@ def to_anthropic_request(
 
     request: dict[str, Any] = {
         "model": model_id,
-        "max_tokens": 1024,
+        "max_tokens": max_output_tokens,
         "messages": request_messages,
     }
     if system_texts:
@@ -328,6 +405,7 @@ def from_anthropic_response(response: dict[str, Any]) -> ChatResponse:
             role=MessageRole.ASSISTANT,
             content=message_content,
             tool_calls=tool_calls or None,
+            metadata={"anthropic_content": deepcopy(content)},
         ),
         finish_reason=response.get("stop_reason"),
         usage=_usage_from_anthropic(response),
@@ -367,6 +445,11 @@ def _message_content(message: Content) -> list[dict[str, Any]]:
     if message.role is MessageRole.TOOL:
         return [_tool_result_content(message)]
 
+    native_content = message.metadata.get("anthropic_content")
+    if message.role is MessageRole.ASSISTANT and isinstance(native_content, list):
+        _validate_preserved_content(message, native_content)
+        return deepcopy(native_content)
+
     parts = message.content or []
     content = [_content_part(part) for part in parts]
     content.extend(
@@ -376,6 +459,31 @@ def _message_content(message: Content) -> list[dict[str, Any]]:
         return [{"type": "text", "text": ""}]
 
     return content
+
+
+def _validate_preserved_content(message: Content, content: list[Any]) -> None:
+    if any(not isinstance(part, dict) for part in content):
+        raise ChatInputError("Preserved Anthropic content must contain objects")
+    text = "".join(
+        part["text"]
+        for part in content
+        if part.get("type") == "text" and isinstance(part.get("text"), str)
+    )
+    calls = [
+        call
+        for part in content
+        if (call := _tool_call_from_anthropic_content(part)) is not None
+    ]
+    expected = [
+        (call.tool_call_id, call.tool_call) for call in message.tool_calls or []
+    ]
+    if (
+        text != _text_content(message)
+        or [(call.tool_call_id, call.tool_call) for call in calls] != expected
+    ):
+        raise ChatInputError(
+            "Preserved Anthropic content does not match the assistant message"
+        )
 
 
 def _text_content(message: Content) -> str:

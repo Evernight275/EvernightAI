@@ -198,7 +198,7 @@ def test_maps_gemini_function_call_response_to_chat_response() -> None:
 
     assert mapped.message.tool_calls == [
         ToolCall(
-            tool_call_id="resp-1:tool:0",
+            tool_call_id="resp-1:tool:0:0",
             tool_call={"name": "list_directory", "arguments": {"path": "."}},
         )
     ]
@@ -380,9 +380,11 @@ def test_maps_gemini_response_fallbacks_and_usage_metadata() -> None:
 
     assert mapped.model_id == "fallback-model"
     assert mapped.message.content is None
+    assert mapped.message.tool_calls
+    assert mapped.message.tool_calls[0].tool_call_id.startswith("gemini-")
     assert mapped.message.tool_calls == [
         ToolCall(
-            tool_call_id="gemini:tool:0",
+            tool_call_id=mapped.message.tool_calls[0].tool_call_id,
             tool_call={"name": "lookup", "arguments": {}},
         )
     ]
@@ -424,12 +426,15 @@ def test_normalizes_gemini_usage_finish_and_malformed_stream_parts() -> None:
     assert [event.event_type for event in events] == [
         ChatStreamEventType.USAGE,
         ChatStreamEventType.TOOL_CALL_COMPLETED,
+        ChatStreamEventType.TOOL_CALL_COMPLETED,
         ChatStreamEventType.MESSAGE_COMPLETED,
     ]
     assert events[0].usage is not None
     assert events[0].usage.metadata == {"thoughtsTokenCount": 1}
-    assert events[1].tool_call_id == "gemini:tool:2:3"
-    assert events[2].finish_reason == "MAX_TOKENS"
+    assert events[1].tool_call is not None
+    assert events[1].tool_call.tool_call == {"name": "missing-args", "arguments": {}}
+    assert events[2].tool_call_id == "gemini:tool:2:3"
+    assert events[3].finish_reason == "MAX_TOKENS"
     assert all(event.response_id is None and event.model_id is None for event in events)
 
 
@@ -596,7 +601,7 @@ async def test_gemini_instance_stream_allows_undeclared_model() -> None:
         None,
     ]
     assert [event.event_type for event in events] == [
-        ChatStreamEventType.RAW,
+        ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
 
@@ -737,7 +742,7 @@ class FakeGeminiClient:
         if params == {"alt": "sse"}:
             return httpx.Response(
                 200,
-                text='data: {"responseId": "resp-1", "candidates": []}\n\n',
+                text='data: {"responseId": "resp-1", "candidates": [{"finishReason":"STOP"}]}\n\n',
                 request=httpx.Request("POST", url),
             )
 
@@ -777,7 +782,7 @@ class FakeGeminiClient:
         return FakeGeminiStreamContext(
             httpx.Response(
                 200,
-                text='data: {"responseId": "resp-1", "candidates": []}\n\n',
+                text='data: {"responseId": "resp-1", "candidates": [{"finishReason":"STOP"}]}\n\n',
                 request=httpx.Request(method, url),
             ),
             error=self._stream_error,

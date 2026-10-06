@@ -75,7 +75,7 @@ def make_tool() -> ToolDefinition:
 def test_maps_messages_to_anthropic_request() -> None:
     assert to_anthropic_request(make_messages(), "claude-test") == {
         "model": "claude-test",
-        "max_tokens": 1024,
+        "max_tokens": 4096,
         "messages": [
             {
                 "role": "user",
@@ -89,7 +89,7 @@ def test_maps_messages_to_anthropic_request() -> None:
 def test_maps_tools_to_anthropic_request() -> None:
     assert to_anthropic_request(make_messages(), "claude-test", [make_tool()]) == {
         "model": "claude-test",
-        "max_tokens": 1024,
+        "max_tokens": 4096,
         "messages": [
             {
                 "role": "user",
@@ -371,7 +371,7 @@ def test_maps_assistant_tool_calls_empty_messages_and_tool_results() -> None:
 
     assert request == {
         "model": "claude-test",
-        "max_tokens": 1024,
+        "max_tokens": 4096,
         "messages": [
             {"role": "user", "content": [{"type": "text", "text": ""}]},
             {
@@ -559,7 +559,7 @@ def test_anthropic_stream_normalizer_ignores_empty_text_and_non_tool_blocks() ->
 
 
 @pytest.mark.parametrize("arguments", ["not-json", "[]"])
-def test_anthropic_stream_normalizer_drops_invalid_completed_tool_calls(
+def test_anthropic_stream_normalizer_rejects_invalid_completed_tool_calls(
     arguments: str,
 ) -> None:
     normalizer = AnthropicStreamNormalizer()
@@ -583,7 +583,8 @@ def test_anthropic_stream_normalizer_drops_invalid_completed_tool_calls(
         },
     )
 
-    assert normalizer.map_event("content_block_stop", {"index": 0}) == []
+    with pytest.raises(ProviderResponseError, match="invalid arguments"):
+        normalizer.map_event("content_block_stop", {"index": 0})
 
 
 @pytest.mark.asyncio
@@ -737,6 +738,8 @@ async def test_anthropic_instance_stream_allows_undeclared_model() -> None:
     ]
     assert [event.event_type for event in events] == [
         ChatStreamEventType.MESSAGE_START,
+        ChatStreamEventType.MESSAGE_COMPLETED,
+        ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
 
@@ -881,6 +884,8 @@ class FakeAnthropicClient:
                     "event: message_start\n"
                     'data: {"type": "message_start", '
                     '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
+                    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n'
+                    'event: message_stop\ndata: {"type":"message_stop"}\n\n'
                 ),
                 request=httpx.Request("POST", url),
             )
@@ -920,6 +925,8 @@ class FakeAnthropicClient:
                     "event: message_start\n"
                     'data: {"type": "message_start", '
                     '"message": {"id": "msg-1", "model": "provider-model"}}\n\n'
+                    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n'
+                    'event: message_stop\ndata: {"type":"message_stop"}\n\n'
                 ),
                 request=httpx.Request(method, url),
             ),

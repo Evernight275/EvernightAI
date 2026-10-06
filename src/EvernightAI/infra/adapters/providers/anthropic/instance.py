@@ -12,6 +12,7 @@ from EvernightAI.core.schema.provider import (
     ProviderModelConfig,
 )
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.infra.adapters.providers.anthropic.mapper import (
     AnthropicStreamNormalizer,
     from_anthropic_response,
@@ -25,7 +26,11 @@ from EvernightAI.infra.adapters.model_discovery import (
     discover_models_or_declared,
     get_discovered_model_or_declared,
 )
-from EvernightAI.infra.adapters.provider_metadata import timeout_seconds_from_metadata
+from EvernightAI.infra.adapters.provider_metadata import (
+    max_output_tokens_from_metadata,
+    timeout_seconds_from_metadata,
+)
+from EvernightAI.infra.adapters.providers.sse import iter_sse_json
 
 
 class AnthropicProviderInstance(ProviderInstanceProtocol):
@@ -51,6 +56,10 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
             request.messages,
             model.model_id,
             request.tools,
+            max_output_tokens=max_output_tokens_from_metadata(
+                request.metadata, model.metadata, self.config.metadata
+            )
+            or 4096,
         )
         payload.update(anthropic_prompt_cache_params(request))
 
@@ -74,6 +83,10 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
                 request.messages,
                 model.model_id,
                 request.tools,
+                max_output_tokens=max_output_tokens_from_metadata(
+                    request.metadata, model.metadata, self.config.metadata
+                )
+                or 4096,
             ),
             **anthropic_prompt_cache_params(request),
             "stream": True,
@@ -159,35 +172,14 @@ class AnthropicChatStream:
                 timeout=self._timeout,
             ) as response:
                 response.raise_for_status()
-                async for event, chunk in _iter_sse_json(response):
+                async for event, chunk in iter_sse_json(response):
                     for stream_event in self._normalizer.map_event(event, chunk):
                         yield stream_event
+                        if stream_event.event_type is ChatStreamEventType.ERROR:
+                            return
         except httpx.HTTPError as error:
             raise_httpx_provider_error(error)
 
+        if not self._normalizer.is_complete:
+            raise ProviderResponseError("Anthropic stream ended without message_stop")
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
-
-
-async def _iter_sse_json(
-    response: httpx.Response,
-) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
-    event: str | None = None
-
-    async for line in response.aiter_lines():
-        line = line.strip()
-        if not line:
-            event = None
-            continue
-        if line.startswith("event:"):
-            event = line.removeprefix("event:").strip()
-            continue
-        if not line.startswith("data:"):
-            continue
-
-        data = line.removeprefix("data:").strip()
-        if not data or data == "[DONE]":
-            continue
-
-        parsed = httpx.Response(200, content=data).json()
-        if isinstance(parsed, dict):
-            yield event, parsed

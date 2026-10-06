@@ -920,6 +920,7 @@ class AgentExecutionApplication:
         finish_reason: str | None = None
         usage: ChatUsage | None = None
         completed = False
+        final_message: Content | None = None
 
         async for event in stream:
             if event.event_type is ChatStreamEventType.ERROR:
@@ -934,6 +935,11 @@ class AgentExecutionApplication:
                 completed = True
             if event.response_id is not None:
                 response_id = event.response_id
+            if event.message is not None and event.event_type in {
+                ChatStreamEventType.MESSAGE_COMPLETED,
+                ChatStreamEventType.DONE,
+            }:
+                final_message = event.message
             if event.model_id is not None:
                 model_id = event.model_id
             if event.finish_reason is not None:
@@ -968,7 +974,8 @@ class AgentExecutionApplication:
         response = ChatResponse(
             response_id=response_id,
             model_id=model_id,
-            message=Content(
+            message=final_message
+            or Content(
                 role=MessageRole.ASSISTANT,
                 content=content,
                 tool_calls=tool_calls or None,

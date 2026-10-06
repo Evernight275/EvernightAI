@@ -5,7 +5,7 @@ from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.agent import AgentTraceEvent
-from EvernightAI.core.schema.content import ChatUsage, ContentPart, MessageRole
+from EvernightAI.core.schema.content import ChatUsage, Content, ContentPart, MessageRole
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolCall
 
 
@@ -42,6 +42,7 @@ class ChatStreamEvent(EvernightAISchema):
     model_id: str | None = None
     role: MessageRole | None = None
     content_part: ContentPart | None = None
+    message: Content | None = None
     text_delta: str | None = None
     tool_call_id: str | None = None
     tool_name: str | None = None

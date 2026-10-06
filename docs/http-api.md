@@ -255,6 +255,25 @@ Responses function tools explicitly use `strict: false` to preserve optional
 parameters and the registered JSON schemas. Tool argument validation and
 permission checks still run locally before execution.
 
+Anthropic and Gemini accept `metadata.max_output_tokens`, a positive integer.
+The request value overrides the selected model's metadata, which overrides the
+provider's metadata. Anthropic maps it to `max_tokens` and defaults to 4096;
+Gemini maps it to `generationConfig.maxOutputTokens` and otherwise uses the
+provider's default. Chat and streaming use the same precedence and validation.
+
+Anthropic and Gemini preserve ordered assistant response blocks in message
+metadata (`anthropic_content` / `gemini_parts`), including thinking signatures.
+Return the complete assistant message in subsequent requests, or let the Agent
+manage history. Editing visible text or tool calls without updating the preserved
+blocks is rejected. Gemini recovers tool-result function names and native IDs
+from the preceding assistant calls and groups adjacent tool results into one turn.
+
+Streaming completion events may carry a complete `message`. The Agent saves
+that message, including its metadata, across approval pauses and SQLite reloads.
+Anthropic requires `message_stop`; Gemini requires `finishReason` and collects
+remaining frames before completing. Stream errors, invalid JSON and premature
+EOF fail the run instead of marking partial output complete.
+
 Example:
 
 ```json
