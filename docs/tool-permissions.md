@@ -46,6 +46,13 @@ Strings execute using `/bin/sh -c` on POSIX or `cmd.exe /d /s /c` on Windows.
 Arrays keep their arguments literal. Pipes, redirection and command chains are
 available in script mode; the full script appears in approval and terminal cards,
 including after a page refresh.
+JSON-encoded argument arrays supplied as strings are normalized to arrays before
+both authorization and execution. They follow the same literal-path, deletion
+and blocked-command rules as ordinary arrays. `which` is a read-only query command.
+Read-only `find` queries also run without additional approval. For `-exec` and
+`-execdir`, the invoked command follows the same approval and blocked-command
+rules, including quoted or escaped action terminators. File output and interactive
+`find` actions require approval; discovered deletion targets remain forbidden.
 
 Common read commands can run without additional approval. `allowed_commands`
 identifies trusted commands rather than an exhaustive executable allowlist.
@@ -66,12 +73,16 @@ scripts, unfamiliar commands, package removal and Git clean/reset/rm retain
 approval. Explicit per-user `ask` and `deny` settings still apply. Restart the
 service after changing configuration.
 
-Paths must be literal relative or absolute paths. Shell variable expansion,
-command/process substitution, home-directory expansion and unquoted wildcards
-are rejected even after approval. Environment overrides through `env`, inline
-assignments and environment-setting commands are forbidden. Bubblewrap supplies
-a fixed runtime environment; it does not inherit service secrets. The explicit
-`subprocess` backend inherits the host environment.
+Ordinary commands can use environment variables, `export`, inline assignments,
+`env`, and path expansion. The optional `env` argument sets string values for
+that invocation only; `allowed_env_keys`, when configured, limits its keys.
+For invocations containing deletion, environment overrides and assignments are
+forbidden, and deletion targets must be literal relative or absolute paths:
+variables, home expansion and unquoted wildcards remain rejected after approval.
+Command names must be literal so their operation can be inspected. Command/process
+substitution and other unsupported computed syntax remain rejected. Bubblewrap
+starts with a constructed environment and does not inherit service secrets.
+The explicit `subprocess` backend inherits the host environment.
 
 Special characters in filenames must use the executing shell's literal syntax.
 For POSIX, `rm './a$*.txt'`, `rm ./a\$\*.txt`, or the argument array
@@ -80,7 +91,7 @@ For POSIX, `rm './a$*.txt'`, `rm ./a\$\*.txt`, or the argument array
 their arguments are already literal and must not contain shell quoting added by
 the caller. Windows filename rules do not permit literal `*` or `?`; quoting a
 wildcard deletion target does not make it acceptable. CMD environment expansion
-is forbidden even inside double quotes. PowerShell special-filename deletion
+is forbidden for deletion even inside double quotes. PowerShell special-filename deletion
 requires `-LiteralPath` as well as correct quoting.
 
 Deletion using discovered/piped targets (`find -delete`, `xargs rm`) is rejected;

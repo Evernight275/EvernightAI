@@ -288,3 +288,33 @@ async def test_restricted_shell_accepts_cwd_and_returns_events(tmp_path) -> None
 
     assert result.tool_call_result["stdout"].splitlines() == ["nested", "ok"]
     assert result.tool_call_result["events"][0]["stream"] == "stdout"
+
+
+@pytest.mark.asyncio
+async def test_requested_timeout_is_a_per_call_override_of_the_tool_default(tmp_path):
+    register = ToolRegister()
+    register_restricted_shell_tool(
+        register,
+        allowed_commands={sys.executable},
+        working_directory=tmp_path,
+        timeout_seconds=0.01,
+    )
+    result = await ToolManager(register).execute(
+        ToolCall(
+            tool_call_id="timeout-override",
+            tool_call={
+                "name": "restricted_shell",
+                "arguments": {
+                    "command": [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(0.05); print('finished')",
+                    ],
+                    "timeout_seconds": 2,
+                },
+            },
+            metadata={"approved": True},
+        )
+    )
+    assert result.tool_call_result["returncode"] == 0
+    assert result.tool_call_result["stdout"] == "finished\n"

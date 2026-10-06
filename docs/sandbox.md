@@ -39,6 +39,7 @@ include_python_environment = true
 include_uv = true
 include_node = false
 readonly_paths = []
+python_runtime_roots = []
 protected_paths = []
 timeout_seconds = 120.0
 max_output_chars = 32000
@@ -86,7 +87,10 @@ persist in SQLite and are available in the project selector after restart. The
 default configured directories above remain the fallback when no project is selected.
 Files, Shell, Git and project tasks follow the selected directory for each request;
 already-running and resumed requests retain their original selection. Only the
-selected project is mounted at `/workspace`. Unregistered external directories,
+selected project is mounted at `/workspace` and its original absolute path.
+The original path preserves existing console-script shebangs and editable package
+references; both mounts expose the same selected files and use the same write mode.
+Unregistered external directories,
 service data and overlaps with read-only runtime paths remain forbidden.
 
 ## Runtime and execution
@@ -94,25 +98,42 @@ service data and overlaps with read-only runtime paths remain forbidden.
 Each process sees its selected project directory at `/workspace`. `/usr`, `/bin`,
 the system libraries and configured runtime paths are read-only. Only the selected
 workspace allows persistent writes; temporary files use an isolated `/tmp`.
+System alternatives (`/etc/alternatives`) and Fontconfig configuration
+(`/etc/fonts`) are mounted read-only when present, so symlinked commands such as
+`which` and `awk`, and font discovery, work normally. PATH includes the mounted
+project Python environment, `/opt/evernight/bin`, and the standard system `bin` and `sbin`
+directories. Use `uv` directly; `/opt/evernight/bin/uv` is its internal mount path.
 The sandbox isolates process,
 user, IPC and UTS namespaces, drops capabilities and prevents creating
-nested user namespaces. Host Unix socket files, home directories, SSH credentials
+nested user namespaces. Host Unix socket files, unselected home files, SSH credentials
 and service environment variables are not exposed. The default
 `network_mode = "disabled"` also isolates the network namespace.
 
-`include_python_environment` mounts the running Python environment and base
-interpreter read-only, including paths needed by interpreter symlinks. `python`
-uses this environment, and project commands beginning `.venv/bin/` use its
-installed executables. `PYTHONPATH` includes `/workspace/src` and `/workspace` so
-imports select workspace code. Install dependencies outside the sandbox before
-launching the service; tools cannot modify the shared environment.
+The nearest `.venv` between the working directory and selected project root owns
+Python execution. Its `bin` directory leads Python command lookup, and
+`VIRTUAL_ENV` points to it. Its `pyvenv.cfg` selects the base Python installation,
+which is mounted read-only. Existing uv installation aliases are preserved.
+Standard `/usr` installations, the service user's uv Python store and explicitly
+configured `python_runtime_roots` are approved sources. Additional roots approve
+installations; they do not expose the whole store. Broken, escaping or unapproved
+project environments fail explicitly instead of using a different interpreter.
+
+`include_python_environment` provides the service Python environment as a
+read-only fallback for projects without a `.venv`. It never replaces explicit
+`.venv/bin/*` paths and does not set a service `VIRTUAL_ENV` on the project.
+Arrays and shell scripts use the same filesystem paths and command lookup.
+Project dependencies belong in the project's environment, which follows the
+workspace write mode. The shared fallback stays read-only. Project imports use
+normal Python behavior; set `PYTHONPATH` for custom layouts such as `docs_src`.
+Local `node_modules/.bin` directories at the working directory and project root
+are available on PATH.
 
 `include_uv` mounts the installed uv binary read-only. uv follows the configured
 network mode, its cache uses `/tmp`, and managed Python downloads are disabled.
 To use installed dependencies without synchronizing the read-only environment:
 
 ```sh
-uv run --active --no-sync python --version
+uv run --no-sync python --version
 ```
 
 If project tasks use Pyright or other Node programs, set `include_node = true`.
@@ -144,7 +165,9 @@ change mounts, override the configured network mode or increase resource ceiling
 ## Resource limits
 
 Limits apply inside the sandbox, before the requested program starts. Tool-specific
-timeouts and output limits can be lower than runtime ceilings. Programs inherit
+timeouts and output limits can be lower than runtime ceilings. Shell's configured
+timeout is a default; a per-call override remains capped by the runtime ceiling.
+Programs inherit
 hard limits and cannot raise them. Timeout or cancellation terminates the process
 group; destroying the PID namespace also terminates descendants that detach.
 Output readers drain long lines in bounded chunks and retain bounded text/events.

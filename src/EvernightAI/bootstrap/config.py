@@ -20,6 +20,9 @@ from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirecto
 from EvernightAI.core.schema.data_analysis import DataSourceDefinition
 from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import BubblewrapRuntimePolicy
+from EvernightAI.infra.adapters.sandbox.project_environment import (
+    default_python_runtime_roots,
+)
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.registrations.data_analysis.sqlite import (
     register_sqlite_data_source,
@@ -53,6 +56,8 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
                 Path(sys.prefix),
                 Path(sys.base_prefix),
                 *config.runtime.sandbox.readonly_paths,
+                *config.runtime.sandbox.python_runtime_roots,
+                *default_python_runtime_roots(),
             ],
         )
         if config.tools.filesystem.enabled
@@ -122,6 +127,7 @@ def create_sandbox_from_config(
             network_mode=settings.network_mode,
             workspace_directories=workspace_directories,
             readonly_paths=settings.readonly_paths,
+            python_runtime_roots=settings.python_runtime_roots,
             protected_paths=_protected_workspace_paths(config),
             include_python_environment=settings.include_python_environment,
             include_uv=settings.include_uv,

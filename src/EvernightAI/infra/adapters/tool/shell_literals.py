@@ -5,8 +5,14 @@ from typing import Literal
 ShellDialect = Literal["posix", "cmd", "powershell"]
 
 
-def literal_script_reason(script: str, dialect: ShellDialect = "posix") -> str | None:
-    if dialect == "cmd" and re.search(r"%[^%\s]+%|![^!\s]+!|%[0-9*]", script):
+def literal_script_reason(
+    script: str, dialect: ShellDialect = "posix", *, strict_paths: bool = True
+) -> str | None:
+    if (
+        strict_paths
+        and dialect == "cmd"
+        and re.search(r"%[^%\s]+%|![^!\s]+!|%[0-9*]", script)
+    ):
         return "Environment variable expansion is forbidden"
     quote: str | None = None
     word_start = True
@@ -41,7 +47,10 @@ def literal_script_reason(script: str, dialect: ShellDialect = "posix") -> str |
             index += 1
             continue
         if dialect != "cmd" and char == "$":
-            return "Environment and shell variable expansion is forbidden; quote or escape literal $"
+            if following == "(":
+                return "Command substitution is forbidden"
+            if strict_paths:
+                return "Environment and shell variable expansion is forbidden; quote or escape literal $"
         if dialect == "posix" and char == "`":
             return "Command substitution is forbidden"
         if quote is None:
@@ -53,12 +62,14 @@ def literal_script_reason(script: str, dialect: ShellDialect = "posix") -> str |
                 )
             if char in "<>" and following == "(":
                 return "Process substitution is forbidden; use literal paths"
-            if char in "*?[":
+            if strict_paths and char in "*?[":
                 return "Wildcard expansion is forbidden; quote or escape literal filename characters"
-            if dialect != "cmd" and char == "~" and word_start:
+            if strict_paths and dialect != "cmd" and char == "~" and word_start:
                 return "Home-directory expansion is forbidden; use a literal relative or absolute path"
-            if char == "{" and re.match(
-                r"\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}", script[index:]
+            if (
+                strict_paths
+                and char == "{"
+                and re.match(r"\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}", script[index:])
             ):
                 return "Brace expansion is forbidden; use literal paths"
             if char == "#" and word_start and dialect != "cmd":

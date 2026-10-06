@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -200,13 +201,16 @@ def test_disabled_tool_stays_disabled(tmp_path):
     assert not manager.authorize(call_for("pwd", approved=True)).allowed
 
 
-def test_environment_overrides_cannot_be_approved(tmp_path):
-    call = call_for("ls", approved=True)
+def test_environment_overrides_for_deletion_cannot_be_approved(tmp_path):
+    call = call_for("rm note.txt", approved=True)
     call.tool_call["arguments"]["env"] = {"PATH": "/untrusted"}
     decision = manager_for(tmp_path).authorize(call)
     assert not decision.allowed
     assert not decision.requires_approval
-    assert decision.reason == "Environment variable overrides are forbidden"
+    assert (
+        decision.reason
+        == "Environment variable overrides are forbidden for deletion commands"
+    )
 
 
 @pytest.mark.parametrize(
@@ -227,6 +231,74 @@ def test_environment_overrides_cannot_be_approved(tmp_path):
 )
 def test_relaxed_mode_allows_routine_development_commands(tmp_path, command):
     assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find fastapi -name '*.py'",
+        'find fastapi -name "*.py" -exec grep -l "solve_dependencies" {} + | head -3',
+        r"find fastapi -exec grep -l Depends {} \;",
+        "find fastapi -execdir grep -l Depends '{}' ';'",
+        ["find", "fastapi", "-exec", "grep", "-l", "Depends", "{}", ";"],
+        "find fastapi -exec grep -l '+' {} +",
+        'echo "--- 1. plain grep ---"; grep -c "Depends" fastapi/params.py; '
+        'echo "--- 2. piped grep ---"; grep -rn "cache_key" fastapi/ '
+        '| grep -v pycache | wc -l; echo "--- 3. recursive + glob ---"; '
+        'find fastapi -name "*.py" -exec grep -l "solve_dependencies" {} + '
+        '| head -3; echo "--- 4. with env var ---"; Q="Dependant"; '
+        'grep -c "$Q" fastapi/dependencies/models.py',
+        'echo "&"; echo ";"; echo "|"',
+    ],
+)
+def test_readonly_find_actions_and_chains_do_not_require_approval(tmp_path, command):
+    assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find fastapi -fprint result.txt",
+        "find fastapi -fprintf result.txt '%p'",
+        "find fastapi -fls result.txt",
+        "find fastapi -ok grep Depends '{}' ';'",
+        "find fastapi -exec unknown-program {} +",
+        "find fastapi -exec python -c 'print(1)' {} +",
+        "find fastapi -exec rg --pre=script {} +",
+        "find fastapi -exec grep {}",
+        "find fastapi -exec grep {} +; python -c 'print(1)'",
+        "find fastapi -exec grep {} ; python -c 'print(1)'",
+        "find fastapi -exec grep {} + &",
+    ],
+)
+def test_find_write_actions_and_untrusted_children_still_require_approval(
+    tmp_path, command
+):
+    decision = manager_for(tmp_path, relaxed=True).authorize(call_for(command))
+    assert not decision.allowed
+    assert decision.requires_approval
+
+
+def test_find_child_commands_follow_configured_blocks(tmp_path):
+    manager = manager_for(tmp_path, relaxed=True, blocked={"grep -l"})
+    decision = manager.authorize(
+        call_for("find fastapi -exec grep -l Depends {} +", approved=True)
+    )
+    assert not decision.allowed
+    assert not decision.requires_approval
+    assert "blocked" in (decision.reason or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell syntax")
+async def test_readonly_find_execution_preserves_escaped_action_terminators(tmp_path):
+    (tmp_path / "match.py").write_text("Depends\n")
+    (tmp_path / "other.py").write_text("other\n")
+    result = await manager_for(tmp_path, relaxed=True).execute(
+        call_for(r'''Q="Depends"; find . -name "*.py" -exec grep -l "$Q" {} \; | sort''')
+    )
+    assert result.tool_call_result["returncode"] == 0
+    assert result.tool_call_result["stdout"] == "./match.py\n"
 
 
 @pytest.mark.parametrize(
@@ -268,6 +340,7 @@ def test_relaxed_mode_keeps_deletion_and_opaque_scripts_under_approval(
         "uv run rm *",
         "find . -delete",
         "find . -exec rm '{}' ';'",
+        "find . -exec bash -c 'rm ./note.txt' {} +",
         ["bash", "-lc", "rm *.txt"],
     ],
 )
@@ -332,3 +405,58 @@ async def test_runtime_configuration_enables_relaxed_command_approval(tmp_path):
         assert deletion.requires_approval
     finally:
         await runtime.close()
+
+
+@pytest.mark.parametrize("encoded", [False, True])
+def test_command_discovery_inside_login_shell_needs_no_extra_approval(
+    tmp_path, encoded
+):
+    command = ["bash", "-lc", "pwd; ls -la; which uv; uv --version"]
+    decision = manager_for(tmp_path, relaxed=True).authorize(
+        call_for(json.dumps(command) if encoded else command)
+    )
+    assert decision.allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["bash", "-lc", "rm note.txt"],
+        ["rm", "note.txt"],
+        ["uv", "run", "sh", "-c", "rm note.txt"],
+    ],
+)
+def test_serialized_command_arrays_preserve_deletion_approval(tmp_path, command):
+    decision = manager_for(tmp_path, relaxed=True).authorize(
+        call_for(json.dumps(command))
+    )
+    assert not decision.allowed
+    assert decision.requires_approval
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["bash", "-lc", "rm *.txt"],
+        ["uv", "run", "sh", "-c", "rm *.txt"],
+    ],
+)
+def test_serialized_command_arrays_preserve_forbidden_deletion(tmp_path, command):
+    decision = manager_for(tmp_path, relaxed=True).authorize(
+        call_for(json.dumps(command), approved=True)
+    )
+    assert not decision.allowed
+    assert not decision.requires_approval
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell syntax")
+async def test_serialized_command_array_executes_as_arguments(tmp_path):
+    result = await manager_for(tmp_path, relaxed=True).execute(
+        call_for(json.dumps(["sh", "-c", "pwd; echo ready"]))
+    )
+    value = result.tool_call_result
+    assert value["returncode"] == 0, value["stderr"]
+    assert value["stdout"].splitlines()[0] == str(tmp_path)
+    assert value["stdout"].splitlines()[-1] == "ready"
+    assert value["shell_script"] is None

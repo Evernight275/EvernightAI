@@ -1,7 +1,7 @@
 import asyncio
 import os
 import shutil
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from EvernightAI.core.domain.sandbox import BasicSandboxPolicy
 from EvernightAI.core.error.sandbox import (
@@ -26,6 +26,9 @@ from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
 from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import (
     BubblewrapRuntimePolicy,
     resource_command,
+)
+from EvernightAI.infra.adapters.sandbox.project_environment import (
+    ProjectExecutionEnvironment,
 )
 
 
@@ -82,7 +85,8 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 detail=decision.reason,
             )
 
-        process_command = self._bubblewrap_command(request)
+        project = self._runtime_policy.project_environment(request)
+        process_command = self._bubblewrap_command(request, project)
         process: asyncio.subprocess.Process | None = None
         output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
         try:
@@ -141,7 +145,9 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             metadata={"sandbox_backend": "bubblewrap"},
         )
 
-    def _bubblewrap_command(self, request: SandboxExecutionRequest) -> list[str]:
+    def _bubblewrap_command(
+        self, request: SandboxExecutionRequest, project: ProjectExecutionEnvironment
+    ) -> list[str]:
         bubblewrap_path = self._bubblewrap_path
         if bubblewrap_path is None:
             raise SandboxConfigurationError("The bwrap executable is not available")
@@ -171,16 +177,16 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         )
         command.extend(self._network_options(request))
         command.extend(self._system_mount_options(request.policy.network_mode))
-        command.extend(self._runtime_policy.runtime_mount_options())
+        command.extend(self._runtime_policy.runtime_mount_options(project))
         command.extend(self._filesystem_mount_options(request.policy.filesystem_mounts))
-        for key, value in self._sandbox_env(request).items():
+        for key, value in self._sandbox_env(request, project).items():
             command.extend(["--setenv", key, value])
         if request.command.cwd is not None:
             command.extend(["--chdir", request.command.cwd])
         command.append("--")
         command.extend(
             resource_command(
-                self._sandbox_command(request), request.policy.resource_limits
+                list(request.command.command), request.policy.resource_limits
             )
         )
         return command
@@ -200,7 +206,12 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         for path in ["/usr", "/bin", "/lib", "/lib64"]:
             if Path(path).exists():
                 options.extend(["--ro-bind", path, path])
-        for path in ["/etc/ld.so.cache", "/etc/ld.so.conf"]:
+        for path in [
+            "/etc/ld.so.cache",
+            "/etc/ld.so.conf",
+            "/etc/alternatives",
+            "/etc/fonts",
+        ]:
             if Path(path).exists():
                 options.extend(["--ro-bind", path, path])
         if network_mode is SandboxNetworkMode.UNRESTRICTED:
@@ -229,43 +240,16 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 else "--ro-bind"
             )
             options.extend([flag, host_path, mount.mount_path])
+            if host_path != mount.mount_path:
+                options.extend([flag, host_path, host_path])
         return options
 
-    def _sandbox_command(self, request: SandboxExecutionRequest) -> list[str]:
-        command = list(request.command.command)
-        command[0] = self._runtime_policy.map_runtime_executable(command[0])
-        command[0] = self._map_host_path_to_sandbox(
-            command[0],
-            request.policy.filesystem_mounts,
-        )
-        return command
-
-    def _map_host_path_to_sandbox(
-        self,
-        value: str,
-        mounts: list[SandboxFilesystemMount],
-    ) -> str:
-        path = Path(value)
-        if not path.is_absolute():
-            return value
-
-        resolved_path = path.resolve()
-        for mount in mounts:
-            host_path = Path(mount.host_path).resolve()
-            try:
-                relative = resolved_path.relative_to(host_path)
-            except ValueError:
-                continue
-            sandbox_path = self._normalize_path(mount.mount_path) / PurePosixPath(
-                *relative.parts
-            )
-            return sandbox_path.as_posix()
-        return value
-
-    def _sandbox_env(self, request: SandboxExecutionRequest) -> dict[str, str]:
+    def _sandbox_env(
+        self, request: SandboxExecutionRequest, project: ProjectExecutionEnvironment
+    ) -> dict[str, str]:
         return {
             **self._runtime_policy.environment(
-                network_mode=request.policy.network_mode
+                project=project, network_mode=request.policy.network_mode
             ),
             **request.command.env,
         }
@@ -295,9 +279,3 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             request.command.timeout_seconds
             or request.policy.resource_limits.timeout_seconds
         )
-
-    def _normalize_path(self, value: str) -> PurePosixPath:
-        path = PurePosixPath(value)
-        if not path.is_absolute():
-            path = PurePosixPath("/") / path
-        return path

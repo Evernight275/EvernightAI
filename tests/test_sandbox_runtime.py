@@ -106,8 +106,8 @@ async def test_runtime_python_uv_and_secrets_are_isolated(tmp_path, monkeypatch)
     assert version.returncode == 0, version.stderr
     assert version.stdout.startswith("uv ")
     alias = await sandbox.execute(request(work, [".venv/bin/python", "--version"]))
-    assert alias.returncode == 0, alias.stderr
-    assert alias.stdout.startswith("Python ")
+    assert alias.returncode != 0
+    assert "No such file or directory" in alias.stderr
     uv_python = await sandbox.execute(
         request(
             work,
@@ -125,6 +125,65 @@ async def test_runtime_python_uv_and_secrets_are_isolated(tmp_path, monkeypatch)
     )
     assert uv_python.returncode == 0, uv_python.stderr
     assert uv_python.stdout == "uv-python\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not Path("/etc/alternatives/which").exists()
+    or not Path("/etc/alternatives/awk").exists(),
+    reason="Debian alternatives for which and awk are required",
+)
+async def test_login_shell_finds_runtime_commands_and_system_alternatives(tmp_path):
+    result = await executor(tmp_path).execute(
+        request(
+            tmp_path,
+            [
+                "bash",
+                "-lc",
+                "which uv python awk && uv --version && awk 'BEGIN {print \"awk-ready\"}'",
+            ],
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0] == "/opt/evernight/bin/uv"
+    assert lines[1] == str(Path(sys.prefix) / "bin/python")
+    assert lines[2] in {"/usr/bin/awk", "/bin/awk"}
+    assert lines[3].startswith("uv ")
+    assert lines[4] == "awk-ready"
+    readonly = await executor(tmp_path).execute(
+        request(
+            tmp_path,
+            [
+                "python",
+                "-c",
+                "import os; print(bool(os.statvfs('/etc/alternatives').f_flag & os.ST_RDONLY))",
+            ],
+        )
+    )
+    assert readonly.returncode == 0, readonly.stderr
+    assert readonly.stdout == "True\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("fc-match") is None, reason="Fontconfig is required")
+async def test_fontconfig_finds_default_configuration_in_sandbox(tmp_path):
+    result = await executor(tmp_path).execute(request(tmp_path, ["fc-match"]))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip()
+    assert "Cannot load default config file" not in result.stderr
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not Path("/usr/sbin/sysctl").exists(), reason="sysctl in /usr/sbin is required"
+)
+async def test_system_sbin_commands_are_available_by_name(tmp_path):
+    result = await executor(tmp_path).execute(
+        request(tmp_path, ["sysctl", "--version"])
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("sysctl ")
 
 
 @pytest.mark.asyncio
@@ -157,7 +216,7 @@ async def test_optional_node_mount_supports_pyright_without_exposing_its_directo
 ):
     sandbox = executor(tmp_path, include_node=True)
     result = await sandbox.execute(
-        request(tmp_path, [".venv/bin/pyright", "--version"])
+        request(tmp_path, ["pyright", "--version"])
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("pyright ")

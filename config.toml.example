@@ -17,6 +17,10 @@ workspace_root = "workspaces"
 # including localhost, Git HTTP remotes and dependency downloads.
 network_mode = "disabled"
 readonly_paths = []
+# Extra approved Python installation roots for project virtualenvs. Standard
+# /usr installations and the service user's uv Python store are already supported.
+# Only the selected interpreter installation is mounted read-only.
+python_runtime_roots = []
 protected_paths = []
 include_python_environment = true
 include_uv = true
@@ -107,8 +111,9 @@ is_need_approval = true
 # With is_need_approval = false, permit routine development commands without
 # approval. Deletion, opaque scripts and blocked commands retain their rules.
 relaxed_approval = false
-# Environment overrides are rejected by restricted_shell.
-# allowed_env_keys remains a compatibility setting and does not grant overrides.
+# Ordinary commands may set environment variables; deletion commands may not.
+# Optional allowlist for the env argument (unset permits any key).
+# allowed_env_keys = ["PYTHONPATH"]
 
 [tools.web]
 # Keep disabled unless you intentionally want network tools exposed.
@@ -133,7 +138,7 @@ enabled = false
 working_directory = "."
 timeout_seconds = 120.0
 max_output_chars = 20000
-commands = { tests = [".venv/bin/python", "-m", "pytest"], typecheck = [".venv/bin/pyright"], format = ["python", "-m", "compileall", "src"], dependency_scan = ["python", "-m", "pip", "check"] }
+commands = { tests = ["python", "-m", "pytest"], typecheck = ["pyright"], format = ["python", "-m", "compileall", "src"], dependency_scan = ["python", "-m", "pip", "check"] }
 
 # Optional per-project task overrides. Missing project tasks fall back to the
 # global commands above. Project directories must be declared here; the tool

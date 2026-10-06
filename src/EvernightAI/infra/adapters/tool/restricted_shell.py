@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import shlex
 from typing import Any
@@ -31,6 +32,7 @@ from EvernightAI.infra.adapters.tool.shell_policy import (
     approval_reason,
     literal_command_reason,
     inspected_commands,
+    contains_deletion,
 )
 
 
@@ -73,7 +75,8 @@ class RestrictedShellTool:
                 "Run a command array or shell script. Pipes, redirection and command "
                 "chains are supported. Use literal relative or absolute paths, with "
                 "platform-correct quoting for special filenames. Environment variables "
-                "and wildcard expansion are forbidden. Suspicious commands require approval."
+                "are supported for ordinary commands. Deletion requires literal paths, "
+                "without variable or wildcard expansion. Suspicious commands require approval."
             ),
             parameters_schema={
                 "type": "object",
@@ -90,6 +93,10 @@ class RestrictedShellTool:
                     },
                     "cwd": {"type": "string"},
                     "timeout_seconds": {"type": "number"},
+                    "env": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
                 },
                 "required": ["command"],
             },
@@ -109,7 +116,9 @@ class RestrictedShellTool:
                 "supports_working_directory": True,
                 "timeout_seconds": self._timeout_seconds,
                 "max_output_chars": self._max_output_chars,
-                "allowed_env_keys": [],
+                "allowed_env_keys": sorted(self._allowed_env_keys)
+                if self._allowed_env_keys is not None
+                else None,
                 "sandbox_mount_path": SANDBOX_MOUNT_PATH,
             },
         )
@@ -130,10 +139,10 @@ class RestrictedShellTool:
         except ToolInputError as exc:
             return ToolSafetyDecision(allowed=False, reason=str(exc))
         command = self._parse_command(arguments)
-        if arguments.get("env"):
-            return ToolSafetyDecision(
-                allowed=False, reason="Environment variable overrides are forbidden"
-            )
+        try:
+            self._parse_env(arguments)
+        except ToolInputError as exc:
+            return ToolSafetyDecision(allowed=False, reason=str(exc))
         reason = self._command_rejection_reason(command)
         if reason is not None:
             return ToolSafetyDecision(allowed=False, reason=reason)
@@ -155,6 +164,7 @@ class RestrictedShellTool:
         if reason is not None:
             raise ToolInputError(reason)
         process_command = self._process_command(command)
+        timeout = self._parse_timeout(arguments)
         result = await self._sandbox.execute(
             SandboxExecutionRequest(
                 request_id="restricted_shell",
@@ -162,10 +172,10 @@ class RestrictedShellTool:
                     command=process_command,
                     cwd=self._parse_cwd(arguments),
                     env=self._parse_env(arguments),
-                    timeout_seconds=self._parse_timeout(arguments),
+                    timeout_seconds=timeout,
                 ),
                 policy=self._sandbox_policy(
-                    process_command[0], self._selected_root(arguments)
+                    process_command[0], self._selected_root(arguments), timeout
                 ),
             )
         )
@@ -188,7 +198,9 @@ class RestrictedShellTool:
             "truncated": result.truncated,
         }
 
-    def _sandbox_policy(self, executable: str, root: Path) -> SandboxPolicy:
+    def _sandbox_policy(
+        self, executable: str, root: Path, timeout: float
+    ) -> SandboxPolicy:
         return SandboxPolicy(
             command_allowlist=[executable],
             filesystem_mounts=[
@@ -198,9 +210,11 @@ class RestrictedShellTool:
                     access=SandboxFilesystemAccess.READ_WRITE,
                 )
             ],
-            allowed_env_keys=[],
+            allowed_env_keys=sorted(self._allowed_env_keys)
+            if self._allowed_env_keys is not None
+            else None,
             resource_limits=SandboxResourceLimits(
-                timeout_seconds=self._timeout_seconds,
+                timeout_seconds=timeout,
                 max_output_chars=self._max_output_chars,
             ),
         )
@@ -210,7 +224,7 @@ class RestrictedShellTool:
         if reason is not None:
             return reason
         try:
-            commands = inspected_commands(command)
+            commands = inspected_commands(command, ignore_redirections=True)
         except (ValueError, RecursionError):
             commands = [command] if isinstance(command, list) else []
         if any(self._is_blocked_command(parts) for parts in commands):
@@ -248,6 +262,14 @@ class RestrictedShellTool:
 
     def _parse_command(self, arguments: dict[str, Any]) -> list[str] | str:
         command = arguments.get("command")
+        if isinstance(command, str) and command.lstrip().startswith("["):
+            try:
+                decoded = json.loads(command)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(decoded, list):
+                    command = decoded
         if isinstance(command, str):
             if not command.strip() or "\x00" in command:
                 raise ToolInputError(
@@ -301,10 +323,27 @@ class RestrictedShellTool:
             return {}
         if not isinstance(raw_env, dict):
             raise ToolInputError("The env value must be a dictionary")
-        if raw_env:
-            raise ToolInputError("Environment variable overrides are forbidden")
-
-        return {}
+        if not all(
+            isinstance(key, str)
+            and key
+            and "=" not in key
+            and "\x00" not in key
+            and isinstance(value, str)
+            and "\x00" not in value
+            for key, value in raw_env.items()
+        ):
+            raise ToolInputError("Environment keys and values must be valid strings")
+        if raw_env and contains_deletion(self._parse_command(arguments)):
+            raise ToolInputError(
+                "Environment variable overrides are forbidden for deletion commands"
+            )
+        if self._allowed_env_keys is not None and not set(raw_env).issubset(
+            self._allowed_env_keys
+        ):
+            raise ToolInputError(
+                "Environment keys are outside the configured allowed_env_keys"
+            )
+        return raw_env
 
     def _parse_timeout(self, arguments: dict[str, Any]) -> float:
         timeout = arguments.get("timeout_seconds", self._timeout_seconds)

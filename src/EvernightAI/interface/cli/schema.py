@@ -26,6 +26,7 @@ class SandboxConfig(EvernightAISchema):
         SandboxNetworkMode.DISABLED, SandboxNetworkMode.UNRESTRICTED
     ] = SandboxNetworkMode.DISABLED
     readonly_paths: list[str] = Field(default_factory=list)
+    python_runtime_roots: list[str] = Field(default_factory=list)
     protected_paths: list[str] = Field(default_factory=list)
     include_python_environment: bool = True
     include_uv: bool = True
