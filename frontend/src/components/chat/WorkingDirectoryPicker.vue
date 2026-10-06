@@ -82,10 +82,21 @@ async function openProject() {
   } finally {
     busy.value = false;
   }
-  if (!error.value) choose();
+  if (!error.value) await choose();
 }
-function choose() {
+async function choose() {
   if (!listing.value || busy.value || error.value) return;
+  if (listing.value.requires_registration) {
+    busy.value = true;
+    try {
+      listing.value = await addWorkspaceProject(listing.value.path);
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '无法打开项目';
+      return;
+    } finally {
+      busy.value = false;
+    }
+  }
   workingDirectory.value = listing.value.path;
   workingRoot.value = listing.value.root;
   localStorage.setItem(
@@ -123,10 +134,15 @@ onMounted(async () => {
   if (!saved) return;
   try {
     const value = JSON.parse(saved) as { root: string; path: string };
-    const directory = await browseWorkspace(value.path);
-    if (mounted && directory.root === value.root) {
+    const path = /^(\/|[A-Za-z]:[\\/])/.test(value.path)
+      ? value.path
+      : `${value.root.replace(/[\\/]$/, '')}/${value.path}`;
+    const directory = await browseWorkspace(path);
+    if (mounted && !directory.requires_registration) {
       workingDirectory.value = directory.path;
       workingRoot.value = directory.root;
+    } else if (mounted) {
+      localStorage.removeItem('evernight.workingDirectory');
     }
   } catch {
     localStorage.removeItem('evernight.workingDirectory');
@@ -181,7 +197,7 @@ onMounted(async () => {
         已添加项目
         <select
           aria-label="已添加项目"
-          :value="listing?.root"
+          :value="listing?.path"
           :disabled="busy"
           @change="load(($event.target as HTMLSelectElement).value)"
         >
@@ -194,7 +210,11 @@ onMounted(async () => {
       <div class="workspace-picker-toolbar">
         <button :disabled="busy || !canGoParent" aria-label="上一级文件夹" @click="parent">
           <ArrowUp :size="16" /></button
-        ><strong>{{ listing?.path === '.' ? '根目录' : listing?.path || '选择目录' }}</strong
+        ><strong>{{
+          listing?.path === '.' || listing?.path === listing?.root
+            ? '根目录'
+            : listing?.path || '选择目录'
+        }}</strong
         ><button :disabled="busy || !listing" @click="creating = !creating">
           <FolderPlus :size="16" /> 新建
         </button>

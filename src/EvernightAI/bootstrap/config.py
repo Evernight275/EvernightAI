@@ -46,6 +46,7 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
     workspaces = (
         WorkspaceDirectoryStore(
             config.tools.filesystem.root,
+            browse_host_directories=True,
             database_path=config.runtime.database_path,
             protected_paths=[
                 *_protected_workspace_paths(config),

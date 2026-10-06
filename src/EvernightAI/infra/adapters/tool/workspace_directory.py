@@ -22,8 +22,14 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
         *,
         database_path: str | Path | None = None,
         protected_paths: list[str | Path] | None = None,
+        browse_host_directories: bool = False,
     ) -> None:
         self._root = Path(root).resolve()
+        self._browse_root = (
+            (Path(self._root.anchor) if self._root.drive else Path.home().resolve())
+            if browse_host_directories
+            else None
+        )
         self._protected = [Path(path).resolve() for path in protected_paths or []]
         self._projects: set[str] = set()
         self._database_path = database_path
@@ -94,7 +100,7 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
     def resolve(self, path: str) -> str:
         return str(self._directory(path)[0])
 
-    def _directory(self, path: str) -> tuple[Path, Path]:
+    def _directory(self, path: str, *, browsing: bool = False) -> tuple[Path, Path]:
         if "\0" in path:
             raise ValidationError("请输入有效的工作目录")
         raw = Path(path)
@@ -102,6 +108,12 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
             raise ValidationError("不能访问工作根目录之外的路径")
         target = (self._root / raw).resolve()
         root = self._root
+        if browsing and self._browse_root is not None:
+            if raw == Path("."):
+                target = self._browse_root
+            browse_root = Path(target.anchor) if target.drive else self._browse_root
+            if target.is_relative_to(browse_root):
+                root = browse_root
         if not target.is_relative_to(root):
             roots = [
                 candidate
@@ -119,12 +131,12 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
     def _path(self, directory: Path, root: Path) -> str:
         return (
             directory.relative_to(self._root).as_posix()
-            if root == self._root
+            if root == self._root and self._browse_root is None
             else str(directory)
         )
 
     def browse(self, path: str) -> WorkspaceDirectory:
-        directory, root = self._directory(path)
+        directory, root = self._directory(path, browsing=True)
         entries = []
         truncated = False
         try:
@@ -144,12 +156,19 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
         except OSError as exc:
             raise ValidationError("无法读取此工作文件夹") from exc
         entries.sort(key=lambda entry: (not entry.is_directory, entry.name.casefold()))
+        requires_registration = False
+        if self._browse_root is not None:
+            try:
+                self.resolve(str(directory))
+            except ValidationError:
+                requires_registration = True
         return WorkspaceDirectory(
             root=str(root),
             path=self._path(directory, root),
             parent=self._path(directory.parent, root) if directory != root else None,
             entries=entries,
             truncated=truncated,
+            requires_registration=requires_registration,
         )
 
     def create(self, path: str, name: str) -> WorkspaceDirectory:
@@ -159,8 +178,12 @@ class WorkspaceDirectoryStore(WorkspaceDirectoryProtocol):
             or any(char in name for char in "/\\\0")
         ):
             raise ValidationError("请输入有效的文件夹名称")
-        directory, root = self._directory(path)
+        directory, root = self._directory(path, browsing=True)
         target = directory / name
+        if self._browse_root is not None and any(
+            target.resolve().is_relative_to(protected) for protected in self._protected
+        ):
+            raise ValidationError("不能在服务数据或运行环境中创建工作文件夹")
         try:
             target.mkdir()
         except FileExistsError as exc:

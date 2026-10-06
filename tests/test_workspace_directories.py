@@ -37,6 +37,8 @@ def test_workspace_browse_create_and_reject_escape(tmp_path: Path) -> None:
 
 
 def test_workspace_http_auth_and_creation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    browse_root = Path(tmp_path.anchor) if tmp_path.drive else tmp_path
     monkeypatch.setenv("EVERNIGHTAI_HTTP_API_KEY", "test-key")
     monkeypatch.setenv("EVERNIGHTAI_HTTP_AUTH_PERMISSIONS", "workspaces:list")
     app = create_app(
@@ -49,7 +51,7 @@ def test_workspace_http_auth_and_creation(tmp_path: Path, monkeypatch) -> None:
         headers = {"x-evernight-api-key": "test-key"}
         response = client.get("/workspaces", headers=headers)
         assert response.status_code == 200
-        assert response.json()["root"] == str(tmp_path)
+        assert response.json()["root"] == str(browse_root)
         assert (
             client.post(
                 "/workspaces", headers=headers, json={"name": "denied"}
@@ -67,9 +69,11 @@ def test_workspace_http_auth_and_creation(tmp_path: Path, monkeypatch) -> None:
         close_on_shutdown=False,
     )
     with TestClient(app) as client:
-        response = client.post("/workspaces", headers=headers, json={"name": "new"})
+        response = client.post(
+            "/workspaces", headers=headers, json={"path": str(tmp_path), "name": "new"}
+        )
         assert response.status_code == 201
-        assert response.json()["path"] == "new"
+        assert response.json()["path"] == str(tmp_path / "new")
         assert (
             client.get(
                 "/workspaces", params={"path": "../"}, headers=headers
@@ -78,7 +82,9 @@ def test_workspace_http_auth_and_creation(tmp_path: Path, monkeypatch) -> None:
         )
         assert (
             client.post(
-                "/workspaces", headers=headers, json={"name": "new"}
+                "/workspaces",
+                headers=headers,
+                json={"path": str(tmp_path), "name": "new"},
             ).status_code
             == 409
         )
@@ -135,7 +141,7 @@ async def test_file_tools_bind_directory_per_call_and_reject_escape(
 
 
 @pytest.mark.parametrize("relative", [False, True])
-def test_toml_root_is_shared_by_browser_and_file_tools(
+def test_toml_default_tools_root_is_independent_from_browser_root(
     tmp_path: Path,
     monkeypatch,
     relative: bool,
@@ -143,6 +149,8 @@ def test_toml_root_is_shared_by_browser_and_file_tools(
     from EvernightAI.bootstrap.http import create_app_from_config
     from EvernightAI.interface.cli.config import load_config
 
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    browse_root = Path(tmp_path.anchor) if tmp_path.drive else tmp_path
     root = tmp_path / "workspaces"
     root.mkdir()
     (root / "note.txt").write_text("configured workspace", encoding="utf-8")
@@ -165,12 +173,19 @@ def test_toml_root_is_shared_by_browser_and_file_tools(
         with TestClient(app) as client:
             response = client.get("/workspaces")
             assert response.status_code == 200
-            assert response.json()["root"] == str(root)
+            assert response.json()["root"] == str(browse_root)
+            response = client.get("/workspaces", params={"path": str(root)})
+            assert response.json()["root"] == str(browse_root)
+            assert response.json()["path"] == str(root)
+            assert response.json()["parent"] == str(tmp_path)
+            assert not response.json()["requires_registration"]
             assert [entry["name"] for entry in response.json()["entries"]] == [
                 "note.txt"
             ]
             assert (
-                client.post("/workspaces", json={"name": "new-project"}).status_code
+                client.post(
+                    "/workspaces", json={"path": str(root), "name": "new-project"}
+                ).status_code
                 == 201
             )
             assert client.portal is not None
@@ -189,6 +204,47 @@ def test_toml_root_is_shared_by_browser_and_file_tools(
             assert not (config_dir / "new-project").exists()
     finally:
         asyncio.run(app.state.interface.close())
+
+
+def test_host_browser_reaches_home_or_drive_without_expanding_tool_access(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = tmp_path / "default"
+    root.mkdir()
+    project = tmp_path / "projects" / "example"
+    project.mkdir(parents=True)
+    private = tmp_path / "service"
+    private.mkdir()
+    store = WorkspaceDirectoryStore(
+        root, protected_paths=[private], browse_host_directories=True
+    )
+    boundary = Path(root.anchor) if root.drive else tmp_path
+    opened = store.browse(str(root))
+    assert opened.root == str(boundary)
+    assert opened.parent == str(tmp_path)
+    assert store.browse(str(boundary)).parent is None
+    assert store.browse(".").path == str(boundary)
+    assert store.resolve(".") == str(root)
+    assert store.browse(str(project)).requires_registration
+    with pytest.raises(ValidationError):
+        store.resolve(str(project))
+    created = store.create(str(project), "src")
+    assert created.parent == str(project)
+    registered = store.add_project(str(project))
+    assert not registered.requires_registration
+    assert registered.parent == str(project.parent)
+    assert store.resolve(created.path) == str(project / "src")
+    with pytest.raises(ValidationError):
+        store.create(str(private), "blocked")
+    assert not (private / "blocked").exists()
+    with pytest.raises(ValidationError):
+        store.add_project(str(private))
+    with pytest.raises(ValidationError):
+        store.browse("..")
+    if not root.drive:
+        with pytest.raises(ValidationError):
+            store.browse(str(tmp_path.parent))
 
 
 def test_external_projects_persist_and_enforce_their_boundaries(tmp_path: Path) -> None:

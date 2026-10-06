@@ -15,6 +15,7 @@ class WorkspaceDirectory(EvernightAISchema):
     entries: list[WorkspaceEntry] = Field(default_factory=list)
     truncated: bool = False
     parent: str | None = None
+    requires_registration: bool = False
 
 
 class WorkspaceProject(EvernightAISchema):

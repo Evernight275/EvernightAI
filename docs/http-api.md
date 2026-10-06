@@ -907,7 +907,7 @@ retried without its ownership scope.
 
 ### Working folders
 
-Configure the shared root in `config.toml`:
+Configure the default tool directory in `config.toml`:
 
 ```toml
 [tools.filesystem]
@@ -917,9 +917,10 @@ root = "/srv/evernight/workspaces"
 
 Create this directory before starting the service. Absolute paths avoid dependence
 on the startup directory; `root = "."` means the process working directory, not
-necessarily the directory containing `config.toml`. The sidebar browser and
-filesystem tools use the same root. Restart the backend after changing it, then
-select a folder under the new root in the browser.
+necessarily the directory containing `config.toml`. Tools use this directory when
+no project is selected. The sidebar browser reaches the backend user's home
+directory on Linux and the current drive root on Windows, independently of this
+default. Restart the backend after changing the configuration.
 
 Start with `evernight-http --config config.toml` to load this configuration.
 The direct `uvicorn EvernightAI.bootstrap.http:create_app --factory` entry instead
@@ -927,11 +928,16 @@ uses environment variables, including `EVERNIGHTAI_FILESYSTEM_ROOT`; it does not
 read `config.toml`.
 
 With filesystem tools enabled, `GET /workspaces?path=.` lists up to 500 entries
-inside their configured root. `POST /workspaces` with `{"path":".","name":"demo"}`
+inside the home directory or drive root. Listings return absolute paths and a
+`parent` path until that boundary is reached. On Windows, opening an absolute path
+on another drive uses that drive's root. Relative paths other than `.` remain
+relative to the configured tool directory for compatibility.
+`POST /workspaces` with `{"path":".","name":"demo"}`
 creates a child directory. Authentication requires `workspaces:list` or
-`workspaces:create` respectively (or `*`). The configured filesystem root is shared
+`workspaces:create` respectively (or `*`). The browsing directory is shared
 by principals granted these permissions; these are not private per-user folders.
-Parent traversal and symlinks escaping an authorized project are rejected.
+Paths containing `..` and symlinks escaping the browsing boundary are rejected.
+Registered projects outside the home directory keep their own browsing boundary.
 
 `GET /workspaces/projects` lists the default root and added projects. Register an
 existing directory on the backend host with `POST /workspaces/projects` and
@@ -940,6 +946,10 @@ existing directory on the backend host with `POST /workspaces/projects` and
 SQLite. Projects are shared by principals with workspace access. Service data,
 credentials and configured runtime directories cannot be registered as projects.
 The API returns the opened directory; it does not copy or relocate project files.
+
+Browsing a directory does not grant tool access to it. A listing with
+`requires_registration: true` is registered when the user chooses it in the sidebar,
+using the same registration permission and protected-directory checks.
 
 The chat sidebar provides project registration, browsing, folder creation, and selection. Selection is
 stored in this browser, validated on reload, and cleared on authentication changes.

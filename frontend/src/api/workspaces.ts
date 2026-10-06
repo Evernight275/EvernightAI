@@ -6,6 +6,7 @@ export type WorkspaceDirectory = {
   entries: { name: string; path: string; is_directory: boolean }[];
   truncated: boolean;
   parent?: string | null;
+  requires_registration?: boolean;
 };
 export type WorkspaceProject = { name: string; path: string };
 export function listWorkspaceProjects(): Promise<WorkspaceProject[]> {

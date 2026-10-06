@@ -364,6 +364,7 @@ def create_sqlite_runtime(
     if workspace_directories is None and filesystem_root is not None:
         workspace_directories = WorkspaceDirectoryStore(
             filesystem_root,
+            browse_host_directories=True,
             database_path=database_path,
             protected_paths=[
                 Path(database_path).resolve(),
