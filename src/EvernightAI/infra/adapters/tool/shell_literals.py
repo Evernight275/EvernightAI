@@ -1,6 +1,8 @@
 import re
 from typing import Literal
 
+from EvernightAI.infra.adapters.tool.shell_heredocs import parse_quoted_heredocs
+
 
 ShellDialect = Literal["posix", "cmd", "powershell"]
 
@@ -8,6 +10,14 @@ ShellDialect = Literal["posix", "cmd", "powershell"]
 def literal_script_reason(
     script: str, dialect: ShellDialect = "posix", *, strict_paths: bool = True
 ) -> str | None:
+    if dialect == "posix":
+        try:
+            parsed = parse_quoted_heredocs(script)
+        except ValueError as exc:
+            return str(exc)
+        if strict_paths and parsed.here_documents:
+            return "Here-documents are forbidden for deletion commands; use literal paths"
+        script = parsed.text
     if (
         strict_paths
         and dialect == "cmd"

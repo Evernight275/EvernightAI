@@ -7,6 +7,10 @@ from EvernightAI.infra.adapters.tool.shell_literals import (
     ShellDialect,
     literal_script_reason,
 )
+from EvernightAI.infra.adapters.tool.shell_heredocs import (
+    parse_quoted_heredocs,
+    ShellScript,
+)
 
 
 READ_COMMANDS = {
@@ -119,6 +123,7 @@ def _shell_tokens(script: str) -> list[tuple[str, bool]]:
 def shell_commands(
     script: str, *, ignore_redirections: bool = False
 ) -> list[list[str]]:
+    script = parse_quoted_heredocs(script).text
     script = re.sub(r"\\\r?\n", "", script).replace("\n", " ; ")
     commands: list[list[str]] = []
     current: list[str] = []
@@ -193,11 +198,12 @@ def unwrap_command(command: list[str]) -> list[str]:
 def inspected_commands(
     command: list[str] | str, *, ignore_redirections: bool = False
 ) -> list[list[str]]:
-    commands = (
-        shell_commands(command, ignore_redirections=ignore_redirections)
-        if isinstance(command, str)
-        else [command]
-    )
+    if isinstance(command, str):
+        parsed = parse_quoted_heredocs(command)
+        commands = shell_commands(parsed.text, ignore_redirections=ignore_redirections)
+    else:
+        parsed = None
+        commands = [command]
     result: list[list[str]] = []
     for parts in commands:
         if parts:
@@ -223,6 +229,26 @@ def inspected_commands(
                             )
                         )
                     break
+    if parsed is not None:
+        for body in _shell_heredoc_bodies(parsed):
+            result.extend(
+                inspected_commands(body, ignore_redirections=ignore_redirections)
+            )
+    return result
+
+
+def _shell_heredoc_bodies(parsed: ShellScript) -> list[str]:
+    result: list[str] = []
+    for document in parsed.here_documents:
+        for parts in inspected_commands(document.header, ignore_redirections=True):
+            if executable_name(parts[0]) in SHELL_COMMANDS:
+                result.append(document.body)
+                break
+            if executable_name(parts[0]) in {"uv", "busybox"} and any(
+                executable_name(part) in SHELL_COMMANDS for part in parts[1:]
+            ):
+                result.append(document.body)
+                break
     return result
 
 
@@ -274,6 +300,11 @@ def literal_command_reason(
         reason = literal_script_reason(command, dialect, strict_paths=deleting)
         if reason is not None:
             return reason
+        if dialect == "posix":
+            for body in _shell_heredoc_bodies(parse_quoted_heredocs(command)):
+                reason = literal_command_reason(body, dialect=dialect, depth=depth + 1)
+                if reason is not None:
+                    return reason
     try:
         commands = inspected_commands(command, ignore_redirections=True)
     except (ValueError, RecursionError):
@@ -370,9 +401,10 @@ def approval_reason(
 ) -> str | None:
     if isinstance(command, str):
         try:
+            script = parse_quoted_heredocs(command).text
             if any(
                 token == "&" and is_operator
-                for token, is_operator in _shell_tokens(command)
+                for token, is_operator in _shell_tokens(script)
             ):
                 return "Background commands require approval"
         except ValueError:

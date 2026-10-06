@@ -76,7 +76,9 @@ class RestrictedShellTool:
                 "chains are supported. Use literal relative or absolute paths, with "
                 "platform-correct quoting for special filenames. Environment variables "
                 "are supported for ordinary commands. Deletion requires literal paths, "
-                "without variable or wildcard expansion. Suspicious commands require approval."
+                "without variable or wildcard expansion. POSIX quoted here-documents "
+                "can supply literal stdin to a single foreground command; opaque "
+                "interpreter scripts still require approval. Suspicious commands require approval."
             ),
             parameters_schema={
                 "type": "object",

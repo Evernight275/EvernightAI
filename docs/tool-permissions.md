@@ -84,6 +84,18 @@ substitution and other unsupported computed syntax remain rejected. Bubblewrap
 starts with a constructed environment and does not inherit service secrets.
 The explicit `subprocess` backend inherits the host environment.
 
+On POSIX, a quoted here-document such as `python - <<'PY'` may supply literal
+standard input. The body is data rather than shell syntax: Python parentheses,
+HTML tags and literal `$()` text do not become outer shell operations. Arbitrary
+Python scripts still require approval, and approval shows the original complete
+script. Input fed directly to a shell is also inspected as shell code. Blacklists
+and commands after the closing delimiter remain checked.
+Each here-document header must be one complete foreground command on a single
+line, with no pipeline or command chain; output redirection is supported. Further
+commands may follow the closing delimiter on subsequent lines. Unquoted
+delimiters, here-strings, malformed delimiters and deletion invocations containing
+here-documents remain forbidden even after approval.
+
 Special characters in filenames must use the executing shell's literal syntax.
 For POSIX, `rm './a$*.txt'`, `rm ./a\$\*.txt`, or the argument array
 `["rm", "./a$*.txt"]` address one literal filename and require deletion approval.
