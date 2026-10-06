@@ -494,6 +494,17 @@ def _add_workspace_projects(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_file_artifacts(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS file_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            owner_id TEXT,
+            payload TEXT NOT NULL,
+            content BLOB NOT NULL
+        )
+    """)
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
@@ -506,4 +517,5 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(7, "add background image tasks", _add_image_tasks),
     SQLiteMigration(8, "add scoped tool policies", _add_tool_policies),
     SQLiteMigration(9, "add workspace projects", _add_workspace_projects),
+    SQLiteMigration(10, "add displayed file snapshots", _add_file_artifacts),
 )

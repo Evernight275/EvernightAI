@@ -112,6 +112,12 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
   return response.json() as Promise<T>;
 }
 
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const response = await sendRequest(path, options, 'application/octet-stream');
+  await throwForError(path, response);
+  return response.blob();
+}
+
 export async function requestSse(
   path: string,
   options: RequestOptions,

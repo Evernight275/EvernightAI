@@ -4,8 +4,9 @@ import { Check, ChevronRight, CircleAlert, Clock, LoaderCircle, Wrench } from '@
 import { toolStatusLabels, type ChatTranscriptEntry } from '../../domain/chat';
 import type { ChatApprovalItem } from './chatRequestStatus';
 import ChatToolApproval from './ChatToolApproval.vue';
-import { imageToolRecordId, toolResultSummary } from './toolResult';
+import { fileToolArtifactId, imageToolRecordId, toolResultSummary } from './toolResult';
 import ChatImageResult from './ChatImageResult.vue';
+import ChatFileResult from './ChatFileResult.vue';
 import ChatToolDisplay from './ChatToolDisplay.vue';
 import JsonCode from '../common/JsonCode.vue';
 import ToolOutput from '../common/ToolOutput.vue';
@@ -28,6 +29,7 @@ const status = computed(() =>
 );
 const summary = computed(() => toolResultSummary(props.activity.resultText));
 const imageRecordId = computed(() => imageToolRecordId(props.activity.resultText));
+const fileArtifactId = computed(() => fileToolArtifactId(props.activity.resultText));
 const target = computed(() => {
   try {
     const args = JSON.parse(props.activity.argumentsText);
@@ -119,6 +121,7 @@ async function locateError() {
       :result-text="activity.resultText"
     />
     <ChatImageResult v-if="status === 'completed' && imageRecordId" :record-id="imageRecordId" />
+    <ChatFileResult v-if="status === 'completed' && fileArtifactId" :artifact-id="fileArtifactId" />
     <ChatToolApproval
       v-if="approval"
       :approval="approval"

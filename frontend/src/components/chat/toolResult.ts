@@ -14,6 +14,23 @@ export function imageToolRecordId(text?: string): string | undefined {
   }
 }
 
+export function fileToolArtifactId(text?: string): string | undefined {
+  if (!text) return;
+  try {
+    let value = JSON.parse(text);
+    for (let depth = 0; depth < 8 && value?.tool_call_result != null; depth++)
+      value = value.tool_call_result;
+    if (
+      value?.type === 'file_display' &&
+      typeof value.artifact_id === 'string' &&
+      /^[a-f0-9]{32}$/.test(value.artifact_id)
+    )
+      return value.artifact_id;
+  } catch {
+    return;
+  }
+}
+
 export function toolResultSummary(text?: string): string {
   if (!text) return '';
   let value: unknown = text;
@@ -28,6 +45,8 @@ export function toolResultSummary(text?: string): string {
       return toolResultSummary(JSON.stringify(record.tool_call_result));
     if (record.type === 'image_generation' && Array.isArray(record.images))
       return `已生成 ${record.images.length} 张图片`;
+    if (record.type === 'file_display' && typeof record.name === 'string')
+      return `已展示 ${record.name}`;
     const preview = [
       'error_message',
       'error',

@@ -1,5 +1,7 @@
 import inspect
 import logging
+from EvernightAI.core.domain.file import FileArtifactStore
+from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.domain.image import ImageGenerationStore
 from EvernightAI.core.domain.image_task import ImageTaskStore
@@ -72,6 +74,7 @@ class RuntimeKernel(RuntimeProtocol):
         providers: ProviderManageProtocol,
         provider_config_store: ProviderConfigStoreProtocol | None = None,
         image_records: ImageGenerationStoreProtocol | None = None,
+        file_artifacts: FileArtifactStoreProtocol | None = None,
         image_archive: ImageArchiveProtocol | None = None,
         image_tasks: ImageTaskStoreProtocol | None = None,
         image_task_executor: ImageTaskExecutorProtocol | None = None,
@@ -107,6 +110,7 @@ class RuntimeKernel(RuntimeProtocol):
         self._providers = providers
         self._provider_config_store = provider_config_store
         self._image_records = image_records or ImageGenerationStore()
+        self._file_artifacts = file_artifacts or FileArtifactStore()
         self._image_archive = image_archive
         self._image_tasks = image_tasks or ImageTaskStore()
         self._image_task_executor = image_task_executor
@@ -141,6 +145,10 @@ class RuntimeKernel(RuntimeProtocol):
         self._agent_run_executor = agent_run_executor
         self._agent_trace_register = agent_trace_register
         self._tool_execution_register = tool_execution_register
+
+    @property
+    def file_artifacts(self) -> FileArtifactStoreProtocol:
+        return self._file_artifacts
 
     @property
     def image_records(self) -> ImageGenerationStoreProtocol:
@@ -334,6 +342,7 @@ class RuntimeKernel(RuntimeProtocol):
             self._workspace_directories,
             self._skills,
             self._image_records,
+            self._file_artifacts,
             self._image_tasks,
             self._provider_config_store,
             self._context_register,

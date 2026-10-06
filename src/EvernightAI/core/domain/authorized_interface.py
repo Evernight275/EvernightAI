@@ -1,5 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
+from EvernightAI.core.protocol.file import FileInterfaceProtocol
+from EvernightAI.core.schema.file import FileArtifactInfo
 from EvernightAI.core.schema.image_task import (
     ImageTaskPage,
     ImageTaskSubmit,
@@ -174,6 +176,11 @@ class AuthorizedEvernightInterface(EvernightInterfaceProtocol):
             authorizer,
             principal,
         )
+        self._files = AuthorizedFileInterface(interface.files, authorizer, principal)
+
+    @property
+    def files(self) -> FileInterfaceProtocol:
+        return self._files
 
     @property
     def runtime(self) -> RuntimeProtocol:
@@ -725,6 +732,38 @@ class AuthorizedToolInterface(ToolInterfaceProtocol):
             tool_name,
             mode,
             principal_scope=PrincipalScope.for_principal(self._principal),
+        )
+
+
+class AuthorizedFileInterface(FileInterfaceProtocol):
+    def __init__(
+        self,
+        inner: FileInterfaceProtocol,
+        authorizer: AuthorizerProtocol,
+        principal: Principal,
+    ) -> None:
+        self._inner = inner
+        self._authorizer = authorizer
+        self._principal = principal
+
+    def get_file(
+        self, artifact_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> FileArtifactInfo:
+        require_permission(
+            self._authorizer, self._principal, "files", "get", artifact_id
+        )
+        return self._inner.get_file(
+            artifact_id, principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
+    def read_file(
+        self, artifact_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> tuple[FileArtifactInfo, bytes]:
+        require_permission(
+            self._authorizer, self._principal, "files", "read", artifact_id
+        )
+        return self._inner.read_file(
+            artifact_id, principal_scope=PrincipalScope.for_principal(self._principal)
         )
 
 

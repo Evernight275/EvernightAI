@@ -1,4 +1,5 @@
 from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
+from EvernightAI.core.protocol.file import FileInterfaceProtocol
 from EvernightAI.core.protocol.interface import (
     AgentInterfaceProtocol,
     AgentRunInterfaceProtocol,
@@ -24,6 +25,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         agent_runs: AgentRunInterfaceProtocol,
         skills: SkillInterfaceProtocol,
         sessions: SessionInterfaceProtocol,
+        files: FileInterfaceProtocol,
     ) -> None:
         self._runtime = runtime
         self._chat = chat
@@ -34,6 +36,11 @@ class EvernightInterface(EvernightInterfaceProtocol):
         self._agent_runs = agent_runs
         self._skills = skills
         self._sessions = sessions
+        self._files = files
+
+    @property
+    def files(self) -> FileInterfaceProtocol:
+        return self._files
 
     @property
     def runtime(self) -> RuntimeProtocol:

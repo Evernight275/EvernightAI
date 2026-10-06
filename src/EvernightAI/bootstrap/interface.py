@@ -1,5 +1,6 @@
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.application.file import FileApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
 from EvernightAI.application.image_tool import ImageToolApplication
@@ -26,4 +27,5 @@ def create_interface(runtime: RuntimeProtocol) -> EvernightInterface:
         agent_runs=AgentRunApplication(runtime, agent=agent),
         skills=runtime.skills,
         sessions=SessionApplication(runtime),
+        files=FileApplication(runtime),
     )

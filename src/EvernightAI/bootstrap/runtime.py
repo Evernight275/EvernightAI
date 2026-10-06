@@ -3,6 +3,9 @@ from pathlib import Path
 import sys
 
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
+from EvernightAI.infra.adapters.tool.file_artifacts import SQLiteFileArtifactStore
+from EvernightAI.infra.registrations.tool.display_file import register_display_file_tool
 from EvernightAI.core.domain.context import (
     ApproximateContextTokenEstimator,
     BasicContextStrategy,
@@ -162,6 +165,7 @@ def register_builtin_tools(
     register: ToolRegisterProtocol,
     *,
     filesystem_root: str | Path | None = None,
+    file_artifacts: FileArtifactStoreProtocol | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
     max_read_chars: int = 12000,
     max_directory_entries: int = 100,
@@ -202,6 +206,13 @@ def register_builtin_tools(
             allow_overwrite=allow_file_overwrite,
             project_directories=project_directories,
         )
+        if file_artifacts is not None:
+            register_display_file_tool(
+                register,
+                root_directory=filesystem_root,
+                store=file_artifacts,
+                workspace_directories=workspace_directories,
+            )
 
     if shell_allowed_commands is not None:
         register_restricted_shell_tool(
@@ -378,9 +389,11 @@ def create_sqlite_runtime(
         )
     sandbox = sandbox or SubprocessSandboxExecutor()
     tool_register = ToolRegister()
+    file_artifacts = SQLiteFileArtifactStore(database_path)
     register_builtin_tools(
         tool_register,
         filesystem_root=filesystem_root,
+        file_artifacts=file_artifacts,
         workspace_directories=workspace_directories,
         max_read_chars=max_read_chars,
         max_directory_entries=max_directory_entries,
@@ -454,6 +467,7 @@ def create_sqlite_runtime(
         provider_secret_resolver=provider_config_store,
         skill_template_store=SQLiteSkillTemplateStore(database_path),
         image_records=SQLiteImageGenerationStore(database_path),
+        file_artifacts=file_artifacts,
         image_tasks=SQLiteImageTaskStore(database_path),
         tool_policy_store=SQLiteToolPolicyStore(database_path),
         workspace_directories=workspace_directories,
@@ -490,6 +504,7 @@ def _create_runtime(
     provider_secret_resolver: ProviderSecretResolverProtocol | None = None,
     skill_template_store: SkillTemplateStoreProtocol | None = None,
     image_records: ImageGenerationStoreProtocol | None = None,
+    file_artifacts: FileArtifactStoreProtocol | None = None,
     image_tasks: ImageTaskStoreProtocol | None = None,
     data_analysis_register: DataAnalysisRegisterProtocol | None = None,
     data_analysis: DataAnalysisManageProtocol | None = None,
@@ -561,6 +576,7 @@ def _create_runtime(
         providers=providers,
         provider_config_store=provider_config_store,
         image_records=image_records,
+        file_artifacts=file_artifacts,
         image_archive=PublicImageArchive(),
         image_tasks=image_tasks,
         image_task_executor=executor,

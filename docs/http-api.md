@@ -905,6 +905,40 @@ view and workspace data and disconnect settings trace subscriptions. Authorizati
 adapters must implement the scope-aware protocols: a failing scoped call is never
 retried without its ownership scope.
 
+### Displaying generated files
+
+When filesystem tools are enabled, the built-in `display_file` tool can publish
+an existing file from the current working directory:
+
+```json
+{"path":"plots/chart.png","title":"Sales chart","filename":"sales.png"}
+```
+
+Create the file first using a shell or project tool, then call `display_file`.
+For example, a matplotlib script can save `plots/chart.png` using `savefig` before
+the model displays it. The tool accepts relative paths, absolute paths within the
+selected directory, and `/workspace/` paths returned by sandbox tools. Files
+outside the selected directory, escaping symlinks, directories, and special
+files are rejected. Each file is limited to 20 MiB. Normal tool policies and
+approvals also apply.
+
+The tool saves an immutable snapshot in SQLite and returns metadata with
+`type: "file_display"` and an `artifact_id`. Binary content and Base64 are not
+included in model-visible tool results. The chat shows PNG, JPEG, GIF and WebP
+previews and a download button; other formats, including SVG, PDF and HTML, are
+downloadable. The snapshot remains available after the source file is changed or
+deleted and after service restarts. Saved agent traces restore the card on reload.
+
+`GET /files/{artifact_id}` returns file metadata and requires `files:get`.
+`GET /files/{artifact_id}/content` returns binary content and requires
+`files:read`. Add `?download=true` to force a download. Authenticated users can
+only read their own artifacts; anonymous local access follows the shared runtime
+scope. Active formats are always served as downloads with `nosniff` and a sandbox
+content policy. The frontend fetches files with the configured API key or bearer
+token and uses temporary Blob URLs for previews, clearing them on sign-out or an
+identity change. Do not place credentials or backend filesystem paths in image
+URLs.
+
 ### Working folders
 
 Configure the default tool directory in `config.toml`:

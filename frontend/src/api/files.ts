@@ -1,0 +1,29 @@
+import { requestBlob, requestJson } from './client';
+
+export type FileArtifactInfo = {
+  artifact_id: string;
+  name: string;
+  title: string | null;
+  mime_type: string;
+  size_bytes: number;
+  preview_kind: 'image' | 'none';
+  created_at: string;
+};
+
+export function getFileArtifact(
+  artifactId: string,
+  signal?: AbortSignal,
+): Promise<FileArtifactInfo> {
+  return requestJson(`/files/${encodeURIComponent(artifactId)}`, { signal });
+}
+
+export function readFileArtifact(
+  artifactId: string,
+  signal?: AbortSignal,
+  download = false,
+): Promise<Blob> {
+  return requestBlob(
+    `/files/${encodeURIComponent(artifactId)}/content${download ? '?download=true' : ''}`,
+    { signal },
+  );
+}

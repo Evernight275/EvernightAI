@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
+  requestBlob,
   requestJson,
   requestSse,
   setAccessToken,
@@ -107,6 +108,27 @@ describe('API client', () => {
       errorType: 'ValidationError',
       detail: [{ field: 'model_id' }],
     });
+  });
+
+  it('reads binary files with the same authentication and errors as JSON requests', async () => {
+    setApiKey('file-key');
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () =>
+          new Response(new Uint8Array([0, 1, 255]), { headers: { 'content-type': 'image/png' } }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const signal = new AbortController().signal;
+    const file = await requestBlob('/files/id/content', { signal });
+    expect(file.type).toBe('image/png');
+    expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([0, 1, 255]);
+    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBe('file-key');
+    expect(fetchMock.mock.calls[0]?.[1].signal).toBe(signal);
+    fetchMock.mockResolvedValueOnce(
+      new Response('{"error":{"message":"denied"}}', { status: 403 }),
+    );
+    await expect(requestBlob('/files/id/content')).rejects.toMatchObject({ status: 403 });
   });
 
   it('reassembles SSE events split across response chunks', async () => {

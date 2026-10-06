@@ -1873,6 +1873,52 @@ body,
 .chat-image-result {
   margin: 12px 0 16px;
 }
+.chat-file-result {
+  margin: 12px 0 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.chat-file-result figure {
+  margin: 0;
+}
+.chat-file-result img {
+  display: block;
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.chat-file-result figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.chat-file-result figcaption > div {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.chat-file-result strong,
+.chat-file-result small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.chat-file-result strong {
+  font-size: 13px;
+}
+.chat-file-result small {
+  color: var(--color-muted);
+  margin-top: 4px;
+}
+.chat-file-result button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .chat-tool-images {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));

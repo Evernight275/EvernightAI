@@ -1,4 +1,5 @@
 from typing import Protocol
+from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
 
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.image import (
@@ -54,6 +55,9 @@ class RuntimeProtocol(Protocol):
     """
     运行时协议
     """
+
+    @property
+    def file_artifacts(self) -> FileArtifactStoreProtocol: ...
 
     @property
     def image_records(self) -> ImageGenerationStoreProtocol: ...

@@ -88,6 +88,10 @@ OPENAPI_TAGS = [
         "description": "Generate images through enabled image providers.",
     },
     {
+        "name": "files",
+        "description": "Read saved files displayed by tools in the chat.",
+    },
+    {
         "name": "contexts",
         "description": "Persist model-visible conversation messages.",
     },

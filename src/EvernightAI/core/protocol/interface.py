@@ -1,4 +1,5 @@
 from typing import Protocol
+from EvernightAI.core.protocol.file import FileInterfaceProtocol
 
 from EvernightAI.core.protocol.data_analysis import DataAnalysisManageProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
@@ -568,6 +569,9 @@ class SessionInterfaceProtocol(Protocol):
 
 
 class EvernightInterfaceProtocol(Protocol):
+    @property
+    def files(self) -> FileInterfaceProtocol: ...
+
     @property
     def runtime(self) -> RuntimeProtocol: ...
 

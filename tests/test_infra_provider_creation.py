@@ -312,6 +312,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         "copy_path",
         "read_json_file",
         "write_json_file",
+        "display_file",
     ]
     assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.agent_state_register is not None

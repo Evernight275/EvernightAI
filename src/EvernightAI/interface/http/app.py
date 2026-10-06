@@ -32,6 +32,7 @@ from EvernightAI.interface.http.routes.data_analysis import (
 )
 from EvernightAI.interface.http.routes.health import router as health_router
 from EvernightAI.interface.http.routes.images import router as images_router
+from EvernightAI.interface.http.routes.files import router as files_router
 from EvernightAI.interface.http.routes.logs import router as logs_router
 from EvernightAI.interface.http.routes.memories import router as memories_router
 from EvernightAI.interface.http.routes.providers import router as providers_router
@@ -108,6 +109,7 @@ def create_http_app(
     app.include_router(tools_router)
     app.include_router(chat_router)
     app.include_router(images_router)
+    app.include_router(files_router)
     app.include_router(agent_runs_router)
     app.include_router(websocket_router)
     if static_files_path is not None:
