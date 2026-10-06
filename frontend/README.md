@@ -112,6 +112,16 @@ results after a provider failure, and both retry choices on desktop/mobile.
 server with a fake provider and temporary SQLite database, checking process exit,
 provider closure, and persisted terminal/paused state.
 
+`display_file` cards preview supported images and HTML snapshots, including older
+HTML cards whose metadata predates `preview_kind: "html"`. HTML runs CSS and
+JavaScript in a Blob-backed iframe with `sandbox="allow-scripts"`. HTTPS visual
+resources are supported; data requests, forms and nested frames are blocked.
+Local assets and chart data should be embedded in the HTML. The iframe cannot
+access chat state, browser storage or login credentials. The original file remains
+downloadable, and previews are disposed on identity changes or unmount.
+`tests/fileDisplay.browser.mjs` checks interaction, HTTPS scripts/styles, isolation,
+authenticated downloads, restored history, retries and cleanup at three widths.
+
 Assistant text is rendered by `MarkdownContent` through `markdown-it`. Raw HTML
 is disabled, unsafe link schemes are rejected, and external links receive
 `noopener noreferrer`. Inline `$...$` / `\\(...\\)` and block `$$...$$` /

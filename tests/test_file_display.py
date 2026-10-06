@@ -206,6 +206,37 @@ async def test_file_display_detects_image_content_and_keeps_active_content_downl
         await runtime.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["dashboard.html", "dashboard.htm", "dashboard.HTML"])
+async def test_html_display_saves_a_preview_reference_without_model_visible_content(
+    tmp_path: Path, name: str
+) -> None:
+    content = '<!doctype html><html><body>交互图表<script>console.log("chart")</script></body></html>'.encode()
+    (tmp_path / name).write_bytes(content)
+    database = tmp_path / "runtime.db"
+    runtime = create_sqlite_runtime(database, filesystem_root=tmp_path)
+    try:
+        result = await runtime.tools.execute(file_call(name, filename="下载.html"))
+        output = result.tool_call_result
+        artifact_id = output["artifact_id"]
+        assert output["preview_kind"] == "html"
+        assert output["mime_type"] == "text/html"
+        assert content.decode() not in json.dumps(output, ensure_ascii=False)
+        assert base64.b64encode(content).decode() not in json.dumps(output)
+        (tmp_path / name).unlink()
+    finally:
+        await runtime.close()
+    restored = create_sqlite_runtime(database, filesystem_root=tmp_path)
+    try:
+        info, saved = create_interface(restored).files.read_file(
+            artifact_id, principal_scope=PrincipalScope(owner_id="alice")
+        )
+        assert info.preview_kind == "html"
+        assert saved == content
+    finally:
+        await restored.close()
+
+
 def test_file_http_requires_auth_permissions_and_ownership_and_forces_safe_downloads(
     tmp_path: Path,
 ) -> None:
@@ -218,7 +249,11 @@ def test_file_http_requires_auth_permissions_and_ownership_and_forces_safe_downl
         owner_id="alice",
     )
     html = FileArtifact(
-        name="页面.html", mime_type="text/html", size_bytes=13, owner_id="alice"
+        name="页面.html",
+        mime_type="text/html",
+        preview_kind="html",
+        size_bytes=13,
+        owner_id="alice",
     )
     runtime.file_artifacts.save(image, b"png")
     runtime.file_artifacts.save(html, b"<html></html>")
@@ -275,6 +310,15 @@ def test_file_http_requires_auth_permissions_and_ownership_and_forces_safe_downl
             in download.headers["content-disposition"]
         )
         active = client.get(f"/files/{html.artifact_id}/content", headers=alice)
+        assert active.content == b"<html></html>"
+        assert (
+            client.get(f"/files/{html.artifact_id}", headers=alice).json()["preview_kind"]
+            == "html"
+        )
+        assert (
+            client.get(f"/files/{html.artifact_id}/content", headers=bob).status_code
+            == 404
+        )
         assert active.headers["content-type"] == "application/octet-stream"
         assert active.headers["content-disposition"].startswith("attachment;")
         assert "sandbox" in active.headers["content-security-policy"]

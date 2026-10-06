@@ -925,9 +925,23 @@ approvals also apply.
 The tool saves an immutable snapshot in SQLite and returns metadata with
 `type: "file_display"` and an `artifact_id`. Binary content and Base64 are not
 included in model-visible tool results. The chat shows PNG, JPEG, GIF and WebP
-previews and a download button; other formats, including SVG, PDF and HTML, are
-downloadable. The snapshot remains available after the source file is changed or
-deleted and after service restarts. Saved agent traces restore the card on reload.
+previews, interactive HTML previews, and a download button. Other formats,
+including SVG and PDF, are downloadable. The snapshot remains available after
+the source file is changed or deleted and after service restarts. Saved agent
+traces restore the card on reload.
+
+For an HTML visualization, create `chart.html` and call
+`display_file` with `{"path":"chart.html","title":"Interactive chart"}`.
+New HTML snapshots have `preview_kind: "html"`; older HTML snapshots also preview
+based on their `text/html` MIME type. The browser loads the saved content into an
+iframe with `sandbox="allow-scripts"`, without same-origin, popup, top-navigation,
+form or download permissions. Inline CSS and JavaScript, canvas/SVG charts, and
+absolute HTTPS script, stylesheet, image, font and media resources are supported.
+The preview cannot read the chat DOM, login credentials or browser storage.
+Network data requests, nested frames, objects and form submissions are blocked.
+Embed data and local assets in the HTML: relative companion files are not
+published by this single-file tool. The preview uses UTF-8. Downloads retain the
+original bytes, without the preview's injected content policy.
 
 `GET /files/{artifact_id}` returns file metadata and requires `files:get`.
 `GET /files/{artifact_id}/content` returns binary content and requires
@@ -936,8 +950,9 @@ only read their own artifacts; anonymous local access follows the shared runtime
 scope. Active formats are always served as downloads with `nosniff` and a sandbox
 content policy. The frontend fetches files with the configured API key or bearer
 token and uses temporary Blob URLs for previews, clearing them on sign-out or an
-identity change. Do not place credentials or backend filesystem paths in image
-URLs.
+identity change. HTML runs only inside the isolated frontend preview; the content
+endpoint continues to serve it as an attachment. Do not place credentials or
+backend filesystem paths in preview URLs.
 
 ### Working folders
 

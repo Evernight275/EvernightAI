@@ -104,21 +104,24 @@ class DisplayFileTool:
         if len(content) > MAX_FILE_ARTIFACT_BYTES:
             raise ToolExecutionError("展示文件过大，最多支持 20 MiB")
         mime = _image_mime(content)
+        mime_type = (
+            mime
+            or mimetypes.guess_type(relative.name)[0]
+            or "application/octet-stream"
+        )
         artifact = FileArtifact(
             owner_id=owner_id,
             name=_filename(request.filename or relative.name),
             title=request.title,
-            mime_type=mime
-            or mimetypes.guess_type(relative.name)[0]
-            or "application/octet-stream",
-            preview_kind="image" if mime else "none",
+            mime_type=mime_type,
+            preview_kind="image" if mime else "html" if mime_type == "text/html" else "none",
             size_bytes=len(content),
         )
         self._store.save(artifact, content)
         return {
             "type": "file_display",
             **artifact.info().model_dump(mode="json"),
-            "message": "File saved and displayed in the tool card. The user can preview supported images and download this file. Do not return Base64 or regenerate the file to show it.",
+            "message": "File saved and displayed in the tool card. The user can preview supported images and isolated HTML pages, and download this file. Do not return file content or Base64, or regenerate the file to show it.",
         }
 
 

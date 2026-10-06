@@ -3,10 +3,12 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { Download, File } from '@lucide/vue';
 import { getFileArtifact, readFileArtifact, type FileArtifactInfo } from '../../api/files';
 import { authGeneration } from '../../runtime/workspaceRuntime';
+import { htmlPreviewBlob } from './filePreview';
 
 const props = defineProps<{ artifactId: string }>();
 const file = shallowRef<FileArtifactInfo | null>(null);
-const imageUrl = ref('');
+const previewUrl = ref('');
+const isHtml = computed(() => file.value?.mime_type === 'text/html');
 const error = ref('');
 const loading = ref(false);
 const downloading = ref(false);
@@ -21,8 +23,8 @@ const size = computed(() => {
       : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 });
 function clearPreview() {
-  if (imageUrl.value) URL.revokeObjectURL(imageUrl.value);
-  imageUrl.value = '';
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
+  previewUrl.value = '';
 }
 async function load() {
   const current = ++version;
@@ -37,10 +39,11 @@ async function load() {
     const saved = await getFileArtifact(props.artifactId, controller.signal);
     if (current !== version) return;
     file.value = saved;
-    if (saved.preview_kind === 'image') {
+    if (saved.preview_kind === 'image' || saved.mime_type === 'text/html') {
       const content = await readFileArtifact(props.artifactId, controller.signal);
+      const preview = saved.mime_type === 'text/html' ? await htmlPreviewBlob(content) : content;
       if (current !== version || controller.signal.aborted) return;
-      imageUrl.value = URL.createObjectURL(content);
+      previewUrl.value = URL.createObjectURL(preview);
     }
   } catch (cause) {
     if (current === version && !controller.signal.aborted)
@@ -89,10 +92,18 @@ onBeforeUnmount(() => {
     <p v-if="loading" class="chat-tool-image-notice" role="status">正在读取文件…</p>
     <figure v-if="file">
       <img
-        v-if="imageUrl"
-        :src="imageUrl"
+        v-if="previewUrl && !isHtml"
+        :src="previewUrl"
         :alt="file.title || file.name"
         @error="error = '图片预览不可用，仍可下载文件。'"
+      />
+      <iframe
+        v-if="previewUrl && isHtml"
+        :src="previewUrl"
+        :title="`HTML 预览：${file.title || file.name}`"
+        sandbox="allow-scripts"
+        allow="camera 'none'; microphone 'none'; geolocation 'none'"
+        referrerpolicy="no-referrer"
       />
       <figcaption>
         <div>

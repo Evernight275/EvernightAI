@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const base = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
@@ -35,14 +35,50 @@ try {
       }),
       'base64',
     );
-    const ids = ['a'.repeat(32), 'b'.repeat(32)];
+    const html = `<!doctype html><html><head>
+      <meta http-equiv="Content-Security-Policy" content="connect-src *">
+      <link rel="stylesheet" href="https://charts.example.test/demo.css">
+      <style>body{margin:0;padding:20px;font-family:sans-serif}h1{font-size:20px}
+      canvas{width:100%;display:block}input{max-width:100%}section{padding:12px;border-radius:12px}</style>
+      <script src="https://charts.example.test/demo.js"></script>
+      </head><body><h1>交互分析图</h1><section id="chart-card">
+      <label for="amplitude">振幅：<output id="amplitude-value">1</output></label>
+      <input id="amplitude" type="range" min="1" max="3" value="1">
+      <canvas id="chart" width="600" height="220"></canvas></section>
+      <script>
+        const slider = document.getElementById('amplitude');
+        slider.oninput = () => {
+          document.getElementById('amplitude-value').value = slider.value;
+          renderChart(Number(slider.value));
+        };
+        renderChart(1);
+        try { parent.document.body.dataset.compromised = 'true'; }
+        catch { document.body.dataset.parentBlocked = 'true'; }
+        try { localStorage.setItem('preview-secret', 'test'); }
+        catch { document.body.dataset.storageBlocked = 'true'; }
+        try { document.body.dataset.secret = parent.EVERNIGHTAI_API_KEY; }
+        catch { document.body.dataset.credentialsBlocked = 'true'; }
+        fetch('https://preview.example.test/denied')
+          .catch(() => document.body.dataset.networkBlocked = 'true');
+      </script></body></html>`;
+    const chartScript = `window.renderChart = (value) => {
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+      const scale = new Function('height', 'value', 'return height * value');
+      ctx.clearRect(0, 0, 600, 220);
+      ctx.fillStyle = '#6366f1';
+      [30, 55, 40, 65].forEach((height, index) =>
+        ctx.fillRect(30 + index * 140, 210 - scale(height, value), 100, scale(height, value)));
+      canvas.dataset.value = String(value);
+    };`;
+    const ids = ['a', 'b', 'c', 'd'].map((char) => char.repeat(32));
     const artifacts = ids.map((artifact_id, index) => ({
       artifact_id,
-      name: index === 0 ? '分析图.png' : '结果.csv',
+      name: ['分析图.png', '结果.csv', '分析页面.html', '历史页面.html'][index],
       title: index === 0 ? '季度分析图' : null,
-      mime_type: index === 0 ? 'image/png' : 'text/csv',
-      preview_kind: index === 0 ? 'image' : 'none',
-      size_bytes: index === 0 ? png.length : 10,
+      mime_type: index === 0 ? 'image/png' : index === 1 ? 'text/csv' : 'text/html',
+      preview_kind: index === 0 ? 'image' : index === 2 ? 'html' : 'none',
+      size_bytes: index === 0 ? png.length : index === 1 ? 10 : Buffer.byteLength(html),
       created_at: new Date().toISOString(),
     }));
     const session = {
@@ -56,6 +92,20 @@ try {
     let run;
     let failRead = false;
     let contentReads = 0;
+    let forbiddenRequests = 0;
+    await page.route('https://charts.example.test/**', (route) => {
+      assert.equal(route.request().headers()['x-evernight-api-key'], undefined);
+      return route.fulfill({
+        contentType: route.request().url().endsWith('.js') ? 'text/javascript' : 'text/css',
+        body: route.request().url().endsWith('.js')
+          ? chartScript
+          : '#chart-card { background: #eef2ff; }',
+      });
+    });
+    await page.route('https://preview.example.test/**', (route) => {
+      forbiddenRequests++;
+      return route.fulfill({ json: {} });
+    });
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
       window.EVERNIGHTAI_API_KEY = 'alice';
@@ -143,7 +193,10 @@ try {
             agent_runtime: {
               history_started_at: new Date().toISOString(),
               context_message_offset: offset,
-              context_message_indices: [offset, offset + 1, offset + 2, offset + 3, offset + 4],
+              context_message_indices: Array.from(
+                { length: artifacts.length + 3 },
+                (_, index) => offset + index,
+              ),
             },
           },
         };
@@ -164,7 +217,7 @@ try {
           contentReads++;
           return route.fulfill({
             contentType: artifacts[index].mime_type,
-            body: index === 0 ? png : 'value\n123\n',
+            body: index === 0 ? png : index === 1 ? 'value\n123\n' : html,
           });
         }
         return json(artifacts[index]);
@@ -180,8 +233,32 @@ try {
     await page.waitForFunction(
       () => document.querySelector('.chat-file-result img')?.naturalWidth === 500,
     );
-    assert.equal(await page.locator('.chat-file-result').count(), 2);
-    assert.equal(contentReads, 1, 'non-image files should only be fetched when downloaded');
+    assert.equal(await page.locator('.chat-file-result').count(), artifacts.length);
+    assert.equal(contentReads, 3, 'images and HTML should load previews; CSV should wait');
+    const frames = page.locator('.chat-file-result iframe');
+    assert.equal(await frames.count(), 2, 'new and historical HTML artifacts should preview');
+    for (const iframe of await frames.all()) {
+      assert.equal(await iframe.getAttribute('sandbox'), 'allow-scripts');
+      assert.equal(await iframe.getAttribute('referrerpolicy'), 'no-referrer');
+      assert.ok((await iframe.getAttribute('src')).startsWith('blob:'));
+      const frame = iframe.contentFrame();
+      await frame.locator('#chart[data-value="1"]').waitFor();
+      await frame.locator('body[data-network-blocked="true"]').waitFor();
+      assert.equal(await frame.locator('body').getAttribute('data-parent-blocked'), 'true');
+      assert.equal(await frame.locator('body').getAttribute('data-storage-blocked'), 'true');
+      assert.equal(await frame.locator('body').getAttribute('data-credentials-blocked'), 'true');
+      assert.equal(
+        await frame
+          .locator('#chart-card')
+          .evaluate((element) => getComputedStyle(element).backgroundColor),
+        'rgb(238, 242, 255)',
+      );
+      await frame.getByRole('slider').press('ArrowRight');
+      await frame.locator('#chart[data-value="2"]').waitFor();
+      assert.equal(await frame.locator('#amplitude-value').textContent(), '2');
+    }
+    assert.equal(await page.locator('body').getAttribute('data-compromised'), null);
+    assert.equal(forbiddenRequests, 0, 'HTML scripts must not make network data requests');
     for (let index = 0; index < artifacts.length; index++) {
       const downloaded = page.waitForEvent('download');
       await page
@@ -189,26 +266,42 @@ try {
         .nth(index)
         .getByRole('button', { name: '下载文件', exact: true })
         .click();
-      assert.equal((await downloaded).suggestedFilename(), artifacts[index].name);
+      const download = await downloaded;
+      assert.equal(download.suggestedFilename(), artifacts[index].name);
+      if (index >= 2)
+        assert.equal(await readFile(await download.path(), 'utf8'), html, 'download original HTML');
     }
     failRead = true;
     await page.reload();
     await page.getByRole('button', { name: '重新读取文件', exact: true }).first().waitFor();
-    assert.equal(await page.locator('.chat-file-result').count(), 2);
+    assert.equal(await page.locator('.chat-file-result').count(), artifacts.length);
     failRead = false;
     for (const card of await page.locator('.chat-file-result').all())
       await card.getByRole('button', { name: '重新读取文件', exact: true }).click();
     await page.waitForFunction(
       () => document.querySelector('.chat-file-result img')?.naturalWidth === 500,
     );
+    await page
+      .frameLocator('.chat-file-result iframe')
+      .first()
+      .locator('#chart[data-value="1"]')
+      .waitFor();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: `/tmp/evernight-files/${width}-file-display.png` });
+    await frames.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/evernight-files/${width}-html-preview.png` });
+    const activeUrls = await page
+      .locator('.chat-file-result img, .chat-file-result iframe')
+      .evaluateAll((elements) => elements.map((element) => element.getAttribute('src')));
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-api-key-change')));
-    await page.waitForFunction(() => window.revokedFileUrls.length > 0);
+    await page.waitForFunction(
+      (urls) => urls.every((url) => window.revokedFileUrls.includes(url)),
+      activeUrls,
+    );
     assert.deepEqual(errors, []);
     await page.close();
     console.log(
-      `${width}px: file stream preview, authenticated downloads, history restore, retry and Blob cleanup passed`,
+      `${width}px: image/HTML previews, isolated JavaScript, HTTPS libraries, downloads, history, retry and Blob cleanup passed`,
     );
   }
 } finally {

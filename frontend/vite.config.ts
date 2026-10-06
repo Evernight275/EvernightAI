@@ -6,6 +6,7 @@ const apiPaths = [
   '/agent-runs',
   '/contexts',
   '/data-analysis',
+  '/files',
   '/health',
   '/logs',
   '/memories',

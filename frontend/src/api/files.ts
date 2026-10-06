@@ -6,7 +6,7 @@ export type FileArtifactInfo = {
   title: string | null;
   mime_type: string;
   size_bytes: number;
-  preview_kind: 'image' | 'none';
+  preview_kind: 'image' | 'html' | 'none';
   created_at: string;
 };
 

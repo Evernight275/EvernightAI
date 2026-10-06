@@ -1890,6 +1890,14 @@ body,
   object-fit: contain;
   border-radius: 8px;
 }
+.chat-file-result iframe {
+  display: block;
+  width: 100%;
+  height: clamp(320px, 60vh, 640px);
+  border: 0;
+  border-radius: 8px;
+  background: white;
+}
 .chat-file-result figcaption {
   display: flex;
   flex-wrap: wrap;

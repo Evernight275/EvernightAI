@@ -24,7 +24,7 @@ class FileArtifactInfo(EvernightAISchema):
     title: str | None = None
     mime_type: str
     size_bytes: int = Field(ge=0)
-    preview_kind: Literal["image", "none"] = "none"
+    preview_kind: Literal["image", "html", "none"] = "none"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
