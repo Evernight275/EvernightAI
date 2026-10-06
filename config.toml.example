@@ -13,6 +13,9 @@ sandbox_backend = "subprocess"
 # Used when sandbox_backend = "bubblewrap". See docs/sandbox.md.
 [runtime.sandbox]
 workspace_root = "workspaces"
+# "disabled" keeps process tools offline; "unrestricted" enables host networking,
+# including localhost, Git HTTP remotes and dependency downloads.
+network_mode = "disabled"
 readonly_paths = []
 protected_paths = []
 include_python_environment = true
@@ -101,6 +104,9 @@ working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
 is_need_approval = true
+# With is_need_approval = false, permit routine development commands without
+# approval. Deletion, opaque scripts and blocked commands retain their rules.
+relaxed_approval = false
 # Environment overrides are rejected by restricted_shell.
 # allowed_env_keys remains a compatibility setting and does not grant overrides.
 

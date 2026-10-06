@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 from enum import StrEnum
 
 from EvernightAI.core.schema.auth import PrincipalType
@@ -9,6 +9,7 @@ from EvernightAI.core.schema.data_analysis import (
 )
 from EvernightAI.core.schema.provider import ProviderConfig
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
+from EvernightAI.core.schema.sandbox import SandboxNetworkMode
 from pydantic import Field, model_validator
 
 
@@ -21,6 +22,9 @@ class SandboxBackend(StrEnum):
 
 class SandboxConfig(EvernightAISchema):
     workspace_root: str = "workspaces"
+    network_mode: Literal[
+        SandboxNetworkMode.DISABLED, SandboxNetworkMode.UNRESTRICTED
+    ] = SandboxNetworkMode.DISABLED
     readonly_paths: list[str] = Field(default_factory=list)
     protected_paths: list[str] = Field(default_factory=list)
     include_python_environment: bool = True
@@ -78,6 +82,7 @@ class ShellToolConfig(EvernightAISchema):
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
     is_need_approval: bool = True
+    relaxed_approval: bool = False
     allowed_env_keys: list[str] | None = None
 
 

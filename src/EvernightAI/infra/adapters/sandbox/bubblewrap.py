@@ -58,7 +58,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         )
         if self._runtime_policy.workspace_root is not None:
             effective_policy = effective_policy.model_copy(
-                update={"network_mode": SandboxNetworkMode.DISABLED}
+                update={"network_mode": self._runtime_policy.network_mode}
             )
         request = request.model_copy(
             update={
@@ -170,7 +170,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             ]
         )
         command.extend(self._network_options(request))
-        command.extend(self._system_mount_options())
+        command.extend(self._system_mount_options(request.policy.network_mode))
         command.extend(self._runtime_policy.runtime_mount_options())
         command.extend(self._filesystem_mount_options(request.policy.filesystem_mounts))
         for key, value in self._sandbox_env(request).items():
@@ -195,7 +195,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             "The bubblewrap sandbox does not support network allowlists"
         )
 
-    def _system_mount_options(self) -> list[str]:
+    def _system_mount_options(self, network_mode: SandboxNetworkMode) -> list[str]:
         options: list[str] = []
         for path in ["/usr", "/bin", "/lib", "/lib64"]:
             if Path(path).exists():
@@ -203,6 +203,17 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         for path in ["/etc/ld.so.cache", "/etc/ld.so.conf"]:
             if Path(path).exists():
                 options.extend(["--ro-bind", path, path])
+        if network_mode is SandboxNetworkMode.UNRESTRICTED:
+            for path in [
+                "/etc/resolv.conf",
+                "/etc/hosts",
+                "/etc/nsswitch.conf",
+                "/etc/ssl/certs",
+                "/etc/pki/tls/certs",
+                "/etc/pki/ca-trust/extracted",
+            ]:
+                if Path(path).exists():
+                    options.extend(["--ro-bind", str(Path(path).resolve()), path])
         return options
 
     def _filesystem_mount_options(
@@ -253,7 +264,9 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
 
     def _sandbox_env(self, request: SandboxExecutionRequest) -> dict[str, str]:
         return {
-            **self._runtime_policy.environment(),
+            **self._runtime_policy.environment(
+                network_mode=request.policy.network_mode
+            ),
             **request.command.env,
         }
 

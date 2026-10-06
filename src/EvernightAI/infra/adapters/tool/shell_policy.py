@@ -84,14 +84,23 @@ def executable_name(value: str) -> str:
     return PureWindowsPath(value).name.lower().removesuffix(".exe")
 
 
-def shell_commands(script: str) -> list[list[str]]:
+def shell_commands(
+    script: str, *, ignore_redirections: bool = False
+) -> list[list[str]]:
     script = re.sub(r"\\\r?\n", "", script).replace("\n", " ; ")
     lexer = shlex.shlex(script, posix=True, punctuation_chars=";|&<>()")
     lexer.whitespace_split = True
     lexer.commenters = ""
     commands: list[list[str]] = []
     current: list[str] = []
+    redirection_target = False
     for token in lexer:
+        if redirection_target:
+            redirection_target = False
+            continue
+        if ignore_redirections and token in {"<", ">", ">>"}:
+            redirection_target = True
+            continue
         if token and all(char in ";|&<>()" for char in token):
             if current:
                 commands.append(current)
@@ -113,8 +122,14 @@ def unwrap_command(command: list[str]) -> list[str]:
     return command
 
 
-def inspected_commands(command: list[str] | str) -> list[list[str]]:
-    commands = shell_commands(command) if isinstance(command, str) else [command]
+def inspected_commands(
+    command: list[str] | str, *, ignore_redirections: bool = False
+) -> list[list[str]]:
+    commands = (
+        shell_commands(command, ignore_redirections=ignore_redirections)
+        if isinstance(command, str)
+        else [command]
+    )
     result: list[list[str]] = []
     for parts in commands:
         if parts:
@@ -128,7 +143,12 @@ def inspected_commands(command: list[str] | str) -> list[list[str]]:
             for index, part in enumerate(parts[1:], start=1):
                 if part.lower() in {"-c", "-lc", "-command", "/c", "--command"}:
                     if index + 1 < len(parts):
-                        result.extend(inspected_commands(parts[index + 1]))
+                        result.extend(
+                            inspected_commands(
+                                parts[index + 1],
+                                ignore_redirections=ignore_redirections,
+                            )
+                        )
                     break
     return result
 
@@ -214,11 +234,13 @@ def literal_command_reason(
     return None
 
 
-def approval_reason(command: list[str] | str, trusted_commands: set[str]) -> str | None:
+def approval_reason(
+    command: list[str] | str, trusted_commands: set[str], *, relaxed: bool = False
+) -> str | None:
     if isinstance(command, str):
         if re.search(r"(?<!&)&(?!&)", command):
             return "Background commands require approval"
-        if any(char in command for char in "<>\n"):
+        if not relaxed and any(char in command for char in "<>\n"):
             return "Shell redirection or multiline scripts require approval"
         try:
             commands = shell_commands(command)
@@ -226,12 +248,16 @@ def approval_reason(command: list[str] | str, trusted_commands: set[str]) -> str
             return "Shell syntax could not be inspected; approval is required"
     else:
         commands = [command]
+    if relaxed:
+        commands = inspected_commands(command, ignore_redirections=True)
     for parts in commands:
         if not parts:
             continue
         name = executable_name(parts[0])
         if name in DELETE_COMMANDS:
             return "Deleting files requires approval"
+        if relaxed and _routine_command(parts):
+            continue
         if name in WRITE_COMMANDS:
             return "File changes, network access or system operations require approval"
         if name in WRAPPERS or name in SCRIPT_COMMANDS:
@@ -258,6 +284,98 @@ def approval_reason(command: list[str] | str, trusted_commands: set[str]) -> str
             continue
         return "Commands outside the trusted list require approval"
     return None
+
+
+def _routine_command(parts: list[str]) -> bool:
+    name = executable_name(parts[0])
+    args = parts[1:]
+    if name in {"cp", "mv", "tee", "touch", "mkdir", "curl", "wget", "sort"}:
+        return True
+    if name in {
+        "pytest",
+        "pyright",
+        "ruff",
+        "mypy",
+        "tsc",
+        "vitest",
+        "eslint",
+        "prettier",
+    }:
+        return True
+    if name in {"python", "python3"}:
+        if len(args) >= 2 and args[:2] == ["-m", "pip"]:
+            return _routine_command(["pip", *args[2:]])
+        return (
+            len(args) >= 2
+            and args[0] == "-m"
+            and args[1] in {"pytest", "pyright", "ruff", "mypy", "compileall"}
+        )
+    if name in {"pip", "pip3"}:
+        return bool(args) and args[0] in {
+            "install",
+            "download",
+            "list",
+            "show",
+            "freeze",
+            "check",
+        }
+    if name == "git":
+        return bool(args) and args[0] in {
+            "status",
+            "diff",
+            "log",
+            "show",
+            "ls-files",
+            "rev-parse",
+            "add",
+            "commit",
+            "fetch",
+            "pull",
+            "push",
+            "clone",
+        }
+    if name in {"npm", "pnpm", "yarn"}:
+        if len(args) >= 2 and args[0] == "exec":
+            return _routine_command(args[1:])
+        return bool(args) and (
+            args[0] in {"install", "i", "ci", "test", "build", "lint", "typecheck"}
+            or len(args) >= 2
+            and args[0] == "run"
+            and args[1] in {"test", "build", "lint", "typecheck", "dev", "start"}
+        )
+    if name == "uv" and args:
+        if args[0] in {
+            "sync",
+            "lock",
+            "add",
+            "export",
+            "tree",
+            "venv",
+            "version",
+            "--version",
+        }:
+            return True
+        if args[0] == "pip":
+            return _routine_command(["pip", *args[1:]])
+        if args[0] == "run":
+            nested = args[1:]
+            while nested and nested[0] in {
+                "--active",
+                "--no-sync",
+                "--no-project",
+                "--frozen",
+                "--locked",
+                "--",
+            }:
+                nested = nested[1:]
+            return bool(nested) and approval_reason(nested, set(), relaxed=True) is None
+    if name in SHELL_COMMANDS:
+        return (
+            len(args) >= 2
+            and args[0].lower() in {"-c", "-lc", "-command", "/c", "--command"}
+            and approval_reason(args[1], set(), relaxed=True) is None
+        )
+    return False
 
 
 def _exact_rule(rule: str, command: list[str]) -> bool:

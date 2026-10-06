@@ -18,7 +18,11 @@ from EvernightAI.infra.registrations.tool.restricted_shell import (
 
 
 def manager_for(
-    root: Path, *, blocked: set[str] | None = None, env_keys: set[str] | None = None
+    root: Path,
+    *,
+    blocked: set[str] | None = None,
+    env_keys: set[str] | None = None,
+    relaxed: bool = False,
 ) -> ToolManager:
     register = ToolRegister()
     register_restricted_shell_tool(
@@ -27,6 +31,7 @@ def manager_for(
         blocked_commands=blocked,
         working_directory=root,
         requires_approval=False,
+        relaxed_approval=relaxed,
         allowed_env_keys=env_keys,
     )
     return ToolManager(register)
@@ -202,3 +207,128 @@ def test_environment_overrides_cannot_be_approved(tmp_path):
     assert not decision.allowed
     assert not decision.requires_approval
     assert decision.reason == "Environment variable overrides are forbidden"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "mkdir output && cp input.txt output/copy.txt",
+        "echo hello > note.txt && cat note.txt",
+        "curl https://example.com",
+        "git fetch origin",
+        "uv sync",
+        "uv pip install matplotlib",
+        "uv run --active --no-sync python -m pytest",
+        "python -m pip install matplotlib",
+        "pnpm run build",
+        "pnpm exec tsc --noEmit",
+        ["bash", "-lc", "mkdir output && echo hello > output/note.txt"],
+    ],
+)
+def test_relaxed_mode_allows_routine_development_commands(tmp_path, command):
+    assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm note.txt",
+        "rmdir output",
+        "unlink note.txt",
+        "shred note.txt",
+        "del note.txt",
+        "erase note.txt",
+        "Remove-Item -LiteralPath note.txt",
+        "echo ok && rm note.txt",
+        "echo ok > output.txt\nrm note.txt",
+        ["bash", "-lc", "rm note.txt"],
+        ["uv", "run", "rm", "note.txt"],
+        ["uv", "run", "sh", "-c", "rm note.txt"],
+        ["python", "-c", "import os; os.remove('note.txt')"],
+        "git clean -fd",
+        "git rm note.txt",
+        "pip uninstall package",
+        "npm run clean",
+    ],
+)
+def test_relaxed_mode_keeps_deletion_and_opaque_scripts_under_approval(
+    tmp_path, command
+):
+    manager = manager_for(tmp_path, relaxed=True)
+    manager.set_tool_policy("restricted_shell", ToolAccessMode.ALLOW)
+    decision = manager.authorize(call_for(command))
+    assert not decision.allowed
+    assert decision.requires_approval
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm *",
+        "uv run rm *",
+        "find . -delete",
+        "find . -exec rm '{}' ';'",
+        ["bash", "-lc", "rm *.txt"],
+    ],
+)
+def test_relaxed_mode_preserves_forbidden_deletion_patterns(tmp_path, command):
+    decision = manager_for(tmp_path, relaxed=True).authorize(
+        call_for(command, approved=True)
+    )
+    assert not decision.allowed
+    assert not decision.requires_approval
+
+
+def test_relaxed_mode_keeps_command_blacklist_and_explicit_ask(tmp_path):
+    manager = manager_for(tmp_path, relaxed=True, blocked={"git push"})
+    decision = manager.authorize(call_for("git push", approved=True))
+    assert not decision.allowed
+    assert not decision.requires_approval
+    manager.set_tool_policy("restricted_shell", ToolAccessMode.ASK)
+    assert manager.authorize(call_for("uv sync")).requires_approval
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell syntax")
+async def test_relaxed_execution_writes_without_approval_but_keeps_deletion_gate(
+    tmp_path,
+):
+    manager = manager_for(tmp_path, relaxed=True)
+    await manager.execute(call_for("mkdir output && echo hello > output/note.txt"))
+    note = tmp_path / "output/note.txt"
+    assert note.read_text() == "hello\n"
+    with pytest.raises(ToolPolicyError):
+        await manager.execute(call_for("rm output/note.txt"))
+    assert note.exists()
+    await manager.execute(call_for("rm output/note.txt", approved=True))
+    assert not note.exists()
+
+
+@pytest.mark.asyncio
+async def test_runtime_configuration_enables_relaxed_command_approval(tmp_path):
+    from EvernightAI.bootstrap.config import create_runtime_from_config
+    from EvernightAI.interface.cli.config import parse_config
+
+    runtime = create_runtime_from_config(
+        parse_config(
+            {
+                "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+                "tools": {
+                    "shell": {
+                        "enabled": True,
+                        "working_directory": str(tmp_path),
+                        "allowed_commands": ["python", "uv"],
+                        "is_need_approval": False,
+                        "relaxed_approval": True,
+                    }
+                },
+            }
+        )
+    )
+    try:
+        assert runtime.tools.authorize(call_for("uv sync")).allowed
+        deletion = runtime.tools.authorize(call_for("rm note.txt"))
+        assert not deletion.allowed
+        assert deletion.requires_approval
+    finally:
+        await runtime.close()

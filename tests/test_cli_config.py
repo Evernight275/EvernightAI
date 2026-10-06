@@ -7,6 +7,7 @@ from EvernightAI.core.schema.provider import (
     ProviderType,
 )
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
+from EvernightAI.core.schema.sandbox import SandboxNetworkMode
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.interface.cli.schema import McpTransport, SandboxBackend
 from EvernightAI.interface.cli.config import load_config, parse_config
@@ -291,6 +292,7 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     config = parse_config({})
 
     assert config.runtime.database_path == ".evernight/runtime.sqlite3"
+    assert config.runtime.sandbox.network_mode is SandboxNetworkMode.DISABLED
     assert config.http.host == "127.0.0.1"
     assert config.http.port == 8000
     assert config.http.server_header == "EvernightAI"
@@ -306,6 +308,19 @@ def test_parse_config_uses_defaults_for_missing_sections() -> None:
     assert config.auth.principals == []
     assert config.data_analysis.sqlite_sources == []
     assert config.providers == []
+
+
+@pytest.mark.parametrize("mode", ["disabled", "unrestricted"])
+def test_parse_config_accepts_supported_sandbox_network_modes(mode) -> None:
+    config = parse_config({"runtime": {"sandbox": {"network_mode": mode}}})
+
+    assert config.runtime.sandbox.network_mode is SandboxNetworkMode(mode)
+
+
+@pytest.mark.parametrize("mode", ["allowlist", "enabled", "unrestriced"])
+def test_parse_config_rejects_unsupported_sandbox_network_modes(mode) -> None:
+    with pytest.raises(ConfigurationError, match="Invalid EvernightAI config"):
+        parse_config({"runtime": {"sandbox": {"network_mode": mode}}})
 
 
 def test_parse_config_rejects_unknown_provider_model_fields() -> None:

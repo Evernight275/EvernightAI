@@ -55,6 +55,17 @@ redirection and complex scripts also require approval,
 even when the tool's configured mode is `allow`. An `ask` policy still asks for
 every call; a `deny` policy blocks every call.
 
+To reduce command approvals, set `[tools.shell]` to `is_need_approval = false`
+and `relaxed_approval = true`. Routine file copying, moving, directory creation,
+redirection, HTTP downloads, Git status/add/commit/fetch/pull/push/clone, dependency
+installation, tests and builds then run without additional approval. Inspected
+shell chains and uv wrappers use the same rules for their nested commands.
+Deletion commands still require approval; wildcard and discovered deletion targets
+remain forbidden, and configured blocked commands still win. Arbitrary interpreter
+scripts, unfamiliar commands, package removal and Git clean/reset/rm retain
+approval. Explicit per-user `ask` and `deny` settings still apply. Restart the
+service after changing configuration.
+
 Paths must be literal relative or absolute paths. Shell variable expansion,
 command/process substitution, home-directory expansion and unquoted wildcards
 are rejected even after approval. Environment overrides through `env`, inline

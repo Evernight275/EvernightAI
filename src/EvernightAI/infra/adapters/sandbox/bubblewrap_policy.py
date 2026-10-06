@@ -8,6 +8,7 @@ from EvernightAI.core.error.base import NotFoundError, ValidationError
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.schema.sandbox import (
     SandboxFilesystemMount,
+    SandboxNetworkMode,
     SandboxResourceLimits,
 )
 
@@ -17,6 +18,7 @@ class BubblewrapRuntimePolicy:
         self,
         *,
         workspace_root: str | Path | None = None,
+        network_mode: SandboxNetworkMode = SandboxNetworkMode.DISABLED,
         readonly_paths: Sequence[str | Path] | None = None,
         protected_paths: Sequence[str | Path] | None = None,
         include_python_environment: bool = False,
@@ -25,6 +27,14 @@ class BubblewrapRuntimePolicy:
         limits: SandboxResourceLimits | None = None,
         workspace_directories: WorkspaceDirectoryProtocol | None = None,
     ) -> None:
+        if network_mode not in (
+            SandboxNetworkMode.DISABLED,
+            SandboxNetworkMode.UNRESTRICTED,
+        ):
+            raise SandboxConfigurationError(
+                "The bubblewrap sandbox does not support network allowlists"
+            )
+        self.network_mode = network_mode
         self.workspace_root = (
             Path(workspace_root).resolve() if workspace_root is not None else None
         )
@@ -148,13 +158,16 @@ class BubblewrapRuntimePolicy:
                 )
         return options
 
-    def environment(self) -> dict[str, str]:
+    def environment(
+        self, *, network_mode: SandboxNetworkMode | None = None
+    ) -> dict[str, str]:
+        mode = self.network_mode if network_mode is None else network_mode
         paths = ["/opt/evernight/bin", "/usr/local/bin", "/usr/bin", "/bin"]
         env = {
             "HOME": "/tmp",
             "TMPDIR": "/tmp",
             "UV_CACHE_DIR": "/tmp/uv-cache",
-            "UV_OFFLINE": "1",
+            "UV_OFFLINE": "1" if mode is SandboxNetworkMode.DISABLED else "0",
             "UV_PYTHON_DOWNLOADS": "never",
             "PYTHONPATH": "/workspace/src:/workspace",
             "GIT_CONFIG_NOSYSTEM": "1",

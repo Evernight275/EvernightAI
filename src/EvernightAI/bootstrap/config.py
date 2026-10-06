@@ -119,6 +119,7 @@ def create_sandbox_from_config(
         settings = config.runtime.sandbox
         policy = BubblewrapRuntimePolicy(
             workspace_root=settings.workspace_root,
+            network_mode=settings.network_mode,
             workspace_directories=workspace_directories,
             readonly_paths=settings.readonly_paths,
             protected_paths=_protected_workspace_paths(config),
@@ -203,6 +204,7 @@ def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
         "shell_timeout_seconds": shell.timeout_seconds,
         "shell_max_output_chars": shell.max_output_chars,
         "shell_requires_approval": shell.is_need_approval,
+        "shell_relaxed_approval": shell.relaxed_approval,
         "shell_allowed_env_keys": (
             set(shell.allowed_env_keys)
             if shell.enabled and shell.allowed_env_keys is not None

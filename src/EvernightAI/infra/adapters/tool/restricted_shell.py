@@ -47,6 +47,7 @@ class RestrictedShellTool:
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
         requires_approval: bool = True,
+        relaxed_approval: bool = False,
         allowed_env_keys: set[str] | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
         workspace_directories: WorkspaceDirectoryProtocol | None = None,
@@ -60,6 +61,7 @@ class RestrictedShellTool:
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
         self._requires_approval = requires_approval
+        self._relaxed_approval = relaxed_approval
         self._allowed_env_keys = allowed_env_keys
         self._sandbox = sandbox or SubprocessSandboxExecutor()
 
@@ -102,6 +104,7 @@ class RestrictedShellTool:
             metadata={
                 "allowed_commands": sorted(self._allowed_commands),
                 "blocked_commands": sorted(self._blocked_commands),
+                "relaxed_approval": self._relaxed_approval,
                 "working_directory": str(self._working_directory),
                 "supports_working_directory": True,
                 "timeout_seconds": self._timeout_seconds,
@@ -134,7 +137,9 @@ class RestrictedShellTool:
         reason = self._command_rejection_reason(command)
         if reason is not None:
             return ToolSafetyDecision(allowed=False, reason=reason)
-        reason = approval_reason(command, self._allowed_commands)
+        reason = approval_reason(
+            command, self._allowed_commands, relaxed=self._relaxed_approval
+        )
         if reason is not None:
             return ToolSafetyDecision(
                 allowed=False,

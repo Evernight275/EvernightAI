@@ -34,6 +34,7 @@ sandbox_backend = "bubblewrap"
 
 [runtime.sandbox]
 workspace_root = "workspaces"
+network_mode = "disabled"
 include_python_environment = true
 include_uv = true
 include_node = false
@@ -94,9 +95,10 @@ Each process sees its selected project directory at `/workspace`. `/usr`, `/bin`
 the system libraries and configured runtime paths are read-only. Only the selected
 workspace allows persistent writes; temporary files use an isolated `/tmp`.
 The sandbox isolates process,
-user, network, IPC and UTS namespaces, drops capabilities and prevents creating
-nested user namespaces. Host sockets, home directories, SSH credentials and
-service environment variables are not exposed.
+user, IPC and UTS namespaces, drops capabilities and prevents creating
+nested user namespaces. Host Unix socket files, home directories, SSH credentials
+and service environment variables are not exposed. The default
+`network_mode = "disabled"` also isolates the network namespace.
 
 `include_python_environment` mounts the running Python environment and base
 interpreter read-only, including paths needed by interpreter symlinks. `python`
@@ -105,9 +107,9 @@ installed executables. `PYTHONPATH` includes `/workspace/src` and `/workspace` s
 imports select workspace code. Install dependencies outside the sandbox before
 launching the service; tools cannot modify the shared environment.
 
-`include_uv` mounts the installed uv binary read-only. uv is offline, its cache
-uses `/tmp`, and managed Python downloads are disabled. To use installed
-dependencies without synchronizing the read-only environment:
+`include_uv` mounts the installed uv binary read-only. uv follows the configured
+network mode, its cache uses `/tmp`, and managed Python downloads are disabled.
+To use installed dependencies without synchronizing the read-only environment:
 
 ```sh
 uv run --active --no-sync python --version
@@ -127,12 +129,17 @@ Git read operations mount the repository read-only; staging, commits and branch
 changes mount it read-write. Git hooks and configured helper commands execute
 inside the same sandbox. Host global/system Git configuration is ignored; set
 `user.name` and `user.email` in the workspace repository to create commits.
-Network access is disabled even if an individual tool asks for unrestricted
-network access. Git fetch/push and dependency downloads therefore need a separate,
-deliberate workflow.
+Network access is disabled by default even if an individual tool asks for it.
+To enable networking for Shell, Git and project tasks, set
+`runtime.sandbox.network_mode = "unrestricted"` and restart the service. This
+shares the host network, including localhost. DNS configuration and HTTPS trust
+stores are mounted read-only, and uv can download dependencies into a writable
+project environment. The shared Python environment remains read-only. Git HTTP
+remotes can connect; SSH credentials are still not mounted. Network allowlists
+are unsupported and rejected during configuration validation.
 
 Approvals and Shell literal-path rules still apply. Permission `allow` cannot
-change mounts, enable networking or increase resource ceilings.
+change mounts, override the configured network mode or increase resource ceilings.
 
 ## Resource limits
 

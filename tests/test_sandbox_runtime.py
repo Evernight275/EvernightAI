@@ -213,6 +213,65 @@ async def test_network_is_disabled_even_if_a_tool_requests_access(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "requested_mode", [SandboxNetworkMode.DISABLED, SandboxNetworkMode.UNRESTRICTED]
+)
+async def test_configured_network_supports_http_dns_and_https_trust(
+    tmp_path, requested_mode
+):
+    async def handle(reader, writer):
+        try:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nconnected")
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    work = tmp_path / "work"
+    work.mkdir()
+    config = parse_config(
+        {
+            "runtime": {
+                "sandbox_backend": "bubblewrap",
+                "sandbox": {
+                    "workspace_root": str(work),
+                    "network_mode": "unrestricted",
+                },
+            }
+        }
+    )
+    sandbox = create_sandbox_from_config(config)
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    try:
+        port = server.sockets[0].getsockname()[1]
+        script = (
+            "import json, os, ssl, urllib.request; "
+            f"response=urllib.request.urlopen('http://localhost:{port}', timeout=2); "
+            "trust=ssl.get_default_verify_paths(); "
+            "print(json.dumps({'body':response.read().decode(), "
+            "'uv_offline':os.environ['UV_OFFLINE'], "
+            "'trust_store':bool(trust.cafile or trust.capath)}))"
+        )
+        probe = request(work, ["python", "-c", script])
+        probe.policy.network_mode = requested_mode
+        result = await sandbox.execute(probe)
+        assert result.returncode == 0, result.stderr
+        output = json.loads(result.stdout)
+        assert output["body"] == "connected"
+        assert output["uv_offline"] == "0"
+        assert output["trust_store"] is True
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+def test_runtime_network_policy_rejects_unsupported_allowlists():
+    with pytest.raises(SandboxConfigurationError, match="network allowlists"):
+        BubblewrapRuntimePolicy(network_mode=SandboxNetworkMode.ALLOWLIST)
+
+
+@pytest.mark.asyncio
 async def test_request_cannot_mount_outside_the_workspace_or_include_secrets(tmp_path):
     root = tmp_path / "work"
     root.mkdir()
