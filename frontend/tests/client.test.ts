@@ -8,6 +8,7 @@ import {
   setApiKey,
   signOut,
 } from '../src/api/client';
+import { uploadFileArtifact } from '../src/api/files';
 
 describe('API client', () => {
   beforeEach(() => {
@@ -129,6 +130,41 @@ describe('API client', () => {
       new Response('{"error":{"message":"denied"}}', { status: 403 }),
     );
     await expect(requestBlob('/files/id/content')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('uploads raw image bytes with the shared credential, encoded filename, and abort signal', async () => {
+    setAccessToken('upload-token');
+    const artifact = {
+      artifact_id: 'artifact-1',
+      name: '图 1.png',
+      title: null,
+      mime_type: 'image/png',
+      size_bytes: 3,
+      preview_kind: 'image',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(artifact), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const signal = new AbortController().signal;
+    await expect(
+      uploadFileArtifact(
+        new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+        '图 1.png',
+        signal,
+      ),
+    ).resolves.toEqual(artifact);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/files/upload?filename=%E5%9B%BE%201.png');
+    expect(options.method).toBe('POST');
+    expect(options.headers).toMatchObject({
+      authorization: 'Bearer upload-token',
+      'content-type': 'image/png',
+    });
+    expect(options.body).toBeInstanceOf(Blob);
+    expect(options.signal).toBe(signal);
+    expect(JSON.stringify(options.body)).not.toContain('base64');
   });
 
   it('reassembles SSE events split across response chunks', async () => {

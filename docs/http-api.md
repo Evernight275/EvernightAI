@@ -230,11 +230,38 @@ Or send raw base64 data with its MIME type:
 Do not set both `url` and `data`. OpenAI-compatible chat, OpenAI Responses,
 and Anthropic accept URL images. All four built-in adapters accept base64
 images; Gemini requires the base64 form because ordinary remote image URLs are
-not valid Gemini inline image inputs. The web chat can select, preview, remove,
-send, and display JPEG, PNG, WebP, and GIF images (up to four images and 5 MiB
-per image). Declare `image_recognition` in a model's configured `capabilities`
-to enable image attachment for that model. Declared models without the
-capability reject image requests before a provider call is made.
+not valid Gemini inline image inputs.
+
+For uploaded images, send a file reference instead:
+
+```json
+{
+  "type": "image",
+  "artifact_id": "returned-artifact-id"
+}
+```
+
+Upload with `POST /files/upload?filename=photo.png`, sending the image bytes as
+the request body. The endpoint requires `files:create` and returns
+`FileArtifactInfo` with status 201. The server identifies the actual image
+format; PNG, JPEG and WebP are supported, with a 20 MiB limit per image.
+Filename extensions do not determine the format. Use the existing file metadata
+and content endpoints to read or preview the uploaded image.
+
+An `artifact_id` must refer to an image owned by the requesting user and cannot
+be combined with `url` or `data`. Each model request supports up to ten uploaded
+image references and 50 MiB of referenced images in total, including its context
+history. Chat and Agent resolve references for each provider call, including
+streaming and resumed runs. Stored context, requests and browser drafts retain
+the references; image bytes are converted to provider input only for the call.
+
+The web chat supports image selection, drag and drop, clipboard paste, thumbnail
+previews and removal. Images can be sent with or without accompanying text.
+Declare `image_recognition` in a model's configured `capabilities` to identify
+models that accept images. A model with a nonempty capability declaration that
+omits `image_recognition` rejects image requests before a provider call. An
+undeclared model or an empty capability declaration leaves support unknown and
+allows the provider to decide.
 
 ## Provider-Specific Metadata
 

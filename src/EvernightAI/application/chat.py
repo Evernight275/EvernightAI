@@ -25,6 +25,7 @@ from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.application.retry import mark_retry_messages
+from EvernightAI.application.image_attachments import resolve_image_references
 
 
 class ChatApplication(ChatInterfaceProtocol):
@@ -211,11 +212,20 @@ class ChatApplication(ChatInterfaceProtocol):
             )
         return request
 
-    async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
+    async def chat(
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ChatResponse:
         request = await compose_skill_prompted_chat_request(
             self._runtime,
             request,
             SkillCapability.CHAT,
+        )
+        request = await resolve_image_references(
+            self._runtime, request, principal_scope=principal_scope
         )
         return await self._runtime.providers.chat(provider_id, request)
 
@@ -249,7 +259,9 @@ class ChatApplication(ChatInterfaceProtocol):
             metadata=metadata,
             principal_scope=principal_scope,
         )
-        response = await self.chat(provider_id, request)
+        response = await self.chat(
+            provider_id, request, principal_scope=principal_scope
+        )
 
         for message in messages:
             await self._runtime.contexts.append(
@@ -266,12 +278,19 @@ class ChatApplication(ChatInterfaceProtocol):
         return response
 
     async def chat_stream(
-        self, provider_id: str, request: ChatRequest
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol:
         request = await compose_skill_prompted_chat_request(
             self._runtime,
             request,
             SkillCapability.CHAT,
+        )
+        request = await resolve_image_references(
+            self._runtime, request, principal_scope=principal_scope
         )
         return await self._runtime.providers.chat_stream(provider_id, request)
 
@@ -305,7 +324,9 @@ class ChatApplication(ChatInterfaceProtocol):
             metadata=metadata,
             principal_scope=principal_scope,
         )
-        stream = await self.chat_stream(provider_id, request)
+        stream = await self.chat_stream(
+            provider_id, request, principal_scope=principal_scope
+        )
         return _ContextAppendingChatStream(
             stream,
             self._runtime,

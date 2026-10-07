@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ from EvernightAI.application.agent import (
     inspect_agent_run_checkpoint,
     recover_interrupted_agent_runs,
 )
+from EvernightAI.application.image_attachments import create_image_artifact
 from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.skill import SkillInputError
@@ -32,6 +34,7 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionResolution,
     ToolExecutionStatus,
 )
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.domain.context import (
     BasicContextStrategy,
     ContextManager,
@@ -1079,6 +1082,99 @@ async def test_agent_stream_pauses_for_unapproved_sensitive_tool() -> None:
     assert events[3].metadata["reason"] == "tool_approval_required"
     assert tool_executed is False
     assert context.messages == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_agent_resolves_image_refs_for_each_round_without_persisting_data(
+    streaming: bool,
+) -> None:
+    from tests.fakes.agent import InMemoryAgentRunStateRegister
+
+    provider = StreamingSensitiveToolProvider()
+    states = InMemoryAgentRunStateRegister()
+    runtime = make_runtime(
+        provider=provider,
+        agent_state_register=states,
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    owner_scope = PrincipalScope(owner_id="owner-image")
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
+    )
+    artifact = create_image_artifact(
+        runtime, "image.png", png, principal_scope=owner_scope
+    )
+    await runtime.contexts.create(
+        Context(context_id="ctx-image", owner_id="owner-image")
+    )
+    await runtime.providers.create(make_config())
+
+    async def write(_arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    app = AgentRunApplication(runtime)
+    request = AgentRunRequest(
+        provider_id="provider-1",
+        owner_id="owner-image",
+        context_id="ctx-image",
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[ContentPart(type=ContentPartType.IMAGE, artifact_id=artifact.artifact_id)],
+            )
+        ],
+        tools=runtime.tools.list_tools(),
+        pause_on_approval=True,
+        metadata={"run_id": "image-agent", "stream": streaming},
+    )
+
+    paused = await app.start(request, principal_scope=owner_scope)
+    persisted_before_resume = paused.model_dump_json()
+    assert paused.status is AgentRunStatus.PAUSED
+    assert artifact.artifact_id in persisted_before_resume
+    assert "data:image/png;base64," not in persisted_before_resume
+
+    finished = await app.resume(
+        paused.run_id,
+        [
+            ToolApprovalDecision(
+                approval_id="tool-call-1:approval",
+                tool_call_id="tool-call-1",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+        principal_scope=owner_scope,
+    )
+
+    assert finished.status is AgentRunStatus.FINISHED
+    assert len(provider.requests) == 2
+    expected_data = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    for provider_request in provider.requests:
+        image_parts = [
+            part
+            for message in provider_request.messages
+            for part in message.content or []
+            if part.type is ContentPartType.IMAGE
+        ]
+        assert len(image_parts) == 1
+        assert image_parts[0].artifact_id is None
+        assert image_parts[0].data == expected_data
+    persisted_after_resume = finished.model_dump_json()
+    context_json = (await runtime.contexts.get("ctx-image")).model_dump_json()
+    assert "data:image/png;base64," not in persisted_after_resume
+    assert "data:image/png;base64," not in context_json
+    assert artifact.artifact_id in context_json
 
 
 @pytest.mark.asyncio
@@ -3766,6 +3862,34 @@ class SensitiveToolProvider(ToolCallingProvider):
             message=make_message("Written", role=MessageRole.ASSISTANT),
             finish_reason="stop",
         )
+
+
+class StreamingSensitiveToolProvider(SensitiveToolProvider):
+    async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+        response = await self.chat(request)
+        events = [
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.TOOL_CALL_COMPLETED,
+                tool_call=tool_call,
+            )
+            for tool_call in response.message.tool_calls or []
+        ]
+        for part in response.message.content or []:
+            if part.text:
+                events.append(
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_DELTA,
+                        text_delta=part.text,
+                    )
+                )
+        events.append(
+            ChatStreamEvent(
+                event_type=ChatStreamEventType.DONE,
+                model_id=response.model_id,
+                finish_reason=response.finish_reason,
+            )
+        )
+        return EventStream(events)
 
 
 class BlockedShellToolProvider(ToolCallingProvider):

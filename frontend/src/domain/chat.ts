@@ -45,14 +45,15 @@ export type ChatTranscriptEntry = {
 };
 
 export function userEntry(submission: ChatSubmission, index: number): ChatTranscriptEntry {
+  const content = submission.messages?.[0] || {
+    role: 'user',
+    content: [{ type: 'text', text: submission.text }],
+  };
   return {
     entryId: `user-${index}`,
     role: 'user',
-    text: submission.text,
-    content: {
-      role: 'user',
-      content: [{ type: 'text', text: submission.text }],
-    },
+    text: visibleTextFromContent(content) || '[图片]',
+    content,
     modelId: submission.modelId,
   };
 }
@@ -72,8 +73,16 @@ export function transcriptFromMessages(messages: Content[]): ChatTranscriptEntry
   let entries: ChatTranscriptEntry[] = [];
   for (const [index, content] of messages.entries()) {
     const text = visibleTextFromContent(content);
-    if (['user', 'assistant'].includes(content.role) && text) {
-      entries.push({ entryId: messageEntryId(content, index), role: content.role, text, content });
+    const hasImage = (content.content || []).some(
+      (part) => part.type === 'image' && (!!part.artifact_id || !!part.url),
+    );
+    if (['user', 'assistant'].includes(content.role) && (text || hasImage)) {
+      entries.push({
+        entryId: messageEntryId(content, index),
+        role: content.role,
+        text: text || '[图片]',
+        content,
+      });
     }
     if (content.role === 'assistant') {
       for (const call of content.tool_calls || [])

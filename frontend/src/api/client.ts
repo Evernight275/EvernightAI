@@ -14,6 +14,7 @@ export type RequestOptions = {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  contentType?: string;
 };
 
 export type SseEvent = {
@@ -171,10 +172,17 @@ async function sendRequest(
       accept,
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...(!accessToken && apiKey ? { 'x-evernight-api-key': apiKey } : {}),
-      ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(options.body === undefined
+        ? {}
+        : { 'content-type': options.contentType || 'application/json' }),
       ...options.headers,
     },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : options.body instanceof Blob
+          ? options.body
+          : JSON.stringify(options.body),
     signal: options.signal,
   });
 }

@@ -13,6 +13,7 @@ import {
 } from '../../api';
 import { parseSkillVariables } from '../../domain/skillParameters';
 import { editableRunOptions } from '../../runtime/runEditor';
+import { useChatAttachments } from './chatAttachments';
 
 export type ChatRequestFormProps = {
   skills?: SkillDefinition[];
@@ -49,6 +50,17 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
   const optionsJson = ref<string | null>(null);
   const draftNotice = ref('');
   const optionsError = ref('');
+  const sessionKey = () => props.sessionId || props.contextId || 'new';
+  const {
+    attachments,
+    error: attachmentError,
+    uploading,
+    addFiles,
+    remove,
+    retry,
+    clear: clearAttachments,
+    setArtifacts,
+  } = useChatAttachments(sessionKey, () => props.busy || !props.sessionReady);
   const preview = ref('');
   const previewing = ref(false);
   let previewGeneration = 0;
@@ -179,17 +191,36 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
       props.catalog.modelGroups.find((group) => group.provider.provider_id === providerId.value)
         ?.models || [],
   );
+  const imageCapabilityUnsupported = computed(() => {
+    if (!attachments.value.length) return false;
+    const provider = props.catalog.providers.find(
+      (provider) => provider.provider_id === providerId.value,
+    );
+    const localModel = Object.values(provider?.model || {}).find(
+      (model) => model.model_id === modelId.value,
+    );
+    const model = localModel?.capabilities?.length
+      ? localModel
+      : models.value.find((item) => item.model_id === modelId.value);
+    return !!model?.capabilities?.length && !model.capabilities.includes('image_recognition');
+  });
 
   const canSubmit = computed(
     () =>
       enabledProviders.value.some((provider) => provider.provider_id === providerId.value) &&
       !skillUnavailable.value &&
+      !imageCapabilityUnsupported.value &&
+      !uploading.value &&
+      attachments.value.every((item) => item.status === 'ready') &&
       canSubmitChat({
         busy: props.busy,
         sessionReady: props.sessionReady,
         providerId: providerId.value,
         modelId: modelId.value,
         text: text.value,
+        hasAttachments:
+          attachments.value.length > 0 &&
+          attachments.value.every((item) => item.status === 'ready'),
       }),
   );
 
@@ -249,9 +280,31 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
 
     optionsError.value = '';
     let skills, messages, runOptions;
+    const imageParts = attachments.value
+      .filter((item) => item.status === 'ready')
+      .map(({ artifact }) => ({
+        type: 'image',
+        artifact_id: artifact.artifact_id,
+        mime_type: artifact.mime_type,
+        metadata: { filename: artifact.name },
+      }));
     try {
       skills = currentSkills();
       messages = currentMessages();
+      if (imageParts.length) {
+        if (!inputJson.value && messages.length === 1 && messages[0]?.role === 'user') {
+          const existingIds = new Set((messages[0].content || []).map((part) => part.artifact_id));
+          messages[0] = {
+            ...messages[0],
+            content: [
+              ...(messages[0].content || []),
+              ...imageParts.filter((part) => !existingIds.has(part.artifact_id)),
+            ],
+          };
+        } else {
+          messages.push({ role: 'user', content: imageParts });
+        }
+      }
       if (optionsJson.value !== null) {
         const options: unknown = JSON.parse(optionsJson.value);
         if (
@@ -283,10 +336,11 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
       modelId: modelId.value.trim(),
       text: text.value.trim(),
       ...(skills ? { skills } : {}),
-      ...(inputJson.value || sourceMessage.value ? { messages } : {}),
+      ...(inputJson.value || sourceMessage.value || imageParts.length ? { messages } : {}),
       ...(runOptions ? { runOptions } : {}),
     });
     text.value = '';
+    clearAttachments();
   }
 
   function currentMessages(): Content[] {
@@ -300,18 +354,22 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
         throw new Error('输入消息必须是包含 role 的 JSON 数组');
       return value as Content[];
     }
+    const retainedImageIds = new Set(attachments.value.map((item) => item.artifact.artifact_id));
     return [
       {
         ...(sourceMessage.value || {}),
         role: 'user',
-        content: [
-          { ...(sourceMessage.value?.content?.[0] || {}), type: 'text', text: text.value.trim() },
-        ],
+        content: replaceTextPart(
+          (sourceMessage.value?.content || []).filter(
+            (part) => !part.artifact_id || retainedImageIds.has(part.artifact_id),
+          ),
+          text.value.trim(),
+        ),
       },
     ];
   }
 
-  const draftKey = () => `evernight.chatDraft.${props.sessionId || props.contextId || 'new'}`;
+  const draftKey = () => `evernight.chatDraft.${sessionKey()}`;
   watch(
     () => props.sessionId || props.contextId || 'new',
     () => {
@@ -367,6 +425,7 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
       sourceSkill,
       optionsJson,
       workingDirectory,
+      attachments,
     ],
     () => {
       if (typeof sessionStorage === 'undefined') return;
@@ -385,13 +444,16 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
             sourceSkill: sourceSkill.value,
             optionsJson: optionsJson.value,
             workingDirectory: workingDirectory.value,
+            attachments: attachments.value
+              .filter((item) => !item.artifact.artifact_id.startsWith('uploading-'))
+              .map(({ artifact }) => artifact),
           }),
         );
       } catch {
         /* Editing does not depend on storage. */
       }
     },
-    { flush: 'post' },
+    { flush: 'post', deep: true },
   );
   watch(
     () => props.editRequest,
@@ -403,13 +465,31 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
         request.messages?.length === 1 &&
         first?.role === 'user' &&
         !first.tool_calls?.length &&
-        first.content?.length === 1 &&
-        first.content[0]?.type === 'text'
+        (first.content || []).filter((part) => part.type === 'text').length <= 1 &&
+        (first.content || []).every(
+          (part) => part.type === 'text' || (part.type === 'image' && !!part.artifact_id),
+        )
       );
+      const existingImages = !inputJson.value
+        ? (first?.content || []).filter(
+            (part) => part.type === 'image' && typeof part.artifact_id === 'string',
+          )
+        : [];
       sourceMessage.value = inputJson.value ? null : JSON.parse(JSON.stringify(first || null));
+      void setArtifacts(
+        existingImages.map((part) => ({
+          artifact_id: part.artifact_id!,
+          name: String(part.metadata?.filename || part.metadata?.name || 'image'),
+          title: null,
+          mime_type: part.mime_type || 'image/png',
+          size_bytes: 0,
+          preview_kind: 'image' as const,
+          created_at: '',
+        })),
+      );
       text.value = inputJson.value
         ? JSON.stringify(request.messages || [], null, 2)
-        : first?.content?.[0]?.text || '';
+        : first?.content?.find((part) => part.type === 'text')?.text || '';
       providerId.value = request.provider_id;
       modelId.value = request.model_id;
       sourceSkill.value = JSON.parse(JSON.stringify(request.skills?.[0] || null));
@@ -434,6 +514,12 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
     submit();
   }
 
+  function handleFileChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    void addFiles(input.files || []);
+    input.value = '';
+  }
+
   return {
     skillList,
     inputJson,
@@ -446,6 +532,14 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
     selectedSkill,
     skillVariables,
     optionsError,
+    attachmentError,
+    attachments,
+    uploading,
+    addFiles,
+    remove,
+    retry,
+    handleFileChange,
+    imageCapabilityUnsupported,
     preview,
     previewing,
     previewContext,
@@ -490,12 +584,23 @@ export function canSubmitChat(values: {
   providerId: string;
   modelId: string;
   text: string;
+  hasAttachments?: boolean;
 }): boolean {
   return (
     !values.busy &&
     values.sessionReady !== false &&
     values.providerId !== '' &&
     values.modelId.trim() !== '' &&
-    values.text.trim() !== ''
+    (values.text.trim() !== '' || values.hasAttachments === true)
   );
+}
+
+function replaceTextPart(parts: NonNullable<Content['content']>, text: string) {
+  let replaced = false;
+  const next = parts.map((part) => {
+    if (part.type !== 'text' || replaced) return part;
+    replaced = true;
+    return { ...part, text };
+  });
+  return replaced || !text ? next : [...next, { type: 'text', text }];
 }

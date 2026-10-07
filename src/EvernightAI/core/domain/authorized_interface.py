@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+import inspect
 from typing import TypeVar
 from EvernightAI.core.protocol.file import FileInterfaceProtocol
 from EvernightAI.core.schema.file import FileArtifactInfo
@@ -111,6 +112,25 @@ async def _call_with_scope(
         **kwargs,
         principal_scope=principal_scope,
     )
+
+
+async def _call_with_optional_scope(
+    operation: Callable[..., Awaitable[ScopedResult]],
+    *args: object,
+    principal_scope: PrincipalScope,
+) -> ScopedResult:
+    try:
+        parameters = inspect.signature(operation).parameters.values()
+        accepts_scope = any(
+            parameter.name == "principal_scope"
+            or parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+    except (TypeError, ValueError):
+        accepts_scope = True
+    if accepts_scope:
+        return await operation(*args, principal_scope=principal_scope)
+    return await operation(*args)
 
 
 def _call_with_scope_sync(
@@ -408,9 +428,17 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
             principal_scope=self._principal_scope,
         )
 
-    async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse:
+    async def chat(
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ChatResponse:
         self._require("chat", "create", provider_id)
-        return await self._inner.chat(provider_id, request)
+        return await _call_with_optional_scope(
+            self._inner.chat, provider_id, request, principal_scope=self._principal_scope
+        )
 
     async def organize_chat_request(
         self,
@@ -468,9 +496,16 @@ class AuthorizedChatInterface(ChatInterfaceProtocol):
         self,
         provider_id: str,
         request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol:
         self._require("chat", "stream", provider_id)
-        return await self._inner.chat_stream(provider_id, request)
+        return await _call_with_optional_scope(
+            self._inner.chat_stream,
+            provider_id,
+            request,
+            principal_scope=self._principal_scope,
+        )
 
     async def chat_stream_with_context(
         self,
@@ -745,6 +780,16 @@ class AuthorizedFileInterface(FileInterfaceProtocol):
         self._inner = inner
         self._authorizer = authorizer
         self._principal = principal
+
+    def upload_file(
+        self, name: str, content: bytes, *, principal_scope: PrincipalScope | None = None
+    ) -> FileArtifactInfo:
+        require_permission(self._authorizer, self._principal, "files", "create")
+        return self._inner.upload_file(
+            name,
+            content,
+            principal_scope=PrincipalScope.for_principal(self._principal),
+        )
 
     def get_file(
         self, artifact_id: str, *, principal_scope: PrincipalScope | None = None

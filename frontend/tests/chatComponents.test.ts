@@ -10,9 +10,49 @@ import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue';
 import ChatTranscript from '../src/components/chat/ChatTranscript.vue';
 import ChatView from '../src/components/chat/ChatView.vue';
 import { reconcileRunTranscript } from '../src/domain/chat';
+import { transcriptFromMessages, userEntry } from '../src/domain/chat';
+import { canSubmitChat } from '../src/components/chat/chatRequestForm';
 import type { AgentRunState } from '../src/api';
 
 describe('chat component composition', () => {
+  it('keeps image-only messages in optimistic and restored transcripts', () => {
+    const message = {
+      role: 'user',
+      content: [{ type: 'image', artifact_id: 'artifact-1', mime_type: 'image/png' }],
+    };
+    const optimistic = userEntry(
+      {
+        providerId: 'provider',
+        modelId: 'model',
+        text: '',
+        messages: [message],
+      },
+      1,
+    );
+    expect(optimistic.content).toEqual(message);
+    expect(optimistic.text).toBe('[图片]');
+    expect(transcriptFromMessages([message])).toMatchObject([
+      { role: 'user', content: message, text: '[图片]' },
+    ]);
+    expect(
+      canSubmitChat({
+        busy: false,
+        providerId: 'provider',
+        modelId: 'model',
+        text: '',
+        hasAttachments: true,
+      }),
+    ).toBe(true);
+    expect(
+      canSubmitChat({
+        busy: false,
+        providerId: 'provider',
+        modelId: 'model',
+        text: '',
+        hasAttachments: false,
+      }),
+    ).toBe(false);
+  });
   it('composes session management beside the chat page', async () => {
     const html = await renderToString(createSSRApp(ChatApp));
 

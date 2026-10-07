@@ -20,6 +20,7 @@ export type ContentPart = {
   text?: string | null;
   url?: string | null;
   data?: string | null;
+  artifact_id?: string | null;
   mime_type?: string | null;
   detail?: string | null;
   metadata?: Record<string, unknown>;

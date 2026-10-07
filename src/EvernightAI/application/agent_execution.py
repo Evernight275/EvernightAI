@@ -59,6 +59,7 @@ from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.memory import (
     write_memory_candidate,
 )
+from EvernightAI.application.image_attachments import resolve_image_references
 
 from EvernightAI.application.agent_state import (
     AgentRunMetadata,
@@ -846,6 +847,11 @@ class AgentExecutionApplication:
             skill_capability=SkillCapability.AGENT,
         )
         self._check_skill_revisions(state)
+        request = await resolve_image_references(
+            self._runtime,
+            request,
+            principal_scope=_owner_scope(state.owner_id),
+        )
         return await self._runtime.providers.chat(provider_id, request)
 
     async def _chat_events(
@@ -897,6 +903,11 @@ class AgentExecutionApplication:
             principal_scope=_owner_scope(state.owner_id),
         )
         self._check_skill_revisions(state)
+        request = await resolve_image_references(
+            self._runtime,
+            request,
+            principal_scope=_owner_scope(state.owner_id),
+        )
         stream = await self._runtime.providers.chat_stream(provider_id, request)
         response = None
         async for event in self._stream_chat_events(stream, request.model_id, state):

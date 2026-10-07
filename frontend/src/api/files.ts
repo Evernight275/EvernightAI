@@ -10,6 +10,19 @@ export type FileArtifactInfo = {
   created_at: string;
 };
 
+export function uploadFileArtifact(
+  file: Blob,
+  filename: string,
+  signal?: AbortSignal,
+): Promise<FileArtifactInfo> {
+  return requestJson<FileArtifactInfo>(`/files/upload?filename=${encodeURIComponent(filename)}`, {
+    method: 'POST',
+    body: file,
+    contentType: file.type,
+    signal,
+  });
+}
+
 export function getFileArtifact(
   artifactId: string,
   signal?: AbortSignal,

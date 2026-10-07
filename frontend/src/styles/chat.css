@@ -944,6 +944,117 @@ body,
 .chat-composer-message {
   display: grid;
 }
+.chat-attachments {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+}
+.chat-attachment {
+  position: relative;
+  display: grid;
+  flex: 0 0 96px;
+  gap: 3px;
+  font-size: 11px;
+}
+.chat-attachment img,
+.chat-attachment-placeholder {
+  width: 96px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #e5e5e5;
+}
+.chat-attachment-preview {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.chat-attachment-placeholder {
+  display: grid;
+  place-items: center;
+  color: #666;
+}
+.chat-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attachment-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 90%);
+}
+.chat-attachment-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 18px;
+  cursor: pointer;
+}
+.chat-attachment-button:hover {
+  background: #e8e8e8;
+}
+.chat-attachment-button:focus-within {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+.chat-attachment-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.chat-attachment-error {
+  color: #a52626;
+}
+.chat-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-message-image-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.chat-message-image {
+  max-width: min(360px, 100%);
+  max-height: 320px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+.chat-image-preview-dialog {
+  max-width: min(92vw, 1200px);
+  max-height: 92dvh;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+}
+.chat-image-preview-dialog img {
+  display: block;
+  max-width: 88vw;
+  max-height: 82dvh;
+  object-fit: contain;
+}
+.chat-message-image-loading,
+.chat-message-image-error {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+}
 
 .chat-composer textarea {
   display: block;

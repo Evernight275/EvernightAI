@@ -175,7 +175,13 @@ class ChatInterfaceProtocol(Protocol):
         principal_scope: PrincipalScope | None = None,
     ) -> ChatRequest: ...
 
-    async def chat(self, provider_id: str, request: ChatRequest) -> ChatResponse: ...
+    async def chat(
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> ChatResponse: ...
 
     async def chat_with_context(
         self,
@@ -193,7 +199,11 @@ class ChatInterfaceProtocol(Protocol):
     ) -> ChatResponse: ...
 
     async def chat_stream(
-        self, provider_id: str, request: ChatRequest
+        self,
+        provider_id: str,
+        request: ChatRequest,
+        *,
+        principal_scope: PrincipalScope | None = None,
     ) -> ChatStreamProtocol: ...
 
     async def chat_stream_with_context(

@@ -985,6 +985,56 @@ async def test_manager_allows_images_for_declared_vision_model() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("declared", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_manager_allows_images_when_model_capabilities_are_unknown(
+    declared: bool,
+    streaming: bool,
+) -> None:
+    async def build_provider(config: ProviderConfig) -> ProviderInstanceProtocol:
+        return FakeProvider()
+
+    factory = ProviderFactory()
+    factory.register(ProviderType.OPENAI, build_provider)
+    manager = ProviderManager(factory)
+    models = (
+        {
+            "model": ProviderModelConfig(model_id="model-1", capabilities=[]),
+        }
+        if declared
+        else {}
+    )
+    await manager.create(
+        ProviderConfig(
+            provider_id="provider-1",
+            name="OpenAI",
+            type=ProviderType.OPENAI,
+            model=models,
+        )
+    )
+    request = ChatRequest(
+        model_id="model-1",
+        messages=[
+            Content(
+                role=MessageRole.USER,
+                content=[
+                    ContentPart(
+                        type=ContentPartType.IMAGE,
+                        url="https://example.com/image.png",
+                    )
+                ],
+            )
+        ],
+    )
+
+    if streaming:
+        stream = await manager.chat_stream("provider-1", request)
+        assert [event async for event in stream]
+    else:
+        assert (await manager.chat("provider-1", request)).model_id == "model-1"
+
+
+@pytest.mark.asyncio
 async def test_manager_logs_stream_usage_after_consumption(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

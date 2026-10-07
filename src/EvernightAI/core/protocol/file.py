@@ -17,6 +17,10 @@ class FileArtifactStoreProtocol(Protocol):
 
 
 class FileInterfaceProtocol(Protocol):
+    def upload_file(
+        self, name: str, content: bytes, *, principal_scope: PrincipalScope | None = None
+    ) -> FileArtifactInfo: ...
+
     def get_file(
         self, artifact_id: str, *, principal_scope: PrincipalScope | None = None
     ) -> FileArtifactInfo: ...

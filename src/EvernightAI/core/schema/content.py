@@ -1,6 +1,6 @@
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from pydantic import Field
+from pydantic import Field, model_validator
 from enum import StrEnum
 from typing import Any
 
@@ -61,9 +61,19 @@ class ContentPart(EvernightAISchema):
     text: str | None = None
     url: str | None = None
     data: str | None = None
+    artifact_id: str | None = Field(default=None, min_length=1)
     mime_type: str | None = None
     detail: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_image_reference(self) -> "ContentPart":
+        if self.artifact_id is not None:
+            if self.type is not ContentPartType.IMAGE:
+                raise ValueError("artifact_id is only supported for image content")
+            if self.url is not None or self.data is not None:
+                raise ValueError("image artifact_id cannot be combined with url or data")
+        return self
 
 
 class Content(EvernightAISchema):

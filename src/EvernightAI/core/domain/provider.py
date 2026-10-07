@@ -527,6 +527,7 @@ class ProviderManager(ProviderManageProtocol):
         )
         if (
             has_image
+            and model.capabilities
             and ProviderModelCapability.IMAGE_RECOGNITION not in model.capabilities
         ):
             raise ProviderCapabilityUnsupportedError(
