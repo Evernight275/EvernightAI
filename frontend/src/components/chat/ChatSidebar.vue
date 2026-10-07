@@ -1,16 +1,7 @@
 <script setup lang="ts">
 import WorkingDirectoryPicker from './WorkingDirectoryPicker.vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
-import {
-  SquarePen,
-  Settings,
-  X,
-  PanelLeftClose,
-  Search,
-  Trash2,
-  UserRound,
-  ImagePlus,
-} from '@lucide/vue';
+import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, ImagePlus } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { useDialog } from '../common/dialog';
 import type { ChatSidebarItem } from './chatSidebar';
@@ -73,7 +64,6 @@ async function confirmDelete(): Promise<void> {
           <X :size="18" aria-hidden="true" />
         </button>
         <h1 class="chat-sidebar-brand">
-          <span class="chat-sidebar-brand-mark" aria-hidden="true">E</span>
           <span>EvernightAI</span>
         </h1>
         <button
@@ -141,7 +131,6 @@ async function confirmDelete(): Promise<void> {
           aria-haspopup="dialog"
           @click="$emit('settings')"
         >
-          <span class="chat-sidebar-avatar" aria-hidden="true"><UserRound :size="15" /></span>
           <span class="chat-sidebar-account-copy"
             ><strong>EvernightAI</strong><small>本地工作区</small></span
           >

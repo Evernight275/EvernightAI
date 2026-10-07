@@ -172,31 +172,23 @@ try {
     await page.getByRole('button', { name: '确认取消并编辑', exact: true }).click();
     await page.waitForURL('**/chat.html?run=old*');
     await page.getByText('原请求已载入草稿', { exact: true }).waitFor();
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     assert.deepEqual(
       JSON.parse(await page.locator('#chat-message').inputValue()),
       fixture().request.messages,
     );
     assert.equal(calls.filter((call) => call.path === '/agent-runs/stream').length, 0);
-    await page.getByText('技能与上下文', { exact: true }).click();
-    assert.deepEqual(
-      JSON.parse(await page.getByLabel('本轮技能（JSON）').inputValue()),
-      fixture().request.skills,
-    );
-    const options = page.getByLabel('运行参数（JSON）');
-    const params = JSON.parse(await options.inputValue());
-    assert.equal(params.max_tool_rounds, 3);
-    assert.deepEqual(params.metadata, { custom: 'keep' });
-    await options.fill('{invalid');
     const edited = fixture().request.messages;
     edited[0].content[0].text = '修改后的输入';
     await page.locator('#chat-message').fill(JSON.stringify(edited));
     await page.reload();
-    await page.getByText('技能与上下文', { exact: true }).click();
-    assert.equal(await options.inputValue(), '{invalid');
+    await page.waitForFunction(
+      (expected) => document.querySelector('#chat-message')?.value === expected,
+      JSON.stringify(edited),
+    );
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     assert.deepEqual(JSON.parse(await page.locator('#chat-message').inputValue()), edited);
     assert.equal(calls.filter((call) => call.path === '/agent-runs/stream').length, 0);
-    await options.fill(JSON.stringify(params));
-    await page.getByText('技能与上下文', { exact: true }).click();
     await page.screenshot({ path: `${screenshots}/${width}-edited-skill-draft.png` });
     await page.getByRole('button', { name: '发送', exact: true }).click();
     await page.locator('.chat-transcript .chat-tool-approval').waitFor();
@@ -208,8 +200,11 @@ try {
     assert.deepEqual(sent.tools, fixture().request.tools);
     assert.equal(sent.recover_tool_errors, false);
     assert.equal(sent.max_tool_rounds, 3);
+    assert.equal(sent.write_memory, false);
     assert.deepEqual(sent.tool_approvals, []);
     assert.equal(sent.metadata.retry_of, undefined);
+    assert.equal(sent.metadata.session_id, 'session');
+    assert.equal(sent.metadata.custom, 'keep');
     assert.equal(sent.pause_on_approval, true);
 
     // Resume can conflict after the catalog was fetched, including an SSE 200 response.
@@ -295,10 +290,7 @@ try {
     await page.getByRole('button', { name: '确认取消并编辑', exact: true }).click();
     await page.getByText('原请求已载入草稿', { exact: true }).waitFor();
     assert.equal(await page.locator('#chat-message').inputValue(), '原输入');
-    await page.getByText('技能与上下文', { exact: true }).click();
-    assert.deepEqual(JSON.parse(await page.getByLabel('技能参数（JSON）').inputValue()), {
-      tone: 'calm',
-    });
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     await page.locator('#chat-message').fill('private draft');
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-api-key-change')));
     await page.waitForFunction(() => document.querySelector('#chat-message').value === '');

@@ -52,10 +52,6 @@ try {
       },
     };
     let failSave = true;
-    let holdPreview = false;
-    let releasePreview;
-    let receivedPreview;
-    let pendingPreview;
     page.on('pageerror', (error) => errors.push(error.message));
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
@@ -96,11 +92,6 @@ try {
         const skill = skills.find((skill) => skill.name === name);
         if (path.endsWith('/template')) return json(templates.get(name));
         if (path.endsWith('/render')) {
-          if (holdPreview)
-            await new Promise((resolve) => {
-              releasePreview = resolve;
-              receivedPreview();
-            });
           const value = data.variables?.tone;
           if (name === 'style' && !value)
             return route.fulfill({
@@ -148,14 +139,6 @@ try {
           model_id: 'model',
         });
       if (path === '/contexts/ctx-1') return json({ context_id: 'ctx-1', messages: [] });
-      if (path === '/contexts/ctx-1/compose-preview') {
-        if (holdPreview)
-          await new Promise((resolve) => {
-            releasePreview = resolve;
-            receivedPreview();
-          });
-        return json({ ...data });
-      }
       return json([]);
     });
     await page.goto(base);
@@ -230,70 +213,10 @@ try {
     await page.goto(`${base}/chat.html`);
     if (width <= 760) await page.getByRole('button', { name: '会话管理', exact: true }).click();
     await page.getByRole('button', { name: '测试会话', exact: true }).click();
-    await page.getByText('技能与上下文', { exact: true }).click();
-    const choices = await page
-      .getByLabel('本轮技能')
-      .locator('option')
-      .evaluateAll((elements) => elements.map((element) => element.value));
-    assert.ok(!choices.includes('disabled') && !choices.includes('chat-only'));
-    await page.getByLabel('本轮技能').selectOption('dependency');
-    await page.getByRole('alert').filter({ hasText: '缺少必需工具：missing' }).waitFor();
-    await page.locator('#chat-message').fill('草稿');
-    assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
-    await page.getByLabel('本轮技能').selectOption('style');
-    await page.getByLabel('语气', { exact: false }).selectOption(JSON.stringify('calm'));
-    await page.getByRole('button', { name: '预览技能提示词', exact: true }).click();
-    await page.getByText('Use calm style', { exact: true }).waitFor();
-    assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isEnabled());
-    await page.screenshot({ path: `${screenshots}/${width}-skill-chat.png` });
-    await page.getByLabel('本轮技能').selectOption('complex');
-    await page.getByLabel('技能参数（JSON）').fill('{"items":[{"value":3}]}');
-    await page.getByRole('button', { name: '预览上下文', exact: true }).click();
-    await page.getByLabel('上下文预览').waitFor();
-    assert.deepEqual(
-      calls.filter((call) => call.path.endsWith('/compose-preview')).at(-1).data.skills,
-      [{ skill_name: 'complex', variables: { items: [{ value: 3 }] } }],
-    );
-    holdPreview = true;
-    pendingPreview = new Promise((resolve) => {
-      receivedPreview = resolve;
-    });
-    await page.getByRole('button', { name: '预览上下文', exact: true }).click();
-    await pendingPreview;
-    await page.getByLabel('技能参数（JSON）').fill('{"items":[{"value":4}]}');
-    const staleContext = page.waitForResponse((response) =>
-      response.url().endsWith('/compose-preview'),
-    );
-    releasePreview();
-    await (await staleContext).finished();
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-    );
-    assert.equal(
-      await page.getByLabel('上下文预览').count(),
-      0,
-      'changed inputs must discard in-flight context previews',
-    );
-    pendingPreview = new Promise((resolve) => {
-      receivedPreview = resolve;
-    });
-    await page.getByRole('button', { name: '预览技能提示词', exact: true }).click();
-    await pendingPreview;
-    await page.getByLabel('技能参数（JSON）').fill('{"items":[{"value":5}]}');
-    const staleSkill = page.waitForResponse((response) => response.url().endsWith('/render'));
-    releasePreview();
-    await (await staleSkill).finished();
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-    );
-    assert.equal(
-      await page.getByText('Use default style', { exact: true }).count(),
-      0,
-      'changed inputs must discard in-flight skill previews',
-    );
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     assert.deepEqual(errors, []);
     console.log(
-      `${width}px: skill create/retry, forms, previews, editing, enable/disable, export/import/delete, capability filtering and tool dependencies passed`,
+      `${width}px: skill management, template previews, export/import/delete and removed chat panel passed`,
     );
     await page.close();
   }

@@ -353,29 +353,20 @@ try {
     await page.getByRole('button', { name: '保存标题', exact: true }).click();
     await page.getByRole('heading', { name: '新的标题', exact: true }).waitFor();
     assert.deepEqual(session.metadata, { preserve: true });
-    await page.getByText('技能与上下文', { exact: true }).click();
-    await page.getByLabel('本轮技能').selectOption('echo');
-    await page.getByRole('button', { name: 'JSON', exact: true }).click();
-    await page.getByLabel('技能参数（JSON）').fill('{"text":"hello"}');
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     await page.locator('#chat-message').fill('你好');
-    await page.getByRole('button', { name: '预览上下文', exact: true }).click();
-    await page.getByLabel('上下文预览', { exact: true }).waitFor();
-    const preview = calls.find((call) => call.path.endsWith('/compose-preview')).data;
-    assert.deepEqual(preview.skills, [{ skill_name: 'echo', variables: { text: 'hello' } }]);
-    assert.equal(preview.metadata.session_id, 'session-1');
-    await page.getByText('技能与上下文', { exact: true }).click();
     await page.getByRole('button', { name: '发送', exact: true }).click();
     await page.waitForFunction(
       () => document.querySelector('.chat-header-status').textContent === '准备就绪',
     );
-    assert.deepEqual(
-      calls.find((call) => call.path === '/agent-runs/stream').data.skills,
-      preview.skills,
-    );
+    const sent = calls.find((call) => call.path === '/agent-runs/stream').data;
+    assert.deepEqual(sent.messages, [{ role: 'user', content: [{ type: 'text', text: '你好' }] }]);
+    assert.equal(sent.metadata.session_id, 'session-1');
+    assert.equal(sent.skills, undefined);
     assert.deepEqual(errors, []);
     await page.close();
     console.log(
-      `${width}px: provider error/retry, memory CRUD, approvals, resource validation, rename and skill preview/send passed`,
+      `${width}px: provider error/retry, memory CRUD, approvals, resource validation, session rename, chat send and removed chat panel passed`,
     );
   }
 } finally {

@@ -142,21 +142,12 @@ try {
       .waitFor();
     assert.equal(await page.locator('#chat-message').inputValue(), '保留草稿');
     assert.equal(await page.locator('.chat-model-trigger').innerText(), 'main-model');
-    assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
-    await page.getByText('技能与上下文', { exact: true }).click();
-    await page
-      .locator('.chat-composer')
-      .getByLabel('模型 ID', { exact: true })
-      .fill('undeclared-model');
+    assert.equal(await page.locator('.chat-advanced').count(), 0);
     assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
     await page.getByRole('button', { name: '选择模型', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: 'off-model', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'main-model', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'spare-model', exact: true }).click();
-    await page
-      .locator('.chat-composer')
-      .getByLabel('模型 ID', { exact: true })
-      .fill('spare-custom');
     assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isEnabled());
     assert.equal(
       await page
@@ -172,7 +163,7 @@ try {
     await page.getByRole('button', { name: '启用服务 主服务已编辑', exact: true }).click();
     await page.getByRole('button', { name: '停用服务 主服务已编辑', exact: true }).waitFor();
     await closeSettings();
-    assert.equal(await page.locator('.chat-model-trigger').innerText(), 'spare-custom');
+    assert.equal(await page.locator('.chat-model-trigger').innerText(), 'spare-model');
     await page.getByRole('button', { name: '选择模型', exact: true }).click();
     await page.getByRole('button', { name: 'main-model', exact: true }).click();
     assert.ok(await page.getByRole('button', { name: '发送', exact: true }).isEnabled());
@@ -190,7 +181,7 @@ try {
     assert.equal(calls.filter((call) => call.path === '/agent-runs/stream').length, 0);
     assert.deepEqual(errors, []);
     console.log(
-      `${width}px: provider disable/enable retry, disabled editing, session warning, model filtering and drafts passed`,
+      `${width}px: provider disable/enable retry, disabled editing, session warning, declared model selection and drafts passed`,
     );
     await page.close();
   }
