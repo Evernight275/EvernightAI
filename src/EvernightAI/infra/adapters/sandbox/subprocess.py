@@ -122,7 +122,11 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
         return (Path(mount.host_path) / relative_cwd).resolve()
 
     def _resolve_env(self, request: SandboxExecutionRequest) -> dict[str, str]:
-        return {**os.environ, **request.command.env}
+        env = {**os.environ, **request.command.env}
+        if os.name == "nt":
+            # Output is decoded as UTF-8; Windows Python defaults pipes to the ANSI code page.
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+        return env
 
     def _timeout_seconds(self, request: SandboxExecutionRequest) -> float:
         return (
