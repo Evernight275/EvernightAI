@@ -23,6 +23,7 @@ WEBSOCKET_SEND_QUEUE_SIZE: Final = 100
 WEBSOCKET_HEARTBEAT_INTERVAL_SECONDS: Final = 30.0
 WEBSOCKET_HEARTBEAT_TIMEOUT_SECONDS: Final = 90.0
 WEBSOCKET_HEARTBEAT_TIMEOUT_CLOSE_CODE: Final = 4000
+WEBSOCKET_POLICY_VIOLATION_CLOSE_CODE: Final = 1008
 WEBSOCKET_SUBPROTOCOL: Final = "evernight.realtime"
 WEBSOCKET_API_KEY_SUBPROTOCOL_PREFIX: Final = "evernight.api_key."
 WEBSOCKET_ACCESS_TOKEN_SUBPROTOCOL_PREFIX: Final = "evernight.access_token."
@@ -52,6 +53,22 @@ class ManagedWebSocketConnection(WebSocketProtocol):
         self._sender_task: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._closed = False
+        self._credential_guard: Callable[[], bool] | None = None
+
+    def guard_credential(self, guard: Callable[[], bool] | None) -> None:
+        self._credential_guard = guard
+
+    async def ensure_credential(self) -> bool:
+        """Close the connection once its credential has been revoked or expired."""
+        if self._credential_guard is None or self._credential_guard():
+            return True
+
+        await self.manager.disconnect(
+            self,
+            code=WEBSOCKET_POLICY_VIOLATION_CLOSE_CODE,
+            reason="AuthRequiredError",
+        )
+        return False
 
     async def start(self) -> None:
         self._sender_task = asyncio.create_task(self._send_loop())
@@ -63,7 +80,7 @@ class ManagedWebSocketConnection(WebSocketProtocol):
         return WebSocketMessage.model_validate(raw_message)
 
     async def send(self, message: WebSocketMessage) -> None:
-        if self._closed:
+        if self._closed or not await self.ensure_credential():
             raise WebSocketDisconnect()
 
         await self._send_queue.put(message)
@@ -118,7 +135,7 @@ class ManagedWebSocketConnection(WebSocketProtocol):
     async def _heartbeat_loop(self) -> None:
         while not self._closed:
             await asyncio.sleep(self._heartbeat_interval_seconds)
-            if self._closed:
+            if self._closed or not await self.ensure_credential():
                 return
 
             age_seconds = monotonic() - self._last_received_at
@@ -290,7 +307,7 @@ class WebSocketConnectionManager:
         connection_ids = list(self._subscriptions_by_run.get(run_id, set()))
         for connection_id in connection_ids:
             connection = self._connections.get(connection_id)
-            if connection is None:
+            if connection is None or not await connection.ensure_credential():
                 continue
 
             key = (connection_id, run_id)

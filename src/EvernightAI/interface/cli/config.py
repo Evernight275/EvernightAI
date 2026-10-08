@@ -17,6 +17,7 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthPrincipalConfig,
+    AuthUserConfig,
     ContextStrategyConfig,
     DataAnalysisConfig,
     EvernightConfig,
@@ -93,6 +94,8 @@ def _parse_auth(raw: object) -> AuthConfig:
     return AuthConfig(
         enabled=_bool(raw.get("enabled"), False),
         principals=_parse_auth_principals(raw.get("principal", {})),
+        users=_parse_auth_users(raw.get("user", {})),
+        login_session_ttl_seconds=_int(raw.get("login_session_ttl_seconds"), 43200),
         oauth=_parse_oauth(raw.get("oauth", {})),
     )
 
@@ -192,6 +195,30 @@ def _parse_auth_principal(
         api_key=_api_key(data),
         roles=_string_list(data.get("roles")),
         permissions=_string_list(data.get("permissions")),
+        metadata=_dict(data.get("metadata")),
+    )
+
+
+def _parse_auth_users(raw: object) -> list[AuthUserConfig]:
+    if not isinstance(raw, dict):
+        return []
+
+    return [
+        _parse_auth_user(username, user_data)
+        for username, user_data in raw.items()
+        if isinstance(username, str) and isinstance(user_data, dict)
+    ]
+
+
+def _parse_auth_user(username: str, data: dict[str, Any]) -> AuthUserConfig:
+    return AuthUserConfig(
+        username=username,
+        password=_password(data),
+        principal_type=data.get("principal_type", "user"),
+        roles=_string_list(data.get("roles")),
+        permissions=(
+            _string_list(data.get("permissions")) if "permissions" in data else ["*"]
+        ),
         metadata=_dict(data.get("metadata")),
     )
 
@@ -301,6 +328,22 @@ def _api_key(data: dict[str, Any]) -> str | None:
         return None
 
     value = os.getenv(api_key_env)
+    if value == "":
+        return None
+
+    return value
+
+
+def _password(data: dict[str, Any]) -> str | None:
+    password = _string(data.get("password"))
+    if password is not None:
+        return password
+
+    password_env = _string(data.get("password_env"))
+    if password_env is None:
+        return None
+
+    value = os.getenv(password_env)
     if value == "":
         return None
 

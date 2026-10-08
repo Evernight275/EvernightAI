@@ -450,6 +450,12 @@ def redact_config(config: EvernightConfig) -> dict[str, Any]:
         for provider in providers:
             if isinstance(provider, dict) and provider.get("api_key"):
                 provider["api_key"] = "***"
+    auth = payload.get("auth")
+    users = auth.get("users") if isinstance(auth, dict) else None
+    if isinstance(users, list):
+        for user in users:
+            if isinstance(user, dict) and user.get("password"):
+                user["password"] = "***"
 
     return payload
 

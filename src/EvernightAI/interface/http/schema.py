@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import Field
 
 from EvernightAI.core.schema.auth import Principal, PrincipalType
@@ -16,6 +18,18 @@ class HttpApiKeyCredential(EvernightAISchema):
 
 class HttpOAuthBearerCredential(EvernightAISchema):
     access_token: str
+    principal: Principal
+
+
+class HttpPasswordCredential(EvernightAISchema):
+    username: str
+    password: str
+    principal: Principal
+
+
+class HttpLoginSession(EvernightAISchema):
+    access_token: str
+    expires_at: datetime
     principal: Principal
 
 

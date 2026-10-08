@@ -18,8 +18,10 @@ from EvernightAI.interface.http.auth import (
     HttpApiKeyCredential,
     HttpOAuthJwtConfig,
     HttpOAuthBearerCredential,
+    HttpPasswordCredential,
     OAuthJwtBearerHttpAuthDevice,
     OAuthBearerHttpAuthDevice,
+    PasswordLoginHttpAuthDevice,
 )
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
 
@@ -107,9 +109,11 @@ def create_app_from_config(
             if provider.provider_id not in stored_ids:
                 await interface.providers.create_provider(provider)
 
+    login_device = _config_login_device(config)
     return create_http_app(
         interface,
-        auth_device=_config_auth_device(config),
+        auth_device=_config_auth_device(config, login_device),
+        login_device=login_device,
         workspace_directories=runtime.workspace_directories,
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
@@ -161,11 +165,48 @@ def _env_auth_device() -> HttpAuthDeviceProtocol | None:
     return _combine_auth_devices(devices)
 
 
-def _config_auth_device(config: EvernightConfig) -> HttpAuthDeviceProtocol | None:
+def _config_login_device(
+    config: EvernightConfig,
+) -> PasswordLoginHttpAuthDevice | None:
+    if not config.auth.enabled or not config.auth.users:
+        return None
+
+    credentials: list[HttpPasswordCredential] = []
+    for user in config.auth.users:
+        if user.password is None:
+            raise ConfigurationError(
+                f"Password for auth user {user.username} is not configured"
+            )
+        credentials.append(
+            HttpPasswordCredential(
+                username=user.username,
+                password=user.password,
+                principal=Principal(
+                    principal_id=user.username,
+                    principal_type=user.principal_type,
+                    roles=user.roles,
+                    permissions=user.permissions,
+                    metadata=user.metadata,
+                ),
+            )
+        )
+
+    return PasswordLoginHttpAuthDevice(
+        credentials,
+        session_ttl_seconds=config.auth.login_session_ttl_seconds,
+    )
+
+
+def _config_auth_device(
+    config: EvernightConfig,
+    login_device: PasswordLoginHttpAuthDevice | None = None,
+) -> HttpAuthDeviceProtocol | None:
     if not config.auth.enabled:
         return None
 
     devices: list[HttpAuthDeviceProtocol] = []
+    if login_device is not None:
+        devices.append(login_device)
     api_key_credentials = [
         HttpApiKeyCredential(
             api_key=principal.api_key,

@@ -4134,7 +4134,11 @@ def test_identity_reports_unsecured_mode_without_inventing_a_user() -> None:
     with TestClient(app) as client:
         response = client.get("/auth/me")
     assert response.status_code == 200
-    assert response.json() == {"authentication_enabled": False, "principal": None}
+    assert response.json() == {
+        "authentication_enabled": False,
+        "login_enabled": False,
+        "principal": None,
+    }
     assert response.headers["cache-control"] == "no-store"
 
 
@@ -4166,6 +4170,7 @@ def test_identity_requires_valid_credentials_and_omits_private_metadata() -> Non
     assert response.headers["cache-control"] == "no-store"
     assert response.json() == {
         "authentication_enabled": True,
+        "login_enabled": False,
         "principal": {
             "principal_id": "alice",
             "principal_type": "user",

@@ -22,6 +22,7 @@ from EvernightAI.interface.http.errors import (
 from EvernightAI.interface.http.protocol import (
     AuthorizedHttpInterfaceFactoryProtocol,
     HttpAuthDeviceProtocol,
+    HttpLoginDeviceProtocol,
 )
 from EvernightAI.interface.http.routes.agent_runs import router as agent_runs_router
 from EvernightAI.interface.http.routes.auth import router as auth_router
@@ -54,6 +55,7 @@ def create_http_app(
     interface: EvernightInterfaceProtocol,
     *,
     auth_device: HttpAuthDeviceProtocol | None = None,
+    login_device: HttpLoginDeviceProtocol | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
     authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
@@ -84,6 +86,7 @@ def create_http_app(
     app.state.workspace_directories = workspace_directories
     app.state.interface = interface
     app.state.auth_device = auth_device
+    app.state.login_device = login_device
     app.state.readiness_checker = readiness_checker or _always_ready
     app.state.websocket_manager = WebSocketConnectionManager()
     app.state.authorized_interface_factory = (
@@ -214,7 +217,7 @@ def _secured_openapi_factory(app: FastAPI):
             "description": ("Send the API key as `X-Evernight-API-Key: <api-key>`."),
         }
         for path, methods in schema.get("paths", {}).items():
-            if path in {"/health", "/ready"}:
+            if path in {"/health", "/ready", "/auth/login"}:
                 continue
             for operation in methods.values():
                 if isinstance(operation, dict):

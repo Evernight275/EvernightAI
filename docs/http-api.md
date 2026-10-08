@@ -943,6 +943,36 @@ is required to inspect one's own identity. Invalid or missing credentials return
 null. Identity responses and authentication/permission errors use `Cache-Control:
 no-store`.
 
+The response also carries `login_enabled`, which is true when username/password
+login is configured.
+
+### Username and password login
+
+Configure users under `[auth.user.<username>]` with `password` or `password_env`,
+and set `auth.enabled = true`. Omitting `permissions` grants `["*"]`.
+
+`POST /auth/login` accepts `{"username": "...", "password": "..."}` and returns
+`access_token`, `token_type` (`bearer`), `expires_at`, and the `principal`. Send the
+token as `Authorization: Bearer <access_token>` on later requests, or through the
+WebSocket access-token subprotocol. A wrong username and a wrong password return
+the same 401. The endpoint returns 404 when no user is configured. Request
+validation errors under `/auth/` omit the submitted input and use
+`Cache-Control: no-store`. `/auth/login` carries no security requirement in the
+OpenAPI schema.
+
+`POST /auth/logout` revokes the session identified by the request's Bearer token
+and returns 204. It requires a Bearer token but does not fail for a token that is
+not a login session, so it never revokes API keys or externally issued tokens.
+A WebSocket opened with a login session is closed with code 1008 once that
+session is logged out or expires: the session is rechecked before each message
+is handled or delivered and on every heartbeat. An HTTP or SSE response that
+was already streaming when the session ended is allowed to finish.
+
+Sessions last `auth.login_session_ttl_seconds` (default 43200) from login and are
+not extended by use. They are held in process memory: restarting the service
+signs every user out, and sessions are not shared between processes. Failed login
+attempts are not rate limited.
+
 The browser validates API keys or Bearer tokens before saving them. Signing out
 removes browser credentials and disables page-provided fallback credentials for
 that browser until another credential is saved. This does not revoke a static API

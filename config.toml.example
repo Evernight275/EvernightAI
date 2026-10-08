@@ -66,11 +66,23 @@ static_files_path = "frontend/dist"
 # Authorization/X-Evernight-API-Key. CLI commands use the single configured
 # principal, or EVERNIGHTAI_CLI_API_KEY when multiple principals are present.
 enabled = false
+# Lifetime of a username/password login session. Defaults to 12 hours.
+# login_session_ttl_seconds = 43200
 
 [auth.principal.admin]
 # Requests may use either `Authorization: Bearer ...` or `X-Evernight-API-Key`.
 api_key_env = "EVERNIGHTAI_HTTP_API_KEY"
 permissions = ["*"]
+
+# Username/password login for the control panel. The table name is the
+# username. `POST /auth/login` exchanges these for a bearer session token.
+# Sessions are kept in memory, so restarting the service signs everyone out.
+# Uncomment to enable; a user whose password is unset fails startup.
+# [auth.user.admin]
+# password_env = "EVERNIGHTAI_ADMIN_PASSWORD"
+# # `password = "..."` also works, but keeps the secret in this file.
+# # Omitting permissions grants ["*"].
+# permissions = ["*"]
 
 [auth.oauth.jwt]
 # OAuth access tokens use `Authorization: Bearer ...`.

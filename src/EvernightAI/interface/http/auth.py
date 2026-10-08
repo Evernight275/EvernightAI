@@ -1,3 +1,8 @@
+import hmac
+import secrets
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import Any
 
 import jwt
@@ -9,11 +14,14 @@ from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.http.schema import (
     HttpApiKeyCredential,
+    HttpLoginSession,
     HttpOAuthBearerCredential,
     HttpOAuthJwtConfig,
+    HttpPasswordCredential,
 )
 from EvernightAI.interface.http.protocol import (
     HttpAuthDeviceProtocol,
+    HttpLoginDeviceProtocol,
     JwkClientProtocol,
 )
 
@@ -107,6 +115,107 @@ class OAuthBearerHttpAuthDevice(HttpAuthDeviceProtocol):
             raise AuthRequiredError("Invalid access token")
 
         return principal
+
+
+class PasswordLoginHttpAuthDevice(HttpAuthDeviceProtocol, HttpLoginDeviceProtocol):
+    """Exchanges a configured username and password for a bearer session token.
+
+    Sessions live in process memory, so a restart signs every user out.
+    """
+
+    def __init__(
+        self,
+        credentials: list[HttpPasswordCredential],
+        *,
+        session_ttl_seconds: float = 43200,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if session_ttl_seconds <= 0:
+            raise ValueError("Login session TTL must be positive")
+        self._credentials_by_username = {
+            credential.username: credential
+            for credential in credentials
+            if credential.username and credential.password
+        }
+        self._session_ttl = timedelta(seconds=session_ttl_seconds)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._sessions: dict[str, HttpLoginSession] = {}
+        self._lock = Lock()
+
+    def login(self, username: str, password: str) -> HttpLoginSession:
+        credential = self._credentials_by_username.get(username)
+        # Compare even for unknown usernames so timing does not reveal them.
+        password_matches = hmac.compare_digest(
+            password.encode("utf-8"),
+            (credential.password if credential is not None else "").encode("utf-8"),
+        )
+        if credential is None or not password_matches:
+            raise AuthRequiredError("Invalid username or password")
+
+        now = self._clock()
+        session = HttpLoginSession(
+            access_token=secrets.token_urlsafe(32),
+            expires_at=now + self._session_ttl,
+            principal=credential.principal,
+        )
+        with self._lock:
+            self._drop_expired_sessions(now)
+            self._sessions[session.access_token] = session
+        return session
+
+    def logout_for_request(self, request: Request) -> bool:
+        access_token = _bearer_token_from_request(request)
+        if access_token is None:
+            raise AuthRequiredError("Authentication required")
+        with self._lock:
+            return self._sessions.pop(access_token, None) is not None
+
+    def session_guard(self, credential: object) -> Callable[[], bool] | None:
+        """Return a liveness check for a login session, or None for other tokens.
+
+        Long-lived connections authenticate once, so they call the check to
+        notice a logout or expiry that happens while they are open.
+        """
+        if not isinstance(credential, str) or not self._session_is_active(credential):
+            return None
+
+        return lambda: self._session_is_active(credential)
+
+    def session_guard_for_request(self, request: Request) -> Callable[[], bool] | None:
+        return self.session_guard(_bearer_token_from_request(request))
+
+    def principal_for_request(self, request: Request) -> Principal:
+        return self.principal(_bearer_token_from_request(request))
+
+    def principal(self, credential: object) -> Principal:
+        if credential is None:
+            raise AuthRequiredError("Authentication required")
+        if not isinstance(credential, str) or credential == "":
+            raise AuthRequiredError("Invalid access token")
+
+        with self._lock:
+            session = self._sessions.get(credential)
+            if session is None:
+                raise AuthRequiredError("Invalid access token")
+            if session.expires_at <= self._clock():
+                del self._sessions[credential]
+                raise AuthRequiredError("Login session expired")
+
+        return session.principal
+
+    def _session_is_active(self, access_token: str) -> bool:
+        with self._lock:
+            session = self._sessions.get(access_token)
+            return session is not None and session.expires_at > self._clock()
+
+    def _drop_expired_sessions(self, now: datetime) -> None:
+        expired = [
+            access_token
+            for access_token, session in self._sessions.items()
+            if session.expires_at <= now
+        ]
+        for access_token in expired:
+            del self._sessions[access_token]
 
 
 class OAuthJwtBearerHttpAuthDevice(HttpAuthDeviceProtocol):

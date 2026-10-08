@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import cast
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from EvernightAI.core.schema.tool import ToolApprovalDecision
 from EvernightAI.interface.http.protocol import (
     AuthorizedHttpInterfaceFactoryProtocol,
     HttpAuthDeviceProtocol,
+    HttpLoginDeviceProtocol,
 )
 from EvernightAI.interface.http.websocket import (
     ManagedWebSocketConnection,
@@ -60,6 +62,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     close_code = 1000
     close_reason: str | None = None
     try:
+        connection.guard_credential(_websocket_credential_guard(websocket))
         interface = _websocket_interface(websocket)
         await _send_hello(connection, connection_id=connection.connection_id)
         await _websocket_loop(interface, connection)
@@ -88,6 +91,8 @@ async def _websocket_loop(
             await _send_error(connection, exc)
             continue
 
+        if not await connection.ensure_credential():
+            return
         await _handle_message(interface, connection, message)
 
 
@@ -551,6 +556,20 @@ def _websocket_interface(websocket: WebSocket) -> EvernightInterfaceProtocol:
     else:
         principal = auth_device.principal_for_request(cast(Request, websocket))
     return factory(interface, principal)
+
+
+def _websocket_credential_guard(websocket: WebSocket) -> Callable[[], bool] | None:
+    login_device = cast(
+        HttpLoginDeviceProtocol | None,
+        getattr(websocket.app.state, "login_device", None),
+    )
+    if login_device is None:
+        return None
+
+    token = websocket_subprotocol_token(websocket) or websocket_query_token(websocket)
+    if token is not None:
+        return login_device.session_guard(token)
+    return login_device.session_guard_for_request(cast(Request, websocket))
 
 
 def _websocket_manager(websocket: WebSocket) -> WebSocketConnectionManager:

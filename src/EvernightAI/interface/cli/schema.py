@@ -226,9 +226,20 @@ class OAuthConfig(EvernightAISchema):
     jwt: OAuthJwtConfig | None = None
 
 
+class AuthUserConfig(EvernightAISchema):
+    username: str
+    password: str | None = None
+    principal_type: PrincipalType = PrincipalType.USER
+    roles: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=lambda: ["*"])
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class AuthConfig(EvernightAISchema):
     enabled: bool = False
     principals: list[AuthPrincipalConfig] = Field(default_factory=list)
+    users: list[AuthUserConfig] = Field(default_factory=list)
+    login_session_ttl_seconds: int = Field(default=43200, gt=0)
     oauth: OAuthConfig = Field(default_factory=OAuthConfig)
 
 

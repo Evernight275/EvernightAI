@@ -1,6 +1,7 @@
 from EvernightAI.core.error.base import (
     AuthorizationError,
     EvernightAIError,
+    NotFoundError,
     PermissionDeniedError,
 )
 
@@ -14,4 +15,8 @@ class AuthRequiredError(AuthError, AuthorizationError):
 
 
 class AuthPermissionDeniedError(AuthError, PermissionDeniedError):
+    pass
+
+
+class AuthLoginNotConfiguredError(AuthError, NotFoundError):
     pass
