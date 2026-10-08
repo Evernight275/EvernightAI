@@ -51,7 +51,9 @@ from EvernightAI.application.agent_execution import (
 from EvernightAI.application.agent_state import (
     LOGGER,
     AgentRunMetadata,
+    AgentPauseCause,
     AgentRunControl,
+    AgentRunPause,
     AgentRunRetryPlan,
     AbandonedToolExecution,
     _owner_scope,
@@ -125,7 +127,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         except AgentRunTimeoutError:
             self._mark_interrupted(
                 state.run_id,
-                "timeout",
+                AgentPauseCause.TIMEOUT,
                 principal_scope=principal_scope,
             )
             raise
@@ -175,7 +177,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         except AgentRunTimeoutError:
             self._mark_interrupted(
                 run_id,
-                "timeout",
+                AgentPauseCause.TIMEOUT,
                 principal_scope=principal_scope,
             )
             raise
@@ -202,10 +204,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         if state.status is not AgentRunStatus.RUNNING:
             raise AgentStateError("Agent run is not running")
 
-        state.metadata = AgentRunMetadata.with_runtime(
+        state.metadata = AgentRunControl.request_pause(
             state.metadata,
-            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: True},
-            pause_reason=reason or "pause",
+            reason or "pause",
         )
         self._state_register().save_state(
             state,
@@ -244,10 +245,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.stop_reason = None
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunMetadata.with_runtime(
+        state.metadata = AgentRunControl.canceled(
             state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
-            cancel_reason=reason or "canceled",
+            reason or "canceled",
         )
         event.sequence = self._trace_register().append_event(run_id, event)
         state.applied_trace_sequence = event.sequence
@@ -684,11 +684,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             and item.resolution is None
             for item in _latest_tool_execution_attempts(attempts).values()
         )
-        state.metadata = AgentRunMetadata.with_runtime(
+        state.metadata = AgentRunControl.resolved_by_operator(
             state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: eligible},
-            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: "operator_resolution"},
-            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: eligible},
+            resumable=eligible,
         )
         event = self._agent._add_trace(
             state,
@@ -849,10 +847,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             AgentTraceEventType.TOOL_COMPLETED,
             AgentTraceEventType.TOOL_FAILED,
         }:
-            state.metadata = AgentRunMetadata.with_runtime(
+            state.metadata = AgentRunControl.request_pause(
                 state.metadata,
-                **{AgentRunMetadata.PAUSE_REQUESTED_KEY: True},
-                pause_reason=control.pause_reason,
+                control.pause_reason,
             )
             return None
 
@@ -860,16 +857,12 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         pause_reason = control.pause_reason
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: True},
-            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: False},
-            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint},
-            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: True},
-            **{AgentRunMetadata.RECOVERY_REASON_KEY: "manual_pause"},
-            **{AgentRunMetadata.PAUSE_SOURCE_KEY: "manual_pause"},
-            pause_reason=pause_reason if isinstance(pause_reason, str) else "pause",
-        )
+        state.metadata = AgentRunPause(
+            cause=AgentPauseCause.MANUAL,
+            checkpoint=checkpoint,
+            resumable=True,
+            reason=pause_reason,
+        ).apply(state.metadata)
         pause_event = self._agent._add_trace(
             state,
             AgentTraceEvent(
@@ -910,7 +903,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     def _mark_interrupted(
         self,
         run_id: str,
-        reason: str,
+        cause: AgentPauseCause,
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> None:
@@ -930,7 +923,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_PAUSED,
                 metadata={
-                    "reason": reason,
+                    "reason": cause.source,
                     "interrupted": True,
                     "checkpoint": checkpoint.name,
                     "recovery_eligible": checkpoint.eligible,
@@ -941,15 +934,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.applied_trace_sequence = event.sequence
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: checkpoint.eligible},
-            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint.name},
-            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: checkpoint.eligible},
-            **{AgentRunMetadata.RECOVERY_REASON_KEY: reason},
-            **{AgentRunMetadata.PAUSE_SOURCE_KEY: reason},
-            interruption_reason=reason,
-        )
+        state.metadata = AgentRunPause(
+            cause=cause,
+            checkpoint=checkpoint.name,
+            resumable=checkpoint.eligible,
+        ).apply(state.metadata)
         self._state_register().save_state(
             state,
             principal_scope=principal_scope,
@@ -1044,7 +1033,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         except AgentRunTimeoutError:
             self._mark_interrupted(
                 run_id,
-                "timeout",
+                AgentPauseCause.TIMEOUT,
                 principal_scope=principal_scope,
             )
             raise

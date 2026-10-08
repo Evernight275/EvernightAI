@@ -68,6 +68,7 @@ class AgentRunMetadata:
     TOOL_ROUNDS_USED_KEY = "tool_rounds_used"
     MANUAL_PAUSE_KEY = "manual_pause"
     PAUSE_REQUESTED_KEY = "pause_requested"
+    PAUSE_REASON_KEY = "pause_reason"
     PAUSE_CHECKPOINT_KEY = "pause_checkpoint"
     PAUSE_SOURCE_KEY = "pause_source"
     RECOVERY_ELIGIBLE_KEY = "recovery_eligible"
@@ -125,6 +126,63 @@ class AgentResumeMode(StrEnum):
     CHECKPOINT = "checkpoint"
 
 
+class AgentPauseCause(StrEnum):
+    """Why a run stopped at a checkpoint instead of waiting for a tool approval."""
+
+    MANUAL = "manual_pause"
+    TIMEOUT = "timeout"
+    SHUTDOWN = "shutdown"
+    UNCLEAN_SHUTDOWN = "unclean_shutdown"
+    LEASE_EXPIRED = "lease_expired"
+
+    @property
+    def source(self) -> str:
+        """The name persisted in snapshots and traces.
+
+        Snapshots do not distinguish a run found still running at startup from
+        one paused by a graceful shutdown; both are recorded as "shutdown".
+        """
+        if self is AgentPauseCause.UNCLEAN_SHUTDOWN:
+            return AgentPauseCause.SHUTDOWN.value
+        return self.value
+
+
+@dataclass(frozen=True)
+class AgentRunPause:
+    """A run stopped at a checkpoint: why, where, and whether it may continue.
+
+    A resumable pause continues from its checkpoint. One that is not resumable
+    can only be retried as a new run or unblocked by operator resolution.
+    """
+
+    cause: AgentPauseCause
+    checkpoint: str
+    resumable: bool
+    reason: str | None = None
+
+    def apply(self, metadata: dict[str, object]) -> dict[str, object]:
+        source = self.cause.source
+        values: dict[str, object] = {
+            # Named for manual pauses, but it selects checkpoint resumption for
+            # every cause; see AgentRunControl.resume_mode.
+            AgentRunMetadata.MANUAL_PAUSE_KEY: self.resumable,
+            AgentRunMetadata.PAUSE_CHECKPOINT_KEY: self.checkpoint,
+            AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: self.resumable,
+            AgentRunMetadata.RECOVERY_REASON_KEY: source,
+            AgentRunMetadata.PAUSE_SOURCE_KEY: source,
+        }
+        if self.cause is AgentPauseCause.MANUAL:
+            values[AgentRunMetadata.PAUSE_REQUESTED_KEY] = False
+            values[AgentRunMetadata.PAUSE_REASON_KEY] = (
+                self.reason if self.reason is not None else "pause"
+            )
+        elif self.cause is AgentPauseCause.TIMEOUT:
+            values["interruption_reason"] = source
+        elif self.cause is AgentPauseCause.SHUTDOWN:
+            values["shutdown_reason"] = source
+        return AgentRunMetadata.with_runtime(metadata, **values)
+
+
 @dataclass(frozen=True)
 class AgentRunControl:
     """Typed view of the legacy control metadata stored in snapshots."""
@@ -153,9 +211,58 @@ class AgentRunControl:
             ),
             recoverable=values.get(AgentRunMetadata.RECOVERY_ELIGIBLE_KEY) is not False,
             pause_requested=values.get(AgentRunMetadata.PAUSE_REQUESTED_KEY) is True,
-            pause_reason=text("pause_reason"),
+            pause_reason=text(AgentRunMetadata.PAUSE_REASON_KEY),
             checkpoint=text(AgentRunMetadata.PAUSE_CHECKPOINT_KEY),
             source=text(AgentRunMetadata.PAUSE_SOURCE_KEY),
+        )
+
+    @staticmethod
+    def request_pause(
+        metadata: dict[str, object],
+        reason: str | None,
+    ) -> dict[str, object]:
+        """Ask a running run to pause at its next checkpoint."""
+        return AgentRunMetadata.with_runtime(
+            metadata,
+            **{
+                AgentRunMetadata.PAUSE_REQUESTED_KEY: True,
+                AgentRunMetadata.PAUSE_REASON_KEY: reason,
+            },
+        )
+
+    @staticmethod
+    def resolved_by_operator(
+        metadata: dict[str, object],
+        *,
+        resumable: bool,
+    ) -> dict[str, object]:
+        """Record whether operator resolution left the pause resumable."""
+        return AgentRunMetadata.with_runtime(
+            metadata,
+            **{
+                AgentRunMetadata.MANUAL_PAUSE_KEY: resumable,
+                AgentRunMetadata.PAUSE_CHECKPOINT_KEY: "operator_resolution",
+                AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: resumable,
+            },
+        )
+
+    @staticmethod
+    def resumed(metadata: dict[str, object]) -> dict[str, object]:
+        """Clear the pause once a run continues from its checkpoint."""
+        return AgentRunMetadata.with_runtime(
+            metadata,
+            **{
+                AgentRunMetadata.MANUAL_PAUSE_KEY: False,
+                AgentRunMetadata.PAUSE_REQUESTED_KEY: False,
+            },
+        )
+
+    @staticmethod
+    def canceled(metadata: dict[str, object], reason: str) -> dict[str, object]:
+        return AgentRunMetadata.with_runtime(
+            metadata,
+            **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
+            cancel_reason=reason,
         )
 
 

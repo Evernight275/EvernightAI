@@ -347,11 +347,7 @@ class AgentExecutionApplication:
         state.stop_reason = None
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: False},
-            **{AgentRunMetadata.PAUSE_REQUESTED_KEY: False},
-        )
+        state.metadata = AgentRunControl.resumed(state.metadata)
         if state.response is None:
             async for event in self._run_initial_chat_events(state.request, state):
                 yield event

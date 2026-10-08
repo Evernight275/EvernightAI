@@ -25,7 +25,11 @@ from EvernightAI.core.schema.tool import (
     ToolReplayPolicy,
 )
 
-from EvernightAI.application.agent_state import AgentRunMetadata, _aggregate_run_usage
+from EvernightAI.application.agent_state import (
+    AgentPauseCause,
+    AgentRunPause,
+    _aggregate_run_usage,
+)
 
 
 @dataclass(frozen=True)
@@ -390,7 +394,11 @@ def recover_interrupted_agent_runs(
         ):
             continue
 
-        recovery_reason = "lease_expired" if lease is not None else "shutdown"
+        cause = (
+            AgentPauseCause.LEASE_EXPIRED
+            if lease is not None
+            else AgentPauseCause.UNCLEAN_SHUTDOWN
+        )
         tool_executions = (
             tool_execution_register.list_attempts(state.run_id)
             if tool_execution_register is not None
@@ -414,9 +422,9 @@ def recover_interrupted_agent_runs(
             continue
         event = AgentTraceEvent(
             event_type=AgentTraceEventType.RUN_PAUSED,
-            summary=f"Agent run paused: {recovery_reason}",
+            summary=f"Agent run paused: {cause.source}",
             metadata={
-                "reason": recovery_reason,
+                "reason": cause.source,
                 "source": "startup_recovery",
                 "checkpoint": checkpoint.name,
                 "recovery_eligible": checkpoint.eligible,
@@ -427,14 +435,11 @@ def recover_interrupted_agent_runs(
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
         state.trace.append(event)
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            **{AgentRunMetadata.MANUAL_PAUSE_KEY: checkpoint.eligible},
-            **{AgentRunMetadata.PAUSE_CHECKPOINT_KEY: checkpoint.name},
-            **{AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: checkpoint.eligible},
-            **{AgentRunMetadata.RECOVERY_REASON_KEY: recovery_reason},
-            **{AgentRunMetadata.PAUSE_SOURCE_KEY: recovery_reason},
-        )
+        state.metadata = AgentRunPause(
+            cause=cause,
+            checkpoint=checkpoint.name,
+            resumable=checkpoint.eligible,
+        ).apply(state.metadata)
         state.metadata["interrupted"] = True
         state.metadata["interruption_reason"] = "runtime_restart"
         state_register.save_state(state)

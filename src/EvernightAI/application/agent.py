@@ -14,6 +14,8 @@ from EvernightAI.application.agent_runs import (
 )
 from EvernightAI.application.agent_state import (
     AbandonedToolExecution as AbandonedToolExecution,
+    AgentPauseCause as AgentPauseCause,
+    AgentRunPause as AgentRunPause,
     AgentRunRetryPlan as AgentRunRetryPlan,
     AgentRunMetadata as AgentRunMetadata,
     AgentRunControl as AgentRunControl,

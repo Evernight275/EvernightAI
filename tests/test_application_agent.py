@@ -11,6 +11,7 @@ import pytest
 
 from EvernightAI.application.agent import (
     AgentApplication,
+    AgentPauseCause,
     AgentRunApplication,
     AgentRunMetadata,
     _AgentRunLifecycle,
@@ -2360,7 +2361,10 @@ def test_agent_run_application_timeout_marks_checkpoint_recovery_metadata() -> N
         )
     )
 
-    AgentRunApplication(runtime)._mark_interrupted("run-timeout", "timeout")
+    AgentRunApplication(runtime)._mark_interrupted(
+        "run-timeout",
+        AgentPauseCause.TIMEOUT,
+    )
 
     state = state_register.get_state("run-timeout")
     runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
