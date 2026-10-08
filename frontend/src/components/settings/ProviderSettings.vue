@@ -296,7 +296,12 @@ async function toggleEnabled(provider: ProviderInfo) {
             </select></label
           >
           <label
-            >服务地址<input v-model="baseUrl" type="url" placeholder="留空使用官方默认地址"
+            >服务地址<input
+              v-model="baseUrl"
+              type="url"
+              name="provider-base-url"
+              autocomplete="off"
+              placeholder="留空使用官方默认地址"
           /></label>
           <template v-if="editing">
             <label
@@ -310,7 +315,12 @@ async function toggleEnabled(provider: ProviderInfo) {
               </select></label
             >
             <label v-if="credentialMode === 'key'"
-              >新的服务密钥<input v-model="apiKey" type="password" autocomplete="off" required
+              >新的服务密钥<input
+                v-model="apiKey"
+                type="password"
+                name="provider-api-key"
+                autocomplete="new-password"
+                required
             /></label>
             <label v-if="credentialMode === 'reference'"
               >密钥引用<input v-model="secretRef" placeholder="env:PROVIDER_API_KEY" required
@@ -355,7 +365,13 @@ async function toggleEnabled(provider: ProviderInfo) {
             </button>
           </template>
           <template v-else>
-            <label>服务密钥<input v-model="apiKey" type="password" autocomplete="off" /></label>
+            <label
+              >服务密钥<input
+                v-model="apiKey"
+                type="password"
+                name="provider-api-key"
+                autocomplete="new-password"
+            /></label>
             <label
               >模型 ID<textarea
                 v-model="modelIds"

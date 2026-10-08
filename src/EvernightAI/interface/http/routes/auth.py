@@ -28,6 +28,11 @@ class AuthSession(EvernightAISchema):
     principal: AuthIdentity | None = None
 
 
+class AuthOptions(EvernightAISchema):
+    authentication_enabled: bool
+    login_enabled: bool
+
+
 class LoginRequest(EvernightAISchema):
     username: str
     password: str
@@ -38,6 +43,16 @@ class LoginResponse(EvernightAISchema):
     token_type: str = "bearer"
     expires_at: datetime
     principal: AuthIdentity
+
+
+@router.get("/config", response_model=AuthOptions)
+def auth_options(request: Request, response: Response) -> AuthOptions:
+    """Tell a signed-out client how it may sign in. Requires no credential."""
+    response.headers["Cache-Control"] = "no-store"
+    return AuthOptions(
+        authentication_enabled=request.app.state.auth_device is not None,
+        login_enabled=_login_device(request) is not None,
+    )
 
 
 @router.get("/me", response_model=AuthSession)

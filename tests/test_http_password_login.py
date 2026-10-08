@@ -264,6 +264,39 @@ async def test_user_and_api_key_with_the_same_name_share_owned_data(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("auth", "expected"),
+    [
+        (
+            {"enabled": True, "user": {"admin": {"password": "correct horse"}}},
+            {"authentication_enabled": True, "login_enabled": True},
+        ),
+        (
+            {"enabled": True, "principal": {"service": {"api_key": "service-key"}}},
+            {"authentication_enabled": True, "login_enabled": False},
+        ),
+        (
+            {"enabled": False, "user": {"admin": {"password": "correct horse"}}},
+            {"authentication_enabled": False, "login_enabled": False},
+        ),
+    ],
+)
+async def test_signed_out_client_can_discover_how_to_sign_in(
+    tmp_path: Path,
+    auth: dict[str, object],
+    expected: dict[str, bool],
+) -> None:
+    config = make_config(tmp_path, auth)
+
+    async with serve(config) as client:
+        response = await client.get("/auth/config")
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
 async def test_login_is_unavailable_without_configured_users(tmp_path: Path) -> None:
     config = make_config(
         tmp_path,
@@ -355,6 +388,7 @@ async def test_openapi_leaves_login_public_and_secures_logout(tmp_path: Path) ->
         paths = (await client.get("/openapi.json")).json()["paths"]
 
     assert "security" not in paths["/auth/login"]["post"]
+    assert "security" not in paths["/auth/config"]["get"]
     assert paths["/auth/logout"]["post"]["security"]
     assert paths["/auth/me"]["get"]["security"]
 

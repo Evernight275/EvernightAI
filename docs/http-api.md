@@ -946,6 +946,10 @@ no-store`.
 The response also carries `login_enabled`, which is true when username/password
 login is configured.
 
+`GET /auth/config` needs no credential. It returns `authentication_enabled` and
+`login_enabled` so a signed-out client can decide whether to show a login form,
+ask for an API key, or go straight in.
+
 ### Username and password login
 
 Configure users under `[auth.user.<username>]` with `password` or `password_env`,

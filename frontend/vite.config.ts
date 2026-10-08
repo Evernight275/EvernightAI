@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue';
 const defaultApiTarget = 'http://127.0.0.1:8000';
 const apiPaths = [
   '/agent-runs',
+  '/auth',
   '/contexts',
   '/data-analysis',
   '/files',
@@ -26,7 +27,7 @@ export default defineConfig(({ mode }) => {
     plugins: [vue()],
     build: {
       rollupOptions: {
-        input: ['index.html', 'chat.html', 'images.html'],
+        input: ['index.html', 'chat.html', 'images.html', 'login.html'],
       },
     },
     server: {

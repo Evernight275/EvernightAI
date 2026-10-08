@@ -217,7 +217,7 @@ def _secured_openapi_factory(app: FastAPI):
             "description": ("Send the API key as `X-Evernight-API-Key: <api-key>`."),
         }
         for path, methods in schema.get("paths", {}).items():
-            if path in {"/health", "/ready", "/auth/login"}:
+            if path in {"/health", "/ready", "/auth/config", "/auth/login"}:
                 continue
             for operation in methods.values():
                 if isinstance(operation, dict):
