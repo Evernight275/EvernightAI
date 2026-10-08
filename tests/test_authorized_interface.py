@@ -739,6 +739,91 @@ async def test_authorized_chat_interface_stops_denied_call_before_inner_work() -
     assert authorizer.requests == [("contexts", "get", "ctx-1")]
 
 
+@pytest.mark.parametrize(
+    ("interface_name", "granted", "method_name", "args"),
+    [
+        ("chat", ["contexts:get", "contexts:list"], "delete_context", ("ctx-1",)),
+        (
+            "chat",
+            ["contexts:get", "contexts:list"],
+            "replace_context",
+            (Context(context_id="ctx-1"),),
+        ),
+        ("chat", ["memories:delete"], "delete_context", ("ctx-1",)),
+        ("chat", ["contexts:delete"], "delete_memory", ("mem-1",)),
+        ("chat", ["contexts:*"], "delete_context", ("ctx-1",)),
+        ("providers", ["providers:list"], "delete_provider", ("provider-1",)),
+        ("providers", ["contexts:delete"], "delete_provider", ("provider-1",)),
+        ("sessions", ["sessions:get", "sessions:list"], "delete_session", ("s-1",)),
+        ("sessions", ["sessions:get"], "replace_session", (make_session("s-1"),)),
+        ("sessions", ["contexts:delete"], "delete_session", ("s-1",)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_partial_permissions_do_not_escalate_to_other_operations(
+    interface_name: str,
+    granted: list[str],
+    method_name: str,
+    args: tuple[object, ...],
+) -> None:
+    authorizer = Authorizer(PermissionAuthPolicy())
+    principal = Principal(principal_id="user-1", permissions=granted)
+    inner: FakeChatInterface | FakeProviderInterface | FakeSessionInterface
+    interface: object
+    if interface_name == "chat":
+        inner = FakeChatInterface()
+        interface = AuthorizedChatInterface(
+            cast(ChatInterfaceProtocol, inner), authorizer, principal
+        )
+    elif interface_name == "providers":
+        inner = FakeProviderInterface()
+        interface = AuthorizedProviderInterface(
+            cast(ProviderInterfaceProtocol, inner), authorizer, principal
+        )
+    else:
+        inner = FakeSessionInterface()
+        interface = AuthorizedSessionInterface(
+            cast(SessionInterfaceProtocol, inner), authorizer, principal
+        )
+
+    with pytest.raises(AuthPermissionDeniedError):
+        await getattr(interface, method_name)(*args)
+
+    assert inner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_caller_supplied_scope_cannot_replace_principal_ownership() -> None:
+    from EvernightAI.core.schema.auth import PrincipalScope
+
+    scopes: list[PrincipalScope | None] = []
+
+    class ScopeRecordingChat:
+        async def get_context(
+            self, context_id: str, *, principal_scope: PrincipalScope | None = None
+        ) -> Context:
+            scopes.append(principal_scope)
+            return Context(context_id=context_id, owner_id="alice")
+
+        async def delete_context(
+            self, context_id: str, *, principal_scope: PrincipalScope | None = None
+        ) -> None:
+            scopes.append(principal_scope)
+
+    interface = AuthorizedChatInterface(
+        cast(ChatInterfaceProtocol, ScopeRecordingChat()),
+        Authorizer(PermissionAuthPolicy()),
+        Principal(principal_id="alice", permissions=["*"]),
+    )
+
+    await interface.get_context(
+        "ctx-1", principal_scope=PrincipalScope(owner_id="bob")
+    )
+    await interface.delete_context("ctx-1", principal_scope=PrincipalScope())
+
+    assert scopes == [PrincipalScope(owner_id="alice")] * 2
+
+
 def _authorized_interface(
     *,
     permissions: list[str],
