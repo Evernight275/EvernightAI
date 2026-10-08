@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from EvernightAI.infra.adapters.tool.restricted_filesystem import (
@@ -13,7 +15,7 @@ from EvernightAI.infra.adapters.tool.text_diff import MAX_DIFF_CHARS, MAX_SOURCE
 @pytest.mark.parametrize("operation", ["write", "append", "patch", "json"])
 async def test_file_tools_return_actual_before_and_after_diff(tmp_path, operation):
     path = tmp_path / "note.txt"
-    path.write_text("old\n", encoding="utf-8")
+    path.write_bytes(b"old\n")
     match operation:
         case "append":
             tool = RestrictedAppendTextFileTool(root_directory=tmp_path)
@@ -38,7 +40,7 @@ async def test_file_tools_return_actual_before_and_after_diff(tmp_path, operatio
 
     result = await tool.execute({"path": "note.txt", **arguments})
 
-    assert path.read_text(encoding="utf-8") == expected
+    assert path.read_bytes() == expected.encode()
     assert result["diff"].startswith("--- a/note.txt\n+++ b/note.txt\n@@ ")
     assert "+new\n" in result["diff"] or '+  "new": true\n' in result["diff"]
     assert (" old\n" if operation == "append" else "-old\n") in result["diff"]
@@ -69,7 +71,11 @@ async def test_diff_is_empty_for_unchanged_content(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("original", [b"\xff", b"a\0b", b"x" * (MAX_SOURCE_CHARS + 1)])
+@pytest.mark.parametrize(
+    "original",
+    [b"\xff", b"a\0b", b"x" * (MAX_SOURCE_CHARS + 1)],
+    ids=["invalid-utf8", "nul-byte", "oversized"],
+)
 async def test_unavailable_diff_does_not_prevent_overwriting(tmp_path, original):
     path = tmp_path / "note.txt"
     path.write_bytes(original)
@@ -94,6 +100,7 @@ async def test_long_diff_is_bounded_and_truncation_is_explicit(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Windows filenames cannot contain newlines")
 async def test_diff_quotes_filename_newlines(tmp_path):
     result = await RestrictedWriteTextFileTool(root_directory=tmp_path).execute(
         {"path": "note\n@@ -2 +2 @@.txt", "content": "hello"}

@@ -38,6 +38,7 @@ PY
         "sh <<'SH'\necho ok\nSH\n",
     ],
 )
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_opaque_heredoc_scripts_require_approval_instead_of_hard_rejection(
     tmp_path, command
 ):
@@ -80,6 +81,7 @@ async def test_svg_edit_and_html_generation_run_only_after_approval(tmp_path, mo
         "echo 'literal\n<<unquoted\ntext'\n",
     ],
 )
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_quoted_heredoc_data_is_not_inspected_as_executable_shell(tmp_path, command):
     assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
 
@@ -111,6 +113,7 @@ def test_heredocs_cannot_hide_deletion_or_unsupported_shell_syntax(tmp_path, com
     assert not decision.requires_approval
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_heredoc_commands_and_following_commands_still_follow_blacklists(tmp_path):
     manager = manager_for(tmp_path, relaxed=True, blocked={"python", "git push"})
     for command in [SVG_TO_HTML, "cat <<'TEXT'\ntext\nTEXT\ngit push\n"]:
@@ -127,6 +130,7 @@ def test_shell_heredoc_bodies_are_inspected_as_shell_commands(tmp_path):
     assert not manager.authorize(call_for(command, approved=True)).allowed
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_unicode_digits_are_not_treated_as_shell_file_descriptors(tmp_path):
     decision = manager_for(tmp_path, relaxed=True).authorize(
         call_for("²<<'DATA'\nliteral text\nDATA\n")

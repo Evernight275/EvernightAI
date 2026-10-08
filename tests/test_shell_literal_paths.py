@@ -31,6 +31,7 @@ def test_quoted_read_paths_do_not_trigger_extra_approval(tmp_path):
     assert manager_for(tmp_path).authorize(call_for(r"cat ./a\$\*.txt")).allowed
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_array_targets_remain_literal_even_when_named_like_shell_commands(tmp_path):
     command = ["rm", "--", "sh", "-c", "*"]
     assert manager_for(tmp_path).authorize(call_for(command)).requires_approval
@@ -40,16 +41,31 @@ def test_array_targets_remain_literal_even_when_named_like_shell_commands(tmp_pa
 @pytest.mark.parametrize(
     "script",
     [
-        "rm $HOME/note.txt",
-        'rm "$HOME/note.txt"',
-        "rm ${HOME}/note.txt",
-        "rm ~/note.txt",
+        pytest.param(
+            "rm $HOME/note.txt",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
+        pytest.param(
+            'rm "$HOME/note.txt"',
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
+        pytest.param(
+            "rm ${HOME}/note.txt",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
+        pytest.param(
+            "rm ~/note.txt",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
         "rm *.txt",
         "rm a?.txt",
         "rm a[12].txt",
         "rm './a$'*.txt",
         r'rm "./a\\$*.txt"',
-        "rm `pwd`/note.txt",
+        pytest.param(
+            "rm `pwd`/note.txt",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
         "rm $(pwd)/note.txt",
         "rm ./a{1,2}.txt",
         "rm ./a{1..2}.txt",

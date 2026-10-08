@@ -263,11 +263,20 @@ def test_readonly_find_actions_and_chains_do_not_require_approval(tmp_path, comm
         "find fastapi -fls result.txt",
         "find fastapi -ok grep Depends '{}' ';'",
         "find fastapi -exec unknown-program {} +",
-        "find fastapi -exec python -c 'print(1)' {} +",
+        pytest.param(
+            "find fastapi -exec python -c 'print(1)' {} +",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
         "find fastapi -exec rg --pre=script {} +",
         "find fastapi -exec grep {}",
-        "find fastapi -exec grep {} +; python -c 'print(1)'",
-        "find fastapi -exec grep {} ; python -c 'print(1)'",
+        pytest.param(
+            "find fastapi -exec grep {} +; python -c 'print(1)'",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
+        pytest.param(
+            "find fastapi -exec grep {} ; python -c 'print(1)'",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect"),
+        ),
         "find fastapi -exec grep {} + &",
     ],
 )

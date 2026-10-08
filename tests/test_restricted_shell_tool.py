@@ -317,4 +317,4 @@ async def test_requested_timeout_is_a_per_call_override_of_the_tool_default(tmp_
         )
     )
     assert result.tool_call_result["returncode"] == 0
-    assert result.tool_call_result["stdout"] == "finished\n"
+    assert result.tool_call_result["stdout"].splitlines() == ["finished"]

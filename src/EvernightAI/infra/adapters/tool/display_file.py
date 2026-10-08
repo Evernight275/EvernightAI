@@ -128,7 +128,9 @@ class DisplayFileTool:
 def _open_file(root: Path, relative: Path, flags: int) -> int:
     if os.open not in os.supports_dir_fd or not hasattr(os, "O_DIRECTORY"):
         return os.open(root / relative, flags)
-    directory_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    directory_flags = (
+        os.O_RDONLY | getattr(os, "O_DIRECTORY") | getattr(os, "O_NOFOLLOW", 0)
+    )
     directory = os.open(root, directory_flags)
     try:
         for part in relative.parts[:-1]:

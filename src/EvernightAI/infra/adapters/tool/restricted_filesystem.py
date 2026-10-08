@@ -185,7 +185,7 @@ class RestrictedWriteTextFileTool(_ProjectAwareFilesystemTool):
 
         before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="")
 
         return _with_project(
             {
@@ -256,7 +256,7 @@ class RestrictedAppendTextFileTool(_ProjectAwareFilesystemTool):
 
         before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as file:
+        with path.open("a", encoding="utf-8", newline="") as file:
             file.write(content)
 
         return _with_project(
@@ -826,7 +826,7 @@ class RestrictedApplyTextPatchTool(_ProjectAwareFilesystemTool):
             next_text = text.replace(old_text, new_text, 1)
             replacements = 1
 
-        path.write_text(next_text, encoding="utf-8")
+        path.write_text(next_text, encoding="utf-8", newline="")
         return _with_project(
             {
                 "path": _relative_path(root_directory, path),
@@ -1220,7 +1220,7 @@ class RestrictedWriteJsonFileTool(_ProjectAwareFilesystemTool):
 
         before = text_snapshot(path, existed=existed)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"{content}\n", encoding="utf-8")
+        path.write_text(f"{content}\n", encoding="utf-8", newline="")
         return _with_project(
             {
                 "path": _relative_path(root_directory, path),

@@ -13,8 +13,10 @@ from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirecto
 from EvernightAI.infra.registrations.tool.restricted_filesystem import (
     register_restricted_filesystem_tools,
 )
+from tests.symlinks import requires_symlinks
 
 
+@requires_symlinks
 def test_workspace_browse_create_and_reject_escape(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()
@@ -247,6 +249,7 @@ def test_host_browser_reaches_home_or_drive_without_expanding_tool_access(
             store.browse(str(tmp_path.parent))
 
 
+@requires_symlinks
 def test_external_projects_persist_and_enforce_their_boundaries(tmp_path: Path) -> None:
     root = tmp_path / "default"
     project = tmp_path / "projects" / "现有项目"

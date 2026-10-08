@@ -34,6 +34,7 @@ from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice
 from EvernightAI.interface.http.schema import HttpApiKeyCredential
 from tests.test_application_agent import ToolCallingProvider
 from tests.test_image_generation import PNG
+from tests.symlinks import requires_symlinks
 
 
 @pytest.fixture(params=["memory", "sqlite"])
@@ -139,6 +140,7 @@ async def test_display_file_follows_selected_project_and_survives_source_deletio
 
 
 @pytest.mark.asyncio
+@requires_symlinks
 async def test_file_display_rejects_escape_special_files_size_and_tool_denial(
     tmp_path: Path,
 ) -> None:
