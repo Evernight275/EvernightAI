@@ -78,6 +78,9 @@ permissions = ["*"]
 # username. `POST /auth/login` exchanges these for a bearer session token.
 # Sessions are kept in memory, so restarting the service signs everyone out.
 # Uncomment to enable; a user whose password is unset fails startup.
+# Identity is the name: a user and an [auth.principal.<name>] API key with the
+# same name are one principal and share sessions, contexts, runs and memories.
+# Use different names to keep their data separate.
 # [auth.user.admin]
 # password_env = "EVERNIGHTAI_ADMIN_PASSWORD"
 # # `password = "..."` also works, but keeps the secret in this file.

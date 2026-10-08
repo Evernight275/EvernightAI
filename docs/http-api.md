@@ -951,6 +951,13 @@ login is configured.
 Configure users under `[auth.user.<username>]` with `password` or `password_env`,
 and set `auth.enabled = true`. Omitting `permissions` grants `["*"]`.
 
+Identity is the name. The username becomes the `principal_id`, which is also the
+owner of everything that principal creates. A user and an
+`[auth.principal.<name>]` API key that share a name are therefore the same
+principal: each sees the sessions, contexts, agent runs, and memories created
+with the other. Give them different names to keep their data separate. Their
+permissions remain whatever each entry configures.
+
 `POST /auth/login` accepts `{"username": "...", "password": "..."}` and returns
 `access_token`, `token_type` (`bearer`), `expires_at`, and the `principal`. Send the
 token as `Authorization: Bearer <access_token>` on later requests, or through the

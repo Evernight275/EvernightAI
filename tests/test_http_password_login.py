@@ -227,6 +227,43 @@ async def test_login_sessions_coexist_with_api_keys(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_user_and_api_key_with_the_same_name_share_owned_data(
+    tmp_path: Path,
+) -> None:
+    config = make_config(
+        tmp_path,
+        {
+            "user": {"admin": {"password": "correct horse"}},
+            "principal": {
+                "admin": {"api_key": "admin-key", "permissions": ["*"]},
+                "service": {"api_key": "service-key", "permissions": ["*"]},
+            },
+        },
+    )
+
+    async with serve(config) as client:
+        created = await client.post(
+            "/contexts",
+            json={"context_id": "ctx-shared"},
+            headers={"x-evernight-api-key": "admin-key"},
+        )
+        login = await client.post(
+            "/auth/login", json={"username": "admin", "password": "correct horse"}
+        )
+        as_user = await client.get(
+            "/contexts/ctx-shared", headers=bearer(login.json()["access_token"])
+        )
+        as_other_key = await client.get(
+            "/contexts/ctx-shared", headers={"x-evernight-api-key": "service-key"}
+        )
+
+    assert created.status_code == 201
+    assert as_user.status_code == 200
+    assert as_user.json()["owner_id"] == "admin"
+    assert as_other_key.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_login_is_unavailable_without_configured_users(tmp_path: Path) -> None:
     config = make_config(
         tmp_path,

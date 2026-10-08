@@ -438,7 +438,10 @@ def test_entrypoint_cli_runtime_command_requires_cli_auth(
 ) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        """
+        f"""
+[runtime]
+database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
+
 [auth]
 enabled = true
 """.strip(),
@@ -458,7 +461,10 @@ def test_entrypoint_cli_runtime_command_checks_permissions(
 ) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        """
+        f"""
+[runtime]
+database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
+
 [auth]
 enabled = true
 
