@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -569,9 +570,15 @@ def test_create_sandbox_from_config_uses_subprocess_by_default(
     assert isinstance(create_sandbox_from_config(config), SubprocessSandboxExecutor)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Bubblewrap requires Linux")
 def test_create_sandbox_from_config_uses_bubblewrap_when_configured(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.config.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
     config = parse_config(
         {
             "runtime": {
