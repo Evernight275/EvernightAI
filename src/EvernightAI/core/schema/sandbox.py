@@ -54,6 +54,7 @@ class SandboxResourceLimits(EvernightAISchema):
     max_processes: int | None = Field(default=None, gt=0)
     cpu_seconds: int | None = Field(default=None, gt=0)
     file_size_bytes: int | None = Field(default=None, gt=0)
+    temporary_storage_bytes: int | None = Field(default=None, gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

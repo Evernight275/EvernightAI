@@ -4,7 +4,11 @@ import sys
 
 import pytest
 
-from EvernightAI.core.error.sandbox import SandboxExecutionError, SandboxPolicyError
+from EvernightAI.core.error.sandbox import (
+    SandboxExecutionError,
+    SandboxPolicyError,
+    SandboxTimeoutError,
+)
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -143,3 +147,23 @@ async def test_subprocess_stop_terminates_descendants(tmp_path, stop):
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_subprocess_timeout_keeps_output_collected_before_the_limit(tmp_path):
+    (tmp_path / "nested").mkdir()
+    request = make_request(
+        host_path=str(tmp_path),
+        command=[
+            sys.executable,
+            "-uc",
+            "import time; print('step one'); time.sleep(10)",
+        ],
+    )
+    request.command.timeout_seconds = 1
+    with pytest.raises(SandboxTimeoutError, match="timed out") as raised:
+        await SubprocessSandboxExecutor().execute(request)
+    assert raised.value.result.timed_out is True
+    assert raised.value.result.stdout.splitlines() == ["step one"]
+    assert raised.value.detail is not None
+    assert "step one" in raised.value.detail

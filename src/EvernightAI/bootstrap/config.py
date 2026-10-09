@@ -139,6 +139,7 @@ def create_sandbox_from_config(
                 max_processes=settings.max_processes,
                 cpu_seconds=settings.cpu_seconds,
                 file_size_bytes=settings.file_size_bytes,
+                temporary_storage_bytes=settings.temporary_storage_bytes,
             ),
         )
         return BubblewrapSandboxExecutor(runtime_policy=policy)

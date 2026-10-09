@@ -8,6 +8,7 @@ from EvernightAI.core.error.sandbox import (
     SandboxConfigurationError,
     SandboxExecutionError,
     SandboxPolicyError,
+    SandboxTimeoutError,
 )
 from EvernightAI.core.protocol.sandbox import (
     SandboxExecuteProtocol,
@@ -51,9 +52,25 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         """执行 bubblewrap 隔离沙盒命令"""
         if self._bubblewrap_path is None:
             raise SandboxConfigurationError("The bwrap executable is not available")
-        self._runtime_policy.validate_mounts(request.policy.filesystem_mounts)
+        descriptors: list[int] = []
+        try:
+            return await self._execute(request, descriptors)
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+
+    async def _execute(
+        self,
+        request: SandboxExecutionRequest,
+        descriptors: list[int],
+    ) -> SandboxExecutionResult:
+        # Each workspace is opened once; validation and the bind mounts then refer to
+        # that same directory even if its path is replaced afterwards.
+        mounts = self._open_mounts(request.policy.filesystem_mounts, descriptors)
+        self._runtime_policy.validate_mounts(mounts)
         effective_policy = request.policy.model_copy(
             update={
+                "filesystem_mounts": mounts,
                 "resource_limits": self._runtime_policy.effective_limits(
                     request.policy.resource_limits
                 ),
@@ -86,7 +103,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             )
 
         project = self._runtime_policy.project_environment(request)
-        process_command = self._bubblewrap_command(request, project)
+        process_command = self._bubblewrap_command(request, project, descriptors)
         process: asyncio.subprocess.Process | None = None
         output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
         try:
@@ -101,6 +118,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
+                pass_fds=descriptors,
             )
             await asyncio.wait_for(
                 asyncio.gather(
@@ -120,8 +138,19 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         except asyncio.TimeoutError as exc:
             if process is not None:
                 await terminate_process(process)
-            raise SandboxExecutionError(
+            raise SandboxTimeoutError(
                 f"The command {request.command.command[0]} timed out",
+                result=SandboxExecutionResult(
+                    request_id=request.request_id,
+                    command=request.command.command,
+                    returncode=None,
+                    stdout=output.stdout,
+                    stderr=output.stderr,
+                    events=output.events,
+                    timed_out=True,
+                    truncated=output.truncated,
+                    metadata={"sandbox_backend": "bubblewrap"},
+                ),
                 cause=exc,
             ) from exc
         except OSError as exc:
@@ -145,8 +174,34 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             metadata={"sandbox_backend": "bubblewrap"},
         )
 
+    def _open_mounts(
+        self,
+        mounts: list[SandboxFilesystemMount],
+        descriptors: list[int],
+    ) -> list[SandboxFilesystemMount]:
+        opened: list[SandboxFilesystemMount] = []
+        for mount in mounts:
+            try:
+                descriptor = os.open(
+                    mount.host_path, os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC
+                )
+            except OSError as exc:
+                raise SandboxConfigurationError(
+                    f"Sandbox workspace does not exist: {Path(mount.host_path).resolve()}"
+                ) from exc
+            descriptors.append(descriptor)
+            host_path = os.readlink(f"/proc/self/fd/{descriptor}")
+            if host_path != mount.mount_path:
+                # bwrap consumes a descriptor per bind, so the original-path mount needs its own.
+                descriptors.append(os.dup(descriptor))
+            opened.append(mount.model_copy(update={"host_path": host_path}))
+        return opened
+
     def _bubblewrap_command(
-        self, request: SandboxExecutionRequest, project: ProjectExecutionEnvironment
+        self,
+        request: SandboxExecutionRequest,
+        project: ProjectExecutionEnvironment,
+        descriptors: list[int],
     ) -> list[str]:
         bubblewrap_path = self._bubblewrap_path
         if bubblewrap_path is None:
@@ -164,13 +219,17 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 "--unshare-pid",
                 "--unshare-ipc",
                 "--unshare-uts",
+                "--hostname",
+                "sandbox",
                 "--clearenv",
                 "--proc",
                 "/proc",
                 "--dev",
                 "/dev",
-                "--tmpfs",
-                "/tmp",
+                *self._tmpfs_options("/dev/shm", request),
+                "--remount-ro",
+                "/dev",
+                *self._tmpfs_options("/tmp", request),
                 "--dir",
                 "/run",
             ]
@@ -178,7 +237,11 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         command.extend(self._network_options(request))
         command.extend(self._system_mount_options(request.policy.network_mode))
         command.extend(self._runtime_policy.runtime_mount_options(project))
-        command.extend(self._filesystem_mount_options(request.policy.filesystem_mounts))
+        command.extend(
+            self._filesystem_mount_options(
+                request.policy.filesystem_mounts, descriptors
+            )
+        )
         for key, value in self._sandbox_env(request, project).items():
             command.extend(["--setenv", key, value])
         if request.command.cwd is not None:
@@ -190,6 +253,12 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             )
         )
         return command
+
+    def _tmpfs_options(self, path: str, request: SandboxExecutionRequest) -> list[str]:
+        size = request.policy.resource_limits.temporary_storage_bytes
+        if size is None:
+            return ["--tmpfs", path]
+        return ["--size", str(size), "--tmpfs", path]
 
     def _network_options(self, request: SandboxExecutionRequest) -> list[str]:
         mode = request.policy.network_mode
@@ -230,18 +299,19 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
     def _filesystem_mount_options(
         self,
         mounts: list[SandboxFilesystemMount],
+        descriptors: list[int],
     ) -> list[str]:
         options: list[str] = []
+        remaining = iter(descriptors)
         for mount in mounts:
-            host_path = str(Path(mount.host_path).resolve())
             flag = (
-                "--bind"
+                "--bind-fd"
                 if mount.access is SandboxFilesystemAccess.READ_WRITE
-                else "--ro-bind"
+                else "--ro-bind-fd"
             )
-            options.extend([flag, host_path, mount.mount_path])
-            if host_path != mount.mount_path:
-                options.extend([flag, host_path, host_path])
+            options.extend([flag, str(next(remaining)), mount.mount_path])
+            if mount.host_path != mount.mount_path:
+                options.extend([flag, str(next(remaining)), mount.host_path])
         return options
 
     def _sandbox_env(

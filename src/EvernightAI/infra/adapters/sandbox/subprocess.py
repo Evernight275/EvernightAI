@@ -6,6 +6,7 @@ from EvernightAI.core.domain.sandbox import BasicSandboxPolicy
 from EvernightAI.core.error.sandbox import (
     SandboxExecutionError,
     SandboxPolicyError,
+    SandboxTimeoutError,
 )
 from EvernightAI.core.protocol.sandbox import (
     SandboxExecuteProtocol,
@@ -76,8 +77,18 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
         except asyncio.TimeoutError as exc:
             if process is not None:
                 await terminate_process(process)
-            raise SandboxExecutionError(
+            raise SandboxTimeoutError(
                 f"The command {command[0]} timed out",
+                result=SandboxExecutionResult(
+                    request_id=request.request_id,
+                    command=command,
+                    returncode=None,
+                    stdout=output.stdout,
+                    stderr=output.stderr,
+                    events=output.events,
+                    timed_out=True,
+                    truncated=output.truncated,
+                ),
                 cause=exc,
             ) from exc
         except OSError as exc:

@@ -14,6 +14,7 @@ from EvernightAI.bootstrap.config import (
 )
 from EvernightAI.core.error.sandbox import SandboxConfigurationError
 from EvernightAI.core.error.sandbox import SandboxExecutionError
+from EvernightAI.core.error.sandbox import SandboxTimeoutError
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -215,9 +216,7 @@ async def test_optional_node_mount_supports_pyright_without_exposing_its_directo
     tmp_path,
 ):
     sandbox = executor(tmp_path, include_node=True)
-    result = await sandbox.execute(
-        request(tmp_path, ["pyright", "--version"])
-    )
+    result = await sandbox.execute(request(tmp_path, ["pyright", "--version"]))
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("pyright ")
     node_path = shutil.which("node")
@@ -615,6 +614,70 @@ async def test_runtime_timeout_ceiling_cannot_be_overridden(tmp_path):
         await sandbox.execute(
             request(tmp_path, ["python", "-c", "import time; time.sleep(10)"])
         )
+
+
+@pytest.mark.asyncio
+async def test_timeout_keeps_output_collected_before_the_limit(tmp_path):
+    probe = request(
+        tmp_path,
+        [
+            "python",
+            "-uc",
+            "import sys, time; print('step one'); print('warn', file=sys.stderr); time.sleep(10)",
+        ],
+    )
+    probe.command.timeout_seconds = 1
+    with pytest.raises(SandboxTimeoutError, match="timed out") as raised:
+        await executor(tmp_path).execute(probe)
+    result = raised.value.result
+    assert result.timed_out is True
+    assert result.returncode is None
+    assert result.stdout == "step one\n"
+    assert result.stderr == "warn\n"
+    assert raised.value.detail == (
+        "stdout before timeout:\nstep one\n\nstderr before timeout:\nwarn\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_temporary_storage_is_bounded_and_devices_are_read_only(tmp_path):
+    sandbox = executor(
+        tmp_path,
+        limits=SandboxResourceLimits(temporary_storage_bytes=1024 * 1024),
+    )
+    script = (
+        "head -c 3000000 /dev/zero > /tmp/big; echo tmp=$?; "
+        "head -c 3000000 /dev/zero > /dev/shm/big; echo shm=$?; "
+        "touch /dev/extra; echo dev=$?; "
+        "rm /tmp/big; echo ok > /tmp/small && echo small > /dev/null && cat /tmp/small; hostname"
+    )
+    result = await sandbox.execute(request(tmp_path, ["sh", "-c", script]))
+    assert result.stdout.splitlines() == ["tmp=1", "shm=1", "dev=1", "ok", "sandbox"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_replaced_after_validation_is_not_mounted(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "workspaces"
+    project = root / "project"
+    project.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sandbox = executor(root)
+    policy = sandbox._runtime_policy
+    validate = policy.validate_mounts
+
+    def validate_then_replace(mounts):
+        validate(mounts)
+        project.rename(root / "moved")
+        project.symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(policy, "validate_mounts", validate_then_replace)
+    result = await sandbox.execute(request(project, ["touch", "/workspace/marker"]))
+    assert result.returncode == 0
+    assert (root / "moved" / "marker").exists()
+    assert list(outside.iterdir()) == []
 
 
 @pytest.mark.asyncio

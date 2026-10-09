@@ -37,6 +37,7 @@ class SandboxConfig(EvernightAISchema):
     max_processes: int = Field(default=1024, gt=0)
     cpu_seconds: int = Field(default=60, gt=0)
     file_size_bytes: int = Field(default=67_108_864, gt=0)
+    temporary_storage_bytes: int = Field(default=1_073_741_824, gt=0)
 
 
 class RuntimeConfig(EvernightAISchema):

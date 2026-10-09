@@ -271,6 +271,7 @@ class BubblewrapRuntimePolicy:
             "max_processes",
             "cpu_seconds",
             "file_size_bytes",
+            "temporary_storage_bytes",
         ):
             ceiling = getattr(self.limits, field)
             value = getattr(requested, field)

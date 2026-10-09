@@ -31,6 +31,7 @@ memory_bytes = 2147483648
 max_processes = 1024
 cpu_seconds = 60
 file_size_bytes = 67108864
+temporary_storage_bytes = 1073741824
 
 [context_strategy]
 # Optional model-visible window controls. Basic composition is always first.

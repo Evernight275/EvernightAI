@@ -2,8 +2,9 @@
 
 On Linux, set `runtime.sandbox_backend = "bubblewrap"` to run Shell, project tasks
 and every built-in Git command through the same `SandboxExecuteProtocol` adapter.
-Install Bubblewrap with support for `--disable-userns`, and `prlimit` from
-util-linux. User namespaces must be permitted by the host. Missing dependencies,
+Install Bubblewrap with support for `--disable-userns`, `--bind-fd`,
+`--ro-bind-fd` and `--size`, and `prlimit` from util-linux.
+User namespaces must be permitted by the host. Missing dependencies,
 invalid mounts and execution failures never trigger a fallback to host execution.
 The explicit `subprocess` backend remains available for trusted host execution.
 
@@ -47,6 +48,7 @@ memory_bytes = 2147483648
 max_processes = 1024
 cpu_seconds = 60
 file_size_bytes = 67108864
+temporary_storage_bytes = 1073741824
 
 [tools.filesystem]
 enabled = true
@@ -79,7 +81,9 @@ or extra runtime mount. Invalid configuration fails before creating the database
 Read-only runtime sources must also stay outside `workspace_root`, preventing a
 writable workspace alias from modifying the shared runtime.
 File tools resolve paths and reject symlink escapes; process tools revalidate
-mounts for every execution.
+mounts for every execution. The workspace directory is opened once per execution
+and that same open directory is both validated and mounted, so replacing its
+path afterwards cannot change what the command sees.
 
 The chat sidebar can also open existing projects outside `workspace_root`. Add an
 absolute backend-host directory under **工作文件夹 → 打开已有项目**. Added projects
@@ -98,6 +102,8 @@ service data and overlaps with read-only runtime paths remain forbidden.
 Each process sees its selected project directory at `/workspace`. `/usr`, `/bin`,
 the system libraries and configured runtime paths are read-only. Only the selected
 workspace allows persistent writes; temporary files use an isolated `/tmp`.
+`/tmp` and `/dev/shm` are size-limited tmpfs mounts and the rest of `/dev` is
+read-only. The sandbox hostname is always `sandbox`.
 System alternatives (`/etc/alternatives`) and Fontconfig configuration
 (`/etc/fonts`) are mounted read-only when present, so symlinked commands such as
 `which` and `awk`, and font discovery, work normally. PATH includes the mounted
@@ -170,6 +176,8 @@ timeout is a default; a per-call override remains capped by the runtime ceiling.
 Programs inherit
 hard limits and cannot raise them. Timeout or cancellation terminates the process
 group; destroying the PID namespace also terminates descendants that detach.
+A timeout still fails the tool call, and the error detail carries the stdout and
+stderr collected before the limit.
 Output readers drain long lines in bounded chunks and retain bounded text/events.
 
 | Setting | Enforcement |
@@ -180,6 +188,7 @@ Output readers drain long lines in bounded chunks and retain bounded text/events
 | `max_processes` | `RLIMIT_NPROC`: process/thread count for the real UID, including existing host tasks |
 | `cpu_seconds` | `RLIMIT_CPU`: CPU time per process |
 | `file_size_bytes` | `RLIMIT_FSIZE`: maximum size of each regular file |
+| `temporary_storage_bytes` | tmpfs size of `/tmp` and of `/dev/shm`, each; this storage is host memory |
 
 These are inherited process limits, not aggregate cgroup quotas for a task tree.
 They do not cap total workspace disk use or total physical memory across all
