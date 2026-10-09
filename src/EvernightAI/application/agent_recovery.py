@@ -10,6 +10,8 @@ from EvernightAI.core.protocol.agent import (
     ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
+    AgentRunPause,
     AgentRunState,
     AgentRunStatus,
     AgentStep,
@@ -25,11 +27,7 @@ from EvernightAI.core.schema.tool import (
     ToolReplayPolicy,
 )
 
-from EvernightAI.application.agent_state import (
-    AgentPauseCause,
-    AgentRunPause,
-    _aggregate_run_usage,
-)
+from EvernightAI.application.agent_state import _aggregate_run_usage
 
 
 @dataclass(frozen=True)
@@ -435,13 +433,11 @@ def recover_interrupted_agent_runs(
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
         state.trace.append(event)
-        state.metadata = AgentRunPause(
+        state.pause = AgentRunPause(
             cause=cause,
             checkpoint=checkpoint.name,
             resumable=checkpoint.eligible,
-        ).apply(state.metadata)
-        state.metadata["interrupted"] = True
-        state.metadata["interruption_reason"] = "runtime_restart"
+        )
         state_register.save_state(state)
         if lease is not None:
             state_register.clear_execution_lease(state.run_id)

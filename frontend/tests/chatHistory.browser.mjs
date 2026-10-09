@@ -46,13 +46,9 @@ try {
             metadata: { session_id: 'one' },
           },
           pending_approval_requests: [],
-          metadata: {
-            agent_runtime: {
-              history_started_at: '2026-10-03T08:00:00Z',
-              ...(status === 'canceled'
-                ? { context_message_offset: 2, context_message_indices: [] }
-                : {}),
-            },
+          history: {
+            started_at: '2026-10-03T08:00:00Z',
+            ...(status === 'canceled' ? { message_offset: 2, message_indices: [] } : {}),
           },
           trace: [
             { sequence: 1, event_type: 'chat_completed', response: partial },
@@ -94,14 +90,11 @@ try {
           stop_reason: 'finished',
           response,
           pending_approval_requests: [],
-          metadata: {
-            agent_runtime: {
-              history_started_at:
-                responseId === 'retried' ? '2026-10-03T08:00:30Z' : '2026-10-03T08:01:00Z',
-              context_message_offset: offset,
-              context_message_indices: [offset, offset + 1],
-              context_history_generation: context.metadata.chat_history_generation ?? null,
-            },
+          history: {
+            started_at: responseId === 'retried' ? '2026-10-03T08:00:30Z' : '2026-10-03T08:01:00Z',
+            message_offset: offset,
+            message_indices: [offset, offset + 1],
+            generation: context.metadata.chat_history_generation ?? null,
           },
           trace: [{ event_type: 'chat_completed', response }],
         };

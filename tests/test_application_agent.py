@@ -11,7 +11,6 @@ import pytest
 
 from EvernightAI.application.agent import (
     AgentApplication,
-    AgentPauseCause,
     AgentRunApplication,
     AgentRunMetadata,
     _AgentRunLifecycle,
@@ -23,6 +22,8 @@ from EvernightAI.core.error.agent import AgentShutdownError, AgentStateError
 from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.skill import SkillInputError
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
+    AgentRunPause,
     AgentRunRequest,
     AgentRunState,
     AgentRunStatus,
@@ -441,7 +442,8 @@ async def test_legacy_persistent_entrypoint_uses_executor_timeout() -> None:
     assert provider.started.is_set()
     state = states.get_state("legacy-timeout")
     assert state.status is AgentRunStatus.PAUSED
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_source"] == "timeout"
+    assert state.pause is not None
+    assert state.pause.cause is AgentPauseCause.TIMEOUT
     assert states.get_execution_lease(state.run_id) is None
     await app.close()
 
@@ -567,12 +569,8 @@ async def test_agent_runs_tool_loop_and_persists_messages() -> None:
     assert result.steps[2].tool_call is not None
     assert result.steps[2].tool_result is not None
     assert result.stop_reason is AgentStopReason.FINISHED
-    assert result.metadata == {
-        "run_id": "run-1",
-        AgentRunMetadata.RUNTIME_KEY: {
-            AgentRunMetadata.TOOL_ROUNDS_USED_KEY: 1,
-        },
-    }
+    assert result.metadata == {"run_id": "run-1"}
+    assert result.tool_rounds_used == 1
     assert [event.event_type for event in result.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
@@ -1273,18 +1271,8 @@ async def test_agent_run_until_pause_returns_pending_approval_state() -> None:
     assert state.pending_tool_calls[0].tool_call_id == "tool-call-1"
     assert len(state.pending_approval_requests) == 1
     assert state.pending_approval_requests[0].tool_name == "write_file"
-    assert (
-        state.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-        ]
-        == 1
-    )
-    assert (
-        state.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-        ]
-        == 0
-    )
+    assert state.tool_rounds_used == 0
+    assert state.pause is None
     assert [event.event_type for event in state.trace] == [
         AgentTraceEventType.RUN_STARTED,
         AgentTraceEventType.CHAT_COMPLETED,
@@ -1512,18 +1500,8 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
 
     assert state.metadata["pending_approval_count"] == "caller-value"
     assert state.metadata["tool_rounds_used"] == "caller-value"
-    assert (
-        state.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-        ]
-        == 1
-    )
-    assert (
-        state.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-        ]
-        == 0
-    )
+    assert len(state.pending_approval_requests) == 1
+    assert state.tool_rounds_used == 0
 
     resumed = await app.resume_agent_until_pause(
         state,
@@ -1539,18 +1517,8 @@ async def test_agent_state_metadata_namespaces_runtime_values() -> None:
     assert resumed.status is AgentRunStatus.FINISHED
     assert resumed.metadata["pending_approval_count"] == "caller-value"
     assert resumed.metadata["tool_rounds_used"] == "caller-value"
-    assert (
-        resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.PENDING_APPROVAL_COUNT_KEY
-        ]
-        == 0
-    )
-    assert (
-        resumed.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-        ]
-        == 1
-    )
+    assert resumed.pending_approval_requests == []
+    assert resumed.tool_rounds_used == 1
 
 
 @pytest.mark.asyncio
@@ -1734,10 +1702,7 @@ async def test_agent_resume_requires_paused_state() -> None:
         )
     )
 
-    assert (
-        AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-        not in state.metadata[AgentRunMetadata.RUNTIME_KEY]
-    )
+    assert state.tool_rounds_used == 0
 
     with pytest.raises(AgentStateError, match="not paused"):
         await app.resume_agent_until_pause(state, [])
@@ -1835,9 +1800,8 @@ async def test_agent_start_and_resume_run_persist_state_and_trace() -> None:
     )
 
     assert resumed.status is AgentRunStatus.FINISHED
-    history = resumed.metadata["agent_runtime"]
-    assert history["context_message_offset"] == 0
-    assert history["context_message_indices"] == list(
+    assert resumed.history.message_offset == 0
+    assert resumed.history.message_indices == list(
         range(len((await runtime.contexts.get("ctx-1")).messages))
     )
     assert state_register.get_state("run-1").status is AgentRunStatus.FINISHED
@@ -2052,11 +2016,11 @@ async def test_agent_run_application_rejects_unrecoverable_retry_before_new_run_
                 messages=[make_message("Try again")],
             ),
             status=AgentRunStatus.PAUSED,
-            metadata={
-                AgentRunMetadata.RUNTIME_KEY: {
-                    AgentRunMetadata.RECOVERY_ELIGIBLE_KEY: False,
-                }
-            },
+            pause=AgentRunPause(
+                cause=AgentPauseCause.LEASE_EXPIRED,
+                checkpoint="tool_execution_incomplete",
+                resumable=False,
+            ),
         )
     )
 
@@ -2317,14 +2281,11 @@ async def test_agent_run_application_shutdown_marks_stale_running_runs_paused(
 
     assert state.status is AgentRunStatus.PAUSED
     assert state.stop_reason is None
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY] == {
-        "manual_pause": True,
-        "pause_checkpoint": "run_started",
-        "pause_source": "shutdown",
-        "recovery_eligible": True,
-        "recovery_reason": "shutdown",
-        "shutdown_reason": "shutdown",
-    }
+    assert state.pause == AgentRunPause(
+        cause=AgentPauseCause.SHUTDOWN,
+        checkpoint="run_started",
+        resumable=True,
+    )
     assert [event.event_type for event in trace] == [AgentTraceEventType.RUN_PAUSED]
     assert trace[0].metadata == {
         "reason": "shutdown",
@@ -2367,11 +2328,12 @@ def test_agent_run_application_timeout_marks_checkpoint_recovery_metadata() -> N
     )
 
     state = state_register.get_state("run-timeout")
-    runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
     assert state.status is AgentRunStatus.PAUSED
-    assert runtime_metadata["pause_source"] == "timeout"
-    assert runtime_metadata["pause_checkpoint"] == "run_started"
-    assert runtime_metadata["recovery_eligible"] is True
+    assert state.pause == AgentRunPause(
+        cause=AgentPauseCause.TIMEOUT,
+        checkpoint="run_started",
+        resumable=True,
+    )
     assert trace_register.list_events("run-timeout")[-1].metadata == {
         "reason": "timeout",
         "interrupted": True,
@@ -2456,7 +2418,7 @@ async def test_agent_metadata_hides_tool_runtime_without_tool_calls() -> None:
 
     assert result.stop_reason is AgentStopReason.FINISHED
     assert result.metadata == {"run_id": "run-1", "source": "test"}
-    assert AgentRunMetadata.RUNTIME_KEY not in result.metadata
+    assert result.tool_rounds_used is None
 
 
 @pytest.mark.asyncio
@@ -2478,12 +2440,7 @@ async def test_agent_reports_tool_rounds_exhausted() -> None:
     )
 
     assert result.stop_reason is AgentStopReason.TOOL_ROUNDS_EXHAUSTED
-    assert (
-        result.metadata[AgentRunMetadata.RUNTIME_KEY][
-            AgentRunMetadata.TOOL_ROUNDS_USED_KEY
-        ]
-        == 0
-    )
+    assert result.tool_rounds_used == 0
     assert [step.step_type for step in result.steps] == [
         AgentStepType.START,
         AgentStepType.CHAT,
@@ -3268,7 +3225,8 @@ async def test_agent_run_application_stream_persists_state_when_consumer_stops_e
     await asyncio.wait_for(app.close(), timeout=1.0)
     stored = state_register.get_state("run-early")
     assert stored.status is AgentRunStatus.PAUSED
-    assert stored.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
+    assert stored.pause is not None
+    assert stored.pause.resumable is True
     assert (
         trace_register.list_events("run-early")[-1].event_type
         is AgentTraceEventType.RUN_PAUSED
@@ -3500,12 +3458,11 @@ async def test_agent_replays_safe_unknown_tool_as_new_attempt() -> None:
             response=response,
             steps=[AgentStep(step_type=AgentStepType.CHAT, response=response)],
             remaining_tool_rounds=1,
-            metadata={
-                "agent_runtime": {
-                    "manual_pause": True,
-                    "recovery_eligible": True,
-                }
-            },
+            pause=AgentRunPause(
+                cause=AgentPauseCause.LEASE_EXPIRED,
+                checkpoint="tool_replay_ready",
+                resumable=True,
+            ),
         )
     )
     execution_register.create_attempt(
@@ -3591,12 +3548,11 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
                 )
             ],
             remaining_tool_rounds=1,
-            metadata={
-                "agent_runtime": {
-                    "recovery_eligible": False,
-                    "manual_pause": False,
-                }
-            },
+            pause=AgentRunPause(
+                cause=AgentPauseCause.LEASE_EXPIRED,
+                checkpoint="tool_execution_incomplete",
+                resumable=False,
+            ),
         )
     )
     execution_register.create_attempt(
@@ -3628,7 +3584,11 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
     assert execution.status is ToolExecutionStatus.COMPLETED
     assert execution.result is not None
     assert execution.result.tool_call_result == {"written": True}
-    assert resolved.metadata[AgentRunMetadata.RUNTIME_KEY]["recovery_eligible"] is True
+    assert resolved.pause == AgentRunPause(
+        cause=AgentPauseCause.LEASE_EXPIRED,
+        checkpoint="operator_resolution",
+        resumable=True,
+    )
     assert (
         trace_register.list_events("run-unknown")[-1].event_type
         is AgentTraceEventType.TOOL_EXECUTION_RESOLVED
@@ -4041,11 +4001,10 @@ async def test_agent_history_positions_preserve_context_messages_and_reset_gener
         metadata={"run_id": "history"},
     )
     state = await AgentRunApplication(runtime).start(request)
-    history = state.metadata["agent_runtime"]
-    assert history["context_message_offset"] == 1
-    assert history["context_message_indices"] == [1, 2]
-    assert history["context_history_generation"] == "cleared"
-    assert isinstance(history["history_started_at"], str)
+    assert state.history.message_offset == 1
+    assert state.history.message_indices == [1, 2]
+    assert state.history.generation == "cleared"
+    assert isinstance(state.history.started_at, datetime)
     assert state.response is not None
     assert (await runtime.contexts.get("ctx-1")).messages == [
         previous,
@@ -4407,10 +4366,10 @@ async def test_agent_pause_during_model_call_survives_snapshot_updates(
         state = await asyncio.wait_for(task, 2)
 
     assert state.status is AgentRunStatus.PAUSED
-    assert (
-        state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_reason"] == "operator pause"
-    )
-    assert state.metadata[AgentRunMetadata.RUNTIME_KEY]["pause_requested"] is False
+    assert state.pause is not None
+    assert state.pause.cause is AgentPauseCause.MANUAL
+    assert state.pause.reason == "operator pause"
+    assert state.pause_request is None
     assert state.trace[-1].event_type is AgentTraceEventType.RUN_PAUSED
     assert (await runtime.contexts.get("ctx-1")).messages == []
     if stream_model:

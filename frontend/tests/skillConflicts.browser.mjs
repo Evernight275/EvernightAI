@@ -309,7 +309,11 @@ try {
     run.pending_approval_requests = [];
     for (const status of ['finished', 'failed', 'paused']) {
       run.status = status;
-      run.metadata = { agent_runtime: { recovery_eligible: false } };
+      run.pause = {
+        cause: 'lease_expired',
+        checkpoint: 'tool_execution_incomplete',
+        resumable: false,
+      };
       await page.goto(base);
       await page.getByRole('button', { name: '运行管理', exact: true }).click();
       await page.getByRole('button', { name: '管理运行', exact: true }).click();

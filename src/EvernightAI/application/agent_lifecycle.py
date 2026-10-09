@@ -13,16 +13,14 @@ from EvernightAI.core.protocol.agent import (
 )
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
+    AgentRunPause,
     AgentRunStatus,
     AgentTraceEvent,
     AgentTraceEventType,
 )
 
-from EvernightAI.application.agent_state import (
-    LOGGER,
-    AgentPauseCause,
-    AgentRunPause,
-)
+from EvernightAI.application.agent_state import LOGGER
 from EvernightAI.application.agent_recovery import (
     inspect_agent_run_checkpoint,
     _mark_started_executions_unknown,
@@ -157,11 +155,11 @@ class _AgentRunLifecycle:
             )
             state.status = AgentRunStatus.PAUSED
             state.stop_reason = None
-            state.metadata = AgentRunPause(
+            state.pause = AgentRunPause(
                 cause=AgentPauseCause.SHUTDOWN,
                 checkpoint=checkpoint.name,
                 resumable=checkpoint.eligible,
-            ).apply(state.metadata)
+            )
             state.trace.append(event)
             if trace_register is not None:
                 event.sequence = trace_register.append_event(state.run_id, event)

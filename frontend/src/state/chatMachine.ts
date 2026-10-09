@@ -849,16 +849,7 @@ function isSuccessfullyFinishedRun(run: AgentRunState | null): boolean {
 }
 
 function isRecoverablePause(run: AgentRunState | null): boolean {
-  if (run?.status !== 'paused') {
-    return false;
-  }
-  const runtime = run.metadata?.agent_runtime;
-  return !(
-    runtime &&
-    typeof runtime === 'object' &&
-    'recovery_eligible' in runtime &&
-    runtime.recovery_eligible === false
-  );
+  return run?.status === 'paused' && run.pause?.resumable !== false;
 }
 
 function isApprovalPause(run: AgentRunState | null): boolean {
@@ -866,16 +857,7 @@ function isApprovalPause(run: AgentRunState | null): boolean {
 }
 
 function isManualPause(run: AgentRunState | null): boolean {
-  if (!isRecoverablePause(run)) {
-    return false;
-  }
-  const runtime = run?.metadata?.agent_runtime;
-  return Boolean(
-    runtime &&
-    typeof runtime === 'object' &&
-    'manual_pause' in runtime &&
-    runtime.manual_pause === true,
-  );
+  return run?.status === 'paused' && run.pause?.resumable === true;
 }
 
 type ApprovalDecisionEvent = Extract<ChatMachineEvent, { type: 'APPROVE' | 'DENY' }>;

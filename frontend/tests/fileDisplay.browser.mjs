@@ -189,15 +189,13 @@ try {
           response,
           trace,
           pending_approval_requests: [],
-          metadata: {
-            agent_runtime: {
-              history_started_at: new Date().toISOString(),
-              context_message_offset: offset,
-              context_message_indices: Array.from(
-                { length: artifacts.length + 3 },
-                (_, index) => offset + index,
-              ),
-            },
+          history: {
+            started_at: new Date().toISOString(),
+            message_offset: offset,
+            message_indices: Array.from(
+              { length: artifacts.length + 3 },
+              (_, index) => offset + index,
+            ),
           },
         };
         return route.fulfill({

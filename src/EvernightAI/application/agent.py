@@ -14,12 +14,12 @@ from EvernightAI.application.agent_runs import (
 )
 from EvernightAI.application.agent_state import (
     AbandonedToolExecution as AbandonedToolExecution,
-    AgentPauseCause as AgentPauseCause,
-    AgentRunPause as AgentRunPause,
     AgentRunRetryPlan as AgentRunRetryPlan,
     AgentRunMetadata as AgentRunMetadata,
-    AgentRunControl as AgentRunControl,
     AgentResumeMode as AgentResumeMode,
+    agent_resume_mode as agent_resume_mode,
+    agent_run_can_resume as agent_run_can_resume,
+    agent_run_failure as agent_run_failure,
 )
 from EvernightAI.core.protocol.interface import AgentInterfaceProtocol
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState

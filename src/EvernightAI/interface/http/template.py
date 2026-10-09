@@ -2,7 +2,12 @@ from typing import Any, cast
 
 from fastapi.openapi.models import Example
 
-from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState, AgentRunStatus
+from EvernightAI.core.schema.agent import (
+    AgentPauseRequest,
+    AgentRunRequest,
+    AgentRunState,
+    AgentRunStatus,
+)
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -334,13 +339,8 @@ AGENT_RUN_PAUSED_RESPONSE_EXAMPLE = _response_example(
             metadata={"run_id": "run-1"},
         ),
         status=AgentRunStatus.RUNNING,
-        metadata={
-            "run_id": "run-1",
-            "agent_runtime": {
-                "pause_requested": True,
-                "pause_reason": "operator paused",
-            },
-        },
+        pause_request=AgentPauseRequest(reason="operator paused"),
+        metadata={"run_id": "run-1"},
     ),
     exclude_defaults=False,
 )
@@ -355,13 +355,8 @@ AGENT_RUN_CANCELED_RESPONSE_EXAMPLE = _response_example(
             metadata={"run_id": "run-1"},
         ),
         status=AgentRunStatus.CANCELED,
-        metadata={
-            "run_id": "run-1",
-            "agent_runtime": {
-                "manual_pause": False,
-                "cancel_reason": "operator canceled",
-            },
-        },
+        cancel_reason="operator canceled",
+        metadata={"run_id": "run-1"},
     ),
 )
 

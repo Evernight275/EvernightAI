@@ -357,9 +357,9 @@ async def test_tool_mutation_blocks_followup_model_and_preserves_completed_execu
     }
     assert state.trace[-1].payload is not None
     assert json.loads(state.trace[-1].payload["error_detail"]) == expected_detail
-    assert (
-        json.loads(state.metadata["agent_runtime"]["failure_detail"]) == expected_detail
-    )
+    assert state.failure is not None
+    assert state.failure.detail is not None
+    assert json.loads(state.failure.detail) == expected_detail
     assert any(step.step_type is AgentStepType.TOOL for step in state.steps)
     assert executed == ["add"] and len(provider.requests) == 1
     assert (

@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
-from EvernightAI.application.agent import AgentRunApplication, AgentRunMetadata
+from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.error.agent import AgentRunCanceledError, AgentRunTimeoutError
 from EvernightAI.core.error.agent import AgentStateError
@@ -16,6 +16,8 @@ from EvernightAI.core.error.session import SessionNotFoundError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
+    AgentRunPause,
     AgentRunRequest,
     AgentRunState,
     AgentRunStatus,
@@ -413,10 +415,9 @@ async def test_sqlite_bootstrap_recovers_legacy_running_agents(tmp_path: Path) -
         state = runtime.agent_state_register.get_state("run-1")  # type: ignore[union-attr]
         events = runtime.agent_trace_register.list_events("run-1")  # type: ignore[union-attr]
         assert state.status is AgentRunStatus.PAUSED
-        assert state.metadata["interruption_reason"] == "runtime_restart"
-        runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
-        assert runtime_metadata["pause_source"] == "shutdown"
-        assert runtime_metadata["recovery_eligible"] is True
+        assert state.pause is not None
+        assert state.pause.cause is AgentPauseCause.UNCLEAN_SHUTDOWN
+        assert state.pause.resumable is True
         assert events[-1].metadata["reason"] == "shutdown"
     finally:
         await runtime.close()
@@ -501,11 +502,12 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
         assert state_register is not None
         assert trace_register is not None
         state = state_register.get_state("run-1")
-        runtime_metadata = state.metadata[AgentRunMetadata.RUNTIME_KEY]
         assert state.status is AgentRunStatus.PAUSED
-        assert runtime_metadata["pause_source"] == "lease_expired"
-        assert runtime_metadata["pause_checkpoint"] == "tool_execution_incomplete"
-        assert runtime_metadata["recovery_eligible"] is False
+        assert state.pause == AgentRunPause(
+            cause=AgentPauseCause.LEASE_EXPIRED,
+            checkpoint="tool_execution_incomplete",
+            resumable=False,
+        )
         assert (
             trace_register.list_events("run-1")[-1].metadata["reason"]
             == "lease_expired"

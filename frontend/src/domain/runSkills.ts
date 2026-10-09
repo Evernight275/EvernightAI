@@ -36,16 +36,16 @@ export function skillErrorIssues(error: unknown, run: AgentRunState | null): Run
 }
 
 export function runFailureError(run: AgentRunState): ApiError | null {
-  const runtime = run.metadata?.agent_runtime as Record<string, unknown> | undefined;
+  const failure = run.failure;
   const event = [...(run.trace || [])]
     .reverse()
     .find((event) => event.event_type === 'run_stopped' && event.error_type);
-  const type = event?.error_type || runtime?.failure_type;
+  const type = event?.error_type || failure?.error_type;
   if (typeof type !== 'string') return null;
-  return new ApiError(event?.error_message || String(runtime?.failure_message || type), {
+  return new ApiError(event?.error_message || failure?.message || type, {
     status: type === 'SkillNotFoundError' ? 404 : 409,
     errorType: type,
-    detail: event?.payload?.error_detail || runtime?.failure_detail,
+    detail: event?.payload?.error_detail || failure?.detail,
     path: `/agent-runs/${run.run_id}`,
     requestId: null,
   });
@@ -89,10 +89,9 @@ export function skillIssueText(issue: RunSkillIssue): string {
 }
 
 export function canRetryRun(run: AgentRunState | null): boolean {
-  const runtime = run?.metadata?.agent_runtime as Record<string, unknown> | undefined;
   return Boolean(
     run &&
     (['failed', 'canceled'].includes(run.status || '') ||
-      (run.status === 'paused' && runtime?.recovery_eligible === false)),
+      (run.status === 'paused' && run.pause?.resumable === false)),
   );
 }

@@ -770,11 +770,7 @@ function unrecoverablePausedRun(input: ChatRequestInput): AgentRunState {
   return {
     ...pausedRun(input),
     run_id: 'run-unrecoverable',
-    metadata: {
-      agent_runtime: {
-        recovery_eligible: false,
-      },
-    },
+    pause: { cause: 'lease_expired', checkpoint: 'tool_execution_incomplete', resumable: false },
   };
 }
 
@@ -783,12 +779,7 @@ function manualPausedRun(input: ChatRequestInput): AgentRunState {
     ...pausedRun(input),
     run_id: 'run-manually-paused',
     pending_approval_requests: [],
-    metadata: {
-      agent_runtime: {
-        manual_pause: true,
-        recovery_eligible: true,
-      },
-    },
+    pause: { cause: 'manual_pause', checkpoint: 'tool_completed', resumable: true },
   };
 }
 

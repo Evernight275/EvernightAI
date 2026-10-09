@@ -30,11 +30,9 @@ try {
         request,
         status: 'running',
         trace: [],
-        metadata: {
-          agent_runtime: {
-            history_started_at: new Date().toISOString(),
-            context_message_offset: 0,
-          },
+        history: {
+          started_at: new Date().toISOString(),
+          message_offset: 0,
         },
       });
       if (request.metadata?.reply_only_of) {

@@ -102,6 +102,31 @@ export type AgentTraceEvent = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentPauseCause =
+  'manual_pause' | 'timeout' | 'shutdown' | 'unclean_shutdown' | 'lease_expired';
+
+/** A run stopped at a checkpoint. A run waiting for tool approval has none. */
+export type AgentRunPause = {
+  cause: AgentPauseCause | string;
+  checkpoint: string;
+  resumable: boolean;
+  reason?: string | null;
+};
+
+export type AgentRunFailure = {
+  error_type: string;
+  message: string;
+  detail?: string | null;
+};
+
+/** Where a run's messages sit in its context's history. */
+export type AgentRunHistory = {
+  started_at?: string | null;
+  message_offset?: number | null;
+  message_indices?: number[] | null;
+  generation?: unknown;
+};
+
 export type AgentRunState = {
   run_id: string;
   request: AgentRunRequest;
@@ -117,6 +142,11 @@ export type AgentRunState = {
   tool_rounds_used?: number;
   pending_tool_calls?: ToolCall[];
   pending_approval_requests?: ToolApprovalRequest[];
+  pause?: AgentRunPause | null;
+  pause_request?: { reason?: string | null } | null;
+  failure?: AgentRunFailure | null;
+  cancel_reason?: string | null;
+  history?: AgentRunHistory;
   metadata?: Record<string, unknown>;
 };
 

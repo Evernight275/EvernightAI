@@ -50,15 +50,13 @@ describe('run Skill conflicts', () => {
     const persisted = {
       ...run(),
       status: 'failed',
-      metadata: {
-        agent_runtime: {
-          failure_type: 'SkillConflictError',
-          failure_message: 'Versions unavailable',
-          failure_detail: JSON.stringify({
-            reason: 'revision_unavailable',
-            skill_names: ['style'],
-          }),
-        },
+      failure: {
+        error_type: 'SkillConflictError',
+        message: 'Versions unavailable',
+        detail: JSON.stringify({
+          reason: 'revision_unavailable',
+          skill_names: ['style'],
+        }),
       },
     };
     expect(runSkillIssues(persisted, [skill()])).toEqual([
@@ -74,7 +72,14 @@ describe('run Skill conflicts', () => {
     expect(canRetryRun({ ...run(), status: 'finished' })).toBe(false);
     expect(canRetryRun(run())).toBe(false);
     expect(
-      canRetryRun({ ...run(), metadata: { agent_runtime: { recovery_eligible: false } } }),
+      canRetryRun({
+        ...run(),
+        pause: {
+          cause: 'lease_expired',
+          checkpoint: 'tool_execution_incomplete',
+          resumable: false,
+        },
+      }),
     ).toBe(true);
   });
 });

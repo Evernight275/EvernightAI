@@ -163,11 +163,7 @@ export async function loadChatHistory(
   )
     runs.push(focusedRun);
   const visible = runs
-    .filter(
-      (run) =>
-        ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)
-          ?.context_history_generation ?? null) === generation,
-    )
+    .filter((run) => (run.history?.generation ?? null) === generation)
     .sort((a, b) => runHistoryTime(a).localeCompare(runHistoryTime(b)));
   return {
     transcript: restoreChatHistory(context, visible),

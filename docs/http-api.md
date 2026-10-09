@@ -570,6 +570,13 @@ including calls before an approval or manual pause. `response.usage` remains
 the usage of the latest model response. Each token field is summed only when
 every completed call reports it; missing values remain `null`. Per-call usage,
 including raw provider metadata, is retained in `usage.metadata.calls`.
+Run control state is returned in typed fields of the run state: `pause`
+(`cause`, `checkpoint`, `resumable`, `reason`), `pause_request`, `failure`
+(`error_type`, `message`, `detail`), `cancel_reason`, and `history`
+(`started_at`, `message_offset`, `message_indices`, `generation`). `pause` is
+absent while a run waits for tool approval. `metadata.agent_runtime` is no longer
+returned; `tool_rounds_used` and `pending_approval_requests` are top-level.
+
 Ordinary and streaming runs honor pause requests at the next safe checkpoint.
 Text deltas preserve a pending pause request without interrupting the model
 response halfway through. Provider error events and streams that end without a

@@ -196,15 +196,11 @@ def test_http_openapi_examples_are_try_it_ready() -> None:
     assert agent_pause_examples["withReason"]["value"] == {"reason": "operator paused"}
     assert agent_cancel_examples["withReason"]["value"] == {"reason": "operator paused"}
     assert agent_pause_response_example["status"] == "running"
-    assert agent_pause_response_example["metadata"]["agent_runtime"] == {
-        "pause_requested": True,
-        "pause_reason": "operator paused",
+    assert agent_pause_response_example["pause_request"] == {
+        "reason": "operator paused"
     }
     assert agent_cancel_response_example["status"] == "canceled"
-    assert agent_cancel_response_example["metadata"]["agent_runtime"] == {
-        "manual_pause": False,
-        "cancel_reason": "operator canceled",
-    }
+    assert agent_cancel_response_example["cancel_reason"] == "operator canceled"
     assert chat_examples["withReasoningEffort"]["value"]["request"]["metadata"] == {
         "reasoning_effort": "high"
     }
@@ -2012,8 +2008,9 @@ def test_http_agent_resume_stream_marks_run_failed_on_provider_error() -> None:
     }
     state = state_register.get_state("run-resume-fails")
     assert state.status is AgentRunStatus.FAILED
-    assert state.metadata["agent_runtime"]["failure_type"] == "ProviderUnavailableError"
-    assert state.metadata["agent_runtime"]["failure_message"] == "provider chat failed"
+    assert state.failure is not None
+    assert state.failure.error_type == "ProviderUnavailableError"
+    assert state.failure.message == "provider chat failed"
     events = trace_register.list_events("run-resume-fails")
     assert [event.event_type for event in events] == [AgentTraceEventType.RUN_STOPPED]
     assert events[0].metadata == {"reason": "failed"}
@@ -3207,8 +3204,7 @@ def test_http_app_pauses_running_agent_run() -> None:
     assert response.status_code == 200
     state = response.json()
     assert state["status"] == "running"
-    assert state["metadata"]["agent_runtime"]["pause_requested"] is True
-    assert state["metadata"]["agent_runtime"]["pause_reason"] == "operator paused"
+    assert state["pause_request"] == {"reason": "operator paused"}
 
 
 def test_http_app_cancels_agent_run() -> None:
@@ -3244,7 +3240,8 @@ def test_http_app_cancels_agent_run() -> None:
     assert state["status"] == "canceled"
     assert state["pending_tool_calls"] == []
     assert state["pending_approval_requests"] == []
-    assert state["metadata"]["agent_runtime"]["cancel_reason"] == "operator canceled"
+    assert state["cancel_reason"] == "operator canceled"
+    assert state.get("pause") is None
     events = trace_register.list_events("run-cancel")
     assert [event.event_type for event in events] == [AgentTraceEventType.RUN_STOPPED]
     assert events[0].metadata == {
@@ -3475,10 +3472,8 @@ def test_http_app_lists_and_resolves_unknown_tool_execution() -> None:
     assert list_response.json()[0]["status"] == "unknown"
     assert list_response.json()[0]["replay_policy"] == "non_replayable"
     assert resolve_response.status_code == 200
-    assert (
-        resolve_response.json()["metadata"]["agent_runtime"]["recovery_eligible"]
-        is True
-    )
+    assert resolve_response.json()["pause"]["resumable"] is True
+    assert resolve_response.json()["pause"]["checkpoint"] == "operator_resolution"
     execution = execution_register.get_attempt("run-unknown", "call-1", 1)
     assert execution.status is ToolExecutionStatus.COMPLETED
     assert execution.result is not None

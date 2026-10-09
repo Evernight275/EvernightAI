@@ -187,12 +187,10 @@ try {
         response: finalResponse,
         trace: [...trace, ...events],
         pending_approval_requests: [],
-        metadata: {
-          agent_runtime: {
-            history_started_at: `2026-10-04T08:00:0${index}Z`,
-            context_message_offset: offset,
-            context_message_indices: [offset, offset + 1, offset + 2, offset + 3],
-          },
+        history: {
+          started_at: `2026-10-04T08:00:0${index}Z`,
+          message_offset: offset,
+          message_indices: [offset, offset + 1, offset + 2, offset + 3],
         },
       });
       await page.evaluate((events) => window.emitImageToolEvents(events), events);

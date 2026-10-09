@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatResponse, ChatSkill, ChatUsage, Content
@@ -101,6 +101,65 @@ class ToolExecutionAttempt(EvernightAISchema):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentPauseCause(StrEnum):
+    """Why a run stopped at a checkpoint instead of waiting for a tool approval."""
+
+    MANUAL = "manual_pause"
+    TIMEOUT = "timeout"
+    SHUTDOWN = "shutdown"
+    UNCLEAN_SHUTDOWN = "unclean_shutdown"
+    LEASE_EXPIRED = "lease_expired"
+
+    @property
+    def source(self) -> str:
+        """The name used in trace events, which record both shutdowns alike."""
+        if self is AgentPauseCause.UNCLEAN_SHUTDOWN:
+            return AgentPauseCause.SHUTDOWN.value
+        return self.value
+
+
+class AgentRunPause(EvernightAISchema):
+    """A run stopped at a checkpoint: why, where, and whether it may continue.
+
+    A resumable pause continues from its checkpoint. One that is not resumable
+    can only be retried as a new run or unblocked by operator resolution. A run
+    waiting for tool approval has no pause; its pending tool calls say so.
+    """
+
+    cause: AgentPauseCause
+    checkpoint: str
+    resumable: bool
+    reason: str | None = None
+
+
+class AgentPauseRequest(EvernightAISchema):
+    """A request for a running run to pause at its next checkpoint."""
+
+    reason: str | None = None
+
+
+class AgentRunFailure(EvernightAISchema):
+    """The error that ended a run, kept so the run can explain itself later."""
+
+    error_type: str
+    message: str
+    detail: str | None = None
+
+
+class AgentRunHistory(EvernightAISchema):
+    """Where a run's messages sit in its context's history.
+
+    A run records the context length it started from, then the index of each
+    message it commits, so a transcript can place the run among the others.
+    Fields are unset for snapshots written before they were recorded.
+    """
+
+    started_at: datetime | None = None
+    message_offset: int | None = Field(default=None, ge=0)
+    message_indices: list[int] | None = None
+    generation: Any = None
+
+
 class AgentStopReason(StrEnum):
     """Agent停止原因"""
 
@@ -151,6 +210,7 @@ class AgentRunResult(EvernightAISchema):
     response: ChatResponse
     usage: ChatUsage | None = None
     stop_reason: AgentStopReason = AgentStopReason.FINISHED
+    tool_rounds_used: int | None = None
     steps: list[AgentStep] = Field(default_factory=list)
     trace: list["AgentTraceEvent"] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -193,4 +253,100 @@ class AgentRunState(EvernightAISchema):
     tool_rounds_used: int = 0
     pending_tool_calls: list[ToolCall] = Field(default_factory=list)
     pending_approval_requests: list[ToolApprovalRequest] = Field(default_factory=list)
+    pause: AgentRunPause | None = None
+    pause_request: AgentPauseRequest | None = None
+    failure: AgentRunFailure | None = None
+    cancel_reason: str | None = None
+    history: AgentRunHistory = Field(default_factory=AgentRunHistory)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_legacy_control_metadata(cls, data: Any) -> Any:
+        """Read snapshots that kept control state under metadata["agent_runtime"]."""
+        if not isinstance(data, dict):
+            return data
+        metadata = data.get("metadata")
+        if not isinstance(metadata, dict) or not (
+            _LEGACY_CONTROL_KEYS & metadata.keys()
+        ):
+            return data
+
+        legacy = metadata.get("agent_runtime")
+        legacy = legacy if isinstance(legacy, dict) else {}
+        lifted = dict(data)
+        lifted["metadata"] = {
+            key: value
+            for key, value in metadata.items()
+            if key not in _LEGACY_CONTROL_KEYS
+        }
+        lifted.setdefault(
+            "history",
+            {
+                "started_at": legacy.get("history_started_at"),
+                "message_offset": legacy.get("context_message_offset"),
+                "message_indices": (
+                    legacy.get("context_message_indices")
+                    if isinstance(legacy.get("context_message_indices"), list)
+                    else None
+                ),
+                "generation": legacy.get("context_history_generation"),
+            },
+        )
+        if legacy.get("pause_requested") is True:
+            lifted.setdefault("pause_request", {"reason": legacy.get("pause_reason")})
+        pause = _legacy_pause(data.get("status"), legacy, metadata)
+        if pause is not None:
+            lifted.setdefault("pause", pause)
+        if isinstance(legacy.get("failure_type"), str):
+            lifted.setdefault(
+                "failure",
+                {
+                    "error_type": legacy["failure_type"],
+                    "message": str(legacy.get("failure_message") or ""),
+                    "detail": legacy.get("failure_detail"),
+                },
+            )
+        if isinstance(legacy.get("cancel_reason"), str):
+            lifted.setdefault("cancel_reason", legacy["cancel_reason"])
+        return lifted
+
+
+_LEGACY_CONTROL_KEYS = frozenset(
+    {"agent_runtime", "interrupted", "interruption_reason"}
+)
+
+
+def _legacy_pause(
+    status: Any,
+    legacy: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any] | None:
+    if status not in (AgentRunStatus.PAUSED, AgentRunStatus.PAUSED.value):
+        return None
+    # Legacy snapshots named the checkpoint-resume flag "manual_pause" and set
+    # it for every resumable pause; "recovery_eligible" marked the blocked ones.
+    if legacy.get("recovery_eligible") is False:
+        resumable = False
+    elif legacy.get("manual_pause") is True:
+        resumable = True
+    else:
+        return None
+
+    source = legacy.get("pause_source")
+    if source == AgentPauseCause.SHUTDOWN.value and metadata.get("interrupted"):
+        cause = AgentPauseCause.UNCLEAN_SHUTDOWN
+    elif isinstance(source, str) and source in {cause.value for cause in AgentPauseCause}:
+        cause = AgentPauseCause(source)
+    else:
+        cause = (
+            AgentPauseCause.MANUAL if resumable else AgentPauseCause.UNCLEAN_SHUTDOWN
+        )
+    checkpoint = legacy.get("pause_checkpoint")
+    reason = legacy.get("pause_reason")
+    return {
+        "cause": cause,
+        "checkpoint": checkpoint if isinstance(checkpoint, str) else "unknown",
+        "resumable": resumable,
+        "reason": reason if isinstance(reason, str) else None,
+    }

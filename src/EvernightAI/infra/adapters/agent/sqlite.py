@@ -8,6 +8,7 @@ from EvernightAI.core.protocol.agent import (
     ToolExecutionRegisterProtocol,
 )
 from EvernightAI.core.schema.agent import (
+    AgentRunHistory,
     AgentRunLease,
     AgentRunState,
     AgentRunStatus,
@@ -205,10 +206,10 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
         # Legacy snapshots use the stored creation time to retain history order.
         for payload, created_at in rows:
             state = AgentRunState.model_validate_json(payload)
-            runtime = state.metadata.get("agent_runtime")
-            runtime = dict(runtime) if isinstance(runtime, dict) else {}
-            runtime.setdefault("history_started_at", created_at)
-            state.metadata = {**state.metadata, "agent_runtime": runtime}
+            if state.history.started_at is None:
+                state.history = AgentRunHistory.model_validate(
+                    {**state.history.model_dump(), "started_at": created_at}
+                )
             states.append(state)
         return states
 

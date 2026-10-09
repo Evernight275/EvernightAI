@@ -8,12 +8,6 @@ from EvernightAI.core.error.agent import (
     AgentRunTimeoutError,
     AgentStateError,
 )
-from EvernightAI.core.error.skill import (
-    SkillConflictError,
-    SkillDisabledError,
-    SkillNotFoundError,
-)
-from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.protocol.interface import (
     AgentRunInterfaceProtocol,
 )
@@ -27,6 +21,9 @@ from EvernightAI.core.protocol.stream import (
     AgentTraceStreamProtocol,
 )
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
+    AgentPauseRequest,
+    AgentRunPause,
     AgentRunRequest,
     AgentRunState,
     AgentRunStatus,
@@ -51,10 +48,9 @@ from EvernightAI.application.agent_execution import (
 from EvernightAI.application.agent_state import (
     LOGGER,
     AgentRunMetadata,
-    AgentPauseCause,
-    AgentRunControl,
-    AgentRunPause,
     AgentRunRetryPlan,
+    agent_run_can_resume,
+    agent_run_failure,
     AbandonedToolExecution,
     _owner_scope,
     _require_request_scope,
@@ -204,10 +200,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         if state.status is not AgentRunStatus.RUNNING:
             raise AgentStateError("Agent run is not running")
 
-        state.metadata = AgentRunControl.request_pause(
-            state.metadata,
-            reason or "pause",
-        )
+        state.pause_request = AgentPauseRequest(reason=reason or "pause")
         self._state_register().save_state(
             state,
             principal_scope=principal_scope,
@@ -245,10 +238,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.stop_reason = None
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunControl.canceled(
-            state.metadata,
-            reason or "canceled",
-        )
+        state.pause = None
+        state.cancel_reason = reason or "canceled"
         event.sequence = self._trace_register().append_event(run_id, event)
         state.applied_trace_sequence = event.sequence
         self._state_register().save_state(
@@ -323,10 +314,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         )
 
     def _is_unrecoverable_pause(self, state: AgentRunState) -> bool:
-        return (
-            state.status is AgentRunStatus.PAUSED
-            and not AgentRunControl.from_state(state).recoverable
-        )
+        return state.status is AgentRunStatus.PAUSED and not agent_run_can_resume(state)
 
     def _can_retry(
         self,
@@ -684,10 +672,10 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             and item.resolution is None
             for item in _latest_tool_execution_attempts(attempts).values()
         )
-        state.metadata = AgentRunControl.resolved_by_operator(
-            state.metadata,
-            resumable=eligible,
-        )
+        if state.pause is not None:
+            state.pause = state.pause.model_copy(
+                update={"checkpoint": "operator_resolution", "resumable": eligible}
+            )
         event = self._agent._add_trace(
             state,
             AgentTraceEvent(
@@ -833,8 +821,8 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             state.run_id,
             principal_scope=principal_scope,
         )
-        control = AgentRunControl.from_state(stored)
-        if stored.status is not AgentRunStatus.RUNNING or not control.pause_requested:
+        pause_request = stored.pause_request
+        if stored.status is not AgentRunStatus.RUNNING or pause_request is None:
             return None
 
         if state.status is not AgentRunStatus.RUNNING:
@@ -847,31 +835,30 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             AgentTraceEventType.TOOL_COMPLETED,
             AgentTraceEventType.TOOL_FAILED,
         }:
-            state.metadata = AgentRunControl.request_pause(
-                state.metadata,
-                control.pause_reason,
-            )
+            # Carry the request onto the snapshot this run is about to save.
+            state.pause_request = pause_request
             return None
 
         checkpoint = event.event_type.value
-        pause_reason = control.pause_reason
+        pause_reason = (
+            pause_request.reason if pause_request.reason is not None else "pause"
+        )
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
-        state.metadata = AgentRunPause(
+        state.pause_request = None
+        state.pause = AgentRunPause(
             cause=AgentPauseCause.MANUAL,
             checkpoint=checkpoint,
             resumable=True,
             reason=pause_reason,
-        ).apply(state.metadata)
+        )
         pause_event = self._agent._add_trace(
             state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_PAUSED,
                 metadata={
                     "reason": "pause",
-                    "control_reason": (
-                        pause_reason if isinstance(pause_reason, str) else "pause"
-                    ),
+                    "control_reason": (pause_reason),
                     "checkpoint": checkpoint,
                 },
             ),
@@ -934,11 +921,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.applied_trace_sequence = event.sequence
         state.status = AgentRunStatus.PAUSED
         state.stop_reason = None
-        state.metadata = AgentRunPause(
+        state.pause = AgentRunPause(
             cause=cause,
             checkpoint=checkpoint.name,
             resumable=checkpoint.eligible,
-        ).apply(state.metadata)
+        )
         self._state_register().save_state(
             state,
             principal_scope=principal_scope,
@@ -980,26 +967,18 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         if state.status is not AgentRunStatus.RUNNING:
             return
 
-        detail = (
-            error.detail
-            if isinstance(
-                error,
-                (
-                    SkillConflictError,
-                    SkillDisabledError,
-                    SkillNotFoundError,
-                    ProviderResponseError,
-                ),
-            )
-            else None
-        )
+        failure = agent_run_failure(error)
         event = self._agent._add_trace(
             state,
             AgentTraceEvent(
                 event_type=AgentTraceEventType.RUN_STOPPED,
-                error_type=error.__class__.__name__,
-                error_message=str(error),
-                payload={"error_detail": detail} if detail is not None else None,
+                error_type=failure.error_type,
+                error_message=failure.message,
+                payload=(
+                    {"error_detail": failure.detail}
+                    if failure.detail is not None
+                    else None
+                ),
                 metadata={"reason": "failed"},
             ),
         )
@@ -1009,12 +988,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         state.stop_reason = None
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            failure_type=error.__class__.__name__,
-            failure_message=str(error),
-            failure_detail=detail,
-        )
+        state.failure = failure
         self._state_register().save_state(
             state,
             principal_scope=principal_scope,

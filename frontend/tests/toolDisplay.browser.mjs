@@ -110,12 +110,10 @@ try {
           response: final,
           trace,
           pending_approval_requests: [],
-          metadata: {
-            agent_runtime: {
-              history_started_at: '2026-10-05T08:00:00Z',
-              context_message_offset: 0,
-              context_message_indices: [0, 1, 2, 3, 4],
-            },
+          history: {
+            started_at: '2026-10-05T08:00:00Z',
+            message_offset: 0,
+            message_indices: [0, 1, 2, 3, 4],
           },
         };
         return route.fulfill({

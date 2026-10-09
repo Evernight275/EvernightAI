@@ -301,13 +301,27 @@ same path as HTTP and CLI.
 | `agent_runs.py` | Persistent execution, executor, streaming and operator controls |
 | `agent_recovery.py` | Snapshot reconciliation, checkpoint safety and startup recovery |
 | `agent_lifecycle.py` | Shared shutdown boundary and active-run tracking |
-| `agent_state.py` | Typed control view, legacy metadata compatibility and usage aggregation |
+| `agent_state.py` | Resume-mode rules, failure classification, request metadata keys and usage aggregation |
 
-`AgentRunControl` distinguishes approval resumption from checkpoint resumption.
-The persisted `manual_pause` field remains a compatibility encoding for the
-latter, including timeout, shutdown and operator resolution; it does not identify
-the pause source. `recoverable`, `pause_requested`, `checkpoint` and `source`
-are read through the typed control view.
+Control state lives in typed fields on `AgentRunState`, defined in
+`core/schema/agent.py`:
+
+| Field | Meaning |
+| --- | --- |
+| `pause` | A stop at a checkpoint: its `cause`, `checkpoint`, and whether it is `resumable`. Absent while a run waits for tool approval |
+| `pause_request` | A pending request to pause at the next checkpoint |
+| `failure` | The error that ended the run |
+| `cancel_reason` | Why the run was canceled |
+| `history` | Where the run's messages sit in its context's history |
+
+A paused run with a resumable `pause` continues from its checkpoint; one without
+a `pause` continues from its pending tool approvals; one whose `pause` is not
+resumable can only be retried or unblocked by operator resolution.
+
+Snapshots written before these fields existed kept the same state under
+`metadata["agent_runtime"]`. `AgentRunState` lifts that form into the typed
+fields when it is loaded and drops it from `metadata`, so it is read but never
+written.
 
 | Role | Data or behavior |
 | --- | --- |

@@ -452,13 +452,11 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
     .filter(
       (run) =>
         run.request.context_id === context.context_id &&
-        ((run.metadata?.agent_runtime as Record<string, unknown> | undefined)
-          ?.context_history_generation ?? null) === generation,
+        (run.history?.generation ?? null) === generation,
     )
     .map((run) => {
-      const runtime = run.metadata?.agent_runtime as Record<string, unknown> | undefined;
-      const indices = Array.isArray(runtime?.context_message_indices)
-        ? runtime.context_message_indices.filter(
+      const indices = Array.isArray(run.history?.message_indices)
+        ? run.history.message_indices.filter(
             (index): index is number =>
               Number.isInteger(index) && index >= 0 && index < messages.length,
           )
@@ -467,8 +465,8 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
         run,
         indices,
         offset:
-          typeof runtime?.context_message_offset === 'number'
-            ? runtime.context_message_offset
+          typeof run.history?.message_offset === 'number'
+            ? run.history.message_offset
             : messages.length,
       };
     })
@@ -476,9 +474,8 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
   // Older snapshots have no commit positions. Match complete committed turns in order.
   let cursor = 0;
   for (const item of history) {
-    const runtime = item.run.metadata?.agent_runtime as Record<string, unknown> | undefined;
     if (
-      !Array.isArray(runtime?.context_message_indices) &&
+      !Array.isArray(item.run.history?.message_indices) &&
       (item.run.status === 'finished' ||
         ['tool_error', 'tool_rounds_exhausted'].includes(item.run.stop_reason || ''))
     ) {
@@ -514,8 +511,7 @@ export function restoreChatHistory(context: Context, runs: AgentRunState[]): Cha
   // Place interrupted turns before the next committed turn when legacy offsets are missing.
   for (let i = history.length - 2; i >= 0; i--) {
     const item = history[i]!;
-    const runtime = item.run.metadata?.agent_runtime as Record<string, unknown> | undefined;
-    if (!item.indices.length && typeof runtime?.context_message_offset !== 'number')
+    if (!item.indices.length && typeof item.run.history?.message_offset !== 'number')
       item.offset = history[i + 1]!.offset;
   }
   let result: ChatTranscriptEntry[] = [];
@@ -609,8 +605,5 @@ function sameMessage(a: Content, b: Content): boolean {
 }
 
 export function runHistoryTime(run: AgentRunState): string {
-  const runtime = run.metadata?.agent_runtime as Record<string, unknown> | undefined;
-  return typeof runtime?.history_started_at === 'string'
-    ? runtime.history_started_at
-    : run.trace?.[0]?.occurred_at || '';
+  return run.history?.started_at || run.trace?.[0]?.occurred_at || '';
 }

@@ -6,12 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from EvernightAI.application.agent import AgentRunApplication, AgentRunMetadata
+from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.runtime import RuntimeKernel
 from EvernightAI.core.error.agent import AgentStateError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.schema.agent import (
+    AgentPauseCause,
     AgentRunStatus,
     ToolExecutionResolution,
     ToolExecutionStatus,
@@ -123,19 +124,20 @@ async def test_run_killed_during_tool_execution_recovers_after_restart(
         app = await _assemble(runtime, provider, executed, replay_policy)
 
         paused = app.get_state(RUN_ID)
-        control = paused.metadata[AgentRunMetadata.RUNTIME_KEY]
+        pause = paused.pause
         (unknown,) = app.list_tool_executions(RUN_ID)
         assert paused.status is AgentRunStatus.PAUSED
-        assert control["pause_source"] == "lease_expired"
+        assert pause is not None
+        assert pause.cause is AgentPauseCause.LEASE_EXPIRED
         assert unknown.status is ToolExecutionStatus.UNKNOWN
         assert unknown.idempotency_key == f"{RUN_ID}:tool-call-1"
 
         if replay_policy is ToolReplayPolicy.SAFE:
-            assert control["pause_checkpoint"] == "tool_replay_ready"
-            assert control["recovery_eligible"] is True
+            assert pause.checkpoint == "tool_replay_ready"
+            assert pause.resumable is True
         else:
-            assert control["pause_checkpoint"] == "tool_execution_incomplete"
-            assert control["recovery_eligible"] is False
+            assert pause.checkpoint == "tool_execution_incomplete"
+            assert pause.resumable is False
             with pytest.raises(AgentStateError, match="cannot resume safely"):
                 await app.resume(RUN_ID, [])
             assert executed == []

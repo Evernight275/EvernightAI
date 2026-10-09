@@ -21,6 +21,7 @@ from EvernightAI.core.protocol.stream import (
     ChatStreamProtocol,
 )
 from EvernightAI.core.schema.agent import (
+    AgentRunHistory,
     AgentRunRequest,
     AgentRunResult,
     AgentRunState,
@@ -63,8 +64,9 @@ from EvernightAI.application.image_attachments import resolve_image_references
 
 from EvernightAI.application.agent_state import (
     AgentRunMetadata,
-    AgentRunControl,
     AgentResumeMode,
+    agent_resume_mode,
+    agent_run_can_resume,
     LOGGER,
     _owner_scope,
     _aggregate_run_usage,
@@ -194,11 +196,12 @@ class AgentExecutionApplication:
             request.context_id,
             principal_scope=_owner_scope(request.owner_id),
         )
-        state.metadata = AgentRunMetadata.with_runtime(
-            state.metadata,
-            context_message_offset=len(context.messages),
-            context_message_indices=[],
-            context_history_generation=context.metadata.get("chat_history_generation"),
+        state.history = state.history.model_copy(
+            update={
+                "message_offset": len(context.messages),
+                "message_indices": [],
+                "generation": context.metadata.get("chat_history_generation"),
+            }
         )
         state.skill_revisions = {
             skill.skill_name: self._runtime.skills.get_skill(skill.skill_name).revision
@@ -276,7 +279,7 @@ class AgentExecutionApplication:
             raise AgentStateError("Agent run cannot resume safely; retry it instead")
         self._check_skill_revisions(state)
         state.usage = _aggregate_run_usage(state)
-        if AgentRunControl.from_state(state).resume_mode is AgentResumeMode.CHECKPOINT:
+        if agent_resume_mode(state) is AgentResumeMode.CHECKPOINT:
             state.request = state.request.model_copy(
                 update={
                     "tool_approvals": self._merge_tool_approvals(
@@ -322,11 +325,6 @@ class AgentExecutionApplication:
         state.stop_reason = AgentStopReason.FINISHED
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunMetadata.with_tool_state(
-            state.metadata,
-            tool_rounds_used=state.tool_rounds_used,
-            pending_approval_count=0,
-        )
 
         async for event in self._continue_tool_loop(
             request,
@@ -347,7 +345,8 @@ class AgentExecutionApplication:
         state.stop_reason = None
         state.pending_tool_calls = []
         state.pending_approval_requests = []
-        state.metadata = AgentRunControl.resumed(state.metadata)
+        state.pause = None
+        state.pause_request = None
         if state.response is None:
             async for event in self._run_initial_chat_events(state.request, state):
                 yield event
@@ -394,7 +393,7 @@ class AgentExecutionApplication:
             yield event
 
     def _is_recovery_eligible(self, state: AgentRunState) -> bool:
-        return AgentRunControl.from_state(state).recoverable
+        return agent_run_can_resume(state)
 
     async def run(
         self,
@@ -435,7 +434,6 @@ class AgentExecutionApplication:
         *,
         already_requested_approval_call_ids: set[str],
         pending_tool_calls: list[ToolCall] | None = None,
-        has_completed_tool_round: bool = False,
     ) -> AsyncIterator[AgentTraceEvent]:
         current_response = response
         current_tool_calls = (
@@ -443,12 +441,10 @@ class AgentExecutionApplication:
             if pending_tool_calls is not None
             else list(current_response.message.tool_calls or [])
         )
-        has_tool_runtime = has_completed_tool_round or bool(current_tool_calls)
         state.remaining_tool_rounds = remaining_rounds
         state.stop_reason = AgentStopReason.FINISHED
 
         while current_tool_calls and remaining_rounds > 0:
-            has_tool_runtime = True
             state.remaining_tool_rounds = remaining_rounds
             for index, raw_call in enumerate(current_tool_calls):
                 self._check_skill_revisions(state)
@@ -579,11 +575,6 @@ class AgentExecutionApplication:
                         state.tool_rounds_used = (
                             request.max_tool_rounds - remaining_rounds
                         )
-                        state.metadata = AgentRunMetadata.with_tool_state(
-                            state.metadata,
-                            tool_rounds_used=state.tool_rounds_used,
-                            pending_approval_count=0,
-                        )
                         await self._commit_run_transcript(request.context_id, state)
                         async for event in self._write_memory_events(request, state):
                             yield event
@@ -611,12 +602,6 @@ class AgentExecutionApplication:
         state.pending_tool_calls = []
         state.pending_approval_requests = []
         state.tool_rounds_used = request.max_tool_rounds - remaining_rounds
-        if has_tool_runtime:
-            state.metadata = AgentRunMetadata.with_tool_state(
-                state.metadata,
-                tool_rounds_used=state.tool_rounds_used,
-                pending_approval_count=0,
-            )
         state.steps.append(
             AgentStep(
                 step_type=AgentStepType.STOP,
@@ -673,7 +658,6 @@ class AgentExecutionApplication:
             remaining_rounds,
             approvals=approvals,
             already_requested_approval_call_ids=set(),
-            has_completed_tool_round=True,
         ):
             yield event
 
@@ -1051,9 +1035,8 @@ class AgentExecutionApplication:
                 principal_scope=principal_scope,
             )
             indices.append(len(context.messages) - 1)
-            state.metadata = AgentRunMetadata.with_runtime(
-                state.metadata,
-                context_message_indices=list(indices),
+            state.history = state.history.model_copy(
+                update={"message_indices": list(indices)}
             )
 
     def _run_transcript(self, state: AgentRunState) -> list[Content]:
@@ -1242,11 +1225,6 @@ class AgentExecutionApplication:
         state.pending_tool_calls = pending_tool_calls
         state.pending_approval_requests = (
             [approval_request] if approval_request is not None else []
-        )
-        state.metadata = AgentRunMetadata.with_tool_state(
-            state.metadata,
-            tool_rounds_used=state.tool_rounds_used,
-            pending_approval_count=len(state.pending_approval_requests),
         )
         return AgentTraceEvent(
             event_type=AgentTraceEventType.RUN_PAUSED,
@@ -1476,10 +1454,8 @@ class AgentExecutionApplication:
             request=request,
             remaining_tool_rounds=request.max_tool_rounds,
             applied_trace_sequence=0,
-            metadata=AgentRunMetadata.with_runtime(
-                request.metadata,
-                history_started_at=datetime.now(timezone.utc).isoformat(),
-            ),
+            history=AgentRunHistory(started_at=datetime.now(timezone.utc)),
+            metadata=dict(request.metadata),
         )
 
     def _state_to_result(self, state: AgentRunState) -> AgentRunResult:
@@ -1490,20 +1466,16 @@ class AgentExecutionApplication:
         if state.stop_reason is None:
             raise AgentStateError("Agent run did not stop")
 
-        metadata = dict(state.request.metadata)
-        if self._has_tool_runtime(state):
-            metadata = AgentRunMetadata.with_runtime(
-                metadata,
-                **{AgentRunMetadata.TOOL_ROUNDS_USED_KEY: state.tool_rounds_used},
-            )
-
         return AgentRunResult(
             response=state.response,
             usage=_aggregate_run_usage(state),
             stop_reason=state.stop_reason,
+            tool_rounds_used=(
+                state.tool_rounds_used if self._has_tool_runtime(state) else None
+            ),
             steps=list(state.steps),
             trace=list(state.trace),
-            metadata=metadata,
+            metadata=dict(state.request.metadata),
         )
 
     def _has_tool_runtime(self, state: AgentRunState) -> bool:

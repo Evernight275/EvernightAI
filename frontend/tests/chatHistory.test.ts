@@ -31,13 +31,11 @@ function run(id: string, offset: number, status = 'finished'): AgentRunState {
               error_message: status === 'failed' ? 'provider unavailable' : null,
             },
           ],
-    metadata: {
-      agent_runtime: {
-        context_message_offset: offset,
-        context_message_indices: status === 'finished' ? [offset, offset + 1] : [],
-        history_started_at: id,
-        context_history_generation: null,
-      },
+    history: {
+      message_offset: offset,
+      message_indices: status === 'finished' ? [offset, offset + 1] : [],
+      started_at: id,
+      generation: null,
     },
   };
 }
@@ -79,7 +77,7 @@ describe('persisted chat history', () => {
     const second = run('3', 2);
     const canceled = run('2', 2, 'canceled');
     for (const item of [first, second, canceled]) {
-      item.metadata = { agent_runtime: { history_started_at: item.run_id } };
+      item.history = { started_at: item.run_id };
       item.steps = [];
     }
     const context = {
@@ -141,11 +139,7 @@ describe('persisted chat history', () => {
       tool_call: call,
       tool_result: { tool_call_id: 'read', tool_call_result: { content: 'contents' } },
     });
-    first.metadata!.agent_runtime = {
-      context_message_offset: 0,
-      context_message_indices: [0, 1, 2],
-      history_started_at: '1',
-    };
+    first.history = { message_offset: 0, message_indices: [0, 1, 2], started_at: '1' };
     const second = run('2', 3);
     const context = {
       context_id: 'ctx',
@@ -225,7 +219,7 @@ describe('persisted chat history', () => {
     const legacy = run('1', 0);
     const call = { tool_call_id: 'read', tool_call: { name: 'read_file', arguments: {} } };
     const reply = { model_id: 'm', message: { role: 'assistant', tool_calls: [call] } };
-    legacy.metadata = {};
+    legacy.history = {};
     legacy.response = reply;
     legacy.steps = [];
     legacy.trace = [{ event_type: 'chat_completed', response: reply }];
@@ -274,9 +268,7 @@ describe('persisted chat history', () => {
         error_message: 'permission denied',
       },
     ];
-    failed.metadata = {
-      agent_runtime: { context_message_offset: 0, context_message_indices: [0, 1, 2] },
-    };
+    failed.history = { message_offset: 0, message_indices: [0, 1, 2] };
     const entries = restoreChatHistory(
       { context_id: 'ctx', messages: [failed.request.messages![0]!, answer, error] },
       [failed],
@@ -291,11 +283,7 @@ describe('persisted chat history', () => {
 
   it('excludes other contexts and older generations after a chat is cleared', () => {
     const current = run('2', 0, 'canceled');
-    current.metadata!.agent_runtime = {
-      context_history_generation: 'new',
-      context_message_offset: 0,
-      context_message_indices: [],
-    };
+    current.history = { generation: 'new', message_offset: 0, message_indices: [] };
     const foreign = { ...run('3', 0), request: { ...run('3', 0).request, context_id: 'other' } };
     const entries = restoreChatHistory(
       { context_id: 'ctx', messages: [], metadata: { chat_history_generation: 'new' } },
