@@ -46,6 +46,49 @@ describe('Markdown content', () => {
     expect(unknown).toContain('&lt;script&gt;');
   });
 
+  it('numbers code lines, keeps multi-line tokens balanced and offers wrapping', () => {
+    const html = renderMarkdown('```python\n"""doc\nstring"""\nvalue = 1\n```');
+
+    expect(html).toContain('markdown-code-block--numbered');
+    expect(html).toContain('--code-digits: 1');
+    expect(html.match(/class="code-line"/g)).toHaveLength(3);
+    expect(html).toContain(
+      '<span class="code-line"><span class="hljs-string">&quot;&quot;&quot;doc\n</span></span>' +
+        '<span class="code-line"><span class="hljs-string">string&quot;&quot;&quot;</span>\n</span>',
+    );
+    expect(html).toContain('data-wrap-code');
+    expect(html).toContain('aria-pressed="false"');
+    expect(renderMarkdown('```\none line\n```')).not.toContain('markdown-code-block--numbered');
+  });
+
+  it('labels and highlights additional languages and aliases', () => {
+    expect(renderMarkdown('```rs\nfn main() {}\n```')).toContain('Rust');
+    expect(renderMarkdown('```rs\nfn main() {}\n```')).toContain('hljs-keyword');
+    expect(renderMarkdown('```yml\nkey: value\n```')).toContain('YAML');
+    expect(renderMarkdown('```toml\nkey = "value"\n```')).toContain('INI / TOML');
+    expect(renderMarkdown('```diff\n-old\n+new\n```')).toContain('hljs-addition');
+  });
+
+  it('marks only closed Mermaid fences for drawing and keeps the source escaped', () => {
+    const source = '```mermaid\ngraph TD\n  A["<b>x</b>"] --> B\n```';
+    const closed = renderMarkdown(`Intro\n\n${source}\n\nAfter`);
+    const nested = renderMarkdown(`- item\n\n  ${source.replaceAll('\n', '\n  ')}\n`);
+    const streaming = renderMarkdown('```mermaid\ngraph TD\n  A --> B\n');
+    const streamingPartialClose = renderMarkdown('```mermaid\ngraph TD\n  A --> B\n``');
+
+    expect(closed).toContain('data-mermaid-ready');
+    expect(closed).toContain('Mermaid');
+    expect(closed).toContain('data-mermaid-toggle');
+    expect(closed).toContain('data-copy-code');
+    expect(closed).toContain('&lt;b&gt;x&lt;/b&gt;');
+    expect(closed).not.toContain('<b>x</b>');
+    expect(nested).toContain('data-mermaid-ready');
+    expect(streaming).toContain('markdown-mermaid');
+    expect(streaming).not.toContain('data-mermaid-ready');
+    expect(streamingPartialClose).not.toContain('data-mermaid-ready');
+    expect(renderMarkdown('```python\nx = 1\n```')).not.toContain('markdown-mermaid');
+  });
+
   it('disables raw HTML in model output', () => {
     const html = renderMarkdown('<script>alert("unsafe")</script>');
 

@@ -6,7 +6,8 @@ import { computed, ref } from 'vue';
 import { useDialog } from '../common/dialog';
 import type { ChatSidebarItem } from './chatSidebar';
 import EmptyValue from '../common/EmptyValue.vue';
-import { useChatSidebar, useSidebarDialog } from './chatSidebar';
+import { useChatSidebar } from './chatSidebar';
+import { useSidebarDialog } from './chatLayout';
 
 const props = defineProps<{ open: boolean; collapsed?: boolean }>();
 const emit = defineEmits<{ close: []; collapse: []; settings: [] }>();

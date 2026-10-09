@@ -1,13 +1,4 @@
 .login-layout {
-  /* Same neutral palette as the chat page. */
-  --color-bg: #ffffff;
-  --color-surface: #f7f7f8;
-  --color-surface-strong: #ececec;
-  --color-text: #242424;
-  --color-muted: #757575;
-  --color-border: #e5e5e5;
-  --color-accent: #252525;
-  --color-accent-hover: #424242;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
   min-height: 100vh;

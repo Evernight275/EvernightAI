@@ -3,7 +3,13 @@ import { renderToString } from '@vue/server-renderer';
 import { describe, expect, it } from 'vitest';
 import ChatInlineTool from '../src/components/chat/ChatInlineTool.vue';
 import ChatToolDisplay from '../src/components/chat/ChatToolDisplay.vue';
-import { diffLines, terminalText, toolDisplay } from '../src/components/chat/toolDisplay';
+import {
+  diffLines,
+  pendingCommand,
+  terminalSegments,
+  terminalText,
+  toolDisplay,
+} from '../src/components/chat/toolDisplay';
 
 const diff =
   '--- a/note.txt\n+++ b/note.txt\n@@ -3,2 +3,2 @@\n-hello\n+<script>bad</script>\n same\n';
@@ -63,6 +69,71 @@ describe('specialized tool displays', () => {
       toolDisplay('run_project_task', JSON.stringify({ ...commandResult, stdout: '', stderr: '' })),
     ).toMatchObject({ blocks: [] });
     expect(toolDisplay('git_status', JSON.stringify(commandResult))?.kind).toBe('terminal');
+  });
+
+  it('keeps basic terminal colours and drops every other escape', () => {
+    expect(
+      terminalSegments('plain \x1b[1;32mok\x1b[0m \x1b[38;5;200mx\x1b[91mfail\x1b[39m\x1b[2Kend'),
+    ).toEqual([
+      { text: 'plain ' },
+      { text: 'ok', bold: true, color: 'green' },
+      { text: ' ' },
+      { text: 'x' },
+      { text: 'fail', color: 'bright-red' },
+      { text: 'end', color: undefined },
+    ]);
+    const display = toolDisplay('restricted_shell', JSON.stringify(commandResult));
+    expect(display?.kind === 'terminal' && display.blocks[1]?.segments).toEqual([
+      { text: '<script>error</script>', color: 'red' },
+      { text: '\n' },
+    ]);
+  });
+
+  it.each(['\x07', '\x1b\\'])('discards SGR codes inside OSC terminated by %j', (ending) => {
+    const source = '\x1b[32mbefore\x1b]0;title\x1b[31mhidden' + ending + 'after\x1b[0m';
+    const segments = terminalSegments(source);
+    expect(segments).toEqual([{ text: 'beforeafter', color: 'green' }]);
+    expect(segments.map((segment) => segment.text).join('')).toBe(terminalText(source));
+  });
+
+  it('shows the requested command while a command tool is running', async () => {
+    expect(pendingCommand('restricted_shell', '{"command":["ls","-la","my dir"]}')).toBe(
+      "ls -la 'my dir'",
+    );
+    expect(pendingCommand('restricted_shell', '{"command":"echo hi | wc -c"}')).toBe(
+      'echo hi | wc -c',
+    );
+    expect(pendingCommand('write_text_file', '{"command":["ls"]}')).toBeUndefined();
+    expect(pendingCommand('restricted_shell', 'oops')).toBeUndefined();
+    const running = await renderToString(
+      createSSRApp(ChatInlineTool, {
+        activity: {
+          callId: 'call',
+          name: 'restricted_shell',
+          status: 'running' as const,
+          argumentsText: '{"command":["pytest","-q"]}',
+        },
+      }),
+    );
+    expect(running).toContain('执行中');
+    expect(running).toContain('pytest -q');
+    expect(running).not.toContain('退出码');
+  });
+
+  it('replaces the text preview with the terminal panel for finished commands', async () => {
+    const html = await renderToString(
+      createSSRApp(ChatInlineTool, {
+        activity: {
+          callId: 'call',
+          name: 'restricted_shell',
+          status: 'completed' as const,
+          argumentsText: '{}',
+          resultText: JSON.stringify(commandResult),
+        },
+      }),
+    );
+    expect(html).toContain('aria-label="命令终端"');
+    expect(html).not.toContain('chat-tool-preview');
   });
 
   it('falls back for unrelated tools, malformed results and failures', () => {

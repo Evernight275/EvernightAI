@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Copy,
+  Search,
+} from '@lucide/vue';
 import { outputParts } from './outputText';
 
 const props = defineProps<{ source: string; label: string; terminal?: boolean }>();
@@ -44,27 +53,54 @@ defineExpose({
 <template>
   <div ref="root" class="tool-output" :class="{ 'tool-output--terminal': terminal }">
     <div class="tool-output-actions">
-      <button type="button" :aria-expanded="!collapsed" @click="collapsed = !collapsed">
-        {{ collapsed ? '展开输出' : '折叠输出' }}
-      </button>
-      <button type="button" @click="copy">复制</button>
-      <span v-if="copyStatus" role="status">{{ copyStatus }}</span>
-      <input
-        v-show="!collapsed"
-        v-model="query"
-        type="search"
-        :aria-label="label + ' 搜索'"
-        placeholder="搜索输出"
-        @keydown.enter.prevent="move(1)"
-        @keydown.escape="query = ''"
-      />
+      <label v-show="!collapsed" class="tool-output-search-field">
+        <Search :size="13" aria-hidden="true" />
+        <input
+          v-model="query"
+          type="search"
+          :aria-label="label + ' 搜索'"
+          placeholder="搜索输出"
+          @keydown.enter.prevent="move(1)"
+          @keydown.escape="query = ''"
+        />
+      </label>
       <template v-if="query && !collapsed">
         <span role="status">{{ count ? current + 1 : 0 }}/{{ count }}</span>
-        <button type="button" :disabled="!count" aria-label="上一个匹配" @click="move(-1)">
-          ↑
+        <button
+          type="button"
+          :disabled="!count"
+          aria-label="上一个匹配"
+          title="上一个匹配"
+          @click="move(-1)"
+        >
+          <ChevronUp :size="14" aria-hidden="true" />
         </button>
-        <button type="button" :disabled="!count" aria-label="下一个匹配" @click="move(1)">↓</button>
+        <button
+          type="button"
+          :disabled="!count"
+          aria-label="下一个匹配"
+          title="下一个匹配"
+          @click="move(1)"
+        >
+          <ChevronDown :size="14" aria-hidden="true" />
+        </button>
       </template>
+      <span class="tool-output-spacer"></span>
+      <span v-if="copyStatus" role="status">{{ copyStatus }}</span>
+      <button type="button" aria-label="复制" title="复制" @click="copy">
+        <Check v-if="copyStatus === '已复制'" :size="14" aria-hidden="true" />
+        <Copy v-else :size="14" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        :aria-expanded="!collapsed"
+        :aria-label="collapsed ? '展开输出' : '折叠输出'"
+        :title="collapsed ? '展开输出' : '折叠输出'"
+        @click="collapsed = !collapsed"
+      >
+        <ChevronsUpDown v-if="collapsed" :size="14" aria-hidden="true" />
+        <ChevronsDownUp v-else :size="14" aria-hidden="true" />
+      </button>
     </div>
     <div v-show="!collapsed">
       <pre
@@ -87,27 +123,54 @@ defineExpose({
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 6px 8px;
   font-size: 11px;
-  color: var(--color-text-muted);
+  color: var(--color-muted);
+}
+.tool-output-spacer {
+  flex: 1;
 }
 .tool-output-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
-  border: 1px solid var(--color-border);
-  border-radius: 5px;
-  padding: 3px 7px;
   cursor: pointer;
 }
-.tool-output-actions input {
-  flex: 1;
-  min-width: 90px;
-  max-width: 220px;
-  padding: 4px 7px;
+.tool-output-actions button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+.tool-output-search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 200px;
+  min-width: 96px;
+  padding: 0 8px;
   border: 1px solid var(--color-border);
-  border-radius: 5px;
-  background: var(--color-surface);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+.tool-output-search-field:focus-within {
+  border-color: var(--color-muted);
+}
+.tool-output-search-field input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
   color: var(--color-text);
   font: inherit;
 }
@@ -129,19 +192,25 @@ mark.is-current {
   outline: 1px solid #c2410c;
 }
 .tool-output--terminal .tool-output-actions {
-  color: #cbd5e1;
-  border-bottom: 1px solid #303c4e;
+  border-bottom: 1px solid var(--terminal-border);
+  color: var(--terminal-muted);
+}
+.tool-output--terminal .tool-output-search-field {
+  border-color: var(--terminal-border);
+  background: var(--terminal-surface);
+}
+.tool-output--terminal .tool-output-search-field:focus-within {
+  border-color: var(--terminal-muted);
 }
 .tool-output--terminal input {
-  color: #e4eaf3;
-  background: #222e3e;
-  border-color: #526078;
+  color: var(--terminal-text);
 }
-.tool-output--terminal button {
-  border-color: #526078;
+.tool-output--terminal button:hover:not(:disabled) {
+  background: var(--terminal-border);
+  color: var(--terminal-text);
 }
 .tool-output--terminal .tool-output-search {
   background: transparent;
-  color: #e4eaf3;
+  color: var(--terminal-text);
 }
 </style>

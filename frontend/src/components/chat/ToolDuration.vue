@@ -34,7 +34,7 @@ const label = computed(() => toolElapsed(props, now.value));
 <style scoped>
 .tool-duration {
   flex-shrink: 0;
-  color: var(--color-text-muted);
+  color: var(--color-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }

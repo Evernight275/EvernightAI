@@ -1,30 +1,10 @@
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import { computed, onUnmounted, ref, shallowRef } from 'vue';
 import { waitFor } from 'xstate';
 import { deleteSession, type Session } from '../../api';
 import type { ProviderCatalog } from '../../domain/workspace';
 import { createChatContextId, createChatSessionId } from '../../runtime/chatRuntime';
 import { chatActor } from '../../state/chatMachine';
 import { workspaceActor } from '../../state/workspaceMachine';
-import { useDialog } from '../common/dialog';
-
-export function useSidebarDialog(props: { open: boolean; collapsed?: boolean }, close: () => void) {
-  const compact = ref(false);
-  let media: MediaQueryList | undefined;
-  const sync = (): void => {
-    compact.value = media?.matches || false;
-  };
-  onMounted(() => {
-    media = window.matchMedia('(max-width: 760px)');
-    sync();
-    media.addEventListener('change', sync);
-  });
-  onUnmounted(() => media?.removeEventListener('change', sync));
-  return useDialog(
-    () => (compact.value ? props.open : !props.collapsed),
-    close,
-    () => compact.value,
-  );
-}
 
 export type ChatSidebarItem = {
   id: string;

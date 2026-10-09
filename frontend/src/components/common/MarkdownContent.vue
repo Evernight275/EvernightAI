@@ -6,5 +6,5 @@ const { html, copyCode } = useMarkdownContent(props);
 </script>
 
 <template>
-  <div class="markdown-content" @click="copyCode" v-html="html"></div>
+  <div ref="content" class="markdown-content" @click="copyCode" v-html="html"></div>
 </template>

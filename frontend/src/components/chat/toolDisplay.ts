@@ -20,9 +20,22 @@ export type ToolDisplay =
       command: string;
       directory: string;
       exitCode: number;
-      blocks: { stream: 'stdout' | 'stderr'; text: string }[];
+      blocks: TerminalBlock[];
       truncated: boolean;
     };
+
+export interface TerminalSegment {
+  text: string;
+  color?: string;
+  bold?: boolean;
+  dim?: boolean;
+}
+
+export interface TerminalBlock {
+  stream: 'stdout' | 'stderr';
+  text: string;
+  segments: TerminalSegment[];
+}
 
 const fileTools = new Set([
   'write_text_file',
@@ -82,6 +95,39 @@ export function terminalText(source: string): string {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
 }
 
+const ansiColors = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
+
+// Keeps the basic SGR colours and weights; every other escape is dropped.
+export function terminalSegments(source: string): TerminalSegment[] {
+  source = source.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '');
+  const segments: TerminalSegment[] = [];
+  let style: Omit<TerminalSegment, 'text'> = {};
+  const push = (text: string): void => {
+    const visible = terminalText(text);
+    if (visible) segments.push({ text: visible, ...style });
+  };
+  let offset = 0;
+  for (const match of source.matchAll(/\x1b\[([0-9;]*)m/g)) {
+    push(source.slice(offset, match.index));
+    offset = match.index + match[0].length;
+    const codes = (match[1] || '0').split(';').map(Number);
+    for (let index = 0; index < codes.length; index++) {
+      const code = codes[index] ?? 0;
+      if (code === 0) style = {};
+      else if (code === 1) style = { ...style, bold: true };
+      else if (code === 2) style = { ...style, dim: true };
+      else if (code === 22) style = { ...style, bold: undefined, dim: undefined };
+      else if (code === 39) style = { ...style, color: undefined };
+      else if (code >= 30 && code <= 37) style = { ...style, color: ansiColors[code - 30] };
+      else if (code >= 90 && code <= 97)
+        style = { ...style, color: 'bright-' + ansiColors[code - 90] };
+      else if (code === 38 || code === 48) index += codes[index + 1] === 5 ? 2 : 4;
+    }
+  }
+  push(source.slice(offset));
+  return segments;
+}
+
 export function commandText(command: string[]): string {
   return command
     .map((argument) =>
@@ -128,10 +174,11 @@ export function toolDisplay(name: string, text?: string): ToolDisplay | undefine
     typeof value.stderr !== 'string'
   )
     return;
-  const blocks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+  const blocks: TerminalBlock[] = [];
   for (const stream of ['stdout', 'stderr'] as const) {
-    const source = value[stream] as string;
-    if (source) blocks.push({ stream, text: terminalText(source.slice(0, 100_000)) });
+    const source = (value[stream] as string).slice(0, 100_000);
+    if (source)
+      blocks.push({ stream, text: terminalText(source), segments: terminalSegments(source) });
   }
   return {
     kind: 'terminal',
@@ -147,4 +194,21 @@ export function toolDisplay(name: string, text?: string): ToolDisplay | undefine
     truncated:
       value.truncated === true || value.stdout.length > 100_000 || value.stderr.length > 100_000,
   };
+}
+
+// The command a running tool was asked to execute, read from its call arguments.
+export function pendingCommand(name: string, argumentsText?: string): string | undefined {
+  if (!commandTools.has(name) || !argumentsText) return;
+  try {
+    const command = record(JSON.parse(argumentsText))?.command;
+    if (typeof command === 'string' && command) return terminalText(command);
+    if (
+      Array.isArray(command) &&
+      command.length &&
+      command.every((argument) => typeof argument === 'string')
+    )
+      return terminalText(commandText(command));
+  } catch {
+    return;
+  }
 }

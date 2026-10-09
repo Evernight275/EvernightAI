@@ -6,16 +6,30 @@
   --font-mono:
     'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', Consolas, 'Liberation Mono',
     'Noto Sans Mono CJK SC', monospace;
-  --color-bg: #fbfcfe;
-  --color-surface: #f4f6f9;
-  --color-surface-strong: #e9edf3;
-  --color-text: #17202b;
-  --color-muted: #687586;
-  --color-border: #dce2ea;
-  --color-accent: #3267d6;
-  --color-accent-hover: #2858bd;
+  --color-bg: #ffffff;
+  --color-surface: #f7f7f8;
+  --color-surface-strong: #ececec;
+  --color-text: #242424;
+  --color-muted: #757575;
+  --color-border: #e5e5e5;
+  --color-accent: #252525;
+  --color-accent-hover: #424242;
   --color-danger: #bd3b3b;
   --color-success: #21805d;
+  --code-keyword: #8250df;
+  --code-string: #0a6b4a;
+  --code-number: #b35900;
+  --code-title: #0b5fc1;
+  --code-attribute: #116b8f;
+  --code-comment: #7d8590;
+  --code-deletion: #b42335;
+  --terminal-bg: #1c1c1e;
+  --terminal-surface: #262629;
+  --terminal-border: #38383c;
+  --terminal-text: #e8e8ea;
+  --terminal-muted: #9c9ca3;
+  --terminal-prompt: #7fd6a4;
+  --terminal-error: #ff9aa2;
   --radius-sm: 8px;
   --radius-md: 12px;
   --space-1: 4px;

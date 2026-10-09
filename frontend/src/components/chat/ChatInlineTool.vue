@@ -8,6 +8,7 @@ import { fileToolArtifactId, imageToolRecordId, toolResultSummary } from './tool
 import ChatImageResult from './ChatImageResult.vue';
 import ChatFileResult from './ChatFileResult.vue';
 import ChatToolDisplay from './ChatToolDisplay.vue';
+import { toolDisplay } from './toolDisplay';
 import JsonCode from '../common/JsonCode.vue';
 import ToolOutput from '../common/ToolOutput.vue';
 import ToolDuration from './ToolDuration.vue';
@@ -27,7 +28,13 @@ const status = computed(() =>
       ? 'pending'
       : props.activity.status,
 );
-const summary = computed(() => toolResultSummary(props.activity.resultText));
+// A terminal panel already shows the exit code and output, so the text preview is skipped.
+const summary = computed(() =>
+  status.value === 'completed' &&
+  toolDisplay(props.activity.name, props.activity.resultText)?.kind === 'terminal'
+    ? ''
+    : toolResultSummary(props.activity.resultText),
+);
 const imageRecordId = computed(() => imageToolRecordId(props.activity.resultText));
 const fileArtifactId = computed(() => fileToolArtifactId(props.activity.resultText));
 const target = computed(() => {
@@ -116,9 +123,11 @@ async function locateError() {
       </button>
     </div>
     <ChatToolDisplay
-      v-if="status === 'completed'"
+      v-if="status === 'completed' || status === 'running'"
       :name="activity.name"
       :result-text="activity.resultText"
+      :arguments-text="activity.argumentsText"
+      :running="status === 'running'"
     />
     <ChatImageResult v-if="status === 'completed' && imageRecordId" :record-id="imageRecordId" />
     <ChatFileResult v-if="status === 'completed' && fileArtifactId" :artifact-id="fileArtifactId" />

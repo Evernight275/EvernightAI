@@ -84,62 +84,12 @@
 }
 
 .image-page {
-  --color-bg: #fff;
-  --color-surface: #f7f7f8;
-  --color-surface-strong: #ececec;
-  --color-text: #242424;
-  --color-muted: #757575;
-  --color-border: #e5e5e5;
-  --color-accent: #252525;
-  --color-accent-hover: #424242;
-  min-height: 100vh;
-  min-height: 100dvh;
+  overflow-y: auto;
   background: var(--color-bg);
   color: var(--color-text);
 }
-.image-page-header {
-  border-bottom: 1px solid var(--color-border);
-}
-.image-page-header-content {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 72px;
-  max-width: 1344px;
-  margin: auto;
-  padding: 12px 32px;
-}
-.image-page-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.image-page .chat-header-heading {
   flex: 1;
-  min-width: 0;
-}
-.image-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--color-text);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.image-page-header h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-.image-page-header h1 span {
-  margin-left: 12px;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0;
 }
 .image-page-content {
   max-width: 1344px;
@@ -288,10 +238,13 @@
   min-height: 40px;
   padding: 9px 12px;
   border-radius: 10px;
-  background: var(--color-bg);
+  background-color: var(--color-bg);
   font-size: 13px;
   font-weight: 400;
   transition: border-color 140ms ease;
+}
+.image-controls select {
+  padding-right: 34px;
 }
 .image-controls input::placeholder,
 .image-controls textarea::placeholder {
@@ -352,7 +305,6 @@
   flex: 1;
 }
 .image-page .icon-button {
-  display: inline-grid;
   place-items: center;
   width: 34px;
   height: 34px;
@@ -585,9 +537,6 @@
   }
 }
 @media (max-width: 960px) {
-  .image-page-header-content {
-    padding-inline: 24px;
-  }
   .image-page-content {
     padding-inline: 24px;
   }
@@ -603,22 +552,6 @@
   }
 }
 @media (max-width: 760px) {
-  .image-page-header-content {
-    gap: 10px;
-    min-height: 64px;
-    padding: 12px 16px;
-  }
-  .image-page-header h1 {
-    font-size: 15px;
-  }
-  .image-page-header h1 span {
-    display: block;
-    margin: 0;
-    font-size: 11px;
-  }
-  .image-page-heading {
-    gap: 10px;
-  }
   .image-page-content {
     padding: 20px 16px 28px;
   }

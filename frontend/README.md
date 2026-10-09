@@ -8,8 +8,8 @@ Run `pnpm run format:check` to check formatting without modifying files.
 聊天标题旁可编辑会话名称，输入框上方可选择技能及预览上下文。
 完整入口映射和普通/流式接口的对应关系见 [INTERFACE_COVERAGE.md](INTERFACE_COVERAGE.md)。
 
-The frontend currently renders an intentionally unstyled workspace skeleton on
-top of the API transport and application state.
+The chat, image and settings pages share one neutral visual system on top of
+the API transport and application state.
 
 ## State Model
 
@@ -66,6 +66,9 @@ tool calls appear between assistant messages as `ChatInlineTool` cards, while
 system messages stay hidden. `ChatToolDisplay` renders completed file writes,
 appends, text patches, and JSON writes as a unified diff with line numbers;
 command tools render captured stdout/stderr and exit codes in a terminal panel.
+The panel keeps basic ANSI colours and weights, drops every other escape, and
+replaces the one-line text preview. While a command is still running the panel
+shows the requested command with an in-progress status.
 Both views also appear in run details, with the original JSON available to expand.
 File tools save the actual before/after diff in their result, so refreshed history
 does not depend on the file's current contents. Diff inputs are limited to 64,000
@@ -128,8 +131,21 @@ is disabled, unsafe link schemes are rejected, and external links receive
 `\\[...\\]` formulas render with KaTeX using untrusted input mode; user messages
 remain plain text.
 
-Visual tokens live in `src/styles/tokens.css`. The interface uses neutral
-surfaces, one blue action color, semantic status colors, and no gradients.
+Fenced code blocks show a language label, line numbers for multi-line code, a
+wrap toggle and a copy button. Highlighting covers the common model languages
+and their aliases; unknown languages fall back to escaped plain text.
+
+A closed `mermaid` fence is drawn as a diagram, with a toggle back to its source.
+Mermaid is loaded on first use, runs in strict mode with labels limited to text
+formatting, and its links open in a new tab. A fence that is still streaming or
+that Mermaid cannot parse stays a normal code block. Finished diagrams are kept
+by source so later text deltas do not redraw them.
+
+Visual tokens live in `src/styles/tokens.css` and are the single source for the
+palette: neutral surfaces, a near-black action color, semantic status colors,
+code and terminal colors, and no gradients. Pages do not redefine them. Native
+`<select>` and `<details>` controls are restyled once in `src/styles/base.css`.
+The image page uses the same sidebar shell as chat (`ImageSidebar`).
 
 ## Commands
 
