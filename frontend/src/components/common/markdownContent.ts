@@ -27,7 +27,16 @@ import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
 import MarkdownIt from 'markdown-it';
-import { computed, onMounted, useTemplateRef, watch, type ComputedRef } from 'vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  shallowRef,
+  useTemplateRef,
+  watch,
+  type ComputedRef,
+} from 'vue';
 
 export type MarkdownContentProps = {
   source: string;
@@ -202,17 +211,50 @@ markdown.renderer.rules.fence = (tokens, index, options, env, renderer) => {
 };
 
 export function useMarkdownContent(props: MarkdownContentProps): {
-  html: ComputedRef<string>;
+  blocks: ComputedRef<string[]>;
   copyCode: (event: MouseEvent) => Promise<void>;
 } {
-  const html = computed(() => renderMarkdown(props.source));
+  // Streaming re-renders on every text delta. Blocks whose source did not change keep
+  // their rendered HTML, so only the block still being written is rendered and patched.
+  let rendered = new Map<string, string>();
+  // A single long block, such as a code fence being streamed, still costs more per update
+  // as it grows. Updates are then spaced by a multiple of the last one's cost, so rendering
+  // never takes more than a fraction of the main thread. Short content updates immediately.
+  const shown = shallowRef(props.source);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let readyAt = 0;
+  const show = (): void => {
+    timer = undefined;
+    const started = performance.now();
+    shown.value = props.source;
+    void nextTick(() => {
+      const finished = performance.now();
+      readyAt = finished + Math.min((finished - started) * 4, 250);
+    });
+  };
+  watch(
+    () => props.source,
+    () => {
+      if (timer !== undefined) return;
+      const wait = readyAt - performance.now();
+      if (wait <= 1) show();
+      else timer = setTimeout(show, wait);
+    },
+  );
+  onBeforeUnmount(() => clearTimeout(timer));
+  const blocks = computed(() => {
+    const next = new Map<string, string>();
+    const result = renderMarkdownBlocks(shown.value, rendered, next);
+    rendered = next;
+    return result;
+  });
   const content = useTemplateRef<HTMLElement>('content');
   const draw = (): void => {
     if (content.value) void renderDiagrams(content.value);
   };
   onMounted(draw);
-  watch(html, draw, { flush: 'post' });
-  return { html, copyCode: copyMarkdownCode };
+  watch(blocks, draw, { flush: 'post' });
+  return { blocks, copyCode: copyMarkdownCode };
 }
 
 // Draws every closed Mermaid block under root that has no diagram yet.
@@ -291,7 +333,35 @@ async function drawDiagram(source: string): Promise<string | null> {
 }
 
 export function renderMarkdown(source: string): string {
-  return markdown.render(source);
+  return renderMarkdownBlocks(source).join('');
+}
+
+// Renders each top-level block separately. The whole source is parsed together, so
+// constructs that span blocks, such as reference links, still resolve.
+export function renderMarkdownBlocks(
+  source: string,
+  previous?: ReadonlyMap<string, string>,
+  next?: Map<string, string>,
+): string[] {
+  const env: Parameters<typeof markdown.parse>[1] = {};
+  const tokens = markdown.parse(source, env);
+  const references = env.references ? JSON.stringify(env.references) : '';
+  const lines = previous || next ? source.split('\n') : [];
+  const blocks: string[] = [];
+  let start = 0;
+  tokens.forEach((token, index) => {
+    if (token.level !== 0 || token.nesting > 0) return;
+    const group = tokens.slice(start, index + 1);
+    const map = tokens[start]?.map;
+    start = index + 1;
+    const key = map ? `${references}\n${lines.slice(map[0], map[1]).join('\n')}` : undefined;
+    const html =
+      (key !== undefined && previous?.get(key)) ||
+      markdown.renderer.render(group, markdown.options, env);
+    if (key !== undefined) next?.set(key, html);
+    blocks.push(html);
+  });
+  return blocks;
 }
 
 export async function copyMarkdownCode(event: MouseEvent): Promise<void> {

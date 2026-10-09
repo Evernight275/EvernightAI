@@ -2,7 +2,7 @@ import { createSSRApp } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { describe, expect, it } from 'vitest';
 import MarkdownContent from '../src/components/common/MarkdownContent.vue';
-import { renderMarkdown } from '../src/components/common/markdownContent';
+import { renderMarkdown, renderMarkdownBlocks } from '../src/components/common/markdownContent';
 
 describe('Markdown content', () => {
   it('renders common chat Markdown structures', async () => {
@@ -87,6 +87,26 @@ describe('Markdown content', () => {
     expect(streaming).not.toContain('data-mermaid-ready');
     expect(streamingPartialClose).not.toContain('data-mermaid-ready');
     expect(renderMarkdown('```python\nx = 1\n```')).not.toContain('markdown-mermaid');
+  });
+
+  it('reuses unchanged blocks while a message is streamed', () => {
+    const first = new Map<string, string>();
+    const start = '# Title\n\nSee [the docs][docs].\n\n```python\nx = 1\n```\n\nTail';
+    const before = renderMarkdownBlocks(start, undefined, first);
+    expect(before).toHaveLength(4);
+    expect(before.join('')).toBe(renderMarkdown(start));
+
+    const marked = new Map([...first].map(([key, html]) => [key, html + '<!--kept-->']));
+    const second = new Map<string, string>();
+    const after = renderMarkdownBlocks(start + ' grows', marked, second);
+    expect(after.slice(0, 3).every((html) => html.endsWith('<!--kept-->'))).toBe(true);
+    expect(after[3]).toBe('<p>Tail grows</p>\n');
+    expect(second.size).toBe(4);
+
+    const linked = renderMarkdownBlocks(start + '\n\n[docs]: https://example.com/docs', marked);
+    expect(linked[1]).toContain('href="https://example.com/docs"');
+    expect(linked[1]).not.toContain('<!--kept-->');
+    expect(linked[0]).not.toContain('<!--kept-->');
   });
 
   it('disables raw HTML in model output', () => {

@@ -20,13 +20,26 @@ export function useChatTranscript(entries: () => ChatTranscriptEntry[]) {
       if (scroller) scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'instant' });
     },
   );
-  onBeforeUnmount(() => scroller?.removeEventListener('scroll', onScroll));
+  // Content can grow after an entry changes: spaced streaming updates, diagrams, images.
+  const resize =
+    typeof ResizeObserver === 'undefined'
+      ? undefined
+      : new ResizeObserver(() => {
+          if (following && scroller)
+            scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'instant' });
+        });
+  onBeforeUnmount(() => {
+    scroller?.removeEventListener('scroll', onScroll);
+    resize?.disconnect();
+  });
   return {
     setEndMarker(element: Element | ComponentPublicInstance | null): void {
       endMarker.value = element as HTMLElement | null;
       scroller?.removeEventListener('scroll', onScroll);
+      resize?.disconnect();
       scroller = endMarker.value?.closest<HTMLElement>('.chat-view-scroll') || null;
       scroller?.addEventListener('scroll', onScroll, { passive: true });
+      if (endMarker.value?.parentElement) resize?.observe(endMarker.value.parentElement);
     },
   };
 }

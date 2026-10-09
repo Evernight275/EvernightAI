@@ -725,11 +725,15 @@ body,
   overflow-wrap: anywhere;
 }
 
-.markdown-content > :first-child {
+.markdown-block {
+  display: contents;
+}
+
+.markdown-block:first-child > :first-child {
   margin-top: 0;
 }
 
-.markdown-content > :last-child {
+.markdown-block:last-child > :last-child {
   margin-bottom: 0;
 }
 
