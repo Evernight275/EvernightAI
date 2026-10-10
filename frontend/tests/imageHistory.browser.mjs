@@ -133,7 +133,7 @@ try {
         return route.fulfill({ json: [] });
       }),
     );
-    await page.goto(`${base}/images.html`);
+    await page.goto(`${base}/chat.html#images`);
     await page.getByRole('button', { name: '查看生成记录 历史图片 20', exact: true }).waitFor();
     await page.getByRole('button', { name: '加载更多记录', exact: true }).click();
     await page.getByRole('button', { name: '查看生成记录 历史图片 0', exact: true }).waitFor();
@@ -167,7 +167,9 @@ try {
     await page.getByRole('alert').filter({ hasText: '暂时无法删除' }).waitFor();
     assert.equal(await image.count(), 1);
     await page.getByRole('button', { name: '删除记录', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.chat-confirm-dialog')?.open);
+    await page.waitForFunction(
+      () => !document.querySelector('.image-page .chat-confirm-dialog')?.open,
+    );
     assert.equal(await image.count(), 0);
     assert.equal(records.has('generated-1'), false);
     mode = 'save_failed';

@@ -113,7 +113,7 @@ try {
         return route.fulfill({ json: [] });
       }),
     );
-    await page.goto(`${base}/images.html`);
+    await page.goto(`${base}/chat.html#images`);
     await page.getByRole('option', { name: 'Images', exact: true }).waitFor({ state: 'attached' });
     await page.getByRole('button', { name: '上传改图', exact: true }).click();
     await page.getByLabel('模型', { exact: true }).fill('edit-model');

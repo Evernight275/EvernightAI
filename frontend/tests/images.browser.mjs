@@ -90,6 +90,10 @@ try {
               { provider_id: 'google', name: 'Google', type: 'google' },
             ],
           });
+        if (path === '/sessions' && route.request().method() === 'POST')
+          return route.fulfill({ json: route.request().postDataJSON() });
+        if (path.startsWith('/contexts/'))
+          return route.fulfill({ json: { context_id: path.slice(10), messages: [] } });
         return route.fulfill({ json: [] });
       }),
     );
@@ -99,11 +103,33 @@ try {
       assert.equal(headers['x-evernight-api-key'], undefined);
       return route.fulfill({ contentType: 'image/png', body: Buffer.from(bitmap, 'base64') });
     });
-    await page.goto(`${base}/images.html`);
+    await page.goto(`${base}/chat.html#images`);
     await page.getByRole('option', { name: 'Image Provider' }).waitFor({ state: 'attached' });
     assert.equal(await page.getByRole('option', { name: 'Disabled', exact: true }).count(), 0);
     await page.getByLabel('模型', { exact: true }).fill('manual-image');
     await page.getByLabel('提示词', { exact: true }).fill('一片清晰的绿色叶子');
+    // The image workspace is a view of the chat page: switching away keeps its draft.
+    const openNavigation = async () => {
+      if (width <= 760) await page.getByRole('button', { name: '会话管理', exact: true }).click();
+    };
+    assert.equal(await page.locator('.chat-view').isVisible(), false);
+    await openNavigation();
+    const imagesLink = page.getByRole('link', { name: '图像生成', exact: true });
+    assert.equal(await imagesLink.getAttribute('aria-current'), 'page');
+    await page.getByRole('button', { name: '新建会话', exact: true }).click();
+    await page.locator('.chat-view').waitFor();
+    assert.equal(await page.locator('.image-page').isVisible(), false);
+    assert.equal(new URL(page.url()).hash, '');
+    await openNavigation();
+    assert.equal(await imagesLink.getAttribute('aria-current'), null);
+    await imagesLink.click();
+    await page.locator('.image-page').waitFor();
+    assert.equal(new URL(page.url()).hash, '#images');
+    assert.equal(await page.locator('.chat-view').isVisible(), false);
+    assert.equal(
+      await page.getByLabel('提示词', { exact: true }).inputValue(),
+      '一片清晰的绿色叶子',
+    );
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
     const img = page.getByRole('img', { name: '生成图片 1', exact: true });
     await img.waitFor();
@@ -176,7 +202,9 @@ try {
     });
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
     await heldRequest;
-    await page.waitForFunction(() => document.querySelector('button[type=submit]')?.disabled);
+    await page.waitForFunction(
+      () => document.querySelector('.image-page button[type=submit]')?.disabled,
+    );
     assert.equal(calls.length, 4);
     await page.getByRole('button', { name: '取消等待', exact: true }).click();
     release();
@@ -191,12 +219,14 @@ try {
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
     await identityRequest;
     await page.getByRole('button', { name: '取消等待', exact: true }).waitFor();
-    await page.waitForFunction(() => document.querySelector('button[type=submit]')?.disabled);
+    await page.waitForFunction(
+      () => document.querySelector('.image-page button[type=submit]')?.disabled,
+    );
     await page.evaluate(() =>
       window.dispatchEvent(new CustomEvent('evernight-access-token-change')),
     );
     release();
-    await page.waitForFunction(() => document.querySelector('textarea')?.value === '');
+    await page.waitForFunction(() => document.querySelector('.image-page textarea')?.value === '');
     assert.equal(await img.count(), 0);
     assert.equal(await page.getByText('late-response', { exact: false }).count(), 0);
     assert.equal(await page.getByLabel('图片 1 文件名', { exact: true }).count(), 0);

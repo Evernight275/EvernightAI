@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
     plugins: [vue()],
     build: {
       rollupOptions: {
-        input: ['index.html', 'chat.html', 'images.html', 'login.html'],
+        input: ['index.html', 'chat.html', 'login.html'],
       },
     },
     server: {

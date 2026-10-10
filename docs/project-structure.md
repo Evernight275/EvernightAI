@@ -34,7 +34,6 @@ EvernightAI/
 |-- frontend/
 |   |-- index.html           工作区入口
 |   |-- chat.html            聊天入口
-|   |-- images.html          图片生成入口
 |   |-- src/
 |   |   |-- api/             JSON、SSE、WebSocket 请求与认证
 |   |   |-- domain/          工作区资源与聊天、图片数据转换
@@ -199,7 +198,7 @@ Agent 应用模块按职责拆分如下：
 ### 图片生成
 
 ```text
-images.html -> 图片组件 -> api/images.ts
+chat.html#images -> 图片组件 -> api/images.ts
   -> HTTP /images/generations
   -> interface.providers -> ProviderApplication -> ImageApplication
   -> runtime.providers -> OpenAI-compatible 图片适配器
@@ -221,7 +220,7 @@ images.html -> 图片组件 -> api/images.ts
 | --- | --- | --- |
 | `index.html` | [main.ts](../frontend/src/main.ts) / [App.vue](../frontend/src/App.vue) | 工作区资源与设置入口 |
 | `chat.html` | [chat.ts](../frontend/src/chat.ts) / [ChatApp.vue](../frontend/src/ChatApp.vue) | 会话、消息、工具审批与运行详情 |
-| `images.html` | [images.ts](../frontend/src/images.ts) / [ImageApp.vue](../frontend/src/ImageApp.vue) | 图片生成与历史记录 |
+| `chat.html#images` | [ImageWorkspace.vue](../frontend/src/components/images/ImageWorkspace.vue)（聊天页内的视图，首次打开时加载） | 图片生成与历史记录 |
 
 `api` 提供传输与认证；`domain` 将 API 数据转成页面使用的概念；
 `runtime` 协调聊天请求、取消及断线恢复；`state` 推进工作区与聊天生命周期；

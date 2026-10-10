@@ -57,9 +57,9 @@ describe('login form controller', () => {
     vi.mocked(getIdentity).mockResolvedValue({ authentication_enabled: true, principal });
     const redirect = vi.fn();
 
-    await useLoginForm({ redirect, search: '?redirect=/images.html' }).start();
+    await useLoginForm({ redirect, search: '?redirect=/index.html' }).start();
 
-    expect(redirect).toHaveBeenCalledWith('/images.html');
+    expect(redirect).toHaveBeenCalledWith('/index.html');
   });
 
   it('skips the form without asking for an identity when the service is open', async () => {
@@ -173,7 +173,7 @@ describe('login form controller', () => {
 
 describe('login redirect target', () => {
   it('follows same-origin paths and keeps their query', () => {
-    expect(loginRedirectTarget('?redirect=/images.html')).toBe('/images.html');
+    expect(loginRedirectTarget('?redirect=/index.html')).toBe('/index.html');
     expect(loginRedirectTarget('?redirect=%2Fchat.html%3Fsession%3D1')).toBe(
       '/chat.html?session=1',
     );

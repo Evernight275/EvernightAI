@@ -145,7 +145,11 @@ Visual tokens live in `src/styles/tokens.css` and are the single source for the
 palette: neutral surfaces, a near-black action color, semantic status colors,
 code and terminal colors, and no gradients. Pages do not redefine them. Native
 `<select>` and `<details>` controls are restyled once in `src/styles/base.css`.
-The image page uses the same sidebar shell as chat (`ImageSidebar`).
+Image generation is a view of the chat page, not a separate entry: the sidebar
+link opens `chat.html#images`, which shows `ImageWorkspace` in place of the
+conversation. The workspace loads on first use and then stays mounted next to
+the chat, so a draft or a running reply survives switching either way. Starting
+or selecting a conversation returns to the chat.
 
 ## Commands
 
@@ -211,7 +215,7 @@ error focus and layout at desktop and mobile widths with a mocked backend.
 
 ### Image tasks and the chat image tool
 
-`/images.html` submits durable background tasks and polls saved status. Its task
+The image workspace submits durable background tasks and polls saved status. Its task
 list survives refresh, supports pagination and opens saved results. Upload edits
 support multiple references and painting a PNG alpha mask on the first image.
 Chat exposes `generate_image` through the existing tool catalog. Ask for an image

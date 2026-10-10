@@ -9,10 +9,13 @@ import EmptyValue from '../common/EmptyValue.vue';
 import { useChatSidebar } from './chatSidebar';
 import { useSidebarDialog } from './chatLayout';
 
-const props = defineProps<{ open: boolean; collapsed?: boolean }>();
-const emit = defineEmits<{ close: []; collapse: []; settings: [] }>();
-const { sessions, newConversation, selectSession, removeSession, deletingId } = useChatSidebar(() =>
-  emit('close'),
+const props = defineProps<{ open: boolean; collapsed?: boolean; imagesOpen?: boolean }>();
+const emit = defineEmits<{ chat: []; close: []; collapse: []; settings: [] }>();
+const { sessions, newConversation, selectSession, removeSession, deletingId } = useChatSidebar(
+  () => {
+    emit('chat');
+    emit('close');
+  },
 );
 const { setDialog, onCancel, onBackdropClick, onKeydown } = useSidebarDialog(props, () =>
   emit('close'),
@@ -85,7 +88,11 @@ async function confirmDelete(): Promise<void> {
           <SquarePen :size="18" aria-hidden="true" />
           新建会话
         </button>
-        <a class="chat-sidebar-new" href="/images.html"
+        <a
+          class="chat-sidebar-new"
+          href="#images"
+          :aria-current="imagesOpen ? 'page' : undefined"
+          @click="$emit('close')"
           ><ImagePlus :size="18" aria-hidden="true" />图像生成</a
         >
         <WorkingDirectoryPicker :key="authGeneration" />
@@ -104,7 +111,7 @@ async function confirmDelete(): Promise<void> {
             <button
               class="chat-session-button"
               type="button"
-              :aria-current="session.active ? 'true' : undefined"
+              :aria-current="session.active && !imagesOpen ? 'true' : undefined"
               :disabled="!!deletingId"
               @click="selectSession(session.id)"
             >

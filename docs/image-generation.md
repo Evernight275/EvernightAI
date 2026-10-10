@@ -2,7 +2,7 @@
 
 The first image generation adapter uses the OpenAI-compatible Images API.
 Configure an enabled `openai` provider with its API key and optional base URL,
-then open `/images.html` from the chat sidebar or settings. Model IDs may be
+then open **图像生成** in the chat sidebar (`/chat.html#images`). Model IDs may be
 entered manually; remote `/models` discovery is not required. Declared models
 with explicit capabilities must include `image_generation`.
 
@@ -179,7 +179,7 @@ status and result remain available on the image page.
 
 ## Upload and Edit
 
-On `/images.html`, choose **上传改图**, select reference images and a model,
+In the image workspace (`/chat.html#images`), choose **上传改图**, select reference images and a model,
 and describe the desired changes. Select several images at once or append more
 in later batches. Each preview shows its current number. Images can be removed
 or moved forward/backward; refer to them as "图 1", "图 2", etc. in the prompt.

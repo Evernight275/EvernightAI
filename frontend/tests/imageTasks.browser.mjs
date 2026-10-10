@@ -111,7 +111,7 @@ try {
       if (path === '/agent-runs') return json([]);
       return json([]);
     });
-    await page.goto(`${base}/images.html`);
+    await page.goto(`${base}/chat.html#images`);
     await page.getByRole('option', { name: 'Images', exact: true }).waitFor({ state: 'attached' });
     await page.getByLabel('提示词', { exact: true }).fill('后台图片');
     await page.getByRole('button', { name: '生成图片', exact: true }).click();
@@ -158,7 +158,9 @@ try {
     await page.getByLabel('局部涂抹修改图 1').check();
     await page.getByLabel('修改要求', { exact: true }).fill('将涂抹部分改为蓝色');
     const submitEdit = page.getByRole('button', { name: '开始改图', exact: true });
-    await page.waitForFunction(() => !document.querySelector('button[type=submit]').disabled);
+    await page.waitForFunction(
+      () => !document.querySelector('.image-page button[type=submit]').disabled,
+    );
     await submitEdit.click();
     await page.getByRole('alert').filter({ hasText: '请先涂抹' }).waitFor();
     assert.equal(calls.length, 1, 'an empty mask must not submit');

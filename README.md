@@ -3,7 +3,7 @@
 EvernightAI is a small layered runtime for chat providers, skills, tools,
 context, memory, and agent runs. Image generation through OpenAI-compatible
 providers supports background tasks, partial editing, and creation within chat.
-The standalone page is `/images.html`; see [Image Generation](docs/image-generation.md).
+The image workspace is a view of the chat page at `/chat.html#images`; see [Image Generation](docs/image-generation.md).
 Web chat also accepts PNG, JPEG and WebP image attachments through file
 selection, drag and drop, or clipboard paste. Uploaded images are stored as
 file references and resolved for each model call across all four provider

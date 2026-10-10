@@ -5,6 +5,7 @@ import { chatActor } from './state/chatMachine';
 import 'katex/dist/katex.min.css';
 import './styles/base.css';
 import './styles/chat.css';
+import './styles/images.css';
 
 createApp(ChatApp).mount('#app');
 
