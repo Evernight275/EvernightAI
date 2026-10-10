@@ -29,7 +29,6 @@ import yaml from 'highlight.js/lib/languages/yaml';
 import MarkdownIt from 'markdown-it';
 import {
   computed,
-  nextTick,
   onBeforeUnmount,
   onMounted,
   shallowRef,
@@ -188,14 +187,24 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
 
 const defaultFence = markdown.renderer.rules.fence;
 markdown.renderer.rules.fence = (tokens, index, options, env, renderer) => {
-  const language = normalizeLanguage(tokens[index]?.info || '');
-  const label = languageLabels[language] || language || '代码';
+  const token = tokens[index];
+  const closed = !!token && fenceClosed(token);
+  if (token && !closed) {
+    // While streaming, the closing fence arrives a character at a time; its first
+    // characters are not shown as a line of code.
+    const partial = new RegExp(`(^|\\n)[ \\t]*\\${token.markup[0]}{1,2}$`);
+    token.content = token.content.replace(partial, '$1');
+  }
+  const language = normalizeLanguage(token?.info || '');
+  // The language name is also streamed; a half-typed one is not shown as a label.
+  const typing = !closed && !token?.content;
+  const label = (!typing && (languageLabels[language] || language)) || '代码';
   const fence = defaultFence
     ? defaultFence(tokens, index, options, env, renderer)
     : renderer.renderToken(tokens, index, options);
-  const content = tokens[index]?.content || '';
+  const content = token?.content || '';
   const lines = content.replace(/\n$/, '').split('\n').length;
-  if (language === 'mermaid') return mermaidBlock(tokens[index], fence, lines);
+  if (language === 'mermaid') return mermaidBlock(token, closed, fence, lines);
   return [
     lines > 1
       ? `<div class="markdown-code-block markdown-code-block--numbered" style="--code-digits: ${String(lines).length}">`
@@ -217,31 +226,26 @@ export function useMarkdownContent(props: MarkdownContentProps): {
   // Streaming re-renders on every text delta. Blocks whose source did not change keep
   // their rendered HTML, so only the block still being written is rendered and patched.
   let rendered = new Map<string, string>();
-  // A single long block, such as a code fence being streamed, still costs more per update
-  // as it grows. Updates are then spaced by a multiple of the last one's cost, so rendering
-  // never takes more than a fraction of the main thread. Short content updates immediately.
+  // Coalesce updates within one display frame without adding a cooldown after rendering.
   const shown = shallowRef(props.source);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let readyAt = 0;
-  const show = (): void => {
-    timer = undefined;
-    const started = performance.now();
-    shown.value = props.source;
-    void nextTick(() => {
-      const finished = performance.now();
-      readyAt = finished + Math.min((finished - started) * 4, 250);
-    });
-  };
+  let frame: number | undefined;
   watch(
     () => props.source,
     () => {
-      if (timer !== undefined) return;
-      const wait = readyAt - performance.now();
-      if (wait <= 1) show();
-      else timer = setTimeout(show, wait);
+      if (typeof requestAnimationFrame === 'undefined') {
+        shown.value = props.source;
+        return;
+      }
+      if (frame !== undefined) return;
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        shown.value = props.source;
+      });
     },
   );
-  onBeforeUnmount(() => clearTimeout(timer));
+  onBeforeUnmount(() => {
+    if (frame !== undefined) cancelAnimationFrame(frame);
+  });
   const blocks = computed(() => {
     const next = new Map<string, string>();
     const result = renderMarkdownBlocks(shown.value, rendered, next);
@@ -403,15 +407,19 @@ function normalizeLanguage(value: string): string {
   return languageAliases[language] || language;
 }
 
-// A fence still being streamed has no closing line yet, so its diagram waits for it.
+function fenceClosed(token: { content: string; map: [number, number] | null }): boolean {
+  const content = token.content;
+  const contentLines = content ? content.replace(/\n$/, '').split('\n').length : 0;
+  return !!token.map && token.map[1] - token.map[0] === contentLines + 2;
+}
+
 function mermaidBlock(
-  token: { content: string; map: [number, number] | null } | undefined,
+  token: { content: string } | undefined,
+  closed: boolean,
   fence: string,
   lines: number,
 ): string {
   const content = token?.content || '';
-  const contentLines = content ? content.replace(/\n$/, '').split('\n').length : 0;
-  const closed = !!token?.map && token.map[1] - token.map[0] === contentLines + 2;
   const svg = closed ? diagrams.get(content.replace(/\n$/, '')) : undefined;
   const state = svg
     ? ' markdown-mermaid--rendered'

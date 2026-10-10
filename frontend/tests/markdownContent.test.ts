@@ -109,6 +109,22 @@ describe('Markdown content', () => {
     expect(linked[0]).not.toContain('<!--kept-->');
   });
 
+  it('hides half-streamed fence edges', () => {
+    const label = (source: string) =>
+      /markdown-code-language">([^<]*)</.exec(renderMarkdown(source))?.[1];
+    expect(label('```p')).toBe('代码');
+    expect(label('```pyt')).toBe('代码');
+    expect(label('```python\n')).toBe('代码');
+    expect(label('```python\nx')).toBe('Python');
+    expect(label('```python\n```')).toBe('Python');
+
+    const closing = renderMarkdown('```python\nx = 1\n``');
+    expect(closing.match(/class="code-line"/g)).toHaveLength(1);
+    expect(closing).not.toContain('``');
+    expect(renderMarkdown('~~~text\na\n~')).not.toContain('~');
+    expect(renderMarkdown('```text\na\n``\nb\n```')).toContain('``');
+  });
+
   it('disables raw HTML in model output', () => {
     const html = renderMarkdown('<script>alert("unsafe")</script>');
 

@@ -529,6 +529,9 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                 async for event in events:
                     if connected:
                         queue.put_nowait(event)
+                    # Buffered provider events and synchronous persistence need not await.
+                    # Let the SSE consumer send each event before producing more work.
+                    await asyncio.sleep(0)
             except (Exception, asyncio.CancelledError) as exc:
                 if connected:
                     queue.put_nowait(exc)

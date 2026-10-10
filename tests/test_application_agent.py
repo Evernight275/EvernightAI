@@ -4303,6 +4303,44 @@ async def test_disconnected_tool_stream_keeps_execution_and_controls(
     assert len(completed) == (1 if ending == "complete" else 0)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disconnect", [False, True])
+async def test_buffered_trace_stream_delivers_before_draining_provider(
+    disconnect: bool,
+) -> None:
+    app = AgentRunApplication(make_runtime())
+    produced: list[str] = []
+    finished = asyncio.Event()
+
+    async def events() -> AsyncIterator[AgentTraceEvent]:
+        for index in range(100):
+            text = str(index)
+            produced.append(text)
+            yield AgentTraceEvent(
+                event_type=AgentTraceEventType.CHAT_DELTA,
+                text_delta=text,
+            )
+        finished.set()
+
+    iterator = cast(
+        AsyncGenerator[AgentTraceEvent, None], app._keep_stream_running(events())
+    )
+    try:
+        first = await anext(iterator)
+        assert first.text_delta == "0"
+        assert produced == ["0"]
+        if not disconnect:
+            received: list[str | None] = [first.text_delta]
+            async for event in iterator:
+                received.append(event.text_delta)
+            assert received == [str(index) for index in range(100)]
+    finally:
+        await iterator.aclose()
+        await asyncio.wait_for(finished.wait(), 1)
+        await asyncio.wait_for(app.close(), 1)
+    assert produced == [str(index) for index in range(100)]
+
+
 class BlockingStreamingAnswerProvider(BlockingFinalAnswerProvider):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         self.requests.append(request)
