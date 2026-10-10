@@ -336,7 +336,10 @@ try {
       await page.locator('.settings-shell').evaluate((el) => el.scrollWidth <= el.clientWidth),
     );
     assert.ok(socketClosed);
-    await page.getByRole('button', { name: '数据分析', exact: true }).click();
+    // Custom queries live in the data analysis view, not in settings.
+    assert.equal(await page.getByRole('button', { name: '数据分析', exact: true }).count(), 0);
+    await page.goto(`${base}/chat.html#data`);
+    await page.getByText('自定义查询', { exact: true }).click();
     await page.getByLabel('数据源', { exact: false }).selectOption('runtime');
     await page.getByLabel('运行次数', { exact: false }).check();
     await page.getByRole('button', { name: '查询统计', exact: true }).click();

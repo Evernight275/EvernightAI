@@ -61,7 +61,7 @@ try {
     await page.getByRole('button', { name: '退出', exact: true }).click();
     await page.getByText('已退出此浏览器，并清除保存的访问凭证。', { exact: true }).waitFor();
     await page.screenshot({ path: `${screenshots}/${width}-settings-auth.png` });
-    await page.getByRole('button', { name: '数据控制', exact: true }).click();
+    await page.getByRole('button', { name: '常规', exact: true }).click();
     await page.getByRole('button', { name: '管理凭证', exact: true }).click();
     await page.getByLabel('API Key', { exact: true }).waitFor();
     assert.ok(

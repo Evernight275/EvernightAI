@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, shallowRef } from 'vue';
-import { X, KeyRound, Server, SlidersHorizontal, Wrench } from '@lucide/vue';
+import { Activity, Brain, Database, Plug, Settings2, Sparkles, Wrench, X } from '@lucide/vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import { workspaceActor } from '../../state/workspaceMachine';
 import ApiKeySettings from '../settings/ApiKeySettings.vue';
@@ -11,7 +11,6 @@ import ProviderSettings from '../settings/ProviderSettings.vue';
 import MemorySettings from '../settings/MemorySettings.vue';
 import ResourceSettings from '../settings/ResourceSettings.vue';
 import RunSettings from '../settings/RunSettings.vue';
-import DataSettings from '../settings/DataSettings.vue';
 import SkillSettings from '../settings/SkillSettings.vue';
 import ToolSettings from '../settings/ToolSettings.vue';
 
@@ -25,17 +24,48 @@ onUnmounted(() => subscription.unsubscribe());
 const state = computed(() => String(snapshot.value.value));
 const context = computed(() => snapshot.value.context);
 const activeSection = ref('general');
-const sections = [
-  { id: 'general', label: '常规', icon: SlidersHorizontal },
-  { id: 'connections', label: '连接与认证', icon: Server },
-  { id: 'privacy', label: '数据控制', icon: KeyRound },
-  { id: 'memories', label: '记忆管理', icon: SlidersHorizontal },
-  { id: 'tools', label: '工具管理', icon: Wrench },
-  { id: 'skills', label: '技能管理', icon: SlidersHorizontal },
-  { id: 'resources', label: '工作区资源', icon: Server },
-  { id: 'runs', label: '运行管理', icon: SlidersHorizontal },
-  { id: 'data', label: '数据分析', icon: SlidersHorizontal },
+const groups = [
+  { label: '', sections: [{ id: 'general', label: '常规', icon: Settings2 }] },
+  {
+    label: '模型与能力',
+    sections: [
+      { id: 'connections', label: '连接与认证', icon: Plug },
+      { id: 'tools', label: '工具管理', icon: Wrench },
+      { id: 'skills', label: '技能管理', icon: Sparkles },
+      { id: 'memories', label: '记忆管理', icon: Brain },
+    ],
+  },
+  {
+    label: '运行与数据',
+    sections: [
+      { id: 'runs', label: '运行管理', icon: Activity },
+      { id: 'resources', label: '工作区资源', icon: Database },
+    ],
+  },
 ];
+const sections = groups.flatMap((group) => group.sections);
+// What the workspace currently holds; each entry opens the section that manages it.
+const overview = computed(() => {
+  const workspace = context.value.workspace;
+  const providers = workspace.providerCatalog.providers.filter(
+    (provider) => provider.is_enabled !== false,
+  );
+  const models = workspace.providerCatalog.modelGroups
+    .filter((group) => group.provider.is_enabled !== false)
+    .reduce((count, group) => count + group.models.length, 0);
+  return [
+    {
+      section: 'connections',
+      label: '模型服务',
+      value: providers.length,
+      note: `${models} 个模型`,
+    },
+    { section: 'tools', label: '工具', value: workspace.capabilityCatalog.tools.length },
+    { section: 'skills', label: '技能', value: workspace.capabilityCatalog.skills.length },
+    { section: 'memories', label: '记忆', value: workspace.knowledgeIndex.memories.length },
+    { section: 'runs', label: '运行记录', value: workspace.executionIndex.runs.length },
+  ];
+});
 function refresh(): void {
   workspaceActor.send({ type: 'REFRESH' });
 }
@@ -60,17 +90,20 @@ function refresh(): void {
         /></a>
       </header>
       <nav class="settings-nav" aria-label="设置分类">
-        <button
-          v-for="section in sections"
-          :key="section.id"
-          type="button"
-          :aria-current="activeSection === section.id ? 'page' : undefined"
-          @click="activeSection = section.id"
-        >
-          <component :is="section.icon" :size="18" aria-hidden="true" /><span>{{
-            section.label
-          }}</span>
-        </button>
+        <template v-for="group in groups" :key="group.label">
+          <p v-if="group.label" class="settings-nav-label">{{ group.label }}</p>
+          <button
+            v-for="section in group.sections"
+            :key="section.id"
+            type="button"
+            :aria-current="activeSection === section.id ? 'page' : undefined"
+            @click="activeSection = section.id"
+          >
+            <component :is="section.icon" :size="18" aria-hidden="true" /><span>{{
+              section.label
+            }}</span>
+          </button>
+        </template>
       </nav>
       <div class="settings-content" :key="activeSection">
         <h2 class="settings-section-title">
@@ -83,21 +116,29 @@ function refresh(): void {
             :connection-error="context.connectionError"
             @refresh="refresh"
           />
-          <div class="settings-row">
-            <div>
-              <h3>模型服务</h3>
-              <p>查看可用模型与访问凭证。</p>
-            </div>
-            <button type="button" @click="activeSection = 'connections'">管理</button>
-          </div>
-          <div class="settings-row">
-            <div>
-              <h3>EvernightAI</h3>
-              <p>你的 AI 聊天工作区</p>
-            </div>
-            <span class="settings-value">网页版</span>
-          </div>
           <WorkspaceIssues :issues="context.issues" />
+          <ul class="settings-overview" aria-label="工作区概览">
+            <li v-for="item in overview" :key="item.section">
+              <button type="button" @click="activeSection = item.section">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <small v-if="item.note">{{ item.note }}</small>
+              </button>
+            </li>
+          </ul>
+          <div class="settings-row">
+            <div>
+              <h3>聊天记录</h3>
+              <p>会话保存在 EvernightAI 服务端，可在聊天侧栏中逐个删除。</p>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <h3>浏览器凭证</h3>
+              <p>保存的 API Key 位于此浏览器的本地存储中，清除它不会删除服务端会话。</p>
+            </div>
+            <button type="button" @click="activeSection = 'connections'">管理凭证</button>
+          </div>
         </template>
         <template v-else-if="activeSection === 'connections'">
           <ApiKeySettings />
@@ -159,25 +200,6 @@ function refresh(): void {
           :active="active !== false"
           @changed="refresh"
         />
-        <DataSettings :key="authGeneration" v-else-if="activeSection === 'data'" />
-        <template v-else>
-          <div class="settings-row">
-            <div>
-              <h3>聊天记录</h3>
-              <p>会话保存在 EvernightAI 服务端，可在聊天侧栏中逐个删除。</p>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div>
-              <h3>浏览器凭证</h3>
-              <p>保存的 API Key 位于此浏览器的本地存储中。</p>
-            </div>
-            <button type="button" @click="activeSection = 'connections'">管理凭证</button>
-          </div>
-          <p class="settings-help">
-            清除浏览器凭证不会删除服务端会话。删除会话不会清除浏览器凭证。
-          </p>
-        </template>
       </div>
     </section>
   </div>

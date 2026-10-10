@@ -1,15 +1,24 @@
 <script setup lang="ts">
 import WorkingDirectoryPicker from './WorkingDirectoryPicker.vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
-import { SquarePen, Settings, X, PanelLeftClose, Search, Trash2, ImagePlus } from '@lucide/vue';
+import {
+  ChartColumn,
+  ImagePlus,
+  PanelLeftClose,
+  Search,
+  Settings,
+  SquarePen,
+  Trash2,
+  X,
+} from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { useDialog } from '../common/dialog';
 import type { ChatSidebarItem } from './chatSidebar';
 import EmptyValue from '../common/EmptyValue.vue';
 import { useChatSidebar } from './chatSidebar';
-import { useSidebarDialog } from './chatLayout';
+import { useSidebarDialog, type ChatPageView } from './chatLayout';
 
-const props = defineProps<{ open: boolean; collapsed?: boolean; imagesOpen?: boolean }>();
+const props = defineProps<{ open: boolean; collapsed?: boolean; view?: ChatPageView }>();
 const emit = defineEmits<{ chat: []; close: []; collapse: []; settings: [] }>();
 const { sessions, newConversation, selectSession, removeSession, deletingId } = useChatSidebar(
   () => {
@@ -91,9 +100,16 @@ async function confirmDelete(): Promise<void> {
         <a
           class="chat-sidebar-new"
           href="#images"
-          :aria-current="imagesOpen ? 'page' : undefined"
+          :aria-current="view === 'images' ? 'page' : undefined"
           @click="$emit('close')"
           ><ImagePlus :size="18" aria-hidden="true" />图像生成</a
+        >
+        <a
+          class="chat-sidebar-new"
+          href="#data"
+          :aria-current="view === 'data' ? 'page' : undefined"
+          @click="$emit('close')"
+          ><ChartColumn :size="18" aria-hidden="true" />数据分析</a
         >
         <WorkingDirectoryPicker :key="authGeneration" />
         <label class="chat-sidebar-search">
@@ -111,7 +127,7 @@ async function confirmDelete(): Promise<void> {
             <button
               class="chat-session-button"
               type="button"
-              :aria-current="session.active && !imagesOpen ? 'true' : undefined"
+              :aria-current="session.active && (view ?? 'chat') === 'chat' ? 'true' : undefined"
               :disabled="!!deletingId"
               @click="selectSession(session.id)"
             >

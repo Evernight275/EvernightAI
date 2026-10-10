@@ -25,6 +25,14 @@ import { cancelForEditing, readRunDecisions, saveRunDecisions } from '../../runt
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import RunSkillConflict from '../skills/RunSkillConflict.vue';
 import JsonCode from '../common/JsonCode.vue';
+const runStatusLabels: Record<string, string> = {
+  pending: '等待中',
+  running: '运行中',
+  paused: '已暂停',
+  finished: '已完成',
+  failed: '失败',
+  canceled: '已取消',
+};
 const emit = defineEmits<{ changed: [] }>();
 const props = defineProps<{ active?: boolean }>();
 const runs = ref<AgentRunState[]>([]);
@@ -208,7 +216,7 @@ onMounted(() => perform(load));
     <p v-if="busy" role="status">正在处理…</p>
     <div v-for="run in runs" :key="run.run_id" class="settings-row">
       <div>
-        <h3>{{ run.request.model_id }} · {{ run.status }}</h3>
+        <h3>{{ run.request.model_id }} · {{ runStatusLabels[run.status || ''] || run.status }}</h3>
         <p>{{ run.run_id }}</p>
       </div>
       <button :disabled="busy" @click="perform(() => inspect(run.run_id))">管理运行</button>

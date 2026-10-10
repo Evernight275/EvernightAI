@@ -15,6 +15,12 @@ import {
   type ProviderModelConfig,
 } from '../../api/providers';
 import type { ProviderCatalog } from '../../domain/workspace';
+const providerTypeLabels: Record<string, string> = {
+  openai: 'OpenAI 兼容',
+  openai_responses: 'OpenAI Responses',
+  anthropic: 'Anthropic',
+  google: 'Gemini',
+};
 const props = defineProps<{ catalog: ProviderCatalog }>();
 const emit = defineEmits<{ changed: [] }>();
 const name = ref('');
@@ -209,7 +215,10 @@ async function toggleEnabled(provider: ProviderInfo) {
     <div v-for="provider in catalog.providers" :key="provider.provider_id" class="settings-row">
       <div>
         <h3>{{ provider.name }}</h3>
-        <p>{{ provider.type }} · {{ provider.is_enabled === false ? '已停用' : '已启用' }}</p>
+        <p>
+          {{ providerTypeLabels[provider.type] || provider.type }} ·
+          {{ provider.is_enabled === false ? '已停用' : '已启用' }}
+        </p>
         <p>
           {{
             catalog.modelGroups

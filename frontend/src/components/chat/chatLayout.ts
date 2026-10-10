@@ -1,6 +1,8 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useDialog } from '../common/dialog';
 
+export type ChatPageView = 'chat' | 'images' | 'data';
+
 export function useChatLayout() {
   const navigationOpen = ref(false);
   const sidebarCollapsed = ref(false);

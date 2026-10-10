@@ -6,6 +6,7 @@ import 'katex/dist/katex.min.css';
 import './styles/base.css';
 import './styles/chat.css';
 import './styles/images.css';
+import './styles/data.css';
 
 createApp(ChatApp).mount('#app');
 

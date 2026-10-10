@@ -23,6 +23,12 @@ const stateLabel = computed(
     })[props.state] || props.state,
 );
 
+const loadedTime = computed(() => {
+  const time = props.loadedAt ? new Date(props.loadedAt) : null;
+  return time && !Number.isNaN(time.getTime())
+    ? time.toLocaleString('zh-CN', { hour12: false })
+    : props.loadedAt;
+});
 const errorMessage = computed(() => {
   if (!props.connectionError) {
     return null;
@@ -40,7 +46,7 @@ const errorMessage = computed(() => {
       <span class="settings-status-dot" :class="`is-${state}`" aria-hidden="true"></span
       >{{ stateLabel }}
     </p>
-    <p v-if="loadedAt" class="settings-status-meta">最后加载：{{ loadedAt }}</p>
+    <p v-if="loadedAt" class="settings-status-meta">最后加载：{{ loadedTime }}</p>
     <p v-if="errorMessage" class="settings-status-meta">{{ errorMessage }}</p>
     <button type="button" :disabled="state === 'loading'" @click="$emit('refresh')">刷新</button>
   </section>

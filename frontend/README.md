@@ -155,6 +155,15 @@ conversation. The workspace loads on first use and then stays mounted next to
 the chat, so a draft or a running reply survives switching either way. Starting
 or selecting a conversation returns to the chat.
 
+Data analysis is a second such view at `chat.html#data`, opened from its own
+sidebar entry. `DataWorkspace` shows stat tiles, daily run and token columns,
+and per-model and per-tool bars for the last 7 days, 30 days or all time, read
+from the `agent_runs` and `agent_trace_events` data sources. Days are UTC. A
+metric the backend cannot compute stays "—": cache usage a provider did not
+report is unknown, not zero. Each chart has a hover or focus tooltip and a table
+view, and the existing custom query form sits below the charts. It reloads when
+the view is opened. `tests/dataAnalysis.browser.mjs` covers it with a mocked API.
+
 ## Commands
 
 ```bash
@@ -193,8 +202,11 @@ failed deletion keeps the session and reports the server error.
 
 Settings open in a modal over the chat workspace, keeping the current chat and
 draft mounted. The standalone index entry renders the same settings panel.
-General, connection/authentication, and data-control sections expose working
-controls; resource details remain expandable. Escape and the close button
+The navigation is grouped: General; models and capabilities (connections,
+tools, skills, memories); runs and data (runs, workspace resources). General
+shows the connection state, a count of each resource that opens its section,
+and where chats and browser credentials are stored. Custom data queries moved
+to the data analysis view. Resource details remain expandable. Escape and the close button
 return to chat. Mobile layouts use a horizontal category bar.
 
 ### Tool progress
