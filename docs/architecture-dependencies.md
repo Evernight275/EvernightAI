@@ -380,8 +380,8 @@ and process isolation have separate responsibilities.
 
 ## Frontend Architecture
 
-The Vue 3 / TypeScript / Vite frontend has workspace (`index.html`) and chat
-(`chat.html`) entries; image generation is a view of the chat page
+The Vue 3 / TypeScript / Vite frontend has service status (`index.html`), settings
+(`settings.html`), login (`login.html`), and chat (`chat.html`) entries; image generation is a view of the chat page
 (`chat.html#images`). Its main
 responsibilities are:
 

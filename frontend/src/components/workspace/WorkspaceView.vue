@@ -3,7 +3,8 @@ import { computed, onUnmounted, ref, shallowRef } from 'vue';
 import { Activity, Brain, Database, Plug, Settings2, Sparkles, Wrench, X } from '@lucide/vue';
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import { workspaceActor } from '../../state/workspaceMachine';
-import ApiKeySettings from '../settings/ApiKeySettings.vue';
+import ApiKeyManager from '../settings/ApiKeyManager.vue';
+import AccountSettings from '../settings/AccountSettings.vue';
 import WorkspaceContents from './WorkspaceContents.vue';
 import WorkspaceIssues from './WorkspaceIssues.vue';
 import WorkspaceStatus from './WorkspaceStatus.vue';
@@ -134,14 +135,15 @@ function refresh(): void {
           </div>
           <div class="settings-row">
             <div>
-              <h3>浏览器凭证</h3>
-              <p>保存的 API Key 位于此浏览器的本地存储中，清除它不会删除服务端会话。</p>
+              <h3>账号</h3>
+              <p>登录状态保存在此浏览器的本地存储中，退出登录不会删除服务端的聊天记录。</p>
             </div>
-            <button type="button" @click="activeSection = 'connections'">管理凭证</button>
+            <button type="button" @click="activeSection = 'connections'">管理账号</button>
           </div>
         </template>
         <template v-else-if="activeSection === 'connections'">
-          <ApiKeySettings />
+          <AccountSettings :key="authGeneration" />
+          <ApiKeyManager :key="authGeneration" />
           <ProviderSettings
             :key="authGeneration"
             :catalog="context.workspace.providerCatalog"

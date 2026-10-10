@@ -11,6 +11,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 
 from EvernightAI.core.error.base import EvernightAIError
+from EvernightAI.core.protocol.api_key import ApiKeyManagerProtocol
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
@@ -56,12 +57,14 @@ def create_http_app(
     *,
     auth_device: HttpAuthDeviceProtocol | None = None,
     login_device: HttpLoginDeviceProtocol | None = None,
+    api_key_manager: ApiKeyManagerProtocol | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
     authorized_interface_factory: AuthorizedHttpInterfaceFactoryProtocol | None = None,
     close_on_shutdown: bool = True,
     initialize_handler: Callable[[], Awaitable[None]] | None = None,
     readiness_checker: Callable[[], bool] | None = None,
     startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+    shutdown_handlers: list[Callable[[], Awaitable[None]]] | None = None,
     server_header: str | None = None,
     static_files_path: str | Path | None = None,
 ) -> FastAPI:
@@ -75,7 +78,11 @@ def create_http_app(
             yield
         finally:
             if close_on_shutdown:
-                await interface.close()
+                try:
+                    await interface.close()
+                finally:
+                    for handler in shutdown_handlers or []:
+                        await handler()
 
     app = FastAPI(
         title="EvernightAI",
@@ -87,6 +94,7 @@ def create_http_app(
     app.state.interface = interface
     app.state.auth_device = auth_device
     app.state.login_device = login_device
+    app.state.api_key_manager = api_key_manager
     app.state.readiness_checker = readiness_checker or _always_ready
     app.state.websocket_manager = WebSocketConnectionManager()
     app.state.authorized_interface_factory = (
@@ -165,7 +173,7 @@ def _add_request_context_middleware(app: FastAPI) -> None:
             )
             if response is not None:
                 response.headers[REQUEST_ID_HEADER] = request_id
-                if request.url.path.startswith("/images/"):
+                if request.url.path.startswith(("/images/", "/auth/")):
                     response.headers["Cache-Control"] = "no-store"
 
 
@@ -204,10 +212,10 @@ def _secured_openapi_factory(app: FastAPI):
         security_schemes[HTTP_BEARER_SECURITY_SCHEME] = {
             "type": "http",
             "scheme": "bearer",
-            "bearerFormat": "OAuth Access Token",
+            "bearerFormat": "Login session or OAuth access token",
             "description": (
-                "Send an OAuth access token or API key as "
-                "`Authorization: Bearer <token>`."
+                "Send a login session token, OAuth access token, or generated API key as "
+                "`Authorization: Bearer <token>`. API key management requires a login session."
             ),
         }
         security_schemes[HTTP_HEADER_API_KEY_SECURITY_SCHEME] = {
@@ -221,6 +229,9 @@ def _secured_openapi_factory(app: FastAPI):
                 continue
             for operation in methods.values():
                 if isinstance(operation, dict):
+                    if path.startswith("/auth/api-keys"):
+                        operation["security"] = [{HTTP_BEARER_SECURITY_SCHEME: []}]
+                        continue
                     operation["security"] = [
                         {HTTP_BEARER_SECURITY_SCHEME: []},
                         {HTTP_HEADER_API_KEY_SECURITY_SCHEME: []},

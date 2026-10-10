@@ -225,7 +225,7 @@ def test_parse_config_maps_toml_shape_to_core_provider_config(monkeypatch) -> No
     assert config.data_analysis.sqlite_sources[0].metrics[0].aggregation == "count"
     assert config.auth.enabled is True
     assert config.auth.principals[0].principal_id == "admin"
-    assert config.auth.principals[0].api_key == "secret-key"
+    assert "api_key" not in config.auth.principals[0].model_dump()
     assert config.auth.principals[0].roles == ["admin"]
     assert config.auth.principals[0].permissions == ["*"]
     assert config.auth.oauth.tokens[0].principal_id == "reader"

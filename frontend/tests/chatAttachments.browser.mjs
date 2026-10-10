@@ -41,7 +41,7 @@ try {
     page.on('pageerror', (error) => errors.push(error.message));
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
-      localStorage.setItem('evernight.apiKey', 'image-test-key');
+      localStorage.setItem('evernight.accessToken', 'image-test-token');
     });
     await page.route('**/mock-api/**', async (route) => {
       const request = route.request(),
@@ -71,7 +71,7 @@ try {
       if (path === '/contexts/image-context') return json(context);
       if (path === '/files/upload') {
         uploadCount++;
-        assert.equal(request.headers()['x-evernight-api-key'], 'image-test-key');
+        assert.equal(request.headers().authorization, 'Bearer image-test-token');
         assert.equal(request.headers()['content-type'], 'image/png');
         const bytes = request.postDataBuffer();
         assert.ok(bytes?.subarray(0, 8).equals(png.subarray(0, 8)), 'binary upload');
@@ -295,7 +295,9 @@ try {
       });
       await add('late.png');
       await started;
-      await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-api-key-change')));
+      await page.evaluate(() =>
+        window.dispatchEvent(new CustomEvent('evernight-access-token-change')),
+      );
       releaseUpload();
       await page.waitForFunction(() => !document.querySelector('.chat-attachment'));
       assert.ok(

@@ -1,0 +1,57 @@
+.service-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-bg);
+}
+
+.service-status__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 340px;
+}
+
+.service-status__card p {
+  margin: 0;
+}
+
+.service-status__brand {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.service-status__card h1 {
+  margin: 0 0 var(--space-4);
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+}
+
+.service-status__value {
+  font-weight: 550;
+}
+
+.service-status__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.service-status__actions button {
+  padding: 7px 16px;
+  border-radius: 18px;
+  background: transparent;
+}
+
+.service-status__actions a {
+  font-weight: 550;
+}

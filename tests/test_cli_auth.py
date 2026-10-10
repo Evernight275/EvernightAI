@@ -5,14 +5,14 @@ from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
 from EvernightAI.interface.cli.config import parse_config
 
 
-def test_cli_auth_device_uses_single_configured_principal_without_env_key() -> None:
+def test_cli_auth_device_uses_single_configured_local_user() -> None:
     config = parse_config(
         {
             "auth": {
                 "enabled": True,
-                "principal": {
+                "user": {
                     "admin": {
-                        "api_key": "secret",
+                        "password": "secret",
                         "permissions": ["*"],
                     }
                 },
@@ -26,19 +26,20 @@ def test_cli_auth_device_uses_single_configured_principal_without_env_key() -> N
     assert principal.permissions == ["*"]
 
 
-def test_cli_auth_device_uses_env_key_to_select_principal(monkeypatch) -> None:
-    monkeypatch.setenv("EVERNIGHTAI_CLI_API_KEY", "writer-secret")
+def test_cli_auth_device_uses_login_to_select_user(monkeypatch) -> None:
+    monkeypatch.setenv("EVERNIGHTAI_CLI_USERNAME", "writer")
+    monkeypatch.setenv("EVERNIGHTAI_CLI_PASSWORD", "writer-secret")
     config = parse_config(
         {
             "auth": {
                 "enabled": True,
-                "principal": {
+                "user": {
                     "reader": {
-                        "api_key": "reader-secret",
+                        "password": "reader-secret",
                         "permissions": ["contexts:list"],
                     },
                     "writer": {
-                        "api_key": "writer-secret",
+                        "password": "writer-secret",
                         "permissions": ["contexts:create"],
                     },
                 },
@@ -52,14 +53,14 @@ def test_cli_auth_device_uses_env_key_to_select_principal(monkeypatch) -> None:
     assert principal.permissions == ["contexts:create"]
 
 
-def test_cli_auth_device_rejects_missing_key_for_multiple_principals() -> None:
+def test_cli_auth_device_requires_login_for_multiple_users() -> None:
     config = parse_config(
         {
             "auth": {
                 "enabled": True,
-                "principal": {
-                    "reader": {"api_key": "reader-secret"},
-                    "writer": {"api_key": "writer-secret"},
+                "user": {
+                    "reader": {"password": "reader-secret"},
+                    "writer": {"password": "writer-secret"},
                 },
             }
         }
@@ -75,12 +76,38 @@ def test_cli_auth_device_rejects_invalid_env_key(monkeypatch) -> None:
         {
             "auth": {
                 "enabled": True,
-                "principal": {
-                    "reader": {"api_key": "reader-secret"},
+                "user": {
+                    "reader": {"password": "reader-secret"},
                 },
             }
         }
     )
 
+    with pytest.raises(AuthRequiredError):
+        ConfigCliAuthDevice().principal_for_config(config)
+
+
+@pytest.mark.parametrize("password", [None, "wrong"])
+def test_cli_rejects_invalid_password(monkeypatch, password: str | None) -> None:
+    monkeypatch.setenv("EVERNIGHTAI_CLI_USERNAME", "reader")
+    if password is None:
+        monkeypatch.delenv("EVERNIGHTAI_CLI_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("EVERNIGHTAI_CLI_PASSWORD", password)
+    config = parse_config(
+        {"auth": {"enabled": True, "user": {"reader": {"password": "correct"}}}}
+    )
+    with pytest.raises(AuthRequiredError):
+        ConfigCliAuthDevice().principal_for_config(config)
+
+
+@pytest.mark.parametrize("use_env", [False, True])
+def test_cli_rejects_legacy_config_keys(monkeypatch, use_env: bool) -> None:
+    monkeypatch.setenv("EVERNIGHTAI_CLI_API_KEY", "legacy-secret")
+    monkeypatch.setenv("LEGACY_AUTH_KEY", "legacy-secret")
+    entry = (
+        {"api_key_env": "LEGACY_AUTH_KEY"} if use_env else {"api_key": "legacy-secret"}
+    )
+    config = parse_config({"auth": {"enabled": True, "principal": {"reader": entry}}})
     with pytest.raises(AuthRequiredError):
         ConfigCliAuthDevice().principal_for_config(config)

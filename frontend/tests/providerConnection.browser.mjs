@@ -68,7 +68,7 @@ try {
       if (path === '/health' || path === '/ready') return json({ status: 'ready' });
       return json([]);
     });
-    await page.goto(base);
+    await page.goto(`${base}/settings.html`);
     await page.getByRole('button', { name: '连接与认证', exact: true }).click();
     assert.ok(
       await page.getByRole('button', { name: '测试连接 停用服务', exact: true }).isDisabled(),

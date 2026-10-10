@@ -4,7 +4,6 @@ export const apiBase = normalizeApiBase(
     '',
 );
 
-const apiKeyStorageKey = 'evernight.apiKey';
 const accessTokenStorageKey = 'evernight.accessToken';
 const signedOutStorageKey = 'evernight.signedOut';
 
@@ -59,27 +58,8 @@ export class ApiError extends Error {
   }
 }
 
-export function getApiKey(): string {
-  if (localStorage.getItem(signedOutStorageKey)) return '';
-  if (localStorage.getItem(accessTokenStorageKey)) return '';
-  return localStorage.getItem(apiKeyStorageKey) || window.EVERNIGHTAI_API_KEY || '';
-}
-
-export function setApiKey(apiKey: string): void {
-  const value = apiKey.trim();
-  if (value) {
-    localStorage.removeItem(signedOutStorageKey);
-    localStorage.setItem(apiKeyStorageKey, value);
-    localStorage.removeItem(accessTokenStorageKey);
-  } else {
-    localStorage.removeItem(apiKeyStorageKey);
-  }
-  window.dispatchEvent(new CustomEvent('evernight-api-key-change'));
-}
-
 export function getAccessToken(): string {
   if (localStorage.getItem(signedOutStorageKey)) return '';
-  if (localStorage.getItem(apiKeyStorageKey)) return '';
   return localStorage.getItem(accessTokenStorageKey) || window.EVERNIGHTAI_ACCESS_TOKEN || '';
 }
 
@@ -88,7 +68,6 @@ export function setAccessToken(accessToken: string): void {
   if (value) {
     localStorage.removeItem(signedOutStorageKey);
     localStorage.setItem(accessTokenStorageKey, value);
-    localStorage.removeItem(apiKeyStorageKey);
   } else {
     localStorage.removeItem(accessTokenStorageKey);
   }
@@ -96,10 +75,9 @@ export function setAccessToken(accessToken: string): void {
 }
 
 export function signOut(): void {
-  localStorage.removeItem(apiKeyStorageKey);
   localStorage.removeItem(accessTokenStorageKey);
   localStorage.setItem(signedOutStorageKey, '1');
-  window.dispatchEvent(new CustomEvent('evernight-api-key-change'));
+  window.dispatchEvent(new CustomEvent('evernight-access-token-change'));
 }
 
 export async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -164,14 +142,12 @@ async function sendRequest(
   options: RequestOptions,
   accept: string,
 ): Promise<Response> {
-  const apiKey = options.credentials === false ? '' : getApiKey();
   const accessToken = options.credentials === false ? '' : getAccessToken();
   return fetch(`${apiBase}${normalizePath(path)}`, {
     method: options.method || 'GET',
     headers: {
       accept,
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-      ...(!accessToken && apiKey ? { 'x-evernight-api-key': apiKey } : {}),
       ...(options.body === undefined
         ? {}
         : { 'content-type': options.contentType || 'application/json' }),
@@ -195,7 +171,7 @@ async function throwForError(path: string, response: Response): Promise<void> {
   const body = await readErrorBody(response);
   const message =
     response.status === 401
-      ? '访问凭证无效或已过期，请在设置中重新验证。'
+      ? '登录已失效，请重新登录。'
       : response.status === 403
         ? '当前身份没有执行此操作的权限。'
         : body?.error?.message || `Request failed with status ${response.status}`;

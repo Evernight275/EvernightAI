@@ -962,12 +962,10 @@ ask for an API key, or go straight in.
 Configure users under `[auth.user.<username>]` with `password` or `password_env`,
 and set `auth.enabled = true`. Omitting `permissions` grants `["*"]`.
 
-Identity is the name. The username becomes the `principal_id`, which is also the
-owner of everything that principal creates. A user and an
-`[auth.principal.<name>]` API key that share a name are therefore the same
-principal: each sees the sessions, contexts, agent runs, and memories created
-with the other. Give them different names to keep their data separate. Their
-permissions remain whatever each entry configures.
+The username is the `principal_id` and owns the account's sessions, contexts,
+agent runs, and memories. Generated API keys use that same identity and its
+current configured permissions. `[auth.principal.*].api_key` and `api_key_env`
+are no longer read. Provider API keys under `[provider.*]` are unaffected.
 
 `POST /auth/login` accepts `{"username": "...", "password": "..."}` and returns
 `access_token`, `token_type` (`bearer`), `expires_at`, and the `principal`. Send the
@@ -991,13 +989,49 @@ not extended by use. They are held in process memory: restarting the service
 signs every user out, and sessions are not shared between processes. Failed login
 attempts are not rate limited.
 
-The browser validates API keys or Bearer tokens before saving them. Signing out
-removes browser credentials and disables page-provided fallback credentials for
-that browser until another credential is saved. This does not revoke a static API
-key or an externally issued token on the server. Identity changes clear the chat
+The control panel signs in with an account only; it never stores or sends an API
+key, which is meant for curl, Python, and other scripted callers. Signing out
+calls `POST /auth/logout`, removes the browser's session token, and disables a
+page-provided fallback token for that browser until the next login. This does not
+revoke a generated API key or an externally issued token on the server. Identity changes clear the chat
 view and workspace data and disconnect settings trace subscriptions. Authorization
 adapters must implement the scope-aware protocols: a failing scoped call is never
 retried without its ownership scope.
+
+### Optional generated API keys
+
+Account login and its Bearer session token are the primary authentication method.
+An API key is an optional credential for scripts and integrations. Key management
+requires a live username/password login session; API keys and externally issued
+OAuth tokens cannot create, list, or revoke keys.
+
+- `POST /auth/api-keys` accepts `{"name":"automation"}` and optional `expires_at`
+  (a future datetime with a timezone). It returns 201 with `api_key` and `key`
+  metadata: `key_id`, `owner_id`, `name`, `prefix`, `created_at`, `expires_at`, and
+  `revoked_at`. Save the full key now: it cannot be retrieved later.
+- `GET /auth/api-keys` lists only the logged-in account's metadata, including
+  revoked keys. It never returns full keys or their digests.
+- `DELETE /auth/api-keys/{key_id}` revokes an owned key and returns 204. Repeating
+  the request is harmless. A missing key or another account's key returns 404.
+
+Send a generated key as `X-Evernight-API-Key: <api_key>` or
+`Authorization: Bearer <api_key>`. It uses the account's ownership and permissions;
+request fields cannot select a different owner or elevate permissions. Keys are
+random and stored in SQLite as SHA-256 digests. They survive restarts, while login
+sessions do not. Expired or revoked keys and keys of removed accounts return 401.
+Account permission changes take effect when the configuration is reloaded.
+All `/auth/` responses use `Cache-Control: no-store`.
+
+Revocation or expiry also closes an existing key-authenticated WebSocket with
+code 1008 on its next message or heartbeat. Already streaming HTTP/SSE responses
+may finish. Logging out ends only the login session; revoke a key explicitly to
+end its use. The environment-only bootstrap still supports the explicitly set
+`EVERNIGHTAI_HTTP_API_KEY` for compatibility; it does not enable key management.
+
+For the local CLI, a single configured account is selected automatically. With
+multiple accounts, set `EVERNIGHTAI_CLI_USERNAME` and `EVERNIGHTAI_CLI_PASSWORD`.
+`EVERNIGHTAI_CLI_API_KEY` accepts an existing generated key from the same runtime
+database; legacy keys from `config.toml` are rejected.
 
 ### Displaying generated files
 

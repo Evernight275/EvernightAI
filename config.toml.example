@@ -63,30 +63,29 @@ server_header = "EvernightAI"
 static_files_path = "frontend/dist"
 
 [auth]
-# Disabled by default for local development. When enabled, HTTP requests use
-# Authorization/X-Evernight-API-Key. CLI commands use the single configured
-# principal, or EVERNIGHTAI_CLI_API_KEY when multiple principals are present.
+# Account login uses `POST /auth/login` and a Bearer session token.
+# Enable after configuring at least one user below.
 enabled = false
 # Lifetime of a username/password login session. Defaults to 12 hours.
 # login_session_ttl_seconds = 43200
 
-[auth.principal.admin]
-# Requests may use either `Authorization: Bearer ...` or `X-Evernight-API-Key`.
-api_key_env = "EVERNIGHTAI_HTTP_API_KEY"
-permissions = ["*"]
-
-# Username/password login for the control panel. The table name is the
-# username. `POST /auth/login` exchanges these for a bearer session token.
-# Sessions are kept in memory, so restarting the service signs everyone out.
-# Uncomment to enable; a user whose password is unset fails startup.
-# Identity is the name: a user and an [auth.principal.<name>] API key with the
-# same name are one principal and share sessions, contexts, runs and memories.
-# Use different names to keep their data separate.
+# The table name is the username. Passwords must be set when auth is enabled.
+# Sessions are held in memory, so restarting signs everyone out.
 # [auth.user.admin]
 # password_env = "EVERNIGHTAI_ADMIN_PASSWORD"
 # # `password = "..."` also works, but keeps the secret in this file.
 # # Omitting permissions grants ["*"].
 # permissions = ["*"]
+
+# Optional API keys are generated with `POST /auth/api-keys` after account login.
+# Only a login session can create, list, or revoke keys. Keys inherit the
+# account's permissions and ownership, persist across restarts, and can expire.
+# Full keys are returned once; only their SHA-256 digests are stored in SQLite.
+# `[auth.principal.*].api_key` and `api_key_env` are ignored.
+# This does not affect provider API keys configured below.
+# Local CLI: a single configured account is selected automatically; with multiple
+# accounts set EVERNIGHTAI_CLI_USERNAME and EVERNIGHTAI_CLI_PASSWORD. An existing
+# generated key can also be supplied through EVERNIGHTAI_CLI_API_KEY.
 
 [auth.oauth.jwt]
 # OAuth access tokens use `Authorization: Bearer ...`.

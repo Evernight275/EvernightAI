@@ -18,7 +18,6 @@ describe('chat runtime', () => {
       getItem: vi.fn(() => null),
     });
     vi.stubGlobal('window', {
-      EVERNIGHTAI_API_KEY: '',
       EVERNIGHTAI_ACCESS_TOKEN: '',
     });
   });

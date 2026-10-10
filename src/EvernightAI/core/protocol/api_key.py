@@ -1,0 +1,26 @@
+from datetime import datetime
+from typing import Protocol
+
+from EvernightAI.core.schema.api_key import ApiKeyInfo, IssuedApiKey
+
+
+class ApiKeyRegisterProtocol(Protocol):
+    def create(self, info: ApiKeyInfo, digest: str) -> None: ...
+
+    def get_by_digest(self, digest: str) -> ApiKeyInfo | None: ...
+
+    def list_keys(self, owner_id: str) -> list[ApiKeyInfo]: ...
+
+    def revoke(self, owner_id: str, key_id: str, revoked_at: datetime) -> bool: ...
+
+
+class ApiKeyManagerProtocol(Protocol):
+    def issue(
+        self, owner_id: str, name: str, *, expires_at: datetime | None = None
+    ) -> IssuedApiKey: ...
+
+    def list_keys(self, owner_id: str) -> list[ApiKeyInfo]: ...
+
+    def revoke(self, owner_id: str, key_id: str) -> None: ...
+
+    def owner_for_key(self, api_key: str) -> str: ...

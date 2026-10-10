@@ -5,7 +5,6 @@ import {
   requestJson,
   requestSse,
   setAccessToken,
-  setApiKey,
   signOut,
 } from '../src/api/client';
 import { uploadFileArtifact } from '../src/api/files';
@@ -16,63 +15,43 @@ describe('API client', () => {
     vi.stubGlobal('localStorage', storage);
     vi.stubGlobal('window', {
       EVERNIGHTAI_API_BASE: '',
-      EVERNIGHTAI_API_KEY: '',
       EVERNIGHTAI_ACCESS_TOKEN: '',
       dispatchEvent: vi.fn(),
     });
     vi.restoreAllMocks();
   });
 
-  it('validates a candidate without sending the stored credential', async () => {
+  it('omits the stored session when a request opts out of credentials', async () => {
     setAccessToken('old-token');
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
     vi.stubGlobal('fetch', fetchMock);
-    await requestJson('/auth/me', {
-      credentials: false,
-      headers: { 'x-evernight-api-key': 'candidate' },
-    });
+    await requestJson('/auth/config', { credentials: false });
     expect(requestHeaders(fetchMock, 0).authorization).toBeUndefined();
-    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBe('candidate');
   });
 
-  it('sign out suppresses page defaults until a new credential is saved', async () => {
+  it('sign out suppresses the page-provided token until the next login', async () => {
     window.EVERNIGHTAI_ACCESS_TOKEN = 'page-token';
-    window.EVERNIGHTAI_API_KEY = 'page-key';
     const fetchMock = vi.fn().mockImplementation(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetchMock);
+    await requestJson('/auth/me');
+    expect(requestHeaders(fetchMock, 0).authorization).toBe('Bearer page-token');
     signOut();
     await requestJson('/auth/me');
-    expect(requestHeaders(fetchMock, 0).authorization).toBeUndefined();
-    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBeUndefined();
-    setApiKey('new-key');
-    await requestJson('/auth/me');
     expect(requestHeaders(fetchMock, 1).authorization).toBeUndefined();
-    expect(requestHeaders(fetchMock, 1)['x-evernight-api-key']).toBe('new-key');
+    setAccessToken('session-token');
+    await requestJson('/auth/me');
+    expect(requestHeaders(fetchMock, 2).authorization).toBe('Bearer session-token');
   });
 
-  it('sends exactly one credential type', async () => {
-    const fetchMock = vi.fn().mockImplementation(
-      async () =>
-        new Response('{"status":"ok"}', {
-          headers: { 'content-type': 'application/json' },
-        }),
-    );
+  it('never sends a browser-stored API key', async () => {
+    localStorage.setItem('evernight.apiKey', 'stale-key');
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetchMock);
 
-    setAccessToken('access-token');
-    setApiKey('api-key');
     await requestJson('/health');
 
-    const firstHeaders = requestHeaders(fetchMock, 0);
-    expect(firstHeaders['x-evernight-api-key']).toBe('api-key');
-    expect(firstHeaders.authorization).toBeUndefined();
-
-    setAccessToken('access-token');
-    await requestJson('/health');
-
-    const secondHeaders = requestHeaders(fetchMock, 1);
-    expect(secondHeaders.authorization).toBe('Bearer access-token');
-    expect(secondHeaders['x-evernight-api-key']).toBeUndefined();
+    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBeUndefined();
+    expect(requestHeaders(fetchMock, 0).authorization).toBeUndefined();
   });
 
   it('preserves structured API error details', async () => {
@@ -112,7 +91,7 @@ describe('API client', () => {
   });
 
   it('reads binary files with the same authentication and errors as JSON requests', async () => {
-    setApiKey('file-key');
+    setAccessToken('file-token');
     const fetchMock = vi
       .fn()
       .mockImplementation(
@@ -124,7 +103,7 @@ describe('API client', () => {
     const file = await requestBlob('/files/id/content', { signal });
     expect(file.type).toBe('image/png');
     expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([0, 1, 255]);
-    expect(requestHeaders(fetchMock, 0)['x-evernight-api-key']).toBe('file-key');
+    expect(requestHeaders(fetchMock, 0).authorization).toBe('Bearer file-token');
     expect(fetchMock.mock.calls[0]?.[1].signal).toBe(signal);
     fetchMock.mockResolvedValueOnce(
       new Response('{"error":{"message":"denied"}}', { status: 403 }),

@@ -33,6 +33,9 @@ from EvernightAI.infra.registrations.tool.mcp import (
     create_mcp_streamable_http_tool_source,
 )
 from EvernightAI.interface.cli.auth import ConfigCliAuthDevice
+from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevice
+from EvernightAI.core.schema.auth import Principal
+from EvernightAI.infra.adapters.api_key import SQLiteApiKeyRegister
 from EvernightAI.interface.cli.schema import (
     EvernightConfig,
     McpServerConfig,
@@ -177,8 +180,31 @@ def create_interface_from_config(
     return AuthorizedEvernightInterface(
         interface,
         Authorizer(PermissionAuthPolicy()),
-        ConfigCliAuthDevice().principal_for_config(config),
+        _cli_principal(config),
     )
+
+
+def _cli_principal(config: EvernightConfig) -> Principal:
+    if not os.getenv("EVERNIGHTAI_CLI_API_KEY"):
+        return ConfigCliAuthDevice().principal_for_config(config)
+    register = SQLiteApiKeyRegister(config.runtime.database_path)
+    try:
+        device = ManagedApiKeyAuthDevice(
+            ApiKeyManager(register),
+            [
+                Principal(
+                    principal_id=user.username,
+                    principal_type=user.principal_type,
+                    roles=user.roles,
+                    permissions=user.permissions,
+                    metadata=user.metadata,
+                )
+                for user in config.auth.users
+            ],
+        )
+        return ConfigCliAuthDevice(device).principal_for_config(config)
+    finally:
+        register.close()
 
 
 def create_unsecured_interface_from_config(

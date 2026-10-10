@@ -36,8 +36,7 @@ onMounted(start);
 
     <div v-else-if="!loginAvailable" class="login-card__notice">
       <p>此服务未启用密码登录。</p>
-      <p>请在设置中填写 API Key 或访问令牌。</p>
-      <a class="login-card__link" href="./chat.html">前往控制面板</a>
+      <p>请在 config.toml 中配置账号后重启服务。</p>
     </div>
 
     <form v-else class="login-form" novalidate @submit.prevent="submit">

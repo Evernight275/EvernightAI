@@ -191,7 +191,6 @@ class ToolConfig(EvernightAISchema):
 class AuthPrincipalConfig(EvernightAISchema):
     principal_id: str
     principal_type: PrincipalType = PrincipalType.USER
-    api_key: str | None = None
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

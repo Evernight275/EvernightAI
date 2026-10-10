@@ -11,26 +11,8 @@ export type AuthSession = {
   } | null;
 };
 
-export function getIdentity(
-  credential?: {
-    kind: 'api-key' | 'bearer';
-    value: string;
-  },
-  signal?: AbortSignal,
-): Promise<AuthSession> {
-  return requestJson(
-    '/auth/me',
-    credential
-      ? {
-          signal,
-          credentials: false,
-          headers:
-            credential.kind === 'bearer'
-              ? { authorization: `Bearer ${credential.value.trim()}` }
-              : { 'x-evernight-api-key': credential.value.trim() },
-        }
-      : { signal },
-  );
+export function getIdentity(signal?: AbortSignal): Promise<AuthSession> {
+  return requestJson('/auth/me', { signal });
 }
 
 export type AuthOptions = {
@@ -64,4 +46,40 @@ export function login(
 
 export function logout(signal?: AbortSignal): Promise<void> {
   return requestJson('/auth/logout', { method: 'POST', signal });
+}
+
+export type ApiKeyInfo = {
+  key_id: string;
+  owner_id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+export type IssuedApiKey = {
+  api_key: string;
+  key: ApiKeyInfo;
+};
+
+/** Keys are for scripts and integrations; the browser itself only signs in with a login session. */
+export function listApiKeys(signal?: AbortSignal): Promise<ApiKeyInfo[]> {
+  return requestJson('/auth/api-keys', { signal });
+}
+
+export function createApiKey(
+  name: string,
+  expiresAt: string | null = null,
+  signal?: AbortSignal,
+): Promise<IssuedApiKey> {
+  return requestJson('/auth/api-keys', {
+    method: 'POST',
+    body: { name, expires_at: expiresAt },
+    signal,
+  });
+}
+
+export function revokeApiKey(keyId: string, signal?: AbortSignal): Promise<void> {
+  return requestJson(`/auth/api-keys/${encodeURIComponent(keyId)}`, { method: 'DELETE', signal });
 }

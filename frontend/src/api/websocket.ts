@@ -1,4 +1,4 @@
-import { apiBase, getAccessToken, getApiKey } from './client';
+import { apiBase, getAccessToken } from './client';
 import type { AgentRunRequest, AgentTraceEvent } from './agentRuns';
 import type { ToolApprovalDecision } from './tools';
 
@@ -326,16 +326,11 @@ function webSocketUrl(): string {
 
 function webSocketProtocols(): string[] {
   const accessToken = getAccessToken();
-  if (accessToken) {
-    return ['evernight.realtime', `evernight.access_token.${base64UrlEncode(accessToken)}`];
-  }
-
-  const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!accessToken) {
     return ['evernight.realtime'];
   }
 
-  return ['evernight.realtime', `evernight.api_key.${base64UrlEncode(apiKey)}`];
+  return ['evernight.realtime', `evernight.access_token.${base64UrlEncode(accessToken)}`];
 }
 
 function base64UrlEncode(value: string): string {

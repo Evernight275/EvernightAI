@@ -108,7 +108,6 @@ describe('login form controller', () => {
   });
 
   it('stores the session token and redirects after a successful login', async () => {
-    localStorage.setItem('evernight.apiKey', 'old-key');
     const redirect = vi.fn();
     const form = useLoginForm({ redirect });
     form.username.value = '  admin ';
@@ -118,7 +117,6 @@ describe('login form controller', () => {
 
     expect(login).toHaveBeenCalledWith('admin', ' spaced secret ');
     expect(localStorage.getItem('evernight.accessToken')).toBe('session-token');
-    expect(localStorage.getItem('evernight.apiKey')).toBeNull();
     expect(form.password.value).toBe('');
     expect(redirect).toHaveBeenCalledWith('./chat.html');
   });

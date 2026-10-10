@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import WorkspaceView from './components/workspace/WorkspaceView.vue';
+import ServiceStatus from './components/status/ServiceStatus.vue';
 </script>
 
 <template>
-  <WorkspaceView />
+  <ServiceStatus />
 </template>

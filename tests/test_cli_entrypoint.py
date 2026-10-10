@@ -468,8 +468,8 @@ database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
 [auth]
 enabled = true
 
-[auth.principal.reader]
-api_key = "secret"
+[auth.user.reader]
+password = "secret"
 permissions = ["contexts:list"]
 """.strip(),
         encoding="utf-8",
@@ -504,8 +504,8 @@ database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
 [auth]
 enabled = true
 
-[auth.principal.writer]
-api_key = "secret"
+[auth.user.writer]
+password = "secret"
 permissions = ["contexts:create"]
 """.strip(),
         encoding="utf-8",

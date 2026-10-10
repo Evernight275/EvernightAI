@@ -32,7 +32,8 @@ EvernightAI/
 |   |-- cli.py               CLI 兼容入口
 |   `-- server.py            服务器兼容入口
 |-- frontend/
-|   |-- index.html           工作区入口
+|   |-- index.html           服务状态入口
+|   |-- settings.html        工作区设置入口
 |   |-- chat.html            聊天入口
 |   |-- src/
 |   |   |-- api/             JSON、SSE、WebSocket 请求与认证
@@ -214,11 +215,12 @@ chat.html#images -> 图片组件 -> api/images.ts
 
 ## 前端职责与入口
 
-前端由 [vite.config.ts](../frontend/vite.config.ts) 配置三个页面入口：
+前端由 [vite.config.ts](../frontend/vite.config.ts) 配置四个页面入口（另有 `login.html` 登录页）：
 
 | 页面 | 脚本 / 根组件 | 主要用途 |
 | --- | --- | --- |
-| `index.html` | [main.ts](../frontend/src/main.ts) / [App.vue](../frontend/src/App.vue) | 工作区资源与设置入口 |
+| `index.html` | [main.ts](../frontend/src/main.ts) / [App.vue](../frontend/src/App.vue) | 服务状态（仅访问 `/health` 与 `/ready`） |
+| `settings.html` | [settings.ts](../frontend/src/settings.ts) / [WorkspaceView.vue](../frontend/src/components/workspace/WorkspaceView.vue) | 工作区资源与设置入口 |
 | `chat.html` | [chat.ts](../frontend/src/chat.ts) / [ChatApp.vue](../frontend/src/ChatApp.vue) | 会话、消息、工具审批与运行详情 |
 | `chat.html#images` | [ImageWorkspace.vue](../frontend/src/components/images/ImageWorkspace.vue)（聊天页内的视图，首次打开时加载） | 图片生成与历史记录 |
 

@@ -559,6 +559,18 @@ def _websocket_interface(websocket: WebSocket) -> EvernightInterfaceProtocol:
 
 
 def _websocket_credential_guard(websocket: WebSocket) -> Callable[[], bool] | None:
+    device = getattr(websocket.app.state, "auth_device", None)
+    token = websocket_subprotocol_token(websocket) or websocket_query_token(websocket)
+    guard_factory = getattr(
+        device,
+        "session_guard" if token is not None else "session_guard_for_request",
+        None,
+    )
+    if callable(guard_factory):
+        guard = guard_factory(token if token is not None else cast(Request, websocket))
+        if guard is not None:
+            return cast(Callable[[], bool], guard)
+
     login_device = cast(
         HttpLoginDeviceProtocol | None,
         getattr(websocket.app.state, "login_device", None),

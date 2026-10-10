@@ -23,6 +23,16 @@ export function loginRedirectTarget(search: string): string {
   return target;
 }
 
+/** True when the saved login session, token, or API key is accepted by the service. */
+export async function isSignedIn(): Promise<boolean> {
+  try {
+    return Boolean((await getIdentity()).principal);
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 401) return false;
+    throw cause;
+  }
+}
+
 export function useLoginForm(options: LoginFormOptions) {
   const username = ref('');
   const password = ref('');
@@ -55,15 +65,6 @@ export function useLoginForm(options: LoginFormOptions) {
       error.value = '无法连接服务，请确认服务已启动后重试。';
     }
     checking.value = false;
-  }
-
-  async function isSignedIn(): Promise<boolean> {
-    try {
-      return Boolean((await getIdentity()).principal);
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 401) return false;
-      throw cause;
-    }
   }
 
   async function submit(): Promise<void> {

@@ -3,7 +3,7 @@ import secrets
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from threading import Lock
-from typing import Any
+from typing import Any, cast
 
 import jwt
 from fastapi import Request
@@ -11,6 +11,7 @@ from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientError, PyJWTError
 
 from EvernightAI.core.error.auth import AuthRequiredError
+from EvernightAI.core.protocol.auth import AuthDeviceProtocol
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.http.schema import (
     HttpApiKeyCredential,
@@ -56,6 +57,24 @@ class CompositeHttpAuthDevice(HttpAuthDeviceProtocol):
 
         raise AuthRequiredError("Authentication required")
 
+    def session_guard(self, credential: object) -> Callable[[], bool] | None:
+        for device in self._devices:
+            guard_factory = getattr(device, "session_guard", None)
+            if callable(guard_factory):
+                guard = guard_factory(credential)
+                if guard is not None:
+                    return cast(Callable[[], bool], guard)
+        return None
+
+    def session_guard_for_request(self, request: Request) -> Callable[[], bool] | None:
+        for device in self._devices:
+            guard_factory = getattr(device, "session_guard_for_request", None)
+            if callable(guard_factory):
+                guard = guard_factory(request)
+                if guard is not None:
+                    return cast(Callable[[], bool], guard)
+        return None
+
 
 class ApiKeyHttpAuthDevice(HttpAuthDeviceProtocol):
     def __init__(
@@ -85,6 +104,30 @@ class ApiKeyHttpAuthDevice(HttpAuthDeviceProtocol):
             raise AuthRequiredError("Invalid API key")
 
         return principal
+
+
+class ManagedApiKeyHttpAuthDevice(HttpAuthDeviceProtocol):
+    def __init__(self, device: AuthDeviceProtocol) -> None:
+        self._device = device
+
+    def principal_for_request(self, request: Request) -> Principal:
+        return self.principal(_api_key_from_request(request))
+
+    def principal(self, credential: object) -> Principal:
+        return self._device.principal(credential)
+
+    def session_guard(self, credential: object) -> Callable[[], bool] | None:
+        def active() -> bool:
+            try:
+                self.principal(credential)
+            except AuthRequiredError:
+                return False
+            return True
+
+        return active if active() else None
+
+    def session_guard_for_request(self, request: Request) -> Callable[[], bool] | None:
+        return self.session_guard(_api_key_from_request(request))
 
 
 class OAuthBearerHttpAuthDevice(HttpAuthDeviceProtocol):

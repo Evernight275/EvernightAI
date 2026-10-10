@@ -548,9 +548,10 @@ def test_http_openapi_adds_security_scheme_when_auth_is_enabled() -> None:
     assert schema["components"]["securitySchemes"]["EvernightBearerAuth"] == {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "OAuth Access Token",
+        "bearerFormat": "Login session or OAuth access token",
         "description": (
-            "Send an OAuth access token or API key as `Authorization: Bearer <token>`."
+            "Send a login session token, OAuth access token, or generated API key as "
+            "`Authorization: Bearer <token>`. API key management requires a login session."
         ),
     }
     assert schema["components"]["securitySchemes"]["EvernightApiKey"] == {

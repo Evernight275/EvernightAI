@@ -2,8 +2,11 @@ from datetime import datetime
 from typing import cast
 
 from fastapi import APIRouter, Request, Response, status
+from pydantic import Field
 
 from EvernightAI.core.error.auth import AuthLoginNotConfiguredError
+from EvernightAI.core.protocol.api_key import ApiKeyManagerProtocol
+from EvernightAI.core.schema.api_key import ApiKeyInfo, IssuedApiKey
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.interface.http.protocol import (
@@ -43,6 +46,11 @@ class LoginResponse(EvernightAISchema):
     token_type: str = "bearer"
     expires_at: datetime
     principal: AuthIdentity
+
+
+class ApiKeyCreateRequest(EvernightAISchema):
+    name: str = Field(min_length=1, max_length=120)
+    expires_at: datetime | None = None
 
 
 @router.get("/config", response_model=AuthOptions)
@@ -94,6 +102,34 @@ def _login_device(request: Request) -> HttpLoginDeviceProtocol | None:
         HttpLoginDeviceProtocol | None,
         getattr(request.app.state, "login_device", None),
     )
+
+
+@router.post("/api-keys", response_model=IssuedApiKey, status_code=201)
+def create_api_key(payload: ApiKeyCreateRequest, request: Request) -> IssuedApiKey:
+    principal = _require_login_device(request).principal_for_request(request)
+    return _require_api_key_manager(request).issue(
+        principal.principal_id, payload.name, expires_at=payload.expires_at
+    )
+
+
+@router.get("/api-keys", response_model=list[ApiKeyInfo])
+def list_api_keys(request: Request) -> list[ApiKeyInfo]:
+    principal = _require_login_device(request).principal_for_request(request)
+    return _require_api_key_manager(request).list_keys(principal.principal_id)
+
+
+@router.delete("/api-keys/{key_id}", status_code=204)
+def revoke_api_key(key_id: str, request: Request) -> Response:
+    principal = _require_login_device(request).principal_for_request(request)
+    _require_api_key_manager(request).revoke(principal.principal_id, key_id)
+    return Response(status_code=204)
+
+
+def _require_api_key_manager(request: Request) -> ApiKeyManagerProtocol:
+    manager = cast(ApiKeyManagerProtocol | None, request.app.state.api_key_manager)
+    if manager is None:
+        raise AuthLoginNotConfiguredError("API key management is not configured")
+    return manager
 
 
 def _require_login_device(request: Request) -> HttpLoginDeviceProtocol:

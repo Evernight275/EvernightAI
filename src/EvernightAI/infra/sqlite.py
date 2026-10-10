@@ -505,6 +505,20 @@ def _add_file_artifacts(connection: sqlite3.Connection) -> None:
     """)
 
 
+def _add_auth_api_keys(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS auth_api_keys (
+            key_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            digest TEXT NOT NULL UNIQUE,
+            payload TEXT NOT NULL
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auth_api_keys_owner ON auth_api_keys(owner_id)"
+    )
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
@@ -518,4 +532,5 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(8, "add scoped tool policies", _add_tool_policies),
     SQLiteMigration(9, "add workspace projects", _add_workspace_projects),
     SQLiteMigration(10, "add displayed file snapshots", _add_file_artifacts),
+    SQLiteMigration(11, "add generated authentication keys", _add_auth_api_keys),
 )

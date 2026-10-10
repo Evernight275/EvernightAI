@@ -19,10 +19,7 @@ try {
     await page.route('**/mock-api/**', (route) => {
       if (route.request().url().endsWith('/auth/me')) {
         const headers = route.request().headers();
-        if (
-          headers['x-evernight-api-key'] !== 'test-browser-key' &&
-          headers.authorization !== 'Bearer test-token'
-        )
+        if (headers.authorization !== 'Bearer test-token')
           return route.fulfill({ status: 401, json: { error: { message: 'Invalid credential' } } });
         return route.fulfill({
           json: {
@@ -51,19 +48,19 @@ try {
     assert.ok(await page.locator('.settings-dialog').evaluate((el) => el.matches(':modal')));
     await page.screenshot({ path: `${screenshots}/${width}-settings-general.png` });
     await page.getByRole('button', { name: '连接与认证', exact: true }).click();
-    await page.getByLabel('API Key', { exact: true }).fill('wrong-key');
-    await page.getByRole('button', { name: '验证并保存', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: '访问凭证无效' }).waitFor();
-    assert.equal(await page.evaluate(() => localStorage.getItem('evernight.apiKey')), null);
-    await page.getByLabel('API Key', { exact: true }).fill('test-browser-key');
-    await page.getByRole('button', { name: '验证并保存', exact: true }).click();
-    await page.getByText('身份已验证，访问凭证已保存。', { exact: true }).waitFor();
-    await page.getByRole('button', { name: '退出', exact: true }).click();
-    await page.getByText('已退出此浏览器，并清除保存的访问凭证。', { exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: '登录已失效' }).waitFor();
+    // The browser signs in with an account only: no field accepts an API key.
+    assert.equal(await page.locator('.settings-auth input').count(), 0);
+    await page.evaluate(() => {
+      localStorage.setItem('evernight.accessToken', 'test-token');
+      window.dispatchEvent(new CustomEvent('evernight-access-token-change'));
+    });
+    await page.getByText('当前身份：browser-user', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '退出登录', exact: true }).waitFor();
     await page.screenshot({ path: `${screenshots}/${width}-settings-auth.png` });
     await page.getByRole('button', { name: '常规', exact: true }).click();
-    await page.getByRole('button', { name: '管理凭证', exact: true }).click();
-    await page.getByLabel('API Key', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '管理账号', exact: true }).click();
+    await page.getByText('当前身份：browser-user', { exact: true }).waitFor();
     assert.ok(
       await page.locator('.settings-shell').evaluate((el) => el.scrollWidth <= el.clientWidth),
     );
@@ -78,7 +75,7 @@ try {
     await page.locator('#chat-message').fill('退出后的新草稿');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openSettings();
-    await page.getByLabel('API Key', { exact: true }).waitFor();
+    await page.getByText('当前身份：browser-user', { exact: true }).waitFor();
     assert.ok(
       await page
         .locator('.settings-dialog')
@@ -87,16 +84,16 @@ try {
     await page.getByRole('button', { name: '关闭设置', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.settings-dialog').open);
     assert.equal(await page.locator('#chat-message').inputValue(), '退出后的新草稿');
-    await page.goto(base);
+    await page.goto(`${base}/settings.html`);
     await page.getByRole('button', { name: '连接与认证', exact: true }).click();
-    await page.getByLabel('API Key', { exact: true }).waitFor();
+    await page.getByText('当前身份：browser-user', { exact: true }).waitFor();
     assert.equal(
       await page.getByRole('link', { name: '返回聊天', exact: true }).getAttribute('href'),
       '/chat.html',
     );
     assert.deepEqual(errors, []);
     console.log(
-      `${width}px: settings navigation, credentials, close/Escape, draft preservation and standalone entry passed`,
+      `${width}px: settings navigation, account, close/Escape, draft preservation and standalone entry passed`,
     );
     await page.close();
   }

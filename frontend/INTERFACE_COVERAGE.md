@@ -17,7 +17,9 @@
 | Tools 列表、权限信息 | 工作区资源 → 工具与技能；聊天审批面板 |
 | Data source、fields、metrics、statistics、analyze | 数据分析；复杂过滤、排序参数位于工作区资源 → 数据分析 |
 | Logs 查询、游标查询、清除 | 工作区资源 → 日志 |
-| Health、ready | 常规状态；工作区资源 → 服务状态 |
+| Health、ready | 根页面服务状态；常规状态；工作区资源 → 服务状态 |
+| Auth config、me、login、logout | 登录页；根页面与聊天页的登录检查；连接与认证 → 账号 |
+| API Key 生成、列表、吊销（仅账号登录会话；密钥供脚本调用，前端不用它登录） | 连接与认证 → 生成的 API Key |
 | Agent 列表、详情、pause、cancel、retry、resume | 运行管理；聊天停止、恢复、重试入口 |
 | Agent trace、tool-executions | 运行管理及工作区资源 → 运行记录 |
 | Tool execution resolve | 工作区资源 → 运行记录 → 处理未确定的工具执行 |

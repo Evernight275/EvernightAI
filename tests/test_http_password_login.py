@@ -198,65 +198,64 @@ async def test_logged_in_user_is_limited_to_configured_permissions(
 
 @pytest.mark.asyncio
 async def test_login_sessions_coexist_with_api_keys(tmp_path: Path) -> None:
-    config = make_config(
-        tmp_path,
-        {
-            "user": {"admin": {"password": "correct horse"}},
-            "principal": {"service": {"api_key": "service-key", "permissions": ["*"]}},
-        },
-    )
-
+    config = make_config(tmp_path, {"user": {"admin": {"password": "correct horse"}}})
     async with serve(config) as client:
         login = await client.post(
             "/auth/login", json={"username": "admin", "password": "correct horse"}
         )
-        by_session = await client.get(
-            "/auth/me", headers=bearer(login.json()["access_token"])
+        session_headers = bearer(login.json()["access_token"])
+        issued = await client.post(
+            "/auth/api-keys", json={"name": "service"}, headers=session_headers
         )
-        by_api_key = await client.get(
-            "/auth/me", headers={"x-evernight-api-key": "service-key"}
-        )
-        # An API key is not a login session, so logging out with it revokes nothing.
-        logout = await client.post("/auth/logout", headers=bearer("service-key"))
-        still_valid = await client.get("/auth/me", headers=bearer("service-key"))
+        key = issued.json()["api_key"]
+        by_session = await client.get("/auth/me", headers=session_headers)
+        by_api_key = await client.get("/auth/me", headers={"x-evernight-api-key": key})
+        logout = await client.post("/auth/logout", headers=bearer(key))
+        still_valid = await client.get("/auth/me", headers=bearer(key))
 
     assert by_session.json()["principal"]["principal_id"] == "admin"
-    assert by_api_key.json()["principal"]["principal_id"] == "service"
+    assert by_api_key.json()["principal"]["principal_id"] == "admin"
     assert logout.status_code == 204
     assert still_valid.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_user_and_api_key_with_the_same_name_share_owned_data(
-    tmp_path: Path,
-) -> None:
+async def test_user_and_api_key_share_owned_data(tmp_path: Path) -> None:
     config = make_config(
         tmp_path,
         {
-            "user": {"admin": {"password": "correct horse"}},
-            "principal": {
-                "admin": {"api_key": "admin-key", "permissions": ["*"]},
-                "service": {"api_key": "service-key", "permissions": ["*"]},
-            },
+            "user": {
+                "admin": {"password": "correct horse"},
+                "service": {"password": "service pass"},
+            }
         },
     )
-
     async with serve(config) as client:
+        keys = {}
+        sessions = {}
+        for username, password in [
+            ("admin", "correct horse"),
+            ("service", "service pass"),
+        ]:
+            login = await client.post(
+                "/auth/login", json={"username": username, "password": password}
+            )
+            sessions[username] = bearer(login.json()["access_token"])
+            issued = await client.post(
+                "/auth/api-keys",
+                json={"name": "automation"},
+                headers=sessions[username],
+            )
+            keys[username] = issued.json()["api_key"]
         created = await client.post(
             "/contexts",
             json={"context_id": "ctx-shared"},
-            headers={"x-evernight-api-key": "admin-key"},
+            headers={"x-evernight-api-key": keys["admin"]},
         )
-        login = await client.post(
-            "/auth/login", json={"username": "admin", "password": "correct horse"}
-        )
-        as_user = await client.get(
-            "/contexts/ctx-shared", headers=bearer(login.json()["access_token"])
-        )
+        as_user = await client.get("/contexts/ctx-shared", headers=sessions["admin"])
         as_other_key = await client.get(
-            "/contexts/ctx-shared", headers={"x-evernight-api-key": "service-key"}
+            "/contexts/ctx-shared", headers={"x-evernight-api-key": keys["service"]}
         )
-
     assert created.status_code == 201
     assert as_user.status_code == 200
     assert as_user.json()["owner_id"] == "admin"
@@ -312,7 +311,7 @@ async def test_login_is_unavailable_without_configured_users(tmp_path: Path) -> 
         )
 
     assert login.status_code == 404
-    assert identity.json()["login_enabled"] is False
+    assert identity.status_code == 401
 
 
 @pytest.mark.asyncio

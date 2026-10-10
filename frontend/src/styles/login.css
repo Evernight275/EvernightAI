@@ -81,11 +81,6 @@
   font-weight: 550;
 }
 
-.login-card__link {
-  margin-top: var(--space-2);
-  font-weight: 550;
-}
-
 .login-form {
   display: flex;
   flex-direction: column;

@@ -25,7 +25,7 @@ export function useChatAttachments(sessionKey: () => string, busy: () => boolean
   let activeItem: ChatAttachment | null = null;
   const objectUrls = new Set<string>();
   const persistKey = () => `evernight.chatDraft.${sessionKey()}`;
-  const authEvents = ['evernight-api-key-change', 'evernight-access-token-change'];
+  const authEvents = ['evernight-access-token-change'];
 
   function revoke(url: string): void {
     if (!url) return;

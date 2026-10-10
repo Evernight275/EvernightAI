@@ -9,7 +9,7 @@ from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
-    AuthPrincipalConfig,
+    AuthUserConfig,
     EvernightConfig,
     HttpConfig,
     OAuthConfig,
@@ -229,7 +229,7 @@ def test_http_bootstrap_can_enable_env_oauth_bearer_auth(
     assert valid_response.status_code == 200
 
 
-def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
+def test_http_bootstrap_can_enable_generated_api_key_auth(tmp_path) -> None:
     app = create_app_from_config(
         EvernightConfig(
             runtime=RuntimeConfig(
@@ -237,10 +237,10 @@ def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
             ),
             auth=AuthConfig(
                 enabled=True,
-                principals=[
-                    AuthPrincipalConfig(
-                        principal_id="admin",
-                        api_key="secret",
+                users=[
+                    AuthUserConfig(
+                        username="admin",
+                        password="secret",
                         permissions=["tools:list"],
                     )
                 ],
@@ -251,9 +251,17 @@ def test_http_bootstrap_can_enable_config_api_key_auth(tmp_path) -> None:
 
     with TestClient(app) as client:
         missing_response = client.get("/tools")
+        login = client.post(
+            "/auth/login", json={"username": "admin", "password": "secret"}
+        )
+        issued = client.post(
+            "/auth/api-keys",
+            json={"name": "automation"},
+            headers={"authorization": "Bearer " + login.json()["access_token"]},
+        )
         valid_response = client.get(
             "/tools",
-            headers={"x-evernight-api-key": "secret"},
+            headers={"x-evernight-api-key": issued.json()["api_key"]},
         )
 
     assert missing_response.status_code == 401

@@ -141,7 +141,7 @@ try {
       if (path === '/contexts/ctx-1') return json({ context_id: 'ctx-1', messages: [] });
       return json([]);
     });
-    await page.goto(base);
+    await page.goto(`${base}/settings.html`);
     await page.getByRole('button', { name: '技能管理', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '编辑技能 echo', exact: true }).count(), 0);
     await page.getByRole('button', { name: '新建技能', exact: true }).click();

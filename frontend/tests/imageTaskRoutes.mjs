@@ -6,7 +6,7 @@ export function imageTaskRoutes(handler) {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace('/mock-api', '');
-    const owner = request.headers()['x-evernight-api-key'] || 'anonymous';
+    const owner = request.headers().authorization?.replace('Bearer ', '') || 'anonymous';
     if (path === '/images/tasks' && request.method() === 'POST') {
       const body = request.postDataJSON();
       const existing = tasks.get(body.task_id);

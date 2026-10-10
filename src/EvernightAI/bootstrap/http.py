@@ -7,6 +7,7 @@ from EvernightAI.bootstrap.config import create_unsecured_interface_from_config
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevice
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.auth import Principal
@@ -22,7 +23,9 @@ from EvernightAI.interface.http.auth import (
     OAuthJwtBearerHttpAuthDevice,
     OAuthBearerHttpAuthDevice,
     PasswordLoginHttpAuthDevice,
+    ManagedApiKeyHttpAuthDevice,
 )
+from EvernightAI.infra.adapters.api_key import SQLiteApiKeyRegister
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
 
 
@@ -110,16 +113,48 @@ def create_app_from_config(
                 await interface.providers.create_provider(provider)
 
     login_device = _config_login_device(config)
+    key_register = (
+        SQLiteApiKeyRegister(config.runtime.database_path)
+        if login_device is not None
+        else None
+    )
+    key_manager = ApiKeyManager(key_register) if key_register is not None else None
+    key_device = (
+        ManagedApiKeyHttpAuthDevice(
+            ManagedApiKeyAuthDevice(
+                key_manager,
+                [
+                    Principal(
+                        principal_id=user.username,
+                        principal_type=user.principal_type,
+                        roles=user.roles,
+                        permissions=user.permissions,
+                        metadata=user.metadata,
+                    )
+                    for user in config.auth.users
+                ],
+            )
+        )
+        if key_manager is not None
+        else None
+    )
+
+    async def close_key_register() -> None:
+        if key_register is not None:
+            key_register.close()
+
     return create_http_app(
         interface,
-        auth_device=_config_auth_device(config, login_device),
+        auth_device=_config_auth_device(config, login_device, key_device),
         login_device=login_device,
+        api_key_manager=key_manager,
         workspace_directories=runtime.workspace_directories,
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
         readiness_checker=lambda: runtime.is_ready,
         startup_handlers=[register_configured_providers],
+        shutdown_handlers=[close_key_register],
         server_header=config.http.server_header,
         static_files_path=config.http.static_files_path,
     )
@@ -200,6 +235,7 @@ def _config_login_device(
 def _config_auth_device(
     config: EvernightConfig,
     login_device: PasswordLoginHttpAuthDevice | None = None,
+    key_device: HttpAuthDeviceProtocol | None = None,
 ) -> HttpAuthDeviceProtocol | None:
     if not config.auth.enabled:
         return None
@@ -207,22 +243,8 @@ def _config_auth_device(
     devices: list[HttpAuthDeviceProtocol] = []
     if login_device is not None:
         devices.append(login_device)
-    api_key_credentials = [
-        HttpApiKeyCredential(
-            api_key=principal.api_key,
-            principal=Principal(
-                principal_id=principal.principal_id,
-                principal_type=principal.principal_type,
-                roles=principal.roles,
-                permissions=principal.permissions,
-                metadata=principal.metadata,
-            ),
-        )
-        for principal in config.auth.principals
-        if principal.api_key is not None
-    ]
-    if api_key_credentials:
-        devices.append(ApiKeyHttpAuthDevice(api_key_credentials))
+    if key_device is not None:
+        devices.append(key_device)
 
     oauth_credentials = [
         HttpOAuthBearerCredential(

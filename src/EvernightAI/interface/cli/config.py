@@ -192,7 +192,6 @@ def _parse_auth_principal(
     return AuthPrincipalConfig(
         principal_id=_string(data.get("principal_id")) or principal_key,
         principal_type=data.get("principal_type", "user"),
-        api_key=_api_key(data),
         roles=_string_list(data.get("roles")),
         permissions=_string_list(data.get("permissions")),
         metadata=_dict(data.get("metadata")),

@@ -143,7 +143,7 @@ try {
       return json([]);
     });
 
-    await page.goto(base);
+    await page.goto(`${base}/settings.html`);
     await page.getByRole('button', { name: '运行管理', exact: true }).click();
     await page.getByRole('button', { name: '管理运行', exact: true }).click();
     const decisions = page.getByLabel('审批决定');
@@ -292,7 +292,9 @@ try {
     assert.equal(await page.locator('#chat-message').inputValue(), '原输入');
     assert.equal(await page.locator('.chat-advanced').count(), 0);
     await page.locator('#chat-message').fill('private draft');
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-api-key-change')));
+    await page.evaluate(() =>
+      window.dispatchEvent(new CustomEvent('evernight-access-token-change')),
+    );
     await page.waitForFunction(() => document.querySelector('#chat-message').value === '');
     assert.ok(!new URL(page.url()).searchParams.has('run'));
     assert.ok(
@@ -314,7 +316,7 @@ try {
         checkpoint: 'tool_execution_incomplete',
         resumable: false,
       };
-      await page.goto(base);
+      await page.goto(`${base}/settings.html`);
       await page.getByRole('button', { name: '运行管理', exact: true }).click();
       await page.getByRole('button', { name: '管理运行', exact: true }).click();
       assert.equal(

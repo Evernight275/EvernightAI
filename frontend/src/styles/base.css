@@ -387,39 +387,6 @@ a:hover {
   color: var(--color-muted);
   font-size: 13px;
 }
-.settings-field-label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 550;
-}
-.settings-secret-field {
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 3px 6px;
-}
-.settings-secret-field:focus-within {
-  border-color: #888;
-}
-.settings-secret-field input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-}
-.settings-reveal {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-muted);
-}
 .settings-help {
   margin: 12px 0 0;
   color: var(--color-muted);
@@ -605,9 +572,6 @@ a:hover {
 .settings-close:active {
   transform: scale(0.97);
 }
-.settings-secret-field {
-  transition: border-color 160ms ease;
-}
 .settings-dialog {
   opacity: 0;
   transform: translateY(8px) scale(0.98);
@@ -701,16 +665,6 @@ a:hover {
   }
 }
 
-.settings-auth-fields {
-  border: 0;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
-.settings-auth-fields > select {
-  width: 100%;
-  margin-bottom: 16px;
-}
 .settings-auth .settings-actions {
   flex-wrap: wrap;
   justify-content: flex-start;

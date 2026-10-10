@@ -53,7 +53,7 @@ async function load(): Promise<void> {
   feedback.value = '';
   const results = await Promise.allSettled([
     listToolPolicies(controller.signal),
-    getIdentity(undefined, controller.signal),
+    getIdentity(controller.signal),
   ]);
   if (current !== version) return;
   const [list, auth] = results;

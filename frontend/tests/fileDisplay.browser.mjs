@@ -56,7 +56,7 @@ try {
         catch { document.body.dataset.parentBlocked = 'true'; }
         try { localStorage.setItem('preview-secret', 'test'); }
         catch { document.body.dataset.storageBlocked = 'true'; }
-        try { document.body.dataset.secret = parent.EVERNIGHTAI_API_KEY; }
+        try { document.body.dataset.secret = parent.EVERNIGHTAI_ACCESS_TOKEN; }
         catch { document.body.dataset.credentialsBlocked = 'true'; }
         fetch('https://preview.example.test/denied')
           .catch(() => document.body.dataset.networkBlocked = 'true');
@@ -94,7 +94,7 @@ try {
     let contentReads = 0;
     let forbiddenRequests = 0;
     await page.route('https://charts.example.test/**', (route) => {
-      assert.equal(route.request().headers()['x-evernight-api-key'], undefined);
+      assert.equal(route.request().headers().authorization, undefined);
       return route.fulfill({
         contentType: route.request().url().endsWith('.js') ? 'text/javascript' : 'text/css',
         body: route.request().url().endsWith('.js')
@@ -108,7 +108,7 @@ try {
     });
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
-      window.EVERNIGHTAI_API_KEY = 'alice';
+      window.EVERNIGHTAI_ACCESS_TOKEN = 'alice';
       window.fileObjectUrls = [];
       window.revokedFileUrls = [];
       const create = URL.createObjectURL.bind(URL);
@@ -205,7 +205,7 @@ try {
       }
       if (path.startsWith('/agent-runs/')) return json(run);
       if (path.startsWith('/files/')) {
-        assert.equal(request.headers()['x-evernight-api-key'], 'alice');
+        assert.equal(request.headers().authorization, 'Bearer alice');
         assert.equal(url.searchParams.has('api_key'), false);
         if (failRead)
           return route.fulfill({ status: 503, json: { error: { message: '文件暂时不可读取' } } });
@@ -291,7 +291,9 @@ try {
     const activeUrls = await page
       .locator('.chat-file-result img, .chat-file-result iframe')
       .evaluateAll((elements) => elements.map((element) => element.getAttribute('src')));
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent('evernight-api-key-change')));
+    await page.evaluate(() =>
+      window.dispatchEvent(new CustomEvent('evernight-access-token-change')),
+    );
     await page.waitForFunction(
       (urls) => urls.every((url) => window.revokedFileUrls.includes(url)),
       activeUrls,

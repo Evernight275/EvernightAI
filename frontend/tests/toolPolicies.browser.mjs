@@ -55,12 +55,13 @@ try {
     }
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
-      localStorage.setItem('evernight.apiKey', 'alice-key');
+      localStorage.setItem('evernight.accessToken', 'alice-key');
     });
     await page.route('**/mock-api/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname.replace('/mock-api', '');
-      const owner = request.headers()['x-evernight-api-key']?.replace('-key', '') || 'alice';
+      const owner =
+        request.headers().authorization?.replace('Bearer ', '').replace('-key', '') || 'alice';
       const json = (value) => route.fulfill({ json: value });
       if (path === '/auth/me')
         return json({
@@ -193,9 +194,11 @@ try {
     await row('generate_image').getByRole('button', { name: '保存策略', exact: true }).click();
     await page.getByText('generate_image 已保存为“禁止”', { exact: true }).waitFor();
     await page.getByRole('button', { name: '连接与认证', exact: true }).click();
-    await page.getByLabel('API Key', { exact: true }).fill('bob-key');
-    await page.getByRole('button', { name: '验证并保存', exact: true }).click();
-    await page.getByText('身份已验证，访问凭证已保存。', { exact: true }).waitFor();
+    await page.evaluate(() => {
+      localStorage.setItem('evernight.accessToken', 'bob-key');
+      window.dispatchEvent(new Event('evernight-access-token-change'));
+    });
+    await page.getByText('当前身份：bob', { exact: true }).waitFor();
     await page.getByRole('button', { name: '工具管理', exact: true }).click();
     await select('generate_image').waitFor();
     assert.equal(
@@ -213,8 +216,8 @@ try {
     await row('generate_image').getByRole('button', { name: '保存策略', exact: true }).click();
     await mutation;
     await page.evaluate(() => {
-      localStorage.setItem('evernight.apiKey', 'reader-key');
-      window.dispatchEvent(new Event('evernight-api-key-change'));
+      localStorage.setItem('evernight.accessToken', 'reader-key');
+      window.dispatchEvent(new Event('evernight-access-token-change'));
     });
     await page
       .getByText('当前账户可查看设置，修改需要 tools:configure 权限。', { exact: true })

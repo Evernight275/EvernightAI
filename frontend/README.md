@@ -38,8 +38,15 @@ idle -> loading -> ready
 
 Components should subscribe to `workspaceActor` and send events. They should not
 create independent workspace loading flags or call the startup APIs themselves.
-The settings page stores API Key authentication through the shared API client;
-credential changes emit `AUTH_CHANGED` through the workspace runtime.
+The browser signs in with an account only: `login.html` exchanges a username
+and password for a session token, the shared API client sends it as a Bearer
+token, and session changes emit `AUTH_CHANGED` through the workspace runtime.
+The client never stores or sends an API key. `AccountSettings` shows the
+current identity and signs out, ending the server session and opening the
+login page. `ApiKeyManager`, in the same section, issues, lists, and revokes
+generated API keys through `/auth/api-keys` for curl, Python, and other
+scripted callers; a new key is shown once and is never stored by the browser.
+The panel is hidden when password login is not configured.
 
 ## Component Boundaries
 
@@ -47,6 +54,13 @@ credential changes emit `AUTH_CHANGED` through the workspace runtime.
 `WorkspaceIssues` own lifecycle feedback. `WorkspaceContents` composes one
 component per domain concept; those components own their counts, formatting,
 and empty states. `App.vue` contains no domain rendering logic.
+
+The root `index.html` entry renders only `ServiceStatus`. It calls the
+unauthenticated `/health` and `/ready` probes and loads no workspace resources.
+Its control panel link and the `chat.html` entry both run `loginPageFor`
+(`components/auth/loginGate.ts`), which reads `/auth/config` and `/auth/me`: when
+authentication is enabled and the browser holds no accepted session, they open
+`login.html` (the chat entry passes its own URL as `redirect`).
 
 The separate `chat.html` entry renders the chat workspace. `ChatView` composes
 `ChatHeader`, `ChatTranscript`, `ChatRequestStatus`, the request form, and
@@ -201,7 +215,7 @@ Deleting the selected session cancels its active run before requesting deletion;
 failed deletion keeps the session and reports the server error.
 
 Settings open in a modal over the chat workspace, keeping the current chat and
-draft mounted. The standalone index entry renders the same settings panel.
+draft mounted. The standalone `settings.html` entry renders the same settings panel.
 The navigation is grouped: General; models and capabilities (connections,
 tools, skills, memories); runs and data (runs, workspace resources). General
 shows the connection state, a count of each resource that opens its section,
@@ -228,7 +242,6 @@ not automatically reattach to an active run.
 `tests/toolProgress.browser.mjs` checks disconnect recovery, linked approvals,
 error focus and layout at desktop and mobile widths with a mocked backend.
 
-
 ### Image tasks and the chat image tool
 
 The image workspace submits durable background tasks and polls saved status. Its task
@@ -244,7 +257,6 @@ Identity changes abort browser reads and clear image drafts and previews.
 idempotent retry after a lost submission response, mask dimensions and alpha
 pixels, and chat generation/edit/history on desktop and mobile. The browser
 suite uses mocked API responses and never sends paid provider requests.
-
 
 ### Tool permissions
 

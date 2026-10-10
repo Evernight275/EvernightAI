@@ -199,7 +199,7 @@ try {
         });
       return json([]);
     });
-    await page.goto(base);
+    await page.goto(`${base}/settings.html`);
     await page.getByRole('button', { name: '连接与认证', exact: true }).click();
     await page.getByText('添加模型服务', { exact: true }).click();
     await page.getByLabel('服务名称', { exact: true }).fill('测试服务');

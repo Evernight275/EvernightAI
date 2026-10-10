@@ -37,7 +37,7 @@ try {
     let receivedRead;
     await page.addInitScript(() => {
       window.EVERNIGHTAI_API_BASE = '/mock-api';
-      window.EVERNIGHTAI_API_KEY = 'alice';
+      window.EVERNIGHTAI_ACCESS_TOKEN = 'alice';
     });
     const makeRecord = (id, prompt, owner = 'alice') => ({
       record_id: id,
@@ -66,7 +66,7 @@ try {
       imageTaskRoutes(async (route) => {
         const path = new URL(route.request().url()).pathname.replace('/mock-api', '');
         const method = route.request().method();
-        const owner = route.request().headers()['x-evernight-api-key'] || 'alice';
+        const owner = route.request().headers().authorization?.replace('Bearer ', '') || 'alice';
         if (path === '/health' || path === '/ready')
           return route.fulfill({ json: { status: 'ready' } });
         if (path === '/providers')
@@ -185,8 +185,8 @@ try {
     await page.getByRole('button', { name: '查看生成记录 历史图片 20', exact: true }).click();
     await held;
     await page.evaluate(() => {
-      localStorage.setItem('evernight.apiKey', 'bob');
-      window.dispatchEvent(new CustomEvent('evernight-api-key-change'));
+      localStorage.setItem('evernight.accessToken', 'bob');
+      window.dispatchEvent(new CustomEvent('evernight-access-token-change'));
     });
     releaseRead();
     await page.getByText('暂无生成记录', { exact: true }).waitFor();

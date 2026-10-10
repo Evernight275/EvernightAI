@@ -168,7 +168,7 @@ try {
     await page.locator('.image-page').waitFor();
     assert.equal(await view.isVisible(), false);
     const beforeIdentityChange = requests.length;
-    await page.evaluate(() => window.dispatchEvent(new Event('evernight-api-key-change')));
+    await page.evaluate(() => window.dispatchEvent(new Event('evernight-access-token-change')));
     await page.waitForFunction(() => !document.querySelector('.data-tiles'));
     assert.equal(requests.length, beforeIdentityChange);
     await page.goBack();
