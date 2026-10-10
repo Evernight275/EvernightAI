@@ -198,7 +198,7 @@ describe('chat runtime', () => {
       max_tool_rounds: chatMaxToolRounds,
       pause_on_approval: true,
     });
-    expect(chatMaxToolRounds).toBe(16);
+    expect(chatMaxToolRounds).toBe(128);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       `/agent-runs/${String((streamBody.metadata as Record<string, unknown>).run_id)}`,
     );

@@ -2475,6 +2475,83 @@ async def test_agent_reports_tool_rounds_exhausted() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("finish", [False, True])
+async def test_agent_supports_long_tool_runs_and_enforces_budget(
+    streaming: bool, finish: bool
+) -> None:
+    budget = 128
+    needed_rounds = budget if finish else budget + 1
+    calls: list[int] = []
+
+    class LongToolRunProvider(ToolCallingProvider):
+        async def chat(self, request: ChatRequest) -> ChatResponse:
+            self.requests.append(request)
+            index = len(self.requests)
+            message = (
+                Content(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            tool_call_id=f"step-{index}",
+                            tool_call={"name": "step", "arguments": {}},
+                        )
+                    ],
+                )
+                if index <= needed_rounds
+                else make_message("Done", role=MessageRole.ASSISTANT)
+            )
+            return ChatResponse(model_id=request.model_id, message=message)
+
+        async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
+            response = await self.chat(request)
+            return EventStream(
+                [
+                    ChatStreamEvent(
+                        event_type=ChatStreamEventType.MESSAGE_COMPLETED,
+                        message=response.message,
+                        model_id=response.model_id,
+                    )
+                ]
+            )
+
+    async def step(arguments: dict[str, object]) -> dict[str, object]:
+        calls.append(len(calls) + 1)
+        return {"step": calls[-1]}
+
+    provider = LongToolRunProvider()
+    runtime = make_runtime(provider=provider)
+    runtime.tool_register.register(
+        ToolDefinition(name="step", description="Take a step", parameters_schema={}),
+        step,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    result = await AgentApplication(runtime).run_agent(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Complete a long task")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=budget,
+            metadata={"stream": streaming},
+        )
+    )
+
+    assert len(calls) == budget
+    assert len(provider.requests) == budget + 1
+    assert result.tool_rounds_used == budget
+    assert result.stop_reason is (
+        AgentStopReason.FINISHED if finish else AgentStopReason.TOOL_ROUNDS_EXHAUSTED
+    )
+    context = await runtime.contexts.get("ctx-1")
+    assert (
+        sum(message.role is MessageRole.TOOL for message in context.messages) == budget
+    )
+
+
+@pytest.mark.asyncio
 async def test_agent_run_can_retry_after_tool_rounds_are_exhausted() -> None:
     state_register = InMemoryAgentRunStateRegister()
     trace_register = InMemoryAgentTraceRegister()

@@ -29,7 +29,7 @@ import {
   type ChatTranscriptEntry,
 } from '../domain/chat';
 
-export const chatMaxToolRounds = 16;
+export const chatMaxToolRounds = 128;
 
 export type ChatRequestInput = {
   contextId: string;

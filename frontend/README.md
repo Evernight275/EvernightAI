@@ -56,6 +56,10 @@ centers the composer beneath a welcome heading; sending the first message
 creates a persisted session before starting the run. Approvals and recovery actions live above the composer;
 the rounded composer grows with the draft, offers a searchable model picker grouped by provider
 inside its bottom row, and replaces Send with Stop while cancellation is available.
+New chat runs allow 128 tool rounds by default. A round executes the tool calls from
+one model response; individual calls in that batch share the round. Explicit
+`max_tool_rounds` request options override this default, including 0 for plain chat.
+Saved runs retain their original budget when resumed or retried.
 User turns appear as right-aligned bubbles and assistant turns as plain text. `ChatRunDetails` is an independently
 scrollable side dialog for tool parameters/results, run identity, and diagnostics.
 Opening it is local presentation state, not an Agent state transition.
