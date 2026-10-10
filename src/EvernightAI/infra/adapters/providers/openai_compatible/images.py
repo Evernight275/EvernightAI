@@ -1,5 +1,6 @@
 import base64
 import binascii
+import json
 from typing import Any, Literal
 
 from openai.types.images_response import ImagesResponse
@@ -44,7 +45,16 @@ def from_openai_images(
     response: ImagesResponse, request: ImageGenerationRequest
 ) -> ImageGenerationResponse:
     if not response.data:
-        raise ProviderResponseError("The image provider returned no images")
+        # Relays often answer 200 with an empty list and put the reason in other fields.
+        extra = {
+            key: value
+            for key, value in response.model_dump(mode="json", warnings=False).items()
+            if key not in {"data", "created"} and value not in (None, "", [], {})
+        }
+        reason = json.dumps(extra, ensure_ascii=False)[:500] if extra else ""
+        raise ProviderResponseError(
+            "The image provider returned no images" + (f": {reason}" if reason else "")
+        )
     try:
         images = [
             GeneratedImage(

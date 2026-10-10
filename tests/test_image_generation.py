@@ -136,6 +136,32 @@ def test_image_mapper_translates_invalid_outputs(data: list[dict[str, Any]]) -> 
         )
 
 
+def test_image_mapper_reports_why_a_provider_returned_no_images() -> None:
+    with pytest.raises(ProviderResponseError) as plain:
+        from_openai_images(
+            ImagesResponse.model_validate({"created": 123, "data": []}), request()
+        )
+    assert str(plain.value) == "The image provider returned no images"
+
+    with pytest.raises(ProviderResponseError) as explained:
+        from_openai_images(
+            ImagesResponse.model_validate(
+                {
+                    "created": 123,
+                    "data": [],
+                    "error": {"code": "moderation_blocked", "message": "已拒绝"},
+                    "note": "x" * 2000,
+                }
+            ),
+            request(),
+        )
+    message = str(explained.value)
+    assert message.startswith(
+        'The image provider returned no images: {"error": {"code": "moderation_blocked", "message": "已拒绝"}'
+    )
+    assert len(message) < 600
+
+
 @pytest.mark.parametrize(
     "usage",
     [
