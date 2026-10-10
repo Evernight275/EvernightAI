@@ -10,10 +10,9 @@ import { ApiError } from '../../api/client';
 
 /** `login-required`: the browser holds no login session. `unavailable`: no password login. */
 export type ApiKeyAccess = 'loading' | 'ready' | 'login-required' | 'unavailable';
-export type ApiKeyStatus = 'active' | 'expired' | 'revoked';
+export type ApiKeyStatus = 'active' | 'expired';
 
 export function apiKeyStatus(key: ApiKeyInfo, now: Date = new Date()): ApiKeyStatus {
-  if (key.revoked_at) return 'revoked';
   if (key.expires_at && new Date(key.expires_at).getTime() <= now.getTime()) return 'expired';
   return 'active';
 }
@@ -49,7 +48,8 @@ export function useApiKeyManager() {
   }
 
   async function refresh(): Promise<void> {
-    keys.value = await listApiKeys();
+    // The service keeps revoked keys in its listing; a revoked key is simply gone here.
+    keys.value = (await listApiKeys()).filter((key) => !key.revoked_at);
     access.value = 'ready';
   }
 

@@ -5,7 +5,7 @@ import { apiKeyStatus, useApiKeyManager } from './apiKeyManager';
 
 const manager = useApiKeyManager();
 const copied = ref(false);
-const statusLabels = { active: '有效', expired: '已过期', revoked: '已吊销' };
+const statusLabels = { active: '有效', expired: '已过期' };
 const loginHref = `./login.html?redirect=${encodeURIComponent(
   window.location.pathname + window.location.search + window.location.hash,
 )}`;
@@ -74,7 +74,6 @@ onMounted(manager.load);
           <p>{{ describe(key) }}</p>
         </div>
         <button
-          v-if="!key.revoked_at"
           type="button"
           :disabled="manager.busy.value"
           :aria-label="`吊销密钥 ${key.name}`"

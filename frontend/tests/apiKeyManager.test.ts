@@ -50,6 +50,18 @@ describe('API key manager controller', () => {
     expect(manager.keys.value).toEqual([key()]);
   });
 
+  it('leaves revoked keys out of the list', async () => {
+    vi.mocked(listApiKeys).mockResolvedValue([
+      key({ key_id: 'gone', revoked_at: '2026-02-01T00:00:00Z' }),
+      key({ key_id: 'kept' }),
+    ]);
+    const manager = useApiKeyManager();
+
+    await manager.load();
+
+    expect(manager.keys.value.map((item) => item.key_id)).toEqual(['kept']);
+  });
+
   it('asks for account login when the credential is not a login session', async () => {
     vi.mocked(listApiKeys).mockRejectedValue(apiError(401));
     const manager = useApiKeyManager();
@@ -146,17 +158,11 @@ describe('API key manager controller', () => {
     expect(manager.pendingRevoke.value).toBeNull();
   });
 
-  it('classifies keys as active, expired, or revoked', () => {
+  it('classifies keys as active or expired', () => {
     const now = new Date('2026-06-01T00:00:00Z');
 
     expect(apiKeyStatus(key(), now)).toBe('active');
     expect(apiKeyStatus(key({ expires_at: '2026-07-01T00:00:00Z' }), now)).toBe('active');
     expect(apiKeyStatus(key({ expires_at: '2026-05-01T00:00:00Z' }), now)).toBe('expired');
-    expect(
-      apiKeyStatus(
-        key({ expires_at: '2026-05-01T00:00:00Z', revoked_at: '2026-04-01T00:00:00Z' }),
-        now,
-      ),
-    ).toBe('revoked');
   });
 });
