@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from EvernightAI.core.domain.sandbox import BasicSandboxPolicy
@@ -179,6 +180,8 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         mounts: list[SandboxFilesystemMount],
         descriptors: list[int],
     ) -> list[SandboxFilesystemMount]:
+        if sys.platform != "linux":
+            raise SandboxConfigurationError("The bubblewrap sandbox requires Linux")
         opened: list[SandboxFilesystemMount] = []
         for mount in mounts:
             try:
