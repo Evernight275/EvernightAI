@@ -70,6 +70,14 @@ class AgentRunStateRegisterProtocol(Protocol):
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState: ...
 
+    def get_status(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunStatus:
+        return self.get_state(run_id, principal_scope=principal_scope).status
+
     def list_states(
         self,
         *,

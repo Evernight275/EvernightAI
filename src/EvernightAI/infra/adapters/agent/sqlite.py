@@ -168,6 +168,21 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
     ) -> list[AgentRunState]:
         return self.query_states(principal_scope=principal_scope)
 
+    def get_status(
+        self,
+        run_id: str,
+        *,
+        principal_scope: PrincipalScope | None = None,
+    ) -> AgentRunStatus:
+        where, values = _scoped_identity("run_id", run_id, principal_scope)
+        row = self._connection.execute(
+            f"SELECT status FROM agent_run_states WHERE {where}",
+            values,
+        ).fetchone()
+        if row is None:
+            raise AgentStateError(f"The agent run state {run_id} is not found")
+        return AgentRunStatus(row[0])
+
     def query_states(
         self,
         *,

@@ -350,9 +350,15 @@ tail restores the terminal state directly rather than pausing and replaying it.
 Agent streams carry core trace events; HTTP encodes them as SSE. Model text
 streaming is selected by request metadata `stream = true`. With an executor
 configured, a background producer keeps persisted execution running after the
-stream consumer disconnects. Manual pause is observed at checkpoints in the
-stream persistence path. Context transcript writes occur at the tool-loop's
-completion/failure paths, while approval pauses retain progress in run state.
+stream consumer disconnects. Each text delta is committed to the trace journal
+before delivery and checks the scoped run status without loading the full
+snapshot. Full snapshots are saved at non-text events and when execution exits;
+running detail and list views include the pending text journal tail without
+advancing the snapshot's checkpoint cursor. Startup recovery reconciles that
+durable tail using the same contiguous-trace rules. Manual pause is observed at
+checkpoints in the stream persistence path. Context transcript writes occur at
+the tool-loop's completion/failure paths, while approval pauses retain progress
+in run state.
 Terminal status is assigned only after transcript and memory writes complete;
 write failures are persisted as `FAILED` with their error details. Context appends
 are not transactional across the entire transcript, so a failure may leave

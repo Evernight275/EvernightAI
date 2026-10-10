@@ -561,10 +561,28 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         *,
         principal_scope: PrincipalScope | None = None,
     ) -> AgentRunState:
-        return self._state_register().get_state(
-            run_id,
-            principal_scope=principal_scope,
+        return self._with_pending_text_trace(
+            self._state_register().get_state(
+                run_id,
+                principal_scope=principal_scope,
+            )
         )
+
+    def _with_pending_text_trace(self, state: AgentRunState) -> AgentRunState:
+        register = self._runtime.agent_trace_register
+        if state.status is not AgentRunStatus.RUNNING or register is None:
+            return state
+        cursor = max(
+            (event.sequence or 0 for event in state.trace),
+            default=0,
+        )
+        cursor = max(cursor, state.applied_trace_sequence or 0)
+        # Text is durable in the journal; the snapshot cursor stays at its checkpoint.
+        for event in register.list_events(state.run_id, after_sequence=cursor):
+            if event.event_type is not AgentTraceEventType.CHAT_DELTA:
+                break
+            state.trace.append(event)
+        return state
 
     def list_states(
         self,
@@ -576,7 +594,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         context_id: str | None = None,
         principal_scope: PrincipalScope | None = None,
     ) -> list[AgentRunState]:
-        return self._state_register().query_states(
+        states = self._state_register().query_states(
             cursor=cursor,
             limit=limit,
             owner_id=owner_id,
@@ -584,6 +602,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             context_id=context_id,
             principal_scope=principal_scope,
         )
+        return [self._with_pending_text_trace(state) for state in states]
 
     def list_trace(
         self,
@@ -594,7 +613,7 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         principal_scope: PrincipalScope | None = None,
     ) -> list[AgentTraceEvent]:
         register = self._trace_register()
-        self.get_state(run_id, principal_scope=principal_scope)
+        self._state_register().get_status(run_id, principal_scope=principal_scope)
         return register.list_events(
             run_id,
             after_sequence=after_sequence,
@@ -722,6 +741,20 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
     ) -> AsyncIterator[AgentTraceEvent]:
         try:
             async for event in events:
+                if event.event_type is AgentTraceEventType.CHAT_DELTA:
+                    if (
+                        self._state_register().get_status(
+                            state.run_id, principal_scope=principal_scope
+                        )
+                        is AgentRunStatus.CANCELED
+                    ):
+                        return
+                    event.sequence = self._trace_register().append_event(
+                        state.run_id, event
+                    )
+                    state.applied_trace_sequence = event.sequence
+                    yield event
+                    continue
                 stored = self.get_state(state.run_id, principal_scope=principal_scope)
                 if stored.status is AgentRunStatus.CANCELED:
                     return
