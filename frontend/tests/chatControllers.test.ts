@@ -251,6 +251,7 @@ describe('chat component controllers', () => {
         name: 'write_text_file',
         status: 'approval',
         statusLabel: '审批',
+        needsAttention: true,
         callText: '{}',
         resultText: null,
       },

@@ -7,6 +7,7 @@ import ChatRequestForm from '../src/components/chat/ChatRequestForm.vue';
 import ChatRequestStatus from '../src/components/chat/ChatRequestStatus.vue';
 import ChatRunDetails from '../src/components/chat/ChatRunDetails.vue';
 import ChatToolActivity from '../src/components/chat/ChatToolActivity.vue';
+import { toolActivities, toolActivitySummary } from '../src/components/chat/chatToolActivity';
 import ChatTranscript from '../src/components/chat/ChatTranscript.vue';
 import ChatView from '../src/components/chat/ChatView.vue';
 import { reconcileRunTranscript } from '../src/domain/chat';
@@ -219,6 +220,35 @@ describe('chat component composition', () => {
     expect(html).toContain('write_text_file');
     expect(html).toContain('审批');
     expect(html).not.toContain('还没有工具调用');
+  });
+
+  it('summarizes tool statuses and opens only the calls that need attention', () => {
+    const entry = (key: string, status: 'completed' | 'failed' | 'approval') => ({
+      key,
+      name: key,
+      status,
+      statusLabel: '',
+      needsAttention: status !== 'completed',
+      callText: '{}',
+      resultText: null,
+    });
+
+    expect(toolActivitySummary([entry('a', 'completed')])).toBe('');
+    expect(
+      toolActivitySummary([
+        entry('a', 'failed'),
+        entry('b', 'completed'),
+        entry('c', 'completed'),
+        entry('d', 'approval'),
+      ]),
+    ).toBe('2 完成 · 1 失败 · 1 审批');
+
+    const [pending] = toolActivities(
+      null,
+      [],
+      [{ approval_id: 'approval-1', tool_call_id: 'call-1', tool_name: 'write_text_file' }],
+    );
+    expect(pending?.needsAttention).toBe(true);
   });
 
   it('keeps an idle attention area empty and shows recovery actions near errors', async () => {

@@ -59,6 +59,15 @@ describe('tool execution experience', () => {
       ),
     ).toBe('1 分 1 秒');
     for (const durationMs of [-1, NaN, Infinity]) expect(toolElapsed({ durationMs })).toBeNull();
+    expect(toolElapsed({ durationMs: 32.4 })).toBe('32 毫秒');
+    expect(toolElapsed({ durationMs: 999 })).toBe('999 毫秒');
+    expect(toolElapsed({ durationMs: 0 })).toBeNull();
+    expect(
+      toolElapsed(
+        { startedAt: start.occurred_at, running: true },
+        Date.parse(start.occurred_at) + 400,
+      ),
+    ).toBe('0.4 秒');
     expect(toolElapsed({})).toBeNull();
     expect(toolElapsed({ startedAt: 'invalid', running: true })).toBeNull();
   });

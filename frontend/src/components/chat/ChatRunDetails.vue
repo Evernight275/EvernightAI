@@ -35,10 +35,7 @@ const {
     <header class="chat-panel-header">
       <div class="chat-panel-heading">
         <span class="chat-panel-symbol"><Activity :size="18" aria-hidden="true" /></span>
-        <div>
-          <h2 id="chat-details-title">运行详情</h2>
-          <p>查看本次请求与工具执行情况</p>
-        </div>
+        <h2 id="chat-details-title">运行详情</h2>
       </div>
       <button
         class="icon-button"
@@ -59,21 +56,21 @@ const {
             ><span aria-hidden="true"></span>{{ stateLabel }}</span
           >
         </div>
-        <p class="chat-run-description">
-          {{
-            busy
-              ? '请求正在进行，执行信息会实时更新。'
-              : runId
-                ? '本次请求的执行记录与诊断信息。'
-                : '发送消息后，可在这里查看执行过程。'
-          }}
+        <p v-if="busy || !runId" class="chat-run-description">
+          {{ busy ? '请求正在进行，执行信息会实时更新。' : '发送消息后，可在这里查看执行过程。' }}
         </p>
-        <p v-if="run?.request.working_directory" class="chat-run-id">
-          工作文件夹：<code>{{ run.request.working_directory }}</code>
-        </p>
-        <p v-if="runId" class="chat-run-id">
-          运行 ID：<code>{{ runId }}</code>
-        </p>
+        <dl v-if="runId" class="chat-run-facts">
+          <template v-if="run?.request.working_directory">
+            <dt>工作文件夹</dt>
+            <dd>
+              <code>{{ run.request.working_directory }}</code>
+            </dd>
+          </template>
+          <dt>运行 ID</dt>
+          <dd>
+            <code>{{ runId }}</code>
+          </dd>
+        </dl>
         <p v-if="errorMessage" class="chat-status-error">{{ errorMessage }}</p>
       </section>
       <ChatToolActivity
