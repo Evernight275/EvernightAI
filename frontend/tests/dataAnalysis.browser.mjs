@@ -66,6 +66,26 @@ try {
               metrics: { tool_call_count: 8, tool_failure_count: 0 },
             },
           ]);
+        if (dimension === 'stop_reason')
+          return rows([
+            { dimensions: { stop_reason: null }, metrics: { run_count: 2 } },
+            { dimensions: { stop_reason: 'tool_rounds_exhausted' }, metrics: { run_count: 3 } },
+          ]);
+        if (dimension === 'event_type')
+          return rows([
+            {
+              dimensions: { event_type: 'tool_failed', error_type: 'ToolPolicyError' },
+              metrics: { event_count: 9, distinct_run_count: 4 },
+            },
+            {
+              dimensions: { event_type: 'run_stopped', error_type: 'RemoteProtocolError' },
+              metrics: { event_count: 2, distinct_run_count: 2 },
+            },
+            {
+              dimensions: { event_type: 'run_stopped', error_type: null },
+              metrics: { event_count: 40, distinct_run_count: 40 },
+            },
+          ]);
         if (request.source_id === 'agent_trace_events')
           return rows([
             {
@@ -92,6 +112,33 @@ try {
           },
         ]);
       }
+      const traceRun = {
+        run_id: 'run-1',
+        request: { provider_id: 'p', model_id: 'model-a', context_id: 'c' },
+        status: 'finished',
+        usage: { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500 },
+        history: { started_at: '2026-10-11T16:42:00Z' },
+      };
+      if (path === '/agent-runs') return json([traceRun]);
+      if (path === '/agent-runs/run-1') return json(traceRun);
+      if (path === '/agent-runs/run-1/trace') {
+        const at = (ms) => new Date(Date.UTC(2026, 9, 11, 16, 42, 0, ms)).toISOString();
+        const tool = { tool_call_id: 't1', tool_call: { name: 'restricted_shell' } };
+        return json([
+          { sequence: 1, event_type: 'run_started', occurred_at: at(0) },
+          { sequence: 2, event_type: 'chat_completed', occurred_at: at(2000) },
+          { sequence: 3, event_type: 'tool_started', occurred_at: at(2000), tool_call: tool },
+          {
+            sequence: 4,
+            event_type: 'tool_completed',
+            occurred_at: at(3500),
+            tool_call: tool,
+            metadata: { duration_ms: 1500 },
+          },
+          { sequence: 5, event_type: 'chat_completed', occurred_at: at(6500) },
+          { sequence: 6, event_type: 'run_stopped', occurred_at: at(6500) },
+        ]);
+      }
       return json([]);
     });
     await page.goto(`${base}/chat.html`);
@@ -110,7 +157,7 @@ try {
     assert.equal(await tile('缓存读取占比').locator('dd').innerText(), '—');
     assert.ok((await tile('缓存读取占比').innerText()).includes('未返回缓存统计'));
     assert.equal(await tile('工具调用').locator('dd').innerText(), '29');
-    assert.equal(requests.length, 5);
+    assert.equal(requests.length, 7);
     assert.ok(requests.every((request) => request.filters[0].value === day(29)));
 
     const runs = view.locator('.data-chart').filter({ hasText: '每日运行次数' });
@@ -122,17 +169,54 @@ try {
     const models = view.locator('.data-chart').filter({ hasText: '按模型' });
     assert.deepEqual(await models.locator('.data-bar-value').allInnerTexts(), ['12', '4']);
     assert.ok((await models.innerText()).includes('未记录模型'));
-    const tools = view.locator('.data-chart').filter({ hasText: '工具调用' });
+    const tools = view
+      .locator('.data-chart')
+      .filter({ has: page.locator('figcaption', { hasText: '工具调用' }) });
     assert.deepEqual(await tools.locator('.data-bar-label').allInnerTexts(), [
       'restricted_shell',
       'read_text_file',
     ]);
     assert.ok((await tools.innerText()).includes('失败 3 次'));
+    const runFailures = view.locator('.data-chart').filter({ hasText: '运行失败原因' });
+    assert.deepEqual(await runFailures.locator('.data-bar-label').allInnerTexts(), [
+      '工具轮次用尽',
+      'RemoteProtocolError',
+    ]);
+    assert.deepEqual(await runFailures.locator('.data-bar-value').allInnerTexts(), ['3', '2']);
+    const toolFailures = view.locator('.data-chart').filter({ hasText: '工具失败原因' });
+    assert.deepEqual(await toolFailures.locator('.data-bar-label').allInnerTexts(), [
+      'ToolPolicyError',
+    ]);
+    assert.ok((await toolFailures.innerText()).includes('涉及 4 次运行'));
+    const cost = view.locator('.data-token-cost');
+    // No cache usage was reported, so input is not split into cached and uncached.
+    assert.deepEqual(await cost.locator('.data-stack-legend span').allInnerTexts(), [
+      '输入',
+      '输出',
+    ]);
+    assert.equal(await cost.locator('tbody tr').count(), 2);
+    const trail = view.locator('.data-run-timeline');
+    await trail.locator('.tool-timeline-row').first().waitFor();
+    assert.deepEqual(await trail.locator('.tool-timeline-name').allInnerTexts(), [
+      '模型响应 1',
+      'restricted_shell',
+      '模型响应 2',
+    ]);
+    assert.deepEqual(await trail.locator('.tool-timeline-legend span').allInnerTexts(), [
+      '工具调用',
+      '模型响应',
+    ]);
+    assert.equal(await trail.locator('.data-run-facts dd').first().innerText(), '5.0 秒');
+    await trail.locator('.tool-timeline-row').nth(1).hover();
+    assert.ok((await trail.getByRole('tooltip').innerText()).includes('1.5 秒'));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: `${screenshots}/${width}-data-dashboard.png` });
     await runs.locator('summary').click();
     await tools.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${screenshots}/${width}-data-breakdown.png` });
+    await page.screenshot({ path: `${screenshots}/${width}-data-full.png`, fullPage: true });
+    await trail.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${screenshots}/${width}-data-trail.png` });
 
     await view.getByRole('button', { name: '近 7 天', exact: true }).click();
     await page.waitForFunction(
@@ -141,7 +225,12 @@ try {
     assert.equal(await runs.locator('.data-column').count(), 7);
     await view.getByRole('button', { name: '全部', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.data-column').length === 12);
-    assert.equal(requests.at(-1).filters.length, 0);
+    // "All" drops the day filter; the failure queries keep their own.
+    assert.ok(
+      requests
+        .slice(-7)
+        .every((request) => request.filters.every((filter) => !filter.field_id.endsWith('_day'))),
+    );
 
     fail = true;
     await view.getByRole('button', { name: '刷新数据', exact: true }).click();
@@ -160,7 +249,7 @@ try {
     await page.waitForFunction(
       () => document.querySelector('.data-tile dd')?.textContent?.trim() === '1,284',
     );
-    assert.equal(requests.length, before + 5);
+    assert.equal(requests.length, before + 7);
 
     // Switching identity clears data even while this workspace is hidden.
     if (width <= 760) await page.getByRole('button', { name: '会话管理', exact: true }).click();
@@ -175,7 +264,7 @@ try {
     await page.waitForFunction(
       () => document.querySelector('.data-tile dd')?.textContent?.trim() === '1,284',
     );
-    assert.equal(requests.length, beforeIdentityChange + 5);
+    assert.equal(requests.length, beforeIdentityChange + 7);
     assert.deepEqual(errors, []);
     console.log(
       `${width}px: data dashboard tiles, charts, ranges, failure and view switching passed`,

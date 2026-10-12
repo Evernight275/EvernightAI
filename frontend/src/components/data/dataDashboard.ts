@@ -1,4 +1,5 @@
 import type { DataFilter, DataStatisticsRequest, DataStatisticsRow } from '../../api';
+import type { DataBarItem } from './DataBarList.vue';
 
 export type DashboardRange = '7' | '30' | 'all';
 
@@ -8,7 +9,8 @@ export const dashboardRanges: { id: DashboardRange; label: string }[] = [
   { id: 'all', label: '全部' },
 ];
 
-export type DashboardQuery = 'runs' | 'runsByDay' | 'runsByModel' | 'events' | 'tools';
+export type DashboardQuery =
+  'runs' | 'runsByDay' | 'runsByModel' | 'events' | 'tools' | 'runFailures' | 'errors';
 
 export type DayValue = { day: string; value: number };
 
@@ -52,7 +54,15 @@ export function dashboardRequests(
     },
     runsByModel: {
       source_id: 'agent_runs',
-      metrics: ['run_count', 'total_tokens_total', 'successful_run_rate'],
+      metrics: [
+        'run_count',
+        'total_tokens_total',
+        'successful_run_rate',
+        'prompt_tokens_total',
+        'completion_tokens_total',
+        'cached_prompt_tokens_total',
+        'cache_observed_prompt_tokens_total',
+      ],
       dimensions: ['model_id'],
       filters: since('created_day'),
       sorts: [{ field_id: 'run_count', direction: 'desc' }],
@@ -71,7 +81,110 @@ export function dashboardRequests(
       sorts: [{ field_id: 'tool_call_count', direction: 'desc' }],
       limit: 20,
     },
+    runFailures: {
+      source_id: 'agent_runs',
+      metrics: ['run_count'],
+      dimensions: ['stop_reason'],
+      filters: [
+        ...since('created_day'),
+        { field_id: 'is_failed', operator: 'equals', value: true },
+      ],
+      sorts: [{ field_id: 'run_count', direction: 'desc' }],
+    },
+    errors: {
+      source_id: 'agent_trace_events',
+      metrics: ['event_count', 'distinct_run_count'],
+      dimensions: ['event_type', 'error_type'],
+      filters: [
+        ...since('event_day'),
+        { field_id: 'event_type', operator: 'in', value: ['tool_failed', 'run_stopped'] },
+      ],
+      sorts: [{ field_id: 'event_count', direction: 'desc' }],
+      limit: 50,
+    },
   };
+}
+
+const stopReasonLabels: Record<string, string> = {
+  tool_rounds_exhausted: '工具轮次用尽',
+  tool_error: '工具错误',
+};
+
+/**
+ * Why runs failed. A run that ends on an exception records the error type on its
+ * stop event and no stop reason; a run that ends on a stop reason records no
+ * error type. The two sets are disjoint, so their counts add up.
+ */
+export function runFailureItems(
+  runFailures: DataStatisticsRow[],
+  errors: DataStatisticsRow[],
+): DataBarItem[] {
+  const byReason = runFailures.flatMap((row) => {
+    const reason = row.dimensions?.stop_reason;
+    const count = metric(row, 'run_count') ?? 0;
+    return typeof reason === 'string' && reason && count
+      ? [{ label: stopReasonLabels[reason] ?? reason, value: count, note: '停止原因' }]
+      : [];
+  });
+  const byError = errors.flatMap((row) => {
+    const type = row.dimensions?.error_type;
+    const count = metric(row, 'distinct_run_count') ?? metric(row, 'event_count') ?? 0;
+    return row.dimensions?.event_type === 'run_stopped' && typeof type === 'string' && type && count
+      ? [{ label: type, value: count, note: '运行因异常中止' }]
+      : [];
+  });
+  return [...byReason, ...byError].sort((a, b) => b.value - a.value);
+}
+
+export function toolFailureItems(errors: DataStatisticsRow[]): DataBarItem[] {
+  return errors
+    .flatMap((row) => {
+      const count = metric(row, 'event_count') ?? 0;
+      if (row.dimensions?.event_type !== 'tool_failed' || !count) return [];
+      const type = row.dimensions?.error_type;
+      const runs = metric(row, 'distinct_run_count');
+      return [
+        {
+          label: typeof type === 'string' && type ? type : '未记录类型',
+          value: count,
+          note: runs === undefined ? undefined : `涉及 ${compactNumber(runs)} 次运行`,
+        },
+      ];
+    })
+    .sort((a, b) => b.value - a.value);
+}
+
+export type TokenCost = {
+  label: string;
+  runs: number | undefined;
+  prompt: number | undefined;
+  completion: number | undefined;
+  total: number | undefined;
+  /** Cache-read input tokens, only where the provider reported cache usage. */
+  cached: number | undefined;
+  /** Input tokens that came with cache usage; the base for the cache-read share. */
+  observed: number | undefined;
+};
+
+export function tokenCost(row: DataStatisticsRow | undefined, label: string): TokenCost {
+  const observed = metric(row, 'cache_observed_prompt_tokens_total');
+  return {
+    label,
+    runs: metric(row, 'run_count'),
+    prompt: metric(row, 'prompt_tokens_total'),
+    completion: metric(row, 'completion_tokens_total'),
+    total: metric(row, 'total_tokens_total'),
+    // Without observed cache usage a cached count is unknown, not zero.
+    cached: observed ? metric(row, 'cached_prompt_tokens_total') : undefined,
+    observed: observed || undefined,
+  };
+}
+
+export function tokenCostsByModel(rows: DataStatisticsRow[]): TokenCost[] {
+  return rows
+    .map((row) => tokenCost(row, String(row.dimensions?.model_id || '未记录模型')))
+    .filter((cost) => (cost.total ?? 0) > 0)
+    .sort((a, b) => (b.total ?? 0) - (a.total ?? 0));
 }
 
 // Aggregates over no rows come back as null; that is unknown, not zero.

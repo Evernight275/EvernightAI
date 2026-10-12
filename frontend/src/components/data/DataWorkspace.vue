@@ -6,6 +6,8 @@ import { authGeneration } from '../../runtime/workspaceRuntime';
 import DataSettings from '../settings/DataSettings.vue';
 import DataBarList, { type DataBarItem } from './DataBarList.vue';
 import DataColumnChart from './DataColumnChart.vue';
+import DataRunTimeline from './DataRunTimeline.vue';
+import DataTokenCost from './DataTokenCost.vue';
 import {
   compactNumber,
   dailySeries,
@@ -14,6 +16,10 @@ import {
   metric,
   percentText,
   ratio,
+  runFailureItems,
+  tokenCost,
+  tokenCostsByModel,
+  toolFailureItems,
   type DashboardQuery,
   type DashboardRange,
 } from './dataDashboard';
@@ -26,11 +32,13 @@ const rows = shallowRef<Partial<Record<DashboardQuery, DataStatisticsRow[]>>>({}
 const failures = ref<string[]>([]);
 const busy = ref(false);
 const loaded = ref(false);
+const refreshes = ref(0);
 let sequence = 0;
 
 async function load(): Promise<void> {
   const current = ++sequence;
   busy.value = true;
+  refreshes.value += 1;
   const requests = Object.entries(dashboardRequests(range.value)) as [
     DashboardQuery,
     ReturnType<typeof dashboardRequests>[DashboardQuery],
@@ -120,6 +128,12 @@ const tools = computed<DataBarItem[]>(() =>
       };
     }),
 );
+const runFailures = computed(() =>
+  runFailureItems(rows.value.runFailures || [], rows.value.errors || []),
+);
+const toolFailures = computed(() => toolFailureItems(rows.value.errors || []));
+const totalCost = computed(() => tokenCost(runs.value, '全部'));
+const modelCosts = computed(() => tokenCostsByModel(rows.value.runsByModel || []));
 </script>
 
 <template>
@@ -179,6 +193,10 @@ const tools = computed<DataBarItem[]>(() =>
           <DataColumnChart title="每日 Token 用量" unit="Token" :series="tokensByDay" />
           <DataBarList title="按模型" unit="运行次数" :items="models" />
           <DataBarList title="工具调用" unit="调用次数" :items="tools" />
+          <DataBarList title="运行失败原因" unit="运行次数" :items="runFailures" />
+          <DataBarList title="工具失败原因" unit="失败次数" :items="toolFailures" />
+          <DataTokenCost class="data-wide" :total="totalCost" :models="modelCosts" />
+          <DataRunTimeline v-if="active" class="data-wide" :refresh-key="refreshes" />
         </div>
       </template>
       <details class="data-custom">

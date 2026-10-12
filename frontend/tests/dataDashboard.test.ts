@@ -23,8 +23,19 @@ describe('data dashboard', () => {
       { field_id: 'created_day', operator: 'greater_than_or_equals', value: '2026-10-04' },
     ]);
     expect(recent.tools.filters?.[0]?.field_id).toBe('event_day');
+    expect(recent.runFailures.filters).toEqual([
+      { field_id: 'created_day', operator: 'greater_than_or_equals', value: '2026-10-04' },
+      { field_id: 'is_failed', operator: 'equals', value: true },
+    ]);
+    expect(recent.errors.filters?.map((filter) => filter.field_id)).toEqual([
+      'event_day',
+      'event_type',
+    ]);
+    // Without a range no query is limited by day; the failure queries keep their own filters.
     expect(
-      Object.values(dashboardRequests('all', now)).every((item) => !item.filters?.length),
+      Object.values(dashboardRequests('all', now)).every((item) =>
+        (item.filters ?? []).every((filter) => !filter.field_id.endsWith('_day')),
+      ),
     ).toBe(true);
   });
 

@@ -175,7 +175,13 @@ and per-model and per-tool bars for the last 7 days, 30 days or all time, read
 from the `agent_runs` and `agent_trace_events` data sources. Days are UTC. A
 metric the backend cannot compute stays "—": cache usage a provider did not
 report is unknown, not zero. Each chart has a hover or focus tooltip and a table
-view, and the existing custom query form sits below the charts. It reloads when
+view, and the existing custom query form sits below the charts. Below the bars:
+run failure reasons (stop reasons of failed runs plus the error type of runs
+that ended on an exception; the two never overlap) and tool failures by error
+type; `DataTokenCost`, a composition bar and per-model table in tokens (no
+prices are configured, so nothing is converted to money); and
+`DataRunTimeline`, which loads one run's trace and draws model responses, tool
+calls and approval waits on a shared time axis with `ChatToolTimeline`. It reloads when
 the view is opened. `tests/dataAnalysis.browser.mjs` covers it with a mocked API.
 
 ## Commands

@@ -19,6 +19,8 @@ export type ChatToolActivityEntry = {
   statusLabel: string;
   /** Failed calls and calls waiting for approval open on their own. */
   needsAttention: boolean;
+  /** Timeline rows that are not tool calls; tool calls leave it unset. */
+  kind?: 'model' | 'wait';
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

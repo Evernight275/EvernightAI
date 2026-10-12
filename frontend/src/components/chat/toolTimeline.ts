@@ -6,6 +6,8 @@ export type ToolTimelineRow = {
   name: string;
   status: ChatToolActivityEntry['status'];
   statusLabel: string;
+  /** What the bar stands for; drives its color and the legend. */
+  tone: 'tool' | 'model' | 'wait' | 'failed' | 'idle';
   /** Milliseconds from the first call's start. */
   offsetMs: number;
   durationMs: number;
@@ -52,6 +54,7 @@ export function toolTimeline(
       name: activity.name,
       status: activity.status,
       statusLabel: activity.statusLabel,
+      tone: timelineTone(activity),
       offsetMs: start - origin,
       durationMs: duration,
       left: ((start - origin) / spanMs) * 100,
@@ -62,6 +65,12 @@ export function toolTimeline(
       label: timeLabel(spanMs * position),
     })),
   };
+}
+
+function timelineTone(activity: ChatToolActivityEntry): ToolTimelineRow['tone'] {
+  if (activity.kind) return activity.kind;
+  if (activity.status === 'failed') return 'failed';
+  return ['pending', 'approval', 'canceled'].includes(activity.status) ? 'idle' : 'tool';
 }
 
 export function timeLabel(ms: number): string {

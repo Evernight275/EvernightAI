@@ -241,6 +241,141 @@
 .data-bar-note {
   grid-column: 1 / -1;
 }
+.data-wide {
+  grid-column: 1 / -1;
+}
+.data-stack {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+}
+.data-stack span {
+  min-width: 3px;
+  border-radius: 3px;
+}
+.data-stack .is-cached,
+.data-stack-legend i.is-cached {
+  background: var(--chart-series-2);
+}
+.data-stack .is-input,
+.data-stack-legend i.is-input {
+  background: var(--chart-series);
+}
+.data-stack .is-output,
+.data-stack-legend i.is-output {
+  background: var(--chart-series-3);
+}
+.data-stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.data-stack-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.data-stack-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.data-stack-legend span,
+.data-stack-legend small {
+  color: var(--color-muted);
+}
+.data-stack-legend strong {
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.data-table-scroll {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+.data-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.data-cost-table th,
+.data-cost-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: right;
+  white-space: nowrap;
+}
+.data-cost-table thead th {
+  color: var(--color-muted);
+  font-weight: 400;
+}
+.data-cost-table th:first-child {
+  max-width: 220px;
+  overflow: hidden;
+  padding-left: 0;
+  font-weight: 550;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+.data-cost-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.data-footnote {
+  margin: 12px 0 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.data-run-picker {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.data-run-picker select {
+  width: 100%;
+  min-width: 0;
+  color: var(--color-text);
+}
+.data-run-failure {
+  margin: 12px 0 0;
+  color: var(--color-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.data-run-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.data-run-facts > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+.data-run-facts dt {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.data-run-facts dd {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.data-run-facts small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.data-run-timeline .tool-timeline-rows {
+  max-height: 420px;
+  overflow-y: auto;
+}
 .data-custom {
   margin-top: 24px;
   padding-top: 16px;

@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import type { ChatToolActivityEntry } from './chatToolActivity';
 import { timeLabel, toolTimeline } from './toolTimeline';
 
-const props = defineProps<{ activities: ChatToolActivityEntry[] }>();
+const props = defineProps<{ activities: ChatToolActivityEntry[]; title?: string }>();
 const active = ref<string | null>(null);
 const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -23,14 +23,22 @@ watch(
 );
 onUnmounted(() => clearInterval(timer));
 const timeline = computed(() => toolTimeline(props.activities, now.value));
-const hasFailure = computed(() => timeline.value?.rows.some((row) => row.status === 'failed'));
+const toneLabels = { tool: '工具调用', model: '模型响应', wait: '等待审批', failed: '失败' };
+// A legend only when the bars differ in meaning; one kind of bar is named by the title.
+const legend = computed(() => {
+  const tones = new Set(timeline.value?.rows.map((row) => row.tone));
+  const shown = (Object.keys(toneLabels) as (keyof typeof toneLabels)[]).filter((tone) =>
+    tones.has(tone),
+  );
+  return shown.length > 1 ? shown.map((tone) => ({ tone, label: toneLabels[tone] })) : [];
+});
 </script>
 
 <template>
   <figure v-if="timeline" class="tool-timeline">
     <figcaption>
-      <strong>调用时间线</strong>
-      <span>从首次调用起 {{ timeLabel(timeline.spanMs) }}</span>
+      <strong>{{ title ?? '调用时间线' }}</strong>
+      <span>共 {{ timeLabel(timeline.spanMs) }}</span>
     </figcaption>
     <ol class="tool-timeline-rows" @mouseleave="active = null">
       <li
@@ -48,7 +56,7 @@ const hasFailure = computed(() => timeline.value?.rows.some((row) => row.status 
         <span class="tool-timeline-track">
           <span
             class="tool-timeline-bar"
-            :class="`is-${row.status}`"
+            :class="[`is-${row.tone}`, { 'is-running': row.status === 'running' }]"
             :style="{ left: `min(${row.left}%, calc(100% - 3px))`, width: `${row.width}%` }"
           ></span>
           <span
@@ -73,8 +81,10 @@ const hasFailure = computed(() => timeline.value?.rows.some((row) => row.status 
         <span v-for="tick in timeline.ticks" :key="tick.position">{{ tick.label }}</span>
       </span>
     </div>
-    <p v-if="hasFailure" class="tool-timeline-legend">
-      <span><i class="is-completed"></i>完成</span><span><i class="is-failed"></i>失败</span>
+    <p v-if="legend.length" class="tool-timeline-legend">
+      <span v-for="item in legend" :key="item.tone"
+        ><i :class="`is-${item.tone}`"></i>{{ item.label }}</span
+      >
     </p>
   </figure>
 </template>
