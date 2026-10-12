@@ -54,6 +54,7 @@ describe('service status controller', () => {
     expect(status.state.value).toBe('ready');
     expect(status.detail.value).toBeNull();
     expect(status.checkedTime.value).not.toBeNull();
+    expect(status.latencyMs.value).toBeGreaterThanOrEqual(0);
     expect(status.busy.value).toBe(false);
   });
 
@@ -74,6 +75,7 @@ describe('service status controller', () => {
     await status.check();
 
     expect(status.state.value).toBe('offline');
+    expect(status.latencyMs.value).toBeNull();
     expect(status.detail.value).toBe('无法连接服务，请确认服务已启动。');
     expect(getReadiness).not.toHaveBeenCalled();
   });

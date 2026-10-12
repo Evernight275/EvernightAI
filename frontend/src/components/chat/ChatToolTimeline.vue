@@ -49,7 +49,7 @@ const hasFailure = computed(() => timeline.value?.rows.some((row) => row.status 
           <span
             class="tool-timeline-bar"
             :class="`is-${row.status}`"
-            :style="{ left: `${row.left}%`, width: `${row.width}%` }"
+            :style="{ left: `min(${row.left}%, calc(100% - 3px))`, width: `${row.width}%` }"
           ></span>
           <span
             v-if="active === row.key"

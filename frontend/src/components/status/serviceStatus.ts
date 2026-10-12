@@ -16,6 +16,8 @@ export function useServiceStatus(options: ServiceStatusOptions) {
   const detail = ref<string | null>(null);
   const checkedAt = ref<Date | null>(null);
   const busy = ref(false);
+  /** Round trip of the last successful `/health` probe. */
+  const latencyMs = ref<number | null>(null);
   const entering = ref(false);
   const enterError = ref<string | null>(null);
   const stateLabel = computed(
@@ -36,7 +38,9 @@ export function useServiceStatus(options: ServiceStatusOptions) {
     if (busy.value) return;
     busy.value = true;
     try {
+      const started = performance.now();
       await getHealth();
+      latencyMs.value = Math.round(performance.now() - started);
       try {
         await getReadiness();
         state.value = 'ready';
@@ -47,6 +51,7 @@ export function useServiceStatus(options: ServiceStatusOptions) {
       }
     } catch (error) {
       state.value = 'offline';
+      latencyMs.value = null;
       detail.value = errorMessage(error);
     }
     checkedAt.value = new Date();
@@ -66,7 +71,18 @@ export function useServiceStatus(options: ServiceStatusOptions) {
     entering.value = false;
   }
 
-  return { state, stateLabel, detail, checkedTime, busy, check, entering, enterError, enter };
+  return {
+    state,
+    stateLabel,
+    detail,
+    checkedTime,
+    latencyMs,
+    busy,
+    check,
+    entering,
+    enterError,
+    enter,
+  };
 }
 
 function errorMessage(error: unknown): string {
