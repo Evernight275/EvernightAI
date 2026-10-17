@@ -16,16 +16,14 @@ from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.image import ImageHistoryCursor
 from EvernightAI.core.schema.image_task import ImageTask, ImageTaskSummary
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
 
 class SQLiteImageTaskStore(ImageTaskStoreProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def has_active(self) -> bool:
         return (

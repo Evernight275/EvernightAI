@@ -4,13 +4,12 @@ from pathlib import Path
 from EvernightAI.core.protocol.tool import ToolPolicyStoreProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.tool import ToolAccessMode
-from EvernightAI.infra.sqlite import SQLiteMigrationRunner, connect_sqlite
+from EvernightAI.infra.sqlite import SQLiteStoreConnection
 
 
 class SQLiteToolPolicyStore(ToolPolicyStoreProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def _owner_key(self, scope: PrincipalScope | None) -> str:
         return json.dumps(scope.owner_id if scope else None)

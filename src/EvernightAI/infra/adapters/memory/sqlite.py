@@ -5,8 +5,7 @@ from EvernightAI.core.protocol.memory import MemoryRegisterProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.memory import MemoryItem, MemoryQuery
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
@@ -37,8 +36,7 @@ def _scoped_identity(
 class SQLiteMemoryRegister(MemoryRegisterProtocol):
     def __init__(self, database_path: str | Path) -> None:
         self._database_path = str(database_path)
-        self._connection = connect_sqlite(self._database_path)
-        SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(self._database_path)
 
     def register(
         self,

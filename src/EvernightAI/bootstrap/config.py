@@ -17,6 +17,8 @@ from EvernightAI.bootstrap.options import (
 from EvernightAI.bootstrap.runtime import (
     close_opened_resources,
     create_sqlite_runtime,
+    create_memory_strategy,
+    create_memory_write_strategy,
     runtime_state_paths,
 )
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
@@ -67,6 +69,12 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
     tool_sources = _configured_mcp_tool_sources(config)
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
         _validate_sandbox_tool_roots(config)
+    sandbox_root = Path(config.runtime.sandbox.workspace_root).resolve()
+
+    async def prepare_workspace() -> None:
+        if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
+            sandbox_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+
     workspaces = (
         WorkspaceDirectoryStore(
             config.tools.filesystem.root,
@@ -88,7 +96,12 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
         sandbox = create_sandbox_from_config(config, workspace_directories=workspaces)
         runtime = create_sqlite_runtime(
             config.runtime.database_path,
+            startup_handlers=[prepare_workspace],
             sandbox=sandbox,
+            memory_strategy=create_memory_strategy(config.memory_strategy.selection),
+            memory_write_strategy=create_memory_write_strategy(
+                config.memory_strategy.write
+            ),
             workspace_directories=workspaces,
             tools=tools,
             context=_context_strategy_options(config),
@@ -183,7 +196,6 @@ def _validate_sandbox_tool_roots(config: EvernightConfig) -> None:
             raise SandboxConfigurationError(
                 "With bubblewrap enabled, filesystem, shell, Git, project and download directories must stay inside runtime.sandbox.workspace_root"
             )
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
 def create_interface_from_config(

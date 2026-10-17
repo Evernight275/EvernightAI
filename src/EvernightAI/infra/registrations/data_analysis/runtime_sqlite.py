@@ -19,11 +19,13 @@ def register_sqlite_runtime_data_analysis_sources(
     *,
     database_path: str | Path,
     include_agent_sources: bool = True,
+    ensure_views: bool = True,
 ) -> None:
-    ensure_sqlite_runtime_data_analysis_views(
-        database_path,
-        include_agent_sources=include_agent_sources,
-    )
+    if ensure_views:
+        ensure_sqlite_runtime_data_analysis_views(
+            database_path,
+            include_agent_sources=include_agent_sources,
+        )
     for source in sqlite_runtime_data_analysis_sources(
         include_agent_sources=include_agent_sources,
     ):

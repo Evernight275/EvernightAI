@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 from typing import Any
+from uuid import uuid4
 
 
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
@@ -63,18 +64,79 @@ def connect_sqlite(
     return connection
 
 
+class SQLiteStoreConnection:
+    """Open and migrate a store only when it is first used."""
+
+    def __init__(self, database_path: str | Path) -> None:
+        self._database_path = database_path
+        self._connection: SQLiteConnection | None = None
+        self._closed = False
+        self.lock = RLock()
+
+    def _open(self) -> SQLiteConnection:
+        if self._closed:
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+        if self._connection is None:
+            connection = connect_sqlite(self._database_path)
+            try:
+                SQLiteMigrationRunner(self._database_path).run(connection)
+            except BaseException:
+                connection.close()
+                raise
+            self._connection = connection
+        return self._connection
+
+    def execute(self, sql: str, parameters: Any = ()) -> sqlite3.Cursor:
+        with self.lock:
+            return self._open().execute(sql, parameters)
+
+    @property
+    def in_transaction(self) -> bool:
+        with self.lock:
+            return self._connection is not None and self._connection.in_transaction
+
+    def commit(self) -> None:
+        with self.lock:
+            self._open().commit()
+
+    def rollback(self) -> None:
+        with self.lock:
+            self._open().rollback()
+
+    def close(self) -> None:
+        with self.lock:
+            self._closed = True
+            if self._connection is not None:
+                self._connection.close()
+
+
 @contextmanager
 def sqlite_transaction(
-    connection: sqlite3.Connection,
+    connection: sqlite3.Connection | SQLiteStoreConnection,
     *,
     immediate: bool = False,
 ) -> Iterator[None]:
-    lock = connection.lock if isinstance(connection, SQLiteConnection) else RLock()
+    lock = (
+        connection.lock
+        if isinstance(connection, (SQLiteConnection, SQLiteStoreConnection))
+        else RLock()
+    )
     with lock:
+        if connection.in_transaction:
+            savepoint = f"nested_{uuid4().hex}"
+            connection.execute(f"SAVEPOINT {savepoint}")
+            try:
+                yield
+            except BaseException:
+                connection.execute(f"ROLLBACK TO {savepoint}")
+                raise
+            finally:
+                connection.execute(f"RELEASE {savepoint}")
+            return
         connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         try:
             yield
-        except Exception:
+        except BaseException:
             connection.rollback()
             raise
         else:

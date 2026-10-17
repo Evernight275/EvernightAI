@@ -37,11 +37,19 @@ class SQLiteDataStatisticsExecutor:
             field.field_id: _sqlite_column_name(field.field_id, field.metadata)
             for field in source.fields
         }
-        if self._database_path != ":memory:":
-            Path(self._database_path).parent.mkdir(parents=True, exist_ok=True)
+        self._database_connection: sqlite3.Connection | None = None
+        self._closed = False
 
-        self._connection = sqlite3.connect(self._database_path)
-        self._connection.row_factory = sqlite3.Row
+    @property
+    def _connection(self) -> sqlite3.Connection:
+        if self._closed:
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+        if self._database_connection is None:
+            if self._database_path != ":memory:":
+                Path(self._database_path).parent.mkdir(parents=True, exist_ok=True)
+            self._database_connection = sqlite3.connect(self._database_path)
+            self._database_connection.row_factory = sqlite3.Row
+        return self._database_connection
 
     async def statistics(
         self,
@@ -78,7 +86,9 @@ class SQLiteDataStatisticsExecutor:
 
     def close(self) -> None:
         """关闭数据库连接"""
-        self._connection.close()
+        self._closed = True
+        if self._database_connection is not None:
+            self._database_connection.close()
 
     def _build_query(self, request: DataStatisticsRequest) -> tuple[str, list[Any]]:
         table = _quote_identifier(self._table_name)

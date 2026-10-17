@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Protocol
 
 from EvernightAI.core.error.agent import AgentStateError
@@ -42,6 +45,20 @@ class AgentRunStateRegisterProtocol(Protocol):
     """
     Agent运行状态注册协议
     """
+
+    def recovery_transaction(
+        self,
+        traces: AgentTraceRegisterProtocol,
+        tools: ToolExecutionRegisterProtocol | None,
+    ) -> AbstractContextManager[
+        tuple[
+            AgentRunStateRegisterProtocol,
+            AgentTraceRegisterProtocol,
+            ToolExecutionRegisterProtocol | None,
+        ]
+    ]:
+        """Persistent adapters must serialize recovery and lease acquisition."""
+        return nullcontext((self, traces, tools))
 
     def create_state(
         self,

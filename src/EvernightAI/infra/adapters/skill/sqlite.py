@@ -4,16 +4,14 @@ from EvernightAI.core.error.skill import SkillNotFoundError
 from EvernightAI.core.protocol.skill import SkillTemplateStoreProtocol
 from EvernightAI.core.schema.skill import SkillTemplateConfig
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
 
 class SQLiteSkillTemplateStore(SkillTemplateStoreProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def save(self, config: SkillTemplateConfig) -> None:
         with sqlite_transaction(self._connection, immediate=True):

@@ -33,6 +33,11 @@ cpu_seconds = 60
 file_size_bytes = 67108864
 temporary_storage_bytes = 1073741824
 
+[memory_strategy]
+# "disabled" skips automatic selection or writing; stored memories stay intact.
+selection = "basic"
+write = "basic"
+
 [context_strategy]
 # Optional model-visible window controls. Basic composition is always first.
 # Summary requires an application-provided summarizer; leave disabled unless

@@ -11,8 +11,7 @@ from EvernightAI.infra.adapters.providers.secrets import (
     LocalProviderSecretCipher,
 )
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
@@ -22,8 +21,7 @@ class SQLiteProviderConfigStore(
 ):
     def __init__(self, database_path: str | Path) -> None:
         self._database_path = str(database_path)
-        self._connection = connect_sqlite(self._database_path)
-        SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(self._database_path)
         self._secret_cipher = LocalProviderSecretCipher(database_path)
 
     def save(self, provider: ProviderConfig) -> None:

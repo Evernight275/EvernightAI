@@ -59,6 +59,11 @@ class PromptCacheConfig(EvernightAISchema):
     scope: PromptCacheScope = PromptCacheScope.CONTEXT
 
 
+class MemoryStrategyConfig(EvernightAISchema):
+    selection: Literal["basic", "disabled"] = "basic"
+    write: Literal["basic", "disabled"] = "basic"
+
+
 class HttpConfig(EvernightAISchema):
     host: str = "127.0.0.1"
     port: int = 8000
@@ -263,6 +268,7 @@ class EvernightConfig(EvernightAISchema):
         default_factory=ContextStrategyConfig
     )
     prompt_cache: PromptCacheConfig = Field(default_factory=PromptCacheConfig)
+    memory_strategy: MemoryStrategyConfig = Field(default_factory=MemoryStrategyConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)

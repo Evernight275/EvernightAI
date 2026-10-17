@@ -13,6 +13,14 @@ EVERNIGHTAI_FILESYSTEM_ROOT="$PWD" \
 
 Open Swagger at `http://127.0.0.1:8000/docs`.
 
+The environment factory accepts `EVERNIGHTAI_TRACE_RETENTION_DAYS=none` and
+`EVERNIGHTAI_TRACE_MAX_EVENTS=none`; set both to disable startup trace cleanup.
+An empty value retains the default, and `0` is a zero limit, not a disable switch.
+`EVERNIGHTAI_MEMORY_SELECTION_STRATEGY` and `EVERNIGHTAI_MEMORY_WRITE_STRATEGY`
+accept `basic` (default) or `disabled`. The config-file equivalent is
+`[memory_strategy]` with `selection` and `write`. Disabling these policies leaves
+stored memories intact and does not disable explicit memory CRUD operations.
+
 When running the frontend dev server separately, the Vite proxy defaults to
 `http://127.0.0.1:8000`. Override it when the API listens elsewhere:
 

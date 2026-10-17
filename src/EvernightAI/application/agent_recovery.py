@@ -406,12 +406,34 @@ def recover_interrupted_agent_runs(
     state_register: AgentRunStateRegisterProtocol,
     trace_register: AgentTraceRegisterProtocol,
     tool_execution_register: ToolExecutionRegisterProtocol | None = None,
+    *,
+    unleased_grace_seconds: float = 0,
+) -> int:
+    with state_register.recovery_transaction(
+        trace_register, tool_execution_register
+    ) as (states, traces, tools):
+        return _recover_interrupted_agent_runs(
+            states, traces, tools, unleased_grace_seconds
+        )
+
+
+def _recover_interrupted_agent_runs(
+    state_register: AgentRunStateRegisterProtocol,
+    trace_register: AgentTraceRegisterProtocol,
+    tool_execution_register: ToolExecutionRegisterProtocol | None,
+    unleased_grace_seconds: float,
 ) -> int:
     recovered = 0
     now = datetime.now(timezone.utc)
     for state in state_register.query_states(status=AgentRunStatus.RUNNING):
         lease = state_register.get_execution_lease(state.run_id)
         if _active_lease_expiry(lease, now) is not None:
+            continue
+        if (
+            lease is None
+            and state.history.started_at is not None
+            and (now - state.history.started_at).total_seconds() < unleased_grace_seconds
+        ):
             continue
 
         cause = (

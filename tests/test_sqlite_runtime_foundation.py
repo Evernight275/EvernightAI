@@ -410,11 +410,14 @@ async def test_single_process_executor_controls_stream_lifecycle(
 async def test_sqlite_bootstrap_recovers_legacy_running_agents(tmp_path: Path) -> None:
     database_path = tmp_path / "runtime.sqlite3"
     register = SQLiteAgentRunStateRegister(database_path)
-    register.save_state(_running_state("run-1"))
+    state = _running_state("run-1")
+    state.history.started_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    register.save_state(state)
     register.close()
 
     runtime = create_sqlite_runtime(database_path)
     try:
+        await runtime.initialize()
         state = runtime.agent_state_register.get_state("run-1")  # type: ignore[union-attr]
         events = runtime.agent_trace_register.list_events("run-1")  # type: ignore[union-attr]
         assert state.status is AgentRunStatus.PAUSED
@@ -597,6 +600,7 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
 
     runtime = create_sqlite_runtime(database_path)
     try:
+        await runtime.initialize()
         state_register = runtime.agent_state_register
         trace_register = runtime.agent_trace_register
         assert state_register is not None

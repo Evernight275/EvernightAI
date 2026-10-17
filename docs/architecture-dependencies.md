@@ -173,8 +173,8 @@ The assembly entry points are:
   sources, sandbox selection, and strategies.
 - [`bootstrap.runtime`](../src/EvernightAI/bootstrap/runtime.py): creates domain
   managers, registers provider builders and tools, and supplies concrete stores.
-  SQLite assembly runs migrations and reconciles interrupted Agent runs before
-  creating the single-process Agent executor.
+  SQLite assembly defers connections, migrations, recovery and trace cleanup to
+  startup. The image tool is registered here, before an interface is created.
 - [`bootstrap.interface`](../src/EvernightAI/bootstrap/interface.py): binds
   application services into `EvernightInterface`. Its tool role is the existing
   `runtime.tools` object implementing `ToolInterfaceProtocol`. Skill and
@@ -189,8 +189,9 @@ without exposing runtime restoration. Authorization wrappers enforce the same
 permission actions before delegation. HTTP paths and operation IDs and CLI
 commands retain their transport-specific names.
 
-`RuntimeKernel.initialize()` restores persisted provider configurations and loads
-configured tool sources. Interface shutdown drains Agent runs and closes the
+`RuntimeKernel.initialize()` runs assembled startup handlers, restores persisted
+provider configurations and loads configured tool sources. SQLite stores also
+open lazily when used directly. Interface shutdown drains Agent runs and closes the
 runtime's sources, providers, stores, and sandbox.
 
 ## Runtime Request Paths
@@ -331,7 +332,12 @@ written.
 | `AgentRunExecutorProtocol` | Execution ownership, timeout, cancellation, and stream execution |
 
 SQLite assembly uses `SingleProcessAgentRunExecutor` with persisted leases and
-heartbeats. Startup recovery skips runs with an active lease; interrupted runs
+heartbeats. Startup recovery skips runs with an active lease; a runtime-owned
+watcher checks again at least every five seconds, including renewed leases and
+new runs. New unleased runs have a 30-second grace period to acquire ownership.
+SQLite recovery checks leases and commits trace, tool-attempt and snapshot
+changes in one write transaction, serialized against other workers and lease
+acquisition. Interrupted runs
 are paused and unfinished started tools become `UNKNOWN`. Checkpoints and tool
 replay policies determine whether the original run can resume. Unknown
 non-replayable executions require operator resolution or an explicit run retry.

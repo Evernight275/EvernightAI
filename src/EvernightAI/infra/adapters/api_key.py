@@ -4,16 +4,14 @@ from pathlib import Path
 from EvernightAI.core.protocol.api_key import ApiKeyRegisterProtocol
 from EvernightAI.core.schema.api_key import ApiKeyInfo
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
 
 class SQLiteApiKeyRegister(ApiKeyRegisterProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def create(self, info: ApiKeyInfo, digest: str) -> None:
         with sqlite_transaction(self._connection, immediate=True):

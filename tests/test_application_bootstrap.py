@@ -415,7 +415,7 @@ def test_sqlite_runtime_closes_opened_stores_when_assembly_fails(
         RecordingFileArtifactStore,
     )
     monkeypatch.setattr(
-        "EvernightAI.bootstrap.runtime.recover_interrupted_agent_runs",
+        "EvernightAI.bootstrap.runtime.register_sqlite_runtime_data_analysis_sources",
         fail_recovery,
     )
 

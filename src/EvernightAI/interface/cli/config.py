@@ -26,6 +26,7 @@ from EvernightAI.interface.cli.schema import (
     OAuthJwtConfig,
     OAuthTokenPrincipalConfig,
     PromptCacheConfig,
+    MemoryStrategyConfig,
     RuntimeConfig,
     SQLiteDataSourceConfig,
     ToolConfig,
@@ -59,6 +60,7 @@ def parse_config(data: dict[str, Any]) -> EvernightConfig:
                 data.get("context_strategy", {})
             ),
             prompt_cache=PromptCacheConfig.model_validate(data.get("prompt_cache", {})),
+            memory_strategy=MemoryStrategyConfig.model_validate(data.get("memory_strategy", {})),
             http=HttpConfig.model_validate(data.get("http", {})),
             tools=ToolConfig.model_validate(data.get("tools", {})),
             auth=_parse_auth(data.get("auth", {})),

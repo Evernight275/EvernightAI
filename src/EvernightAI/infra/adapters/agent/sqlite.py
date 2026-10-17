@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,8 +19,7 @@ from EvernightAI.core.schema.agent import (
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
@@ -70,10 +71,49 @@ def _parse_datetime(value: object) -> datetime | None:
 
 
 class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        connection: SQLiteStoreConnection | None = None,
+    ) -> None:
         self._database_path = str(database_path)
-        self._connection = connect_sqlite(self._database_path)
-        SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._connection = connection or SQLiteStoreConnection(self._database_path)
+
+    @contextmanager
+    def recovery_transaction(
+        self,
+        traces: AgentTraceRegisterProtocol,
+        tools: ToolExecutionRegisterProtocol | None,
+    ) -> Iterator[
+        tuple[
+            AgentRunStateRegisterProtocol,
+            AgentTraceRegisterProtocol,
+            ToolExecutionRegisterProtocol | None,
+        ]
+    ]:
+        if not isinstance(traces, SQLiteAgentTraceRegister) or (
+            tools is not None and not isinstance(tools, SQLiteToolExecutionRegister)
+        ):
+            raise AgentStateError(
+                "SQLite recovery requires SQLite trace and tool stores"
+            )
+        if traces._database_path != self._database_path or (
+            tools is not None and tools._database_path != self._database_path
+        ):
+            raise AgentStateError("Recovery stores must use the same SQLite database")
+        with sqlite_transaction(self._connection, immediate=True):
+            yield (
+                self,
+                SQLiteAgentTraceRegister(
+                    self._database_path, connection=self._connection
+                ),
+                SQLiteToolExecutionRegister(
+                    self._database_path, connection=self._connection
+                )
+                if tools is not None
+                else None,
+            )
 
     def create_state(
         self,
@@ -405,10 +445,14 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
 
 
 class SQLiteAgentTraceRegister(AgentTraceRegisterProtocol):
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        connection: SQLiteStoreConnection | None = None,
+    ) -> None:
         self._database_path = str(database_path)
-        self._connection = connect_sqlite(self._database_path)
-        SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._connection = connection or SQLiteStoreConnection(self._database_path)
 
     def append_event(self, run_id: str, event: AgentTraceEvent) -> int:
         with sqlite_transaction(self._connection, immediate=True):
@@ -505,10 +549,14 @@ class SQLiteAgentTraceRegister(AgentTraceRegisterProtocol):
 
 
 class SQLiteToolExecutionRegister(ToolExecutionRegisterProtocol):
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        connection: SQLiteStoreConnection | None = None,
+    ) -> None:
         self._database_path = str(database_path)
-        self._connection = connect_sqlite(self._database_path)
-        SQLiteMigrationRunner(self._database_path).run(self._connection)
+        self._connection = connection or SQLiteStoreConnection(self._database_path)
 
     def create_attempt(
         self,

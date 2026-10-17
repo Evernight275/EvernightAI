@@ -57,6 +57,12 @@ RuntimeKernel -> ChatApplication -> ProviderManager -> OpenAI-compatible adapter
 - Keep entrypoint modules as process/command launchers only. Concrete runtime
   composition, including SQLite defaults, belongs in package-level bootstrap,
   not in `entrypoint`.
+- Keep SQLite runtime construction free of database writes. Migrations,
+  interrupted-run recovery and trace cleanup run during initialization; stores
+  open lazily when used directly. Interface assembly must not register tools.
+- Keep persistent run recovery atomic with lease acquisition and heartbeat
+  updates, including trace, tool-attempt and state changes. Recheck live leases
+  periodically so renewal cannot permanently hide an interrupted run.
 - Keep concrete infra imports inside `infra` itself and package-level
   `bootstrap`.
 - Keep real provider tests opt-in and skipped by default.

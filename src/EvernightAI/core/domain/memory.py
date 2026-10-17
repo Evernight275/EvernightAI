@@ -199,6 +199,24 @@ class MemoryManager(MemoryManageProtocol):
             )
 
 
+class DisabledMemoryStrategy(MemoryStrategyProtocol):
+    def select(
+        self,
+        memories: list[MemoryItem],
+        query: MemoryQuery | None = None,
+    ) -> MemorySelection:
+        return MemorySelection()
+
+
+class DisabledMemoryWriteStrategy(MemoryWriteStrategyProtocol):
+    def create_memories(
+        self,
+        request: AgentRunRequest,
+        result: AgentRunResult,
+    ) -> list[MemoryItem]:
+        return []
+
+
 class BasicMemoryStrategy(MemoryStrategyProtocol):
     def select(
         self,

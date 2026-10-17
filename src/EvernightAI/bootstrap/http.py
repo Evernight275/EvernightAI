@@ -15,8 +15,9 @@ from EvernightAI.bootstrap.options import (
     ShellToolOptions,
 )
 from EvernightAI.bootstrap.runtime import (
-    DeferredAgentRunRecovery,
     create_sqlite_runtime,
+    create_memory_strategy,
+    create_memory_write_strategy,
 )
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevice
@@ -95,10 +96,15 @@ def create_app(
     runtime = create_sqlite_runtime(
         database_path or _env_path("EVERNIGHTAI_DATABASE_PATH", DEFAULT_DATABASE_PATH),
         tools=tools,
-        trace_retention_days=_env_int("EVERNIGHTAI_TRACE_RETENTION_DAYS", 30),
-        trace_max_events=_env_int("EVERNIGHTAI_TRACE_MAX_EVENTS", 100_000),
+        trace_retention_days=_env_optional_int("EVERNIGHTAI_TRACE_RETENTION_DAYS", 30),
+        trace_max_events=_env_optional_int("EVERNIGHTAI_TRACE_MAX_EVENTS", 100_000),
+        memory_strategy=create_memory_strategy(
+            os.getenv("EVERNIGHTAI_MEMORY_SELECTION_STRATEGY", "basic")
+        ),
+        memory_write_strategy=create_memory_write_strategy(
+            os.getenv("EVERNIGHTAI_MEMORY_WRITE_STRATEGY", "basic")
+        ),
     )
-    agent_recovery = DeferredAgentRunRecovery(runtime)
     auth_device = _env_auth_device()
     if auth_device is None:
         LOGGER.warning(
@@ -113,8 +119,6 @@ def create_app(
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
         readiness_checker=lambda: runtime.is_ready,
-        startup_handlers=[agent_recovery.start],
-        shutdown_handlers=[agent_recovery.close],
         server_header=_env_optional_string(
             "EVERNIGHTAI_HTTP_SERVER_HEADER",
             "EvernightAI",
@@ -142,7 +146,6 @@ def create_app_from_config(
 ) -> FastAPI:
     interface = create_unsecured_interface_from_config(config)
     runtime = interface.runtime
-    agent_recovery = DeferredAgentRunRecovery(runtime)
 
     async def register_configured_providers() -> None:
         stored_ids = (
@@ -195,8 +198,8 @@ def create_app_from_config(
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
         readiness_checker=lambda: runtime.is_ready,
-        startup_handlers=[register_configured_providers, agent_recovery.start],
-        shutdown_handlers=[agent_recovery.close, close_key_register],
+        startup_handlers=[register_configured_providers],
+        shutdown_handlers=[close_key_register],
         server_header=config.http.server_header,
         static_files_path=config.http.static_files_path,
     )
@@ -415,6 +418,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
     return int(value)
+
+
+def _env_optional_int(name: str, default: int) -> int | None:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    if value.strip().lower() in {"none", "null", "disabled"}:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"{name} must be a nonnegative integer or none"
+        ) from exc
+    if parsed < 0:
+        raise ConfigurationError(f"{name} must be a nonnegative integer or none")
+    return parsed
 
 
 def _env_float(name: str, default: float) -> float:

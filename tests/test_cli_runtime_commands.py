@@ -463,6 +463,7 @@ def test_create_runtime_from_config_registers_filesystem_tools_only(
             "read_json_file",
             "write_json_file",
             "display_file",
+            "generate_image",
         ]
     finally:
         import asyncio
@@ -551,6 +552,7 @@ def test_create_runtime_from_config_registers_shell_tool_when_enabled(
             "write_json_file",
             "display_file",
             "restricted_shell",
+            "generate_image",
         ]
     finally:
         import asyncio

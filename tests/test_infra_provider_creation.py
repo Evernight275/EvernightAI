@@ -203,7 +203,7 @@ async def test_bootstrap_creates_runtime_kernel() -> None:
 
     assert isinstance(runtime, RuntimeKernel)
     assert runtime.provider_factory.has(ProviderType.OPENAI) is True
-    assert runtime.tools.list_tools() == []
+    assert [tool.name for tool in runtime.tools.list_tools()] == ["generate_image"]
     assert isinstance(runtime.sandbox, SubprocessSandboxExecutor)
     assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.tool_safety_policy.authorize
@@ -260,6 +260,7 @@ async def test_bootstrap_injects_shared_sandbox_into_process_tools(tmp_path) -> 
         assert [tool.name for tool in runtime.tools.list_tools()] == [
             "restricted_shell",
             "run_project_task",
+            "generate_image",
         ]
         assert (
             runtime.tool_register.get("restricted_shell").metadata["sandbox_mount_path"]
@@ -330,6 +331,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
         "read_json_file",
         "write_json_file",
         "display_file",
+        "generate_image",
     ]
     assert [skill.name for skill in runtime.skills.list_skills()] == ["echo"]
     assert runtime.agent_state_register is not None
@@ -424,6 +426,7 @@ async def test_sqlite_runtime_data_analysis_summarizes_runtime_tables(
         include_agent_storage=True,
     )
 
+    await runtime.initialize()
     assert runtime.agent_state_register is not None
     assert runtime.agent_trace_register is not None
     await runtime.contexts.create(

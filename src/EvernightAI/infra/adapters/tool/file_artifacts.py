@@ -6,13 +6,12 @@ from EvernightAI.core.error.base import ConflictError, NotFoundError
 from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.file import FileArtifact
-from EvernightAI.infra.sqlite import SQLiteMigrationRunner, connect_sqlite
+from EvernightAI.infra.sqlite import SQLiteStoreConnection
 
 
 class SQLiteFileArtifactStore(FileArtifactStoreProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def save(self, artifact: FileArtifact, content: bytes) -> None:
         validate_file_content(artifact, content)

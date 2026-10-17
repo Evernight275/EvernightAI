@@ -12,16 +12,14 @@ from EvernightAI.core.schema.image import (
     ImageHistoryCursor,
 )
 from EvernightAI.infra.sqlite import (
-    SQLiteMigrationRunner,
-    connect_sqlite,
+    SQLiteStoreConnection,
     sqlite_transaction,
 )
 
 
 class SQLiteImageGenerationStore(ImageGenerationStoreProtocol):
     def __init__(self, database_path: str | Path) -> None:
-        self._connection = connect_sqlite(database_path)
-        SQLiteMigrationRunner(database_path).run(self._connection)
+        self._connection = SQLiteStoreConnection(database_path)
 
     def save(self, record: ImageGenerationRecord) -> None:
         with sqlite_transaction(self._connection, immediate=True):

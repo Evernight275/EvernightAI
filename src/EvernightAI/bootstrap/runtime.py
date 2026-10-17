@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
@@ -25,6 +25,8 @@ from EvernightAI.application.agent import (
     latest_active_agent_run_lease,
     recover_interrupted_agent_runs,
 )
+from EvernightAI.application.image_tool import ImageToolApplication
+from EvernightAI.infra.registrations.tool.image import register_image_tool
 from EvernightAI.application.image_task import ImageTaskApplication
 from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.schema.image_task import ImageTask
@@ -35,6 +37,8 @@ from EvernightAI.core.domain.data_analysis import (
 from EvernightAI.core.domain.memory import (
     BasicMemoryStrategy,
     BasicMemoryWriteStrategy,
+    DisabledMemoryStrategy,
+    DisabledMemoryWriteStrategy,
     MemoryManager,
     MemoryRegister,
 )
@@ -44,6 +48,7 @@ from EvernightAI.bootstrap.options import (
     ContextStrategyOptions,
 )
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
@@ -83,6 +88,8 @@ from EvernightAI.core.protocol.data_analysis import (
 )
 from EvernightAI.core.protocol.memory import (
     MemoryRegisterProtocol,
+    MemoryStrategyProtocol,
+    MemoryWriteStrategyProtocol,
 )
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.session import (
@@ -130,6 +137,7 @@ from EvernightAI.infra.registrations.provider.openai_responses import (
 )
 from EvernightAI.infra.registrations.data_analysis.runtime_sqlite import (
     register_sqlite_runtime_data_analysis_sources,
+    ensure_sqlite_runtime_data_analysis_views,
 )
 from EvernightAI.infra.registrations.skill.echo import register_echo_skill
 from EvernightAI.infra.registrations.tool.restricted_filesystem import (
@@ -155,60 +163,93 @@ from EvernightAI.infra.registrations.tool.runtime_data import (
 LOGGER = logging.getLogger(__name__)
 
 
+def create_memory_strategy(name: str) -> MemoryStrategyProtocol:
+    if name == "basic":
+        return BasicMemoryStrategy()
+    if name == "disabled":
+        return DisabledMemoryStrategy()
+    raise ConfigurationError(f"Unknown memory selection strategy: {name}")
+
+
+def create_memory_write_strategy(name: str) -> MemoryWriteStrategyProtocol:
+    if name == "basic":
+        return BasicMemoryWriteStrategy()
+    if name == "disabled":
+        return DisabledMemoryWriteStrategy()
+    raise ConfigurationError(f"Unknown memory write strategy: {name}")
+
+
 class DeferredAgentRunRecovery:
-    """Recovers runs skipped at startup because their lease was still live.
+    """Recheck interrupted runs while the runtime is alive."""
 
-    Startup recovery leaves such runs RUNNING. When the previous process died
-    without releasing them, nothing else would ever pause them, so recovery
-    runs once more after the latest of those leases has expired.
-    """
-
-    def __init__(self, runtime: RuntimeProtocol, *, margin_seconds: float = 1.0):
+    def __init__(
+        self,
+        runtime: RuntimeProtocol,
+        *,
+        margin_seconds: float = 1.0,
+        interval_seconds: float = 5.0,
+    ) -> None:
+        if interval_seconds <= 0 or margin_seconds < 0:
+            raise ValueError(
+                "Recovery intervals must be positive and margin nonnegative"
+            )
         self._runtime = runtime
         self._margin_seconds = margin_seconds
+        self._interval_seconds = interval_seconds
         self._task: asyncio.Task[None] | None = None
 
+    def _recover(self) -> None:
+        states = self._runtime.agent_state_register
+        traces = self._runtime.agent_trace_register
+        if states is not None and traces is not None:
+            recover_interrupted_agent_runs(
+                states,
+                traces,
+                self._runtime.tool_execution_register,
+                unleased_grace_seconds=30,
+            )
+
     async def start(self) -> None:
-        state_register = self._runtime.agent_state_register
-        trace_register = self._runtime.agent_trace_register
-        if state_register is None or trace_register is None:
+        if self._task is not None:
             return
-        expires_at = latest_active_agent_run_lease(state_register)
-        recover_interrupted_agent_runs(
-            state_register,
-            trace_register,
-            self._runtime.tool_execution_register,
-        )
-        if expires_at is None:
+        if (
+            self._runtime.agent_state_register is None
+            or self._runtime.agent_trace_register is None
+        ):
             return
-        self._task = asyncio.create_task(
-            self._recover_after(expires_at),
-            name="evernight-deferred-agent-recovery",
-        )
+        self._recover()
+        self._task = asyncio.create_task(self._watch(), name="evernight-agent-recovery")
 
     async def close(self) -> None:
-        if self._task is None:
-            return
-        self._task.cancel()
-        with suppress(asyncio.CancelledError):
-            await self._task
-        self._task = None
+        if self._task is not None:
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
 
-    async def _recover_after(self, expires_at: datetime) -> None:
-        delay = (expires_at - datetime.now(timezone.utc)).total_seconds()
-        await asyncio.sleep(max(delay, 0.0) + self._margin_seconds)
-        state_register = self._runtime.agent_state_register
-        trace_register = self._runtime.agent_trace_register
-        if state_register is None or trace_register is None:
-            return
-        try:
-            recover_interrupted_agent_runs(
-                state_register,
-                trace_register,
-                self._runtime.tool_execution_register,
-            )
-        except Exception:
-            LOGGER.exception("Deferred agent run recovery failed")
+    async def _watch(self) -> None:
+        while True:
+            try:
+                states = self._runtime.agent_state_register
+                expires_at = (
+                    latest_active_agent_run_lease(states)
+                    if states is not None
+                    else None
+                )
+                delay = self._interval_seconds
+                if expires_at is not None:
+                    delay = min(
+                        delay,
+                        max(
+                            0, (expires_at - datetime.now(timezone.utc)).total_seconds()
+                        )
+                        + self._margin_seconds,
+                    )
+                await asyncio.sleep(delay)
+                self._recover()
+            except Exception:
+                LOGGER.exception("Agent run recovery failed; retrying")
+                await asyncio.sleep(self._interval_seconds)
 
 
 def create_provider_factory() -> ProviderFactory:
@@ -339,8 +380,14 @@ def create_context_strategy(
     return strategy
 
 
-def create_runtime() -> RuntimeKernel:
+def create_runtime(
+    *,
+    memory_strategy: MemoryStrategyProtocol | None = None,
+    memory_write_strategy: MemoryWriteStrategyProtocol | None = None,
+) -> RuntimeKernel:
     return _create_runtime(
+        memory_strategy=memory_strategy,
+        memory_write_strategy=memory_write_strategy,
         context_register=ContextRegister(),
         memory_register=MemoryRegister(),
         session_register=SessionRegister(),
@@ -349,11 +396,15 @@ def create_runtime() -> RuntimeKernel:
 
 def create_runtime_with_agent_storage(
     *,
+    memory_strategy: MemoryStrategyProtocol | None = None,
+    memory_write_strategy: MemoryWriteStrategyProtocol | None = None,
     agent_state_register: AgentRunStateRegisterProtocol,
     agent_trace_register: AgentTraceRegisterProtocol,
     tool_execution_register: ToolExecutionRegisterProtocol | None = None,
 ) -> RuntimeKernel:
     return _create_runtime(
+        memory_strategy=memory_strategy,
+        memory_write_strategy=memory_write_strategy,
         context_register=ContextRegister(),
         memory_register=MemoryRegister(),
         session_register=SessionRegister(),
@@ -366,6 +417,9 @@ def create_runtime_with_agent_storage(
 def create_sqlite_runtime(
     database_path: str | Path,
     *,
+    memory_strategy: MemoryStrategyProtocol | None = None,
+    memory_write_strategy: MemoryWriteStrategyProtocol | None = None,
+    startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
     tools: BuiltinToolOptions = BuiltinToolOptions(),
     context: ContextStrategyOptions = ContextStrategyOptions(),
     sandbox: SandboxExecuteProtocol | None = None,
@@ -380,7 +434,6 @@ def create_sqlite_runtime(
     configure_data_analysis: Callable[[DataAnalysisRegisterProtocol], None]
     | None = None,
 ) -> RuntimeKernel:
-    SQLiteMigrationRunner(database_path).run()
     opened: list[Any] = []
     try:
         if workspace_directories is None and tools.filesystem is not None:
@@ -420,28 +473,13 @@ def create_sqlite_runtime(
             tool_execution_register = _opened(
                 opened, SQLiteToolExecutionRegister(database_path)
             )
-            recover_interrupted_agent_runs(
-                agent_state_register,
-                agent_trace_register,
-                tool_execution_register,
-            )
-            older_than = (
-                (
-                    datetime.now(timezone.utc) - timedelta(days=trace_retention_days)
-                ).isoformat()
-                if trace_retention_days is not None
-                else None
-            )
-            agent_trace_register.prune_events(
-                older_than=older_than,
-                keep_latest=trace_max_events,
-            )
             agent_run_executor = SingleProcessAgentRunExecutor(agent_state_register)
         data_analysis_register = _opened(opened, DataAnalysisRegister())
         register_sqlite_runtime_data_analysis_sources(
             data_analysis_register,
             database_path=database_path,
             include_agent_sources=include_agent_storage,
+            ensure_views=False,
         )
         if configure_data_analysis is not None:
             configure_data_analysis(data_analysis_register)
@@ -449,7 +487,37 @@ def create_sqlite_runtime(
         provider_config_store = _opened(
             opened, SQLiteProviderConfigStore(database_path)
         )
-        return _create_runtime(
+
+        async def startup() -> None:
+            for handler in startup_handlers or []:
+                await handler()
+            SQLiteMigrationRunner(database_path).run()
+            ensure_sqlite_runtime_data_analysis_views(
+                database_path, include_agent_sources=include_agent_storage
+            )
+            await recovery.start()
+            if agent_trace_register is not None:
+                older_than = (
+                    (
+                        datetime.now(timezone.utc)
+                        - timedelta(days=trace_retention_days)
+                    ).isoformat()
+                    if trace_retention_days is not None
+                    else None
+                )
+                if older_than is not None or trace_max_events is not None:
+                    agent_trace_register.prune_events(
+                        older_than=older_than, keep_latest=trace_max_events
+                    )
+
+        async def shutdown() -> None:
+            await recovery.close()
+
+        runtime = _create_runtime(
+            memory_strategy=memory_strategy,
+            memory_write_strategy=memory_write_strategy,
+            startup_handlers=[startup],
+            shutdown_handlers=[shutdown],
             tool_register=tool_register,
             tool_sources=tool_sources,
             context_register=_opened(opened, SQLiteContextRegister(database_path)),
@@ -476,6 +544,8 @@ def create_sqlite_runtime(
             prompt_cache_mode=prompt_cache_mode,
             prompt_cache_scope=prompt_cache_scope,
         )
+        recovery = DeferredAgentRunRecovery(runtime)
+        return runtime
     except BaseException:
         close_opened_resources(opened)
         raise
@@ -512,6 +582,10 @@ def _opened[T](opened: list[Any], resource: T) -> T:
 
 def _create_runtime(
     *,
+    startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+    shutdown_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+    memory_strategy: MemoryStrategyProtocol | None = None,
+    memory_write_strategy: MemoryWriteStrategyProtocol | None = None,
     tool_register: ToolRegisterProtocol | None = None,
     tool_safety_policy: ToolSafetyPolicyProtocol | None = None,
     tool_policy_store: ToolPolicyStoreProtocol | None = None,
@@ -560,8 +634,10 @@ def _create_runtime(
     data_analysis_register = data_analysis_register or DataAnalysisRegister()
     data_analysis = data_analysis or DataAnalysisManager(data_analysis_register)
     memories = MemoryManager(memory_register)
-    memory_strategy = BasicMemoryStrategy()
-    memory_write_strategy = BasicMemoryWriteStrategy()
+    if memory_strategy is None:
+        memory_strategy = BasicMemoryStrategy()
+    if memory_write_strategy is None:
+        memory_write_strategy = BasicMemoryWriteStrategy()
     sessions = sessions or SessionManager(session_register)
     if runtime_data_tools_enabled:
         register_runtime_data_tools(
@@ -577,6 +653,8 @@ def _create_runtime(
     image_tasks = image_tasks or ImageTaskStore()
     executor = SingleProcessImageTaskExecutor(image_tasks, execute_image_task)
     runtime = RuntimeKernel(
+        startup_handlers=startup_handlers,
+        shutdown_handlers=shutdown_handlers,
         provider_factory=provider_factory,
         providers=providers,
         provider_config_store=provider_config_store,
@@ -613,4 +691,6 @@ def _create_runtime(
         agent_run_executor=agent_run_executor,
         tool_execution_register=tool_execution_register,
     )
+    if not tool_register.has("generate_image"):
+        register_image_tool(tool_register, ImageToolApplication(runtime).execute)
     return runtime

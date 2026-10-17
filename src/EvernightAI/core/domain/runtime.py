@@ -106,6 +106,8 @@ class RuntimeKernel(RuntimeProtocol):
         agent_trace_register: AgentTraceRegisterProtocol | None = None,
         tool_execution_register: ToolExecutionRegisterProtocol | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
+        startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+        shutdown_handlers: list[Callable[[], Awaitable[None]]] | None = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._providers = providers
@@ -124,6 +126,8 @@ class RuntimeKernel(RuntimeProtocol):
         self._workspace_directories = workspace_directories
         self._tool_sources = list(tool_sources or [])
         self._sandbox = sandbox
+        self._startup_handlers = list(startup_handlers or [])
+        self._shutdown_handlers = list(shutdown_handlers or [])
         self._skill_register = skill_register or SkillRegister()
         self._skills = skills or SkillManager(self._skill_register)
         self._context_register = context_register
@@ -304,6 +308,8 @@ class RuntimeKernel(RuntimeProtocol):
             return
         loaded_sources: list[ToolSourceProtocol] = []
         try:
+            for handler in self._startup_handlers:
+                await handler()
             await self._providers.restore()
             self._skills.restore()
             for source in self._tool_sources:
@@ -312,6 +318,13 @@ class RuntimeKernel(RuntimeProtocol):
             if self._image_task_executor is not None:
                 await self._image_task_executor.start()
         except BaseException as exc:
+            for handler in reversed(self._shutdown_handlers):
+                try:
+                    await handler()
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to stop runtime lifecycle after startup error"
+                    )
             for source in reversed(loaded_sources):
                 await source.close()
             if isinstance(exc, Exception):
@@ -332,6 +345,8 @@ class RuntimeKernel(RuntimeProtocol):
                 LOGGER.exception("EvernightAI runtime shutdown: failed %s", description)
                 errors.append(exc)
 
+        for handler in reversed(self._shutdown_handlers):
+            await attempt("closing runtime lifecycle", handler)
         if self._image_task_executor is not None:
             LOGGER.info("EvernightAI runtime shutdown: closing image task executor")
             await attempt(

@@ -442,17 +442,17 @@ async def test_runtime_loads_and_closes_mcp_tool_sources(tmp_path) -> None:
         tool_sources=[source],
     )
 
-    assert runtime.tools.list_tools() == []
+    assert [tool.name for tool in runtime.tools.list_tools()] == ["generate_image"]
     assert runtime.is_ready is False
 
     await runtime.initialize()
 
-    assert [tool.name for tool in runtime.tools.list_tools()] == ["github__search"]
+    assert [tool.name for tool in runtime.tools.list_tools()] == ["generate_image", "github__search"]
     assert runtime.is_ready is True
 
     await runtime.close()
 
-    assert runtime.tools.list_tools() == []
+    assert [tool.name for tool in runtime.tool_register.list_tools()] == ["generate_image"]
     assert client.closed is True
 
 
@@ -477,7 +477,7 @@ async def test_runtime_fails_closed_when_mcp_source_cannot_connect(tmp_path) -> 
         await runtime.initialize()
 
     assert runtime.is_ready is False
-    assert runtime.tools.list_tools() == []
+    assert [tool.name for tool in runtime.tools.list_tools()] == ["generate_image"]
     assert client.closed is True
     await runtime.close()
 
