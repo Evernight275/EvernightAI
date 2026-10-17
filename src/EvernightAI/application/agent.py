@@ -7,6 +7,7 @@ from EvernightAI.application.agent_lifecycle import (
 from EvernightAI.application.agent_recovery import (
     AgentRunRecoveryCheckpoint as AgentRunRecoveryCheckpoint,
     inspect_agent_run_checkpoint as inspect_agent_run_checkpoint,
+    latest_active_agent_run_lease as latest_active_agent_run_lease,
     recover_interrupted_agent_runs as recover_interrupted_agent_runs,
 )
 from EvernightAI.application.agent_runs import (

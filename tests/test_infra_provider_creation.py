@@ -54,6 +54,12 @@ from EvernightAI.core.domain.provider import ProviderManager
 from EvernightAI.core.domain.skill import SkillRegister
 from EvernightAI.core.domain.tool import ToolRegister
 from EvernightAI.infra.registrations.skill.echo import register_echo_skill
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    FilesystemToolOptions,
+    ProjectToolOptions,
+    ShellToolOptions,
+)
 from EvernightAI.bootstrap.runtime import (
     RuntimeKernel,
     create_provider_factory,
@@ -106,7 +112,10 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
 
     assert register.list_tools() == []
 
-    register_builtin_tools(register, filesystem_root=tmp_path)
+    register_builtin_tools(
+        register,
+        BuiltinToolOptions(filesystem=FilesystemToolOptions(root=tmp_path)),
+    )
 
     assert [tool.name for tool in register.list_tools()] == [
         "read_text_file",
@@ -129,8 +138,12 @@ def test_bootstrap_registers_builtin_tools_explicitly(tmp_path) -> None:
 
     register_builtin_tools(
         register,
-        shell_allowed_commands={"python"},
-        shell_working_directory=tmp_path,
+        BuiltinToolOptions(
+            shell=ShellToolOptions(
+                allowed_commands={"python"},
+                working_directory=tmp_path,
+            )
+        ),
     )
 
     assert [tool.name for tool in register.list_tools()] == [
@@ -230,12 +243,16 @@ async def test_bootstrap_injects_shared_sandbox_into_process_tools(tmp_path) -> 
     runtime = create_sqlite_runtime(
         tmp_path / "runtime.sqlite3",
         include_agent_storage=False,
-        shell_allowed_commands={sys.executable},
-        shell_working_directory=tmp_path,
-        project_working_directory=tmp_path,
-        project_commands={
-            "hello": [sys.executable, "-c", "print('project')"],
-        },
+        tools=BuiltinToolOptions(
+            shell=ShellToolOptions(
+                allowed_commands={sys.executable},
+                working_directory=tmp_path,
+            ),
+            project=ProjectToolOptions(
+                working_directory=tmp_path,
+                commands={"hello": [sys.executable, "-c", "print('project')"]},
+            ),
+        ),
     )
 
     try:
@@ -290,7 +307,7 @@ async def test_bootstrap_creates_sqlite_runtime(tmp_path) -> None:
 
     runtime = create_sqlite_runtime(
         database_path,
-        filesystem_root=tools_root,
+        tools=BuiltinToolOptions(filesystem=FilesystemToolOptions(root=tools_root)),
         include_agent_storage=True,
     )
 

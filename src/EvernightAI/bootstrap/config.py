@@ -5,14 +5,29 @@ from pathlib import Path
 from typing import Any
 
 from EvernightAI.bootstrap.interface import create_interface
-from EvernightAI.bootstrap.runtime import create_sqlite_runtime
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    ContextStrategyOptions,
+    FilesystemToolOptions,
+    GitToolOptions,
+    ProjectToolOptions,
+    ShellToolOptions,
+    WebToolOptions,
+)
+from EvernightAI.bootstrap.runtime import (
+    close_opened_resources,
+    create_sqlite_runtime,
+    runtime_state_paths,
+)
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.error.sandbox import SandboxConfigurationError
 from EvernightAI.core.schema.sandbox import SandboxResourceLimits
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
+from EvernightAI.core.protocol.data_analysis import DataAnalysisRegisterProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolSourceProtocol
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
@@ -37,6 +52,7 @@ from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevi
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.infra.adapters.api_key import SQLiteApiKeyRegister
 from EvernightAI.interface.cli.schema import (
+    AuthUserConfig,
     EvernightConfig,
     McpServerConfig,
     McpTransport,
@@ -46,7 +62,9 @@ from EvernightAI.interface.cli.schema import (
 
 
 def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
-    options = _runtime_tool_options(config)
+    _validate_context_strategy(config)
+    tools = _builtin_tool_options(config)
+    tool_sources = _configured_mcp_tool_sources(config)
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
         _validate_sandbox_tool_roots(config)
     workspaces = (
@@ -68,30 +86,33 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
     )
     try:
         sandbox = create_sandbox_from_config(config, workspace_directories=workspaces)
-    except Exception:
-        if workspaces is not None:
-            workspaces.close()
+        runtime = create_sqlite_runtime(
+            config.runtime.database_path,
+            sandbox=sandbox,
+            workspace_directories=workspaces,
+            tools=tools,
+            context=_context_strategy_options(config),
+            runtime_data_tools_enabled=config.tools.runtime_data.enabled,
+            tool_sources=tool_sources,
+            prompt_cache_mode=config.prompt_cache.mode,
+            prompt_cache_scope=config.prompt_cache.scope,
+            configure_data_analysis=lambda register: register_configured_data_sources(
+                register, config
+            ),
+        )
+    except BaseException:
+        close_opened_resources([workspaces])
         raise
-    runtime = create_sqlite_runtime(
-        config.runtime.database_path,
-        sandbox=sandbox,
-        workspace_directories=workspaces,
-        **options,
-        **_runtime_context_options(config),
-        prompt_cache_mode=config.prompt_cache.mode,
-        prompt_cache_scope=config.prompt_cache.scope,
-    )
-    register_configured_data_sources(runtime, config)
     return runtime
 
 
 def register_configured_data_sources(
-    runtime: RuntimeKernel,
+    register: DataAnalysisRegisterProtocol,
     config: EvernightConfig,
 ) -> None:
     for source in config.data_analysis.sqlite_sources:
         register_sqlite_data_source(
-            runtime.data_analysis_register,
+            register,
             database_path=config.runtime.database_path,
             source=_sqlite_data_source_definition(source),
             table_name=source.table,
@@ -99,13 +120,8 @@ def register_configured_data_sources(
 
 
 def _protected_workspace_paths(config: EvernightConfig) -> list[Path | str]:
-    database = Path(config.runtime.database_path).resolve()
     return [
-        database,
-        Path(str(database) + ".provider-key"),
-        Path.cwd() / ".evernight",
-        Path.cwd() / "config.toml",
-        Path.cwd() / ".env",
+        *runtime_state_paths(config.runtime.database_path),
         *config.runtime.sandbox.protected_paths,
     ]
 
@@ -173,14 +189,24 @@ def _validate_sandbox_tool_roots(config: EvernightConfig) -> None:
 def create_interface_from_config(
     config: EvernightConfig,
 ) -> EvernightInterfaceProtocol:
-    interface = create_unsecured_interface_from_config(config)
     if not config.auth.enabled:
-        return interface
+        return create_unsecured_interface_from_config(config)
 
+    principal = _cli_principal(config)
     return AuthorizedEvernightInterface(
-        interface,
+        create_unsecured_interface_from_config(config),
         Authorizer(PermissionAuthPolicy()),
-        _cli_principal(config),
+        principal,
+    )
+
+
+def principal_for_user(user: AuthUserConfig) -> Principal:
+    return Principal(
+        principal_id=user.username,
+        principal_type=user.principal_type,
+        roles=user.roles,
+        permissions=user.permissions,
+        metadata=user.metadata,
     )
 
 
@@ -191,16 +217,7 @@ def _cli_principal(config: EvernightConfig) -> Principal:
     try:
         device = ManagedApiKeyAuthDevice(
             ApiKeyManager(register),
-            [
-                Principal(
-                    principal_id=user.username,
-                    principal_type=user.principal_type,
-                    roles=user.roles,
-                    permissions=user.permissions,
-                    metadata=user.metadata,
-                )
-                for user in config.auth.users
-            ],
+            [principal_for_user(user) for user in config.auth.users],
         )
         return ConfigCliAuthDevice(device).principal_for_config(config)
     finally:
@@ -214,57 +231,77 @@ def create_unsecured_interface_from_config(
     return create_interface(runtime)
 
 
-def _runtime_tool_options(config: EvernightConfig) -> dict[str, Any]:
+def _builtin_tool_options(config: EvernightConfig) -> BuiltinToolOptions:
     filesystem = config.tools.filesystem
     shell = config.tools.shell
     web = config.tools.web
     git = config.tools.git
     project = config.tools.project
-    runtime_data = config.tools.runtime_data
-    return {
-        "filesystem_root": filesystem.root if filesystem.enabled else None,
-        "max_read_chars": filesystem.max_read_chars,
-        "max_directory_entries": filesystem.max_directory_entries,
-        "max_search_results": filesystem.max_search_results,
-        "allow_file_overwrite": filesystem.allow_write,
-        "shell_allowed_commands": (
-            set(shell.allowed_commands) if shell.enabled else None
-        ),
-        "shell_blocked_commands": (
-            set(shell.blocked_commands) if shell.enabled else None
-        ),
-        "shell_working_directory": shell.working_directory,
-        "shell_timeout_seconds": shell.timeout_seconds,
-        "shell_max_output_chars": shell.max_output_chars,
-        "shell_requires_approval": shell.is_need_approval,
-        "shell_relaxed_approval": shell.relaxed_approval,
-        "shell_allowed_env_keys": (
-            set(shell.allowed_env_keys)
-            if shell.enabled and shell.allowed_env_keys is not None
+    return BuiltinToolOptions(
+        filesystem=(
+            FilesystemToolOptions(
+                root=filesystem.root,
+                max_read_chars=filesystem.max_read_chars,
+                max_directory_entries=filesystem.max_directory_entries,
+                max_search_results=filesystem.max_search_results,
+                allow_overwrite=filesystem.allow_write,
+            )
+            if filesystem.enabled
             else None
         ),
-        "web_enabled": web.enabled,
-        "web_allowed_hosts": (
-            set(web.allowed_hosts) if web.allowed_hosts is not None else None
+        shell=(
+            ShellToolOptions(
+                allowed_commands=set(shell.allowed_commands),
+                blocked_commands=set(shell.blocked_commands),
+                working_directory=shell.working_directory,
+                timeout_seconds=shell.timeout_seconds,
+                max_output_chars=shell.max_output_chars,
+                requires_approval=shell.is_need_approval,
+                relaxed_approval=shell.relaxed_approval,
+                allowed_env_keys=(
+                    set(shell.allowed_env_keys)
+                    if shell.allowed_env_keys is not None
+                    else None
+                ),
+            )
+            if shell.enabled
+            else None
         ),
-        "web_download_directory": web.download_directory,
-        "web_timeout_seconds": web.timeout_seconds,
-        "web_max_response_chars": web.max_response_chars,
-        "web_max_download_bytes": web.max_download_bytes,
-        "git_repository_directory": git.repository_directory if git.enabled else None,
-        "git_timeout_seconds": git.timeout_seconds,
-        "git_max_output_chars": git.max_output_chars,
-        "project_working_directory": (
-            project.working_directory if project.enabled else None
+        web=(
+            WebToolOptions(
+                allowed_hosts=(
+                    set(web.allowed_hosts) if web.allowed_hosts is not None else None
+                ),
+                download_directory=web.download_directory,
+                timeout_seconds=web.timeout_seconds,
+                max_response_chars=web.max_response_chars,
+                max_download_bytes=web.max_download_bytes,
+            )
+            if web.enabled
+            else None
         ),
-        "project_commands": project.commands if project.enabled else None,
-        "project_command_overrides": project.projects if project.enabled else None,
-        "project_directories": project.project_directories,
-        "project_timeout_seconds": project.timeout_seconds,
-        "project_max_output_chars": project.max_output_chars,
-        "runtime_data_tools_enabled": runtime_data.enabled,
-        "tool_sources": _configured_mcp_tool_sources(config),
-    }
+        git=(
+            GitToolOptions(
+                repository_directory=git.repository_directory,
+                timeout_seconds=git.timeout_seconds,
+                max_output_chars=git.max_output_chars,
+            )
+            if git.enabled
+            else None
+        ),
+        project=(
+            ProjectToolOptions(
+                working_directory=project.working_directory,
+                commands=project.commands,
+                command_overrides=project.projects,
+                timeout_seconds=project.timeout_seconds,
+                max_output_chars=project.max_output_chars,
+            )
+            if project.enabled
+            else None
+        ),
+        project_directories={**project.project_directories},
+    )
 
 
 def _configured_mcp_tool_sources(config: EvernightConfig) -> list[ToolSourceProtocol]:
@@ -329,33 +366,42 @@ def _configured_mcp_stdio_env(server: McpServerConfig) -> dict[str, str] | None:
         return None
     resolved: dict[str, str] = {}
     for target_name, source_name in server.env_from.items():
-        value = _configured_secret(source_name, label="MCP stdio environment")
-        if value is None:
-            raise ToolConfigurationError(
-                f"MCP stdio environment variable is not set: {source_name}"
-            )
-        resolved[target_name] = value
+        resolved[target_name] = _required_secret(
+            source_name, label="MCP stdio environment"
+        )
     return resolved
 
 
 def _configured_secret(name: str | None, *, label: str) -> str | None:
     if name is None:
         return None
+    return _required_secret(name, label=label)
+
+
+def _required_secret(name: str, *, label: str) -> str:
     value = os.getenv(name)
     if value is None or value == "":
         raise ToolConfigurationError(f"{label} variable is not set: {name}")
     return value
 
 
-def _runtime_context_options(config: EvernightConfig) -> dict[str, Any]:
+def _validate_context_strategy(config: EvernightConfig) -> None:
+    if config.context_strategy.enable_summary:
+        raise ConfigurationError(
+            "context_strategy.enable_summary requires a context summarizer, "
+            "which this runtime assembly does not provide"
+        )
+
+
+def _context_strategy_options(config: EvernightConfig) -> ContextStrategyOptions:
     context_strategy = config.context_strategy
-    return {
-        "context_max_messages": context_strategy.max_messages,
-        "context_max_tokens": context_strategy.max_tokens,
-        "context_enable_summary": context_strategy.enable_summary,
-        "context_summarize_after_messages": (context_strategy.summarize_after_messages),
-        "context_keep_recent_messages": context_strategy.keep_recent_messages,
-    }
+    return ContextStrategyOptions(
+        max_messages=context_strategy.max_messages,
+        max_tokens=context_strategy.max_tokens,
+        enable_summary=context_strategy.enable_summary,
+        summarize_after_messages=context_strategy.summarize_after_messages,
+        keep_recent_messages=context_strategy.keep_recent_messages,
+    )
 
 
 def _sqlite_data_source_definition(

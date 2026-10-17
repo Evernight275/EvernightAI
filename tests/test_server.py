@@ -54,6 +54,16 @@ def test_http_bootstrap_factory_creates_http_app(tmp_path) -> None:
     assert_http_app(app)
 
 
+def test_http_bootstrap_warns_when_env_auth_is_unset(tmp_path, caplog) -> None:
+    with caplog.at_level("WARNING", logger="EvernightAI.bootstrap.http"):
+        create_http_app(
+            database_path=tmp_path / "entrypoint.sqlite3",
+            close_on_shutdown=False,
+        )
+
+    assert "HTTP authentication is disabled" in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_provider_update_survives_restart_and_configured_provider_defaults(
     tmp_path, monkeypatch
@@ -487,7 +497,6 @@ database_path = "{(tmp_path / "runtime.sqlite3").as_posix()}"
 [http]
 host = "0.0.0.0"
 port = 8123
-reload = true
 """.strip(),
         encoding="utf-8",
     )
@@ -496,11 +505,12 @@ reload = true
         calls["database_path"] = config.runtime.database_path
         return app
 
-    def run(started_app, *, host, port, reload, log_config, server_header):
+    def run(started_app, *, host, port, reload, factory, log_config, server_header):
         calls["app"] = started_app
         calls["host"] = host
         calls["port"] = port
         calls["reload"] = reload
+        calls["factory"] = factory
         calls["log_config"] = log_config
         calls["server_header"] = server_header
 
@@ -519,11 +529,73 @@ reload = true
     assert calls["app"] is app
     assert calls["host"] == "0.0.0.0"
     assert calls["port"] == 8123
-    assert calls["reload"] is True
+    assert calls["reload"] is False
+    assert calls["factory"] is False
     assert calls["server_header"] is False
     assert calls["log_config"]["formatters"]["evernight"] == {
         "()": "EvernightAI.interface.cli.logging.EvernightLogFormatter",
     }
+
+
+def test_package_server_reload_starts_named_app_factory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls = {}
+    database_path = tmp_path / "runtime.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+[runtime]
+database_path = "{database_path.as_posix()}"
+
+[http]
+reload = true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    def create_app_from_config(config):
+        raise AssertionError("reload must not build the app in the parent process")
+
+    def run(started_app, *, host, port, reload, factory, log_config, server_header):
+        calls["app"] = started_app
+        calls["reload"] = reload
+        calls["factory"] = factory
+
+    # Recorded so that teardown removes the path serve() exports.
+    monkeypatch.setenv("EVERNIGHTAI_CONFIG_PATH", "")
+    monkeypatch.setattr(
+        "EvernightAI.entrypoint.server.create_app_from_config",
+        create_app_from_config,
+    )
+    monkeypatch.setattr("EvernightAI.entrypoint.server.uvicorn.run", run)
+
+    assert package_server_main(["--config", str(config_path)]) == 0
+    assert calls == {
+        "app": "EvernightAI.bootstrap.http:create_app_from_config_path",
+        "reload": True,
+        "factory": True,
+    }
+    assert not database_path.exists()
+
+    from EvernightAI.bootstrap.http import create_app_from_config_path
+
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.http.create_app_from_config",
+        lambda config: config,
+    )
+    loaded = create_app_from_config_path()
+    assert loaded.runtime.database_path == database_path.as_posix()  # type: ignore[attr-defined]
+
+
+def test_config_app_factory_requires_config_path(monkeypatch) -> None:
+    from EvernightAI.bootstrap.http import create_app_from_config_path
+
+    monkeypatch.setenv("EVERNIGHTAI_CONFIG_PATH", "")
+
+    with pytest.raises(ConfigurationError, match="EVERNIGHTAI_CONFIG_PATH"):
+        create_app_from_config_path()
 
 
 def assert_http_app(app) -> None:

@@ -3,13 +3,20 @@ import sqlite3
 
 import pytest
 
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.application.agent import AgentApplication, AgentRunApplication
 from EvernightAI.application.chat import ChatApplication
 from EvernightAI.application.provider import ProviderApplication
 from EvernightAI.application.session import SessionApplication
-from EvernightAI.bootstrap.config import create_runtime_from_config
+from EvernightAI.bootstrap.config import (
+    create_interface_from_config,
+    create_runtime_from_config,
+)
 from EvernightAI.bootstrap.interface import create_interface
-from EvernightAI.bootstrap.runtime import create_runtime
+from EvernightAI.bootstrap.runtime import create_runtime, create_sqlite_runtime
+from EvernightAI.core.error.auth import AuthRequiredError
+from EvernightAI.infra.adapters.tool.file_artifacts import SQLiteFileArtifactStore
+from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
@@ -301,8 +308,10 @@ def test_configured_context_summary_requires_summarizer(tmp_path) -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="requires a summarizer"):
+    with pytest.raises(ConfigurationError, match="enable_summary"):
         create_runtime_from_config(config)
+
+    assert not (tmp_path / "runtime.sqlite3").exists()
 
 
 def _message(text: str) -> Content:
@@ -347,6 +356,135 @@ async def test_interface_close_drains_agent_runs_before_runtime_close() -> None:
     await interface.close()
 
     assert closed == ["agent_runs", "runtime"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_continues_after_a_store_fails_to_close() -> None:
+    runtime = create_runtime()
+    closed: list[str] = []
+
+    def fail_context_close() -> None:
+        raise RuntimeError("context close failed")
+
+    cast(Any, runtime.context_register).close = fail_context_close
+    cast(Any, runtime.session_register).close = lambda: closed.append("session")
+
+    with pytest.raises(RuntimeError, match="context close failed"):
+        await runtime.close()
+
+    assert closed == ["session"]
+
+
+@pytest.mark.asyncio
+async def test_interface_close_closes_runtime_when_agent_drain_fails() -> None:
+    runtime = create_runtime()
+    interface = create_interface(runtime)
+    closed: list[str] = []
+
+    async def fail_agent_runs_close() -> None:
+        raise RuntimeError("drain failed")
+
+    async def close_runtime() -> None:
+        closed.append("runtime")
+
+    cast(Any, interface.agent_runs).close = fail_agent_runs_close
+    cast(Any, interface.runtime).close = close_runtime
+
+    with pytest.raises(RuntimeError, match="drain failed"):
+        await interface.close()
+
+    assert closed == ["runtime"]
+
+
+def test_sqlite_runtime_closes_opened_stores_when_assembly_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    closed: list[str] = []
+
+    class RecordingFileArtifactStore(SQLiteFileArtifactStore):
+        def close(self) -> None:
+            closed.append("file_artifacts")
+            super().close()
+
+    def fail_recovery(*args: object, **kwargs: object) -> int:
+        raise RuntimeError("recovery failed")
+
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.runtime.SQLiteFileArtifactStore",
+        RecordingFileArtifactStore,
+    )
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.runtime.recover_interrupted_agent_runs",
+        fail_recovery,
+    )
+
+    with pytest.raises(RuntimeError, match="recovery failed"):
+        create_sqlite_runtime(tmp_path / "runtime.sqlite3")
+
+    assert closed == ["file_artifacts"]
+
+
+def test_configured_runtime_closes_workspaces_when_assembly_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    closed: list[str] = []
+
+    class RecordingWorkspaceDirectoryStore(WorkspaceDirectoryStore):
+        def close(self) -> None:
+            closed.append("workspaces")
+            super().close()
+
+    def fail_runtime(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("runtime assembly failed")
+
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.config.WorkspaceDirectoryStore",
+        RecordingWorkspaceDirectoryStore,
+    )
+    monkeypatch.setattr(
+        "EvernightAI.bootstrap.config.create_sqlite_runtime",
+        fail_runtime,
+    )
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
+            "tools": {"filesystem": {"enabled": True, "root": str(tmp_path)}},
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="runtime assembly failed"):
+        create_runtime_from_config(config)
+
+    assert closed == ["workspaces"]
+
+
+def test_cli_interface_checks_credentials_before_creating_runtime(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    for name in (
+        "EVERNIGHTAI_CLI_API_KEY",
+        "EVERNIGHTAI_CLI_USERNAME",
+        "EVERNIGHTAI_CLI_PASSWORD",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    database_path = tmp_path / "runtime.sqlite3"
+    config = parse_config(
+        {
+            "runtime": {"database_path": str(database_path)},
+            "auth": {
+                "enabled": True,
+                "users": [{"username": "admin", "password": "secret"}],
+            },
+        }
+    )
+
+    with pytest.raises(AuthRequiredError):
+        create_interface_from_config(config)
+
+    assert not database_path.exists()
 
 
 @pytest.mark.asyncio

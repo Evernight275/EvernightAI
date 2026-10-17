@@ -90,6 +90,17 @@ $env:EVERNIGHTAI_FILESYSTEM_ROOT=(Get-Location).Path
 .\.venv\Scripts\python.exe -m uvicorn EvernightAI.bootstrap.http:create_app --factory --reload
 ```
 
+This environment-variable factory assembles only filesystem and shell tools
+and env-based API key or OAuth token authentication; without
+`EVERNIGHTAI_HTTP_API_KEY` or `EVERNIGHTAI_HTTP_OAUTH_ACCESS_TOKEN`, every
+request has full access. To start from `config.toml` with all configured
+tools, MCP sources, sandbox and authentication:
+
+```powershell
+$env:EVERNIGHTAI_CONFIG_PATH="config.toml"
+.\.venv\Scripts\python.exe -m uvicorn EvernightAI.bootstrap.http:create_app_from_config_path --factory --reload
+```
+
 The HTTP app factory is a package-level composition root in
 `EvernightAI.bootstrap.http`. Keep entrypoint modules focused on process
 startup and keep runtime/service assembly out of `interface/http`.

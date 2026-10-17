@@ -1,16 +1,29 @@
+import logging
 import os
 from pathlib import Path
 
 from fastapi import FastAPI
 
-from EvernightAI.bootstrap.config import create_unsecured_interface_from_config
+from EvernightAI.bootstrap.config import (
+    create_unsecured_interface_from_config,
+    principal_for_user,
+)
 from EvernightAI.bootstrap.interface import create_interface
-from EvernightAI.bootstrap.runtime import create_sqlite_runtime
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    FilesystemToolOptions,
+    ShellToolOptions,
+)
+from EvernightAI.bootstrap.runtime import (
+    DeferredAgentRunRecovery,
+    create_sqlite_runtime,
+)
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevice
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import (
@@ -32,6 +45,9 @@ from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
 DEFAULT_DATABASE_PATH = Path(".evernight") / "runtime.sqlite3"
 DEFAULT_HTTP_AUTH_PRINCIPAL_ID = "http-api-key"
 DEFAULT_HTTP_OAUTH_PRINCIPAL_ID = "http-oauth"
+CONFIG_PATH_ENV = "EVERNIGHTAI_CONFIG_PATH"
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _default_static_files_path() -> Path | None:
@@ -46,39 +62,59 @@ def create_app(
     static_files_path: str | Path | None = None,
     close_on_shutdown: bool = True,
 ) -> FastAPI:
-    runtime = create_sqlite_runtime(
-        database_path or _env_path("EVERNIGHTAI_DATABASE_PATH", DEFAULT_DATABASE_PATH),
-        filesystem_root=filesystem_root
-        or _env_optional_path("EVERNIGHTAI_FILESYSTEM_ROOT"),
-        allow_file_overwrite=_env_bool("EVERNIGHTAI_ALLOW_FILE_OVERWRITE", False),
-        shell_allowed_commands=_env_optional_set("EVERNIGHTAI_SHELL_ALLOWED_COMMANDS"),
-        shell_blocked_commands=_env_optional_set("EVERNIGHTAI_SHELL_BLOCKED_COMMANDS"),
-        shell_working_directory=_env_optional_path(
-            "EVERNIGHTAI_SHELL_WORKING_DIRECTORY"
+    filesystem_root = filesystem_root or _env_optional_path(
+        "EVERNIGHTAI_FILESYSTEM_ROOT"
+    )
+    shell_allowed_commands = _env_optional_set("EVERNIGHTAI_SHELL_ALLOWED_COMMANDS")
+    tools = BuiltinToolOptions(
+        filesystem=(
+            FilesystemToolOptions(
+                root=filesystem_root,
+                allow_overwrite=_env_bool("EVERNIGHTAI_ALLOW_FILE_OVERWRITE", False),
+            )
+            if filesystem_root is not None
+            else None
         ),
-        shell_timeout_seconds=_env_float("EVERNIGHTAI_SHELL_TIMEOUT_SECONDS", 10.0),
-        shell_max_output_chars=_env_int("EVERNIGHTAI_SHELL_MAX_OUTPUT_CHARS", 12000),
-        shell_requires_approval=_env_bool(
-            "EVERNIGHTAI_SHELL_IS_NEED_APPROVAL",
-            True,
-        ),
-        trace_retention_days=_env_int(
-            "EVERNIGHTAI_TRACE_RETENTION_DAYS",
-            30,
-        ),
-        trace_max_events=_env_int(
-            "EVERNIGHTAI_TRACE_MAX_EVENTS",
-            100_000,
+        shell=(
+            ShellToolOptions(
+                allowed_commands=shell_allowed_commands,
+                blocked_commands=_env_optional_set(
+                    "EVERNIGHTAI_SHELL_BLOCKED_COMMANDS"
+                ),
+                working_directory=_env_optional_path(
+                    "EVERNIGHTAI_SHELL_WORKING_DIRECTORY"
+                ),
+                timeout_seconds=_env_float("EVERNIGHTAI_SHELL_TIMEOUT_SECONDS", 10.0),
+                max_output_chars=_env_int("EVERNIGHTAI_SHELL_MAX_OUTPUT_CHARS", 12000),
+                requires_approval=_env_bool("EVERNIGHTAI_SHELL_IS_NEED_APPROVAL", True),
+            )
+            if shell_allowed_commands is not None
+            else None
         ),
     )
+    runtime = create_sqlite_runtime(
+        database_path or _env_path("EVERNIGHTAI_DATABASE_PATH", DEFAULT_DATABASE_PATH),
+        tools=tools,
+        trace_retention_days=_env_int("EVERNIGHTAI_TRACE_RETENTION_DAYS", 30),
+        trace_max_events=_env_int("EVERNIGHTAI_TRACE_MAX_EVENTS", 100_000),
+    )
+    agent_recovery = DeferredAgentRunRecovery(runtime)
+    auth_device = _env_auth_device()
+    if auth_device is None:
+        LOGGER.warning(
+            "HTTP authentication is disabled: set EVERNIGHTAI_HTTP_API_KEY or "
+            "EVERNIGHTAI_HTTP_OAUTH_ACCESS_TOKEN to require credentials"
+        )
     return create_http_app(
         create_interface(runtime),
-        auth_device=_env_auth_device(),
+        auth_device=auth_device,
         workspace_directories=runtime.workspace_directories,
         authorized_interface_factory=_authorized_interface_factory(),
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
         readiness_checker=lambda: runtime.is_ready,
+        startup_handlers=[agent_recovery.start],
+        shutdown_handlers=[agent_recovery.close],
         server_header=_env_optional_string(
             "EVERNIGHTAI_HTTP_SERVER_HEADER",
             "EvernightAI",
@@ -91,6 +127,14 @@ def create_app(
     )
 
 
+def create_app_from_config_path() -> FastAPI:
+    """App factory for uvicorn reload, which must import the app by name."""
+    config_path = os.getenv(CONFIG_PATH_ENV)
+    if not config_path:
+        raise ConfigurationError(f"{CONFIG_PATH_ENV} is not set")
+    return create_app_from_config(load_config(config_path))
+
+
 def create_app_from_config(
     config: EvernightConfig,
     *,
@@ -98,6 +142,7 @@ def create_app_from_config(
 ) -> FastAPI:
     interface = create_unsecured_interface_from_config(config)
     runtime = interface.runtime
+    agent_recovery = DeferredAgentRunRecovery(runtime)
 
     async def register_configured_providers() -> None:
         stored_ids = (
@@ -109,8 +154,14 @@ def create_app_from_config(
             else set()
         )
         for provider in config.providers:
-            if provider.provider_id not in stored_ids:
-                await interface.providers.create_provider(provider)
+            if provider.provider_id in stored_ids:
+                LOGGER.info(
+                    "Provider %s is already stored; its stored settings take "
+                    "precedence over config.toml",
+                    provider.provider_id,
+                )
+                continue
+            await interface.providers.create_provider(provider)
 
     login_device = _config_login_device(config)
     key_register = (
@@ -123,16 +174,7 @@ def create_app_from_config(
         ManagedApiKeyHttpAuthDevice(
             ManagedApiKeyAuthDevice(
                 key_manager,
-                [
-                    Principal(
-                        principal_id=user.username,
-                        principal_type=user.principal_type,
-                        roles=user.roles,
-                        permissions=user.permissions,
-                        metadata=user.metadata,
-                    )
-                    for user in config.auth.users
-                ],
+                [principal_for_user(user) for user in config.auth.users],
             )
         )
         if key_manager is not None
@@ -153,8 +195,8 @@ def create_app_from_config(
         close_on_shutdown=close_on_shutdown,
         initialize_handler=runtime.initialize,
         readiness_checker=lambda: runtime.is_ready,
-        startup_handlers=[register_configured_providers],
-        shutdown_handlers=[close_key_register],
+        startup_handlers=[register_configured_providers, agent_recovery.start],
+        shutdown_handlers=[agent_recovery.close, close_key_register],
         server_header=config.http.server_header,
         static_files_path=config.http.static_files_path,
     )
@@ -216,13 +258,7 @@ def _config_login_device(
             HttpPasswordCredential(
                 username=user.username,
                 password=user.password,
-                principal=Principal(
-                    principal_id=user.username,
-                    principal_type=user.principal_type,
-                    roles=user.roles,
-                    permissions=user.permissions,
-                    metadata=user.metadata,
-                ),
+                principal=principal_for_user(user),
             )
         )
 

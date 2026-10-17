@@ -11,6 +11,7 @@ from EvernightAI.core.protocol.agent import (
 )
 from EvernightAI.core.schema.agent import (
     AgentPauseCause,
+    AgentRunLease,
     AgentRunPause,
     AgentRunState,
     AgentRunStatus,
@@ -376,6 +377,31 @@ def _require_contiguous_trace(
         previous = event.sequence
 
 
+def latest_active_agent_run_lease(
+    state_register: AgentRunStateRegisterProtocol,
+) -> datetime | None:
+    """When the last live lease held by a running run expires, if any."""
+    now = datetime.now(timezone.utc)
+    latest: datetime | None = None
+    for state in state_register.query_states(status=AgentRunStatus.RUNNING):
+        expiry = _active_lease_expiry(
+            state_register.get_execution_lease(state.run_id),
+            now,
+        )
+        if expiry is not None and (latest is None or expiry > latest):
+            latest = expiry
+    return latest
+
+
+def _active_lease_expiry(
+    lease: AgentRunLease | None,
+    now: datetime,
+) -> datetime | None:
+    if lease is None or lease.expires_at is None or lease.expires_at <= now:
+        return None
+    return lease.expires_at
+
+
 def recover_interrupted_agent_runs(
     state_register: AgentRunStateRegisterProtocol,
     trace_register: AgentTraceRegisterProtocol,
@@ -385,11 +411,7 @@ def recover_interrupted_agent_runs(
     now = datetime.now(timezone.utc)
     for state in state_register.query_states(status=AgentRunStatus.RUNNING):
         lease = state_register.get_execution_lease(state.run_id)
-        if (
-            lease is not None
-            and lease.expires_at is not None
-            and lease.expires_at > now
-        ):
+        if _active_lease_expiry(lease, now) is not None:
             continue
 
         cause = (

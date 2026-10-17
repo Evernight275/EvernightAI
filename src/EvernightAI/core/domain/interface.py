@@ -82,5 +82,7 @@ class EvernightInterface(EvernightInterfaceProtocol):
         await self._runtime.initialize()
 
     async def close(self) -> None:
-        await self.agent_runs.close()
-        await self._runtime.close()
+        try:
+            await self.agent_runs.close()
+        finally:
+            await self._runtime.close()

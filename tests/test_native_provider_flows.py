@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from EvernightAI.application.agent import AgentRunApplication
+from EvernightAI.bootstrap.options import BuiltinToolOptions, FilesystemToolOptions
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.error.provider import ProviderResponseError
@@ -200,7 +201,10 @@ async def test_agent_tool_roundtrip_preserves_signed_blocks_after_sqlite_reload(
         return {"value": arguments["q"]}
 
     async def runtime_with_client():
-        runtime = create_sqlite_runtime(database, filesystem_root=tmp_path)
+        runtime = create_sqlite_runtime(
+            database,
+            tools=BuiltinToolOptions(filesystem=FilesystemToolOptions(root=tmp_path)),
+        )
         runtime.tool_register.register(tool, lookup)
         await runtime.providers.create(
             ProviderConfig(provider_id="native", name="Native", type=provider_type)
@@ -458,7 +462,8 @@ async def test_agent_saves_stream_failures_without_completed_response(
                 None, {"error": {"status": "UNAVAILABLE", "message": "Overloaded"}}
             )
     runtime = create_sqlite_runtime(
-        tmp_path / "runtime.sqlite3", filesystem_root=tmp_path
+        tmp_path / "runtime.sqlite3",
+        tools=BuiltinToolOptions(filesystem=FilesystemToolOptions(root=tmp_path)),
     )
     try:
         await runtime.providers.create(

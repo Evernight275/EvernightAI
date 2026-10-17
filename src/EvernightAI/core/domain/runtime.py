@@ -11,6 +11,7 @@ from EvernightAI.core.protocol.image import (
     ImageTaskStoreProtocol,
     ImageTaskExecutorProtocol,
 )
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from EvernightAI.core.protocol.agent import (
@@ -320,20 +321,38 @@ class RuntimeKernel(RuntimeProtocol):
         self._initialized = True
 
     async def close(self) -> None:
+        errors: list[Exception] = []
+
+        async def attempt(
+            description: str, close: Callable[[], Awaitable[Any]]
+        ) -> None:
+            try:
+                await close()
+            except Exception as exc:
+                LOGGER.exception("EvernightAI runtime shutdown: failed %s", description)
+                errors.append(exc)
+
         if self._image_task_executor is not None:
             LOGGER.info("EvernightAI runtime shutdown: closing image task executor")
-            await self._image_task_executor.close()
+            await attempt(
+                "closing image task executor", self._image_task_executor.close
+            )
         for source in reversed(self._tool_sources):
             LOGGER.info(
                 "EvernightAI runtime shutdown: closing tool source %s",
                 type(source).__name__,
             )
-            await source.close()
+            await attempt("closing tool source", source.close)
         LOGGER.info("EvernightAI runtime shutdown: closing provider connections")
-        await self._providers.close()
+        await attempt("closing provider connections", self._providers.close)
         LOGGER.info("EvernightAI runtime shutdown: closing persistent resources")
         for resource in [*self._persistent_resources(), self._sandbox]:
-            await _close_if_supported(resource)
+            await attempt(
+                f"closing {type(resource).__name__}",
+                lambda resource=resource: _close_if_supported(resource),
+            )
+        if errors:
+            raise errors[0]
         LOGGER.info("EvernightAI runtime shutdown: resources closed")
 
     def _persistent_resources(self) -> list[Any]:

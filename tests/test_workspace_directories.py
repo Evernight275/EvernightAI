@@ -5,6 +5,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    FilesystemToolOptions,
+    GitToolOptions,
+    ProjectToolOptions,
+    ShellToolOptions,
+)
 from EvernightAI.core.domain.tool import ToolManager, ToolRegister
 from EvernightAI.core.error.base import ConflictError, ValidationError
 from EvernightAI.core.error.tool import ToolPolicyError
@@ -322,15 +329,21 @@ async def test_all_project_tools_follow_each_calls_workspace(tmp_path: Path) -> 
     register = ToolRegister()
     register_builtin_tools(
         register,
-        filesystem_root=default,
+        BuiltinToolOptions(
+            filesystem=FilesystemToolOptions(root=default),
+            shell=ShellToolOptions(
+                allowed_commands={sys.executable},
+                working_directory=default,
+            ),
+            git=GitToolOptions(repository_directory=default),
+            project=ProjectToolOptions(
+                working_directory=default,
+                commands={
+                    "where": [sys.executable, "-c", "import os; print(os.getcwd())"]
+                },
+            ),
+        ),
         workspace_directories=workspaces,
-        shell_allowed_commands={sys.executable},
-        shell_working_directory=default,
-        git_repository_directory=default,
-        project_working_directory=default,
-        project_commands={
-            "where": [sys.executable, "-c", "import os; print(os.getcwd())"]
-        },
     )
     manager = ToolManager(register)
 

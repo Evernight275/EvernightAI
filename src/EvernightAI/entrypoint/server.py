@@ -1,4 +1,5 @@
 import argparse
+import os
 import platform
 import sys
 from collections.abc import Sequence
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import uvicorn
 
-from EvernightAI.bootstrap.http import create_app_from_config
+from EvernightAI.bootstrap.http import CONFIG_PATH_ENV, create_app_from_config
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.logging import configure_logging, uvicorn_log_config
@@ -39,7 +40,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def serve(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
     config = load_config(config_path)
-    app = create_app_from_config(config)
+    if config.http.reload:
+        # Reload re-imports the app in a worker process, so it is named, not built here.
+        os.environ[CONFIG_PATH_ENV] = str(Path(config_path).resolve())
+        app = "EvernightAI.bootstrap.http:create_app_from_config_path"
+    else:
+        app = create_app_from_config(config)
     for line in _startup_info_lines(
         config_path,
         host=config.http.host,
@@ -54,6 +60,7 @@ def serve(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
         host=config.http.host,
         port=config.http.port,
         reload=config.http.reload,
+        factory=config.http.reload,
         log_config=uvicorn_log_config(),
         server_header=False,
     )

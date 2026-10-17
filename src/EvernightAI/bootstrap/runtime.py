@@ -1,6 +1,11 @@
+import asyncio
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 import sys
+from collections.abc import Callable
+from typing import Any
 
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
@@ -16,7 +21,10 @@ from EvernightAI.core.domain.context import (
     TokenBudgetContextStrategy,
     WindowTrimmingContextStrategy,
 )
-from EvernightAI.application.agent import recover_interrupted_agent_runs
+from EvernightAI.application.agent import (
+    latest_active_agent_run_lease,
+    recover_interrupted_agent_runs,
+)
 from EvernightAI.application.image_task import ImageTaskApplication
 from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.schema.image_task import ImageTask
@@ -31,7 +39,12 @@ from EvernightAI.core.domain.memory import (
     MemoryRegister,
 )
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    ContextStrategyOptions,
+)
 from EvernightAI.core.domain.runtime import RuntimeKernel
+from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.domain.session import SessionManager, SessionRegister
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
 from EvernightAI.core.domain.tool import (
@@ -63,8 +76,6 @@ from EvernightAI.core.protocol.context import (
     ContextOrganizerProtocol,
     ContextRegisterProtocol,
     ContextStrategyProtocol,
-    ContextSummarizerProtocol,
-    ContextTokenEstimatorProtocol,
 )
 from EvernightAI.core.protocol.data_analysis import (
     DataAnalysisManageProtocol,
@@ -141,6 +152,65 @@ from EvernightAI.infra.registrations.tool.runtime_data import (
 )
 
 
+LOGGER = logging.getLogger(__name__)
+
+
+class DeferredAgentRunRecovery:
+    """Recovers runs skipped at startup because their lease was still live.
+
+    Startup recovery leaves such runs RUNNING. When the previous process died
+    without releasing them, nothing else would ever pause them, so recovery
+    runs once more after the latest of those leases has expired.
+    """
+
+    def __init__(self, runtime: RuntimeProtocol, *, margin_seconds: float = 1.0):
+        self._runtime = runtime
+        self._margin_seconds = margin_seconds
+        self._task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        state_register = self._runtime.agent_state_register
+        trace_register = self._runtime.agent_trace_register
+        if state_register is None or trace_register is None:
+            return
+        expires_at = latest_active_agent_run_lease(state_register)
+        recover_interrupted_agent_runs(
+            state_register,
+            trace_register,
+            self._runtime.tool_execution_register,
+        )
+        if expires_at is None:
+            return
+        self._task = asyncio.create_task(
+            self._recover_after(expires_at),
+            name="evernight-deferred-agent-recovery",
+        )
+
+    async def close(self) -> None:
+        if self._task is None:
+            return
+        self._task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+
+    async def _recover_after(self, expires_at: datetime) -> None:
+        delay = (expires_at - datetime.now(timezone.utc)).total_seconds()
+        await asyncio.sleep(max(delay, 0.0) + self._margin_seconds)
+        state_register = self._runtime.agent_state_register
+        trace_register = self._runtime.agent_trace_register
+        if state_register is None or trace_register is None:
+            return
+        try:
+            recover_interrupted_agent_runs(
+                state_register,
+                trace_register,
+                self._runtime.tool_execution_register,
+            )
+        except Exception:
+            LOGGER.exception("Deferred agent run recovery failed")
+
+
 def create_provider_factory() -> ProviderFactory:
     factory = ProviderFactory()
     register_openai_compatible_provider(factory)
@@ -163,141 +233,108 @@ def create_skill_manager(
 
 def register_builtin_tools(
     register: ToolRegisterProtocol,
+    options: BuiltinToolOptions = BuiltinToolOptions(),
     *,
-    filesystem_root: str | Path | None = None,
     file_artifacts: FileArtifactStoreProtocol | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
-    max_read_chars: int = 12000,
-    max_directory_entries: int = 100,
-    max_search_results: int = 100,
-    allow_file_overwrite: bool = False,
-    shell_allowed_commands: set[str] | None = None,
-    shell_blocked_commands: set[str] | None = None,
-    shell_working_directory: str | Path | None = None,
-    shell_timeout_seconds: float = 10.0,
-    shell_max_output_chars: int = 12000,
-    shell_requires_approval: bool = True,
-    shell_relaxed_approval: bool = False,
-    shell_allowed_env_keys: set[str] | None = None,
-    web_allowed_hosts: set[str] | None = None,
-    web_download_directory: str | Path | None = None,
-    web_timeout_seconds: float = 10.0,
-    web_max_response_chars: int = 12000,
-    web_max_download_bytes: int = 10_000_000,
-    web_enabled: bool = False,
-    git_repository_directory: str | Path | None = None,
-    git_timeout_seconds: float = 10.0,
-    git_max_output_chars: int = 12000,
-    project_working_directory: str | Path | None = None,
-    project_commands: dict[str, list[str]] | None = None,
-    project_command_overrides: dict[str, dict[str, list[str]]] | None = None,
-    project_directories: dict[str, str | Path] | None = None,
-    project_timeout_seconds: float = 120.0,
-    project_max_output_chars: int = 20000,
     sandbox: SandboxExecuteProtocol | None = None,
 ) -> None:
-    if filesystem_root is not None:
+    project_directories = options.project_directories
+    if (filesystem := options.filesystem) is not None:
         register_restricted_filesystem_tools(
             register,
-            root_directory=filesystem_root,
+            root_directory=filesystem.root,
             workspace_directories=workspace_directories,
-            max_read_chars=max_read_chars,
-            max_directory_entries=max_directory_entries,
-            max_search_results=max_search_results,
-            allow_overwrite=allow_file_overwrite,
+            max_read_chars=filesystem.max_read_chars,
+            max_directory_entries=filesystem.max_directory_entries,
+            max_search_results=filesystem.max_search_results,
+            allow_overwrite=filesystem.allow_overwrite,
             project_directories=project_directories,
         )
         if file_artifacts is not None:
             register_display_file_tool(
                 register,
-                root_directory=filesystem_root,
+                root_directory=filesystem.root,
                 store=file_artifacts,
                 workspace_directories=workspace_directories,
             )
 
-    if shell_allowed_commands is not None:
+    if (shell := options.shell) is not None:
         register_restricted_shell_tool(
             register,
-            allowed_commands=shell_allowed_commands,
-            blocked_commands=shell_blocked_commands,
-            working_directory=shell_working_directory or Path.cwd(),
+            allowed_commands=shell.allowed_commands,
+            blocked_commands=shell.blocked_commands,
+            working_directory=shell.working_directory or Path.cwd(),
             workspace_directories=workspace_directories,
-            timeout_seconds=shell_timeout_seconds,
-            max_output_chars=shell_max_output_chars,
-            requires_approval=shell_requires_approval,
-            relaxed_approval=shell_relaxed_approval,
-            allowed_env_keys=shell_allowed_env_keys,
+            timeout_seconds=shell.timeout_seconds,
+            max_output_chars=shell.max_output_chars,
+            requires_approval=shell.requires_approval,
+            relaxed_approval=shell.relaxed_approval,
+            allowed_env_keys=shell.allowed_env_keys,
             sandbox=sandbox,
         )
 
-    if web_enabled:
+    if (web := options.web) is not None:
         register_restricted_web_tools(
             register,
-            allowed_hosts=web_allowed_hosts,
-            download_directory=web_download_directory,
-            timeout_seconds=web_timeout_seconds,
-            max_response_chars=web_max_response_chars,
-            max_download_bytes=web_max_download_bytes,
+            allowed_hosts=web.allowed_hosts,
+            download_directory=web.download_directory,
+            timeout_seconds=web.timeout_seconds,
+            max_response_chars=web.max_response_chars,
+            max_download_bytes=web.max_download_bytes,
         )
 
-    if git_repository_directory is not None:
+    if (git := options.git) is not None:
         register_restricted_git_tools(
             register,
-            repository_directory=git_repository_directory,
+            repository_directory=git.repository_directory,
             workspace_directories=workspace_directories,
             project_directories=project_directories,
-            timeout_seconds=git_timeout_seconds,
-            max_output_chars=git_max_output_chars,
+            timeout_seconds=git.timeout_seconds,
+            max_output_chars=git.max_output_chars,
             sandbox=sandbox,
         )
 
-    if project_working_directory is not None and project_commands is not None:
+    if (project := options.project) is not None:
         register_restricted_project_tools(
             register,
-            working_directory=project_working_directory,
+            working_directory=project.working_directory,
             workspace_directories=workspace_directories,
-            commands=project_commands,
-            project_commands=project_command_overrides,
+            commands=project.commands,
+            project_commands=project.command_overrides,
             project_directories=project_directories,
-            timeout_seconds=project_timeout_seconds,
-            max_output_chars=project_max_output_chars,
+            timeout_seconds=project.timeout_seconds,
+            max_output_chars=project.max_output_chars,
             sandbox=sandbox,
         )
 
 
 def create_context_strategy(
     organizer: ContextOrganizerProtocol | None = None,
-    *,
-    max_messages: int | None = None,
-    max_tokens: int | None = None,
-    estimator: ContextTokenEstimatorProtocol | None = None,
-    enable_summary: bool = False,
-    summarizer: ContextSummarizerProtocol | None = None,
-    summarize_after_messages: int = 100,
-    keep_recent_messages: int = 20,
+    options: ContextStrategyOptions = ContextStrategyOptions(),
 ) -> ContextStrategyProtocol:
     strategy: ContextStrategyProtocol = BasicContextStrategy(
         organizer or ContextOrganizer()
     )
-    if enable_summary:
-        if summarizer is None:
+    if options.enable_summary:
+        if options.summarizer is None:
             raise ValueError("context summary requires a summarizer")
         strategy = SummarizingContextStrategy(
             strategy,
-            summarizer,
-            summarize_after_messages=summarize_after_messages,
-            keep_recent_messages=keep_recent_messages,
+            options.summarizer,
+            summarize_after_messages=options.summarize_after_messages,
+            keep_recent_messages=options.keep_recent_messages,
         )
-    if max_messages is not None:
+    if options.max_messages is not None:
         strategy = WindowTrimmingContextStrategy(
             strategy,
-            max_messages=max_messages,
+            max_messages=options.max_messages,
         )
-    if max_tokens is not None:
+    if options.max_tokens is not None:
         strategy = TokenBudgetContextStrategy(
             strategy,
-            max_tokens=max_tokens,
-            estimator=estimator or ApproximateContextTokenEstimator(),
+            max_tokens=options.max_tokens,
+            estimator=options.estimator or ApproximateContextTokenEstimator(),
         )
     return strategy
 
@@ -329,169 +366,148 @@ def create_runtime_with_agent_storage(
 def create_sqlite_runtime(
     database_path: str | Path,
     *,
+    tools: BuiltinToolOptions = BuiltinToolOptions(),
+    context: ContextStrategyOptions = ContextStrategyOptions(),
     sandbox: SandboxExecuteProtocol | None = None,
     include_agent_storage: bool = True,
-    filesystem_root: str | Path | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
-    max_read_chars: int = 12000,
-    max_directory_entries: int = 100,
-    max_search_results: int = 100,
-    allow_file_overwrite: bool = False,
-    shell_allowed_commands: set[str] | None = None,
-    shell_blocked_commands: set[str] | None = None,
-    shell_working_directory: str | Path | None = None,
-    shell_timeout_seconds: float = 10.0,
-    shell_max_output_chars: int = 12000,
-    shell_requires_approval: bool = True,
-    shell_relaxed_approval: bool = False,
-    shell_allowed_env_keys: set[str] | None = None,
-    web_enabled: bool = False,
-    web_allowed_hosts: set[str] | None = None,
-    web_download_directory: str | Path | None = None,
-    web_timeout_seconds: float = 10.0,
-    web_max_response_chars: int = 12000,
-    web_max_download_bytes: int = 10_000_000,
-    git_repository_directory: str | Path | None = None,
-    git_timeout_seconds: float = 10.0,
-    git_max_output_chars: int = 12000,
-    project_working_directory: str | Path | None = None,
-    project_commands: dict[str, list[str]] | None = None,
-    project_command_overrides: dict[str, dict[str, list[str]]] | None = None,
-    project_directories: dict[str, str | Path] | None = None,
-    project_timeout_seconds: float = 120.0,
-    project_max_output_chars: int = 20000,
     runtime_data_tools_enabled: bool = False,
     trace_retention_days: int | None = 30,
     trace_max_events: int | None = 100_000,
-    context_max_messages: int | None = None,
-    context_max_tokens: int | None = None,
-    context_token_estimator: ContextTokenEstimatorProtocol | None = None,
-    context_enable_summary: bool = False,
-    context_summarizer: ContextSummarizerProtocol | None = None,
-    context_summarize_after_messages: int = 100,
-    context_keep_recent_messages: int = 20,
     prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
     prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
     tool_sources: list[ToolSourceProtocol] | None = None,
+    configure_data_analysis: Callable[[DataAnalysisRegisterProtocol], None]
+    | None = None,
 ) -> RuntimeKernel:
     SQLiteMigrationRunner(database_path).run()
-    if workspace_directories is None and filesystem_root is not None:
-        workspace_directories = WorkspaceDirectoryStore(
-            filesystem_root,
-            browse_host_directories=True,
+    opened: list[Any] = []
+    try:
+        if workspace_directories is None and tools.filesystem is not None:
+            workspace_directories = WorkspaceDirectoryStore(
+                tools.filesystem.root,
+                browse_host_directories=True,
+                database_path=database_path,
+                protected_paths=[
+                    *runtime_state_paths(database_path),
+                    Path(sys.prefix),
+                    Path(sys.base_prefix),
+                ],
+            )
+            opened.append(workspace_directories)
+        sandbox = sandbox or SubprocessSandboxExecutor()
+        tool_register = ToolRegister()
+        file_artifacts = _opened(opened, SQLiteFileArtifactStore(database_path))
+        register_builtin_tools(
+            tool_register,
+            tools,
+            file_artifacts=file_artifacts,
+            workspace_directories=workspace_directories,
+            sandbox=sandbox,
+        )
+
+        agent_state_register: AgentRunStateRegisterProtocol | None = None
+        agent_trace_register: AgentTraceRegisterProtocol | None = None
+        agent_run_executor: AgentRunExecutorProtocol | None = None
+        tool_execution_register: ToolExecutionRegisterProtocol | None = None
+        if include_agent_storage:
+            agent_state_register = _opened(
+                opened, SQLiteAgentRunStateRegister(database_path)
+            )
+            agent_trace_register = _opened(
+                opened, SQLiteAgentTraceRegister(database_path)
+            )
+            tool_execution_register = _opened(
+                opened, SQLiteToolExecutionRegister(database_path)
+            )
+            recover_interrupted_agent_runs(
+                agent_state_register,
+                agent_trace_register,
+                tool_execution_register,
+            )
+            older_than = (
+                (
+                    datetime.now(timezone.utc) - timedelta(days=trace_retention_days)
+                ).isoformat()
+                if trace_retention_days is not None
+                else None
+            )
+            agent_trace_register.prune_events(
+                older_than=older_than,
+                keep_latest=trace_max_events,
+            )
+            agent_run_executor = SingleProcessAgentRunExecutor(agent_state_register)
+        data_analysis_register = _opened(opened, DataAnalysisRegister())
+        register_sqlite_runtime_data_analysis_sources(
+            data_analysis_register,
             database_path=database_path,
-            protected_paths=[
-                Path(database_path).resolve(),
-                Path(str(database_path) + ".provider-key").resolve(),
-                Path.cwd() / ".evernight",
-                Path.cwd() / "config.toml",
-                Path.cwd() / ".env",
-                Path(sys.prefix),
-                Path(sys.base_prefix),
-            ],
+            include_agent_sources=include_agent_storage,
         )
-    sandbox = sandbox or SubprocessSandboxExecutor()
-    tool_register = ToolRegister()
-    file_artifacts = SQLiteFileArtifactStore(database_path)
-    register_builtin_tools(
-        tool_register,
-        filesystem_root=filesystem_root,
-        file_artifacts=file_artifacts,
-        workspace_directories=workspace_directories,
-        max_read_chars=max_read_chars,
-        max_directory_entries=max_directory_entries,
-        max_search_results=max_search_results,
-        allow_file_overwrite=allow_file_overwrite,
-        shell_allowed_commands=shell_allowed_commands,
-        shell_blocked_commands=shell_blocked_commands,
-        shell_working_directory=shell_working_directory,
-        shell_timeout_seconds=shell_timeout_seconds,
-        shell_max_output_chars=shell_max_output_chars,
-        shell_requires_approval=shell_requires_approval,
-        shell_relaxed_approval=shell_relaxed_approval,
-        shell_allowed_env_keys=shell_allowed_env_keys,
-        web_enabled=web_enabled,
-        web_allowed_hosts=web_allowed_hosts,
-        web_download_directory=web_download_directory,
-        web_timeout_seconds=web_timeout_seconds,
-        web_max_response_chars=web_max_response_chars,
-        web_max_download_bytes=web_max_download_bytes,
-        git_repository_directory=git_repository_directory,
-        git_timeout_seconds=git_timeout_seconds,
-        git_max_output_chars=git_max_output_chars,
-        project_working_directory=project_working_directory,
-        project_commands=project_commands,
-        project_command_overrides=project_command_overrides,
-        project_directories=project_directories,
-        project_timeout_seconds=project_timeout_seconds,
-        project_max_output_chars=project_max_output_chars,
-        sandbox=sandbox,
-    )
+        if configure_data_analysis is not None:
+            configure_data_analysis(data_analysis_register)
 
-    agent_state_register: AgentRunStateRegisterProtocol | None = None
-    agent_trace_register: AgentTraceRegisterProtocol | None = None
-    agent_run_executor: AgentRunExecutorProtocol | None = None
-    tool_execution_register: ToolExecutionRegisterProtocol | None = None
-    if include_agent_storage:
-        agent_state_register = SQLiteAgentRunStateRegister(database_path)
-        agent_trace_register = SQLiteAgentTraceRegister(database_path)
-        tool_execution_register = SQLiteToolExecutionRegister(database_path)
-        recover_interrupted_agent_runs(
-            agent_state_register,
-            agent_trace_register,
-            tool_execution_register,
+        provider_config_store = _opened(
+            opened, SQLiteProviderConfigStore(database_path)
         )
-        older_than = (
-            (
-                datetime.now(timezone.utc) - timedelta(days=trace_retention_days)
-            ).isoformat()
-            if trace_retention_days is not None
-            else None
+        return _create_runtime(
+            tool_register=tool_register,
+            tool_sources=tool_sources,
+            context_register=_opened(opened, SQLiteContextRegister(database_path)),
+            memory_register=_opened(opened, SQLiteMemoryRegister(database_path)),
+            session_register=_opened(opened, SQLiteSessionRegister(database_path)),
+            provider_config_store=provider_config_store,
+            provider_secret_resolver=provider_config_store,
+            skill_template_store=_opened(
+                opened, SQLiteSkillTemplateStore(database_path)
+            ),
+            image_records=_opened(opened, SQLiteImageGenerationStore(database_path)),
+            file_artifacts=file_artifacts,
+            image_tasks=_opened(opened, SQLiteImageTaskStore(database_path)),
+            tool_policy_store=_opened(opened, SQLiteToolPolicyStore(database_path)),
+            workspace_directories=workspace_directories,
+            data_analysis_register=data_analysis_register,
+            agent_state_register=agent_state_register,
+            agent_trace_register=agent_trace_register,
+            agent_run_executor=agent_run_executor,
+            tool_execution_register=tool_execution_register,
+            runtime_data_tools_enabled=runtime_data_tools_enabled,
+            sandbox=sandbox,
+            context=context,
+            prompt_cache_mode=prompt_cache_mode,
+            prompt_cache_scope=prompt_cache_scope,
         )
-        agent_trace_register.prune_events(
-            older_than=older_than,
-            keep_latest=trace_max_events,
-        )
-        agent_run_executor = SingleProcessAgentRunExecutor(agent_state_register)
-    data_analysis_register = DataAnalysisRegister()
-    register_sqlite_runtime_data_analysis_sources(
-        data_analysis_register,
-        database_path=database_path,
-        include_agent_sources=include_agent_storage,
-    )
+    except BaseException:
+        close_opened_resources(opened)
+        raise
 
-    provider_config_store = SQLiteProviderConfigStore(database_path)
-    return _create_runtime(
-        tool_register=tool_register,
-        tool_sources=tool_sources,
-        context_register=SQLiteContextRegister(database_path),
-        memory_register=SQLiteMemoryRegister(database_path),
-        session_register=SQLiteSessionRegister(database_path),
-        provider_config_store=provider_config_store,
-        provider_secret_resolver=provider_config_store,
-        skill_template_store=SQLiteSkillTemplateStore(database_path),
-        image_records=SQLiteImageGenerationStore(database_path),
-        file_artifacts=file_artifacts,
-        image_tasks=SQLiteImageTaskStore(database_path),
-        tool_policy_store=SQLiteToolPolicyStore(database_path),
-        workspace_directories=workspace_directories,
-        data_analysis_register=data_analysis_register,
-        agent_state_register=agent_state_register,
-        agent_trace_register=agent_trace_register,
-        agent_run_executor=agent_run_executor,
-        tool_execution_register=tool_execution_register,
-        runtime_data_tools_enabled=runtime_data_tools_enabled,
-        sandbox=sandbox,
-        context_max_messages=context_max_messages,
-        context_max_tokens=context_max_tokens,
-        context_token_estimator=context_token_estimator,
-        context_enable_summary=context_enable_summary,
-        context_summarizer=context_summarizer,
-        context_summarize_after_messages=context_summarize_after_messages,
-        context_keep_recent_messages=context_keep_recent_messages,
-        prompt_cache_mode=prompt_cache_mode,
-        prompt_cache_scope=prompt_cache_scope,
-    )
+
+def runtime_state_paths(database_path: str | Path) -> list[Path]:
+    """Files holding runtime state or secrets that tools must never touch."""
+    database = Path(database_path).resolve()
+    return [
+        database,
+        Path(str(database) + ".provider-key"),
+        Path.cwd() / ".evernight",
+        Path.cwd() / "config.toml",
+        Path.cwd() / ".env",
+    ]
+
+
+def close_opened_resources(resources: list[Any]) -> None:
+    """Closes resources from a failed assembly; the original error wins."""
+    for resource in reversed(resources):
+        close = getattr(resource, "close", None)
+        if not callable(close):
+            continue
+        try:
+            close()
+        except Exception:
+            LOGGER.exception("Failed to close %s", type(resource).__name__)
+
+
+def _opened[T](opened: list[Any], resource: T) -> T:
+    opened.append(resource)
+    return resource
 
 
 def _create_runtime(
@@ -521,13 +537,7 @@ def _create_runtime(
     tool_execution_register: ToolExecutionRegisterProtocol | None = None,
     runtime_data_tools_enabled: bool = False,
     sandbox: SandboxExecuteProtocol | None = None,
-    context_max_messages: int | None = None,
-    context_max_tokens: int | None = None,
-    context_token_estimator: ContextTokenEstimatorProtocol | None = None,
-    context_enable_summary: bool = False,
-    context_summarizer: ContextSummarizerProtocol | None = None,
-    context_summarize_after_messages: int = 100,
-    context_keep_recent_messages: int = 20,
+    context: ContextStrategyOptions = ContextStrategyOptions(),
     prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
     prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
 ) -> RuntimeKernel:
@@ -546,16 +556,7 @@ def _create_runtime(
     skills = skills or create_skill_manager(skill_register, skill_template_store)
     contexts = ContextManager(context_register)
     context_organizer = ContextOrganizer()
-    context_strategy = create_context_strategy(
-        context_organizer,
-        max_messages=context_max_messages,
-        max_tokens=context_max_tokens,
-        estimator=context_token_estimator,
-        enable_summary=context_enable_summary,
-        summarizer=context_summarizer,
-        summarize_after_messages=context_summarize_after_messages,
-        keep_recent_messages=context_keep_recent_messages,
-    )
+    context_strategy = create_context_strategy(context_organizer, context)
     data_analysis_register = data_analysis_register or DataAnalysisRegister()
     data_analysis = data_analysis or DataAnalysisManager(data_analysis_register)
     memories = MemoryManager(memory_register)

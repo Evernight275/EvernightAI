@@ -1,11 +1,14 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 
 import pytest
 
-from EvernightAI.bootstrap.runtime import create_sqlite_runtime
+from EvernightAI.bootstrap.runtime import (
+    DeferredAgentRunRecovery,
+    create_sqlite_runtime,
+)
 from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.core.domain.provider import ProviderFactory, ProviderManager
 from EvernightAI.core.error.agent import AgentRunCanceledError, AgentRunTimeoutError
@@ -439,6 +442,103 @@ async def test_sqlite_bootstrap_leaves_run_with_active_lease_running(
         events = runtime.agent_trace_register.list_events("run-1")  # type: ignore[union-attr]
         assert state.status is AgentRunStatus.RUNNING
         assert events == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_deferred_recovery_pauses_run_after_startup_lease_expires(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    register = SQLiteAgentRunStateRegister(database_path)
+    register.save_state(_running_state("run-1"))
+    register.acquire_lease("run-1", "crashed-executor", ttl_seconds=2)
+    register.close()
+
+    runtime = create_sqlite_runtime(database_path)
+    recovery = DeferredAgentRunRecovery(runtime, margin_seconds=0.05)
+    try:
+        state_register = runtime.agent_state_register
+        assert state_register is not None
+        assert state_register.get_state("run-1").status is AgentRunStatus.RUNNING
+
+        await recovery.start()
+        for _ in range(100):
+            if state_register.get_state("run-1").status is not AgentRunStatus.RUNNING:
+                break
+            await asyncio.sleep(0.05)
+
+        state = state_register.get_state("run-1")
+        assert state.status is AgentRunStatus.PAUSED
+        assert state.pause is not None
+        assert state.pause.cause is AgentPauseCause.LEASE_EXPIRED
+        assert state_register.get_execution_lease("run-1") is None
+    finally:
+        await recovery.close()
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_deferred_recovery_handles_lease_expiring_before_start(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    register = SQLiteAgentRunStateRegister(database_path)
+    register.save_state(_running_state("run-1"))
+    register.acquire_lease("run-1", "crashed-executor", ttl_seconds=60)
+    register.close()
+
+    runtime = create_sqlite_runtime(database_path)
+    recovery = DeferredAgentRunRecovery(runtime)
+    try:
+        state_register = runtime.agent_state_register
+        assert state_register is not None
+        assert state_register.get_state("run-1").status is AgentRunStatus.RUNNING
+        lease = state_register.get_execution_lease("run-1")
+        assert lease is not None and lease.expires_at is not None
+        startup_time = lease.expires_at + timedelta(seconds=1)
+
+        class StartupTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return startup_time
+
+        monkeypatch.setattr(
+            "EvernightAI.application.agent_recovery.datetime", StartupTime
+        )
+        await recovery.start()
+
+        state = state_register.get_state("run-1")
+        assert state.status is AgentRunStatus.PAUSED
+        assert state.pause is not None
+        assert state.pause.cause is AgentPauseCause.LEASE_EXPIRED
+        assert state_register.get_execution_lease("run-1") is None
+    finally:
+        await recovery.close()
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_deferred_recovery_close_cancels_pending_recovery(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    register = SQLiteAgentRunStateRegister(database_path)
+    register.save_state(_running_state("run-1"))
+    register.acquire_lease("run-1", "another-executor", ttl_seconds=60)
+    register.close()
+
+    runtime = create_sqlite_runtime(database_path)
+    recovery = DeferredAgentRunRecovery(runtime)
+    try:
+        await recovery.start()
+        await recovery.close()
+
+        state_register = runtime.agent_state_register
+        assert state_register is not None
+        assert state_register.get_state("run-1").status is AgentRunStatus.RUNNING
     finally:
         await runtime.close()
 

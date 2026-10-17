@@ -9,6 +9,7 @@ import pytest
 
 from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.bootstrap.interface import create_interface
+from EvernightAI.bootstrap.options import BuiltinToolOptions, FilesystemToolOptions
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
@@ -97,7 +98,7 @@ async def test_display_file_follows_selected_project_and_survives_source_deletio
     project.mkdir()
     content = base64.b64decode(PNG)
     (project / "plot.png").write_bytes(content)
-    runtime = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=root)
+    runtime = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(root))
     assert runtime.workspace_directories is not None
     runtime.workspace_directories.add_project(str(project))
     try:
@@ -128,7 +129,7 @@ async def test_display_file_follows_selected_project_and_survives_source_deletio
         assert runtime.file_artifacts.read(artifact_id) == content
     finally:
         await runtime.close()
-    restored = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=root)
+    restored = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(root))
     try:
         info, saved = create_interface(restored).files.read_file(
             artifact_id, principal_scope=PrincipalScope(owner_id="alice")
@@ -151,7 +152,7 @@ async def test_file_display_rejects_escape_special_files_size_and_tool_denial(
     (root / "ok.txt").write_text("hello")
     with (root / "large.bin").open("wb") as file:
         file.truncate(MAX_FILE_ARTIFACT_BYTES + 1)
-    runtime = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=root)
+    runtime = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(root))
     try:
         for path in [
             "../secret.txt",
@@ -196,7 +197,7 @@ async def test_file_display_detects_image_content_and_keeps_active_content_downl
     tmp_path: Path, content: bytes, mime: str, preview: str
 ) -> None:
     (tmp_path / "file.png").write_bytes(content)
-    runtime = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=tmp_path)
+    runtime = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(tmp_path))
     try:
         result = await runtime.tools.execute(
             file_call("file.png", filename='report\r\n".png')
@@ -216,7 +217,7 @@ async def test_html_display_saves_a_preview_reference_without_model_visible_cont
     content = '<!doctype html><html><body>交互图表<script>console.log("chart")</script></body></html>'.encode()
     (tmp_path / name).write_bytes(content)
     database = tmp_path / "runtime.db"
-    runtime = create_sqlite_runtime(database, filesystem_root=tmp_path)
+    runtime = create_sqlite_runtime(database, tools=_filesystem_tools(tmp_path))
     try:
         result = await runtime.tools.execute(file_call(name, filename="下载.html"))
         output = result.tool_call_result
@@ -228,7 +229,7 @@ async def test_html_display_saves_a_preview_reference_without_model_visible_cont
         (tmp_path / name).unlink()
     finally:
         await runtime.close()
-    restored = create_sqlite_runtime(database, filesystem_root=tmp_path)
+    restored = create_sqlite_runtime(database, tools=_filesystem_tools(tmp_path))
     try:
         info, saved = create_interface(restored).files.read_file(
             artifact_id, principal_scope=PrincipalScope(owner_id="alice")
@@ -350,7 +351,7 @@ async def test_file_display_rejects_directory_symlink_swapped_during_publication
         plots.symlink_to(outside, target_is_directory=True)
         return open_file(directory, relative, flags)
 
-    runtime = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=root)
+    runtime = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(root))
     monkeypatch.setattr(display_file, "_open_file", swap)
     try:
         with pytest.raises(ToolExecutionError, match="无法读取展示文件"):
@@ -390,7 +391,7 @@ async def test_agent_file_reference_is_persisted_without_binary_model_content(
     root = tmp_path / "root"
     root.mkdir()
     (root / "plot.png").write_bytes(base64.b64decode(PNG))
-    runtime = create_sqlite_runtime(tmp_path / "runtime.db", filesystem_root=root)
+    runtime = create_sqlite_runtime(tmp_path / "runtime.db", tools=_filesystem_tools(root))
     provider = DisplayFileProvider()
 
     async def build(_config):
@@ -450,3 +451,7 @@ async def test_agent_file_reference_is_persisted_without_binary_model_content(
         assert not any(PNG in (text or "") for text in tool_messages)
     finally:
         await runtime.close()
+
+
+def _filesystem_tools(root: Path) -> BuiltinToolOptions:
+    return BuiltinToolOptions(filesystem=FilesystemToolOptions(root=root))
