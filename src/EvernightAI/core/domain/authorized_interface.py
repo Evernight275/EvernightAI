@@ -582,6 +582,14 @@ class AuthorizedProviderInterface(ProviderInterfaceProtocol):
             task_id, principal_scope=PrincipalScope.for_principal(self._principal)
         )
 
+    def delete_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        self._require("images", "delete", task_id)
+        self._inner.delete_image_task(
+            task_id, principal_scope=PrincipalScope.for_principal(self._principal)
+        )
+
     def list_image_tasks(
         self,
         *,

@@ -26,6 +26,7 @@ try {
     const tasks = new Map();
     const records = new Map();
     const calls = [];
+    const deleted = [];
     let hold = true;
     let loseResponse = false;
     const provider = {
@@ -103,6 +104,14 @@ try {
           next_cursor: all.length > offset + 20 ? String(offset + 20) : undefined,
         });
       }
+      if (path.startsWith('/images/tasks/') && req.method() === 'DELETE') {
+        const id = path.split('/').at(-1);
+        deleted.push(id);
+        if (!['failed', 'interrupted'].includes(tasks.get(id)?.summary.status))
+          return json({ error: { message: 'Task cannot be deleted' } }, 409);
+        tasks.delete(id);
+        return route.fulfill({ status: 204 });
+      }
       if (path.startsWith('/images/tasks/')) return json(tasks.get(path.split('/').at(-1)).summary);
       if (path === '/images/records') return json({ items: [] });
       if (path.startsWith('/images/records/')) return json(records.get(path.split('/').at(-1)));
@@ -146,6 +155,22 @@ try {
     await taskList.getByText('旧任务 0', { exact: true }).waitFor();
     await taskList.getByRole('button', { name: '刷新任务', exact: true }).click();
     await taskList.getByText('旧任务 0', { exact: true }).waitFor();
+    assert.equal(
+      await taskList.getByRole('button', { name: `删除任务 后台图片`, exact: true }).count(),
+      0,
+      'finished tasks with results must not offer deletion',
+    );
+    await taskList.getByRole('button', { name: '删除任务 旧任务 3', exact: true }).click();
+    await taskList.getByText('旧任务 3', { exact: true }).waitFor({ state: 'detached' });
+    await taskList.getByText('旧任务 4', { exact: true }).waitFor();
+    await taskList.getByRole('button', { name: '清理失败任务', exact: true }).click();
+    await taskList.getByText('旧任务 0', { exact: true }).waitFor({ state: 'detached' });
+    await taskList.getByRole('button', { name: '清理失败任务', exact: true }).waitFor({
+      state: 'detached',
+    });
+    await taskList.getByRole('button', { name: '查看结果', exact: true }).waitFor();
+    assert.equal(deleted.length, 21);
+    assert.equal(new Set(deleted).size, 21, 'each failed task is deleted once');
     await page.getByRole('button', { name: '继续修改图片 1', exact: true }).click();
     await page.getByRole('img', { name: '参考图 1', exact: true }).waitFor();
     await page.getByRole('button', { name: '移除参考图 1', exact: true }).click();

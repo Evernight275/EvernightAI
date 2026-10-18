@@ -11,6 +11,11 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.image-task-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .image-task-heading h2 {
   margin: 0;
   font-size: 14px;

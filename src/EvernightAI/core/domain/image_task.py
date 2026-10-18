@@ -48,6 +48,14 @@ class ImageTaskStore(ImageTaskStoreProtocol):
     def delete_for_record(self, record_id: str) -> None:
         self._tasks.pop(record_id, None)
 
+    def delete(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        task = self.get(task_id, principal_scope=principal_scope)
+        if task.status in ("queued", "running"):
+            raise ImageTaskConflictError("排队或生成中的图片任务不能删除")
+        del self._tasks[task_id]
+
     def create(self, task: ImageTask) -> bool:
         previous = self._tasks.get(task.task_id)
         if previous is not None:

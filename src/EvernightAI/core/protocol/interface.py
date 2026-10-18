@@ -234,6 +234,10 @@ class ProviderInterfaceProtocol(Protocol):
         self, task_id: str, *, principal_scope: PrincipalScope | None = None
     ) -> ImageTaskSummary: ...
 
+    def delete_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None: ...
+
     def list_image_tasks(
         self,
         *,

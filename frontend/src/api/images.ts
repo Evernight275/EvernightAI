@@ -84,6 +84,9 @@ export function submitImageTask(
 export function getImageTask(taskId: string, signal?: AbortSignal): Promise<ImageTask> {
   return requestJson(`/images/tasks/${encodeURIComponent(taskId)}`, { signal });
 }
+export function deleteImageTask(taskId: string, signal?: AbortSignal): Promise<void> {
+  return requestJson(`/images/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE', signal });
+}
 export function listImageTasks(
   sessionId?: string,
   cursor?: string,

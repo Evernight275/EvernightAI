@@ -12,6 +12,9 @@ export const imageTaskLabels: Record<ImageTaskStatus, string> = {
 export function imageTaskActive(task: ImageTask): boolean {
   return task.status === 'queued' || task.status === 'running';
 }
+export function imageTaskRemovable(task: ImageTask): boolean {
+  return task.status === 'failed' || task.status === 'interrupted';
+}
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {

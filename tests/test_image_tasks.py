@@ -181,6 +181,36 @@ def test_claim_leases_quota_conflicts_and_owner_isolation(
             store.close()
 
 
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_delete_removes_only_finished_tasks_owned_by_caller(
+    tmp_path: Path, sqlite: bool
+) -> None:
+    store = (
+        SQLiteImageTaskStore(tmp_path / "tasks.sqlite3") if sqlite else ImageTaskStore()
+    )
+    try:
+        task = ImageTask(**submission().model_dump(), owner_id="alice")
+        store.create(task)
+        alice = PrincipalScope(owner_id="alice")
+        with pytest.raises(ImageTaskConflictError):
+            store.delete(task.task_id, principal_scope=alice)
+        lease = datetime.now(timezone.utc) + timedelta(seconds=30)
+        store.claim("worker-1", lease)
+        with pytest.raises(ImageTaskConflictError):
+            store.delete(task.task_id, principal_scope=alice)
+        store.finish(task.model_copy(update={"status": "failed"}), "worker-1")
+        with pytest.raises(ImageTaskNotFoundError):
+            store.delete(task.task_id, principal_scope=PrincipalScope(owner_id="bob"))
+        store.delete(task.task_id, principal_scope=alice)
+        with pytest.raises(ImageTaskNotFoundError):
+            store.get(task.task_id)
+        with pytest.raises(ImageTaskNotFoundError):
+            store.delete(task.task_id, principal_scope=alice)
+    finally:
+        if isinstance(store, SQLiteImageTaskStore):
+            store.close()
+
+
 @pytest.mark.asyncio
 async def test_two_executors_do_not_repeat_provider_calls(tmp_path: Path) -> None:
     path = tmp_path / "tasks.sqlite3"
@@ -304,6 +334,9 @@ async def test_http_task_disconnect_polling_and_session_ownership() -> None:
             assert result.headers["location"].endswith(request.task_id)
             assert "base64_data" not in result.text
             await asyncio.wait_for(fake.started.wait(), 2)
+            assert (
+                await client.delete(f"/images/tasks/{request.task_id}")
+            ).status_code == 409
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=http_app),
             base_url="http://test",
@@ -313,6 +346,9 @@ async def test_http_task_disconnect_polling_and_session_ownership() -> None:
                 await other.get(f"/images/tasks/{request.task_id}")
             ).status_code == 404
             assert (await other.get("/images/tasks")).json()["items"] == []
+            assert (
+                await other.delete(f"/images/tasks/{request.task_id}")
+            ).status_code == 404
             assert (
                 await other.post(
                     "/images/tasks",
@@ -331,6 +367,12 @@ async def test_http_task_disconnect_polling_and_session_ownership() -> None:
         ) as client:
             page = (await client.get("/images/tasks?session_id=alice-session")).json()
             assert page["items"][0]["record_id"] == request.task_id
+            assert (
+                await client.delete(f"/images/tasks/{request.task_id}")
+            ).status_code == 204
+            assert (
+                await client.get(f"/images/tasks/{request.task_id}")
+            ).status_code == 404
             invalid = await client.post(
                 "/images/tasks",
                 json={**request.model_dump(mode="json"), "owner_id": "bob"},

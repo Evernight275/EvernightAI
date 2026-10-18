@@ -46,6 +46,10 @@ class ImageTaskStoreProtocol(Protocol):
 
     def delete_for_record(self, record_id: str) -> None: ...
 
+    def delete(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None: ...
+
     def get(
         self, task_id: str, *, principal_scope: PrincipalScope | None = None
     ) -> ImageTask: ...

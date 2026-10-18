@@ -71,6 +71,13 @@ class ProviderApplication(ProviderInterfaceProtocol):
             task_id, principal_scope=principal_scope
         )
 
+    def delete_image_task(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        ImageTaskApplication(self._runtime).delete(
+            task_id, principal_scope=principal_scope
+        )
+
     def list_image_tasks(
         self,
         *,

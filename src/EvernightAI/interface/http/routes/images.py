@@ -68,6 +68,17 @@ async def get_image_task(
     return interface.providers.get_image_task(task_id)
 
 
+@router.delete(
+    "/tasks/{task_id}",
+    status_code=204,
+    summary="Delete a finished image task",
+    operation_id="delete_image_task",
+)
+async def delete_image_task(task_id: str, interface: InterfaceDependency) -> Response:
+    interface.providers.delete_image_task(task_id)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
 @router.post(
     "/generations",
     response_model=ImageGenerationResponse,

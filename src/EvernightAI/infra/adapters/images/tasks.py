@@ -39,6 +39,24 @@ class SQLiteImageTaskStore(ImageTaskStoreProtocol):
                 "DELETE FROM image_tasks WHERE task_id = ?", (record_id,)
             )
 
+    def delete(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        with sqlite_transaction(self._connection, immediate=True):
+            row = self._connection.execute(
+                "SELECT owner_id, status FROM image_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None or (
+                principal_scope is not None and not principal_scope.permits(row[0])
+            ):
+                raise ImageTaskNotFoundError("Image task not found")
+            if row[1] in ("queued", "running"):
+                raise ImageTaskConflictError("排队或生成中的图片任务不能删除")
+            self._connection.execute(
+                "DELETE FROM image_tasks WHERE task_id = ?", (task_id,)
+            )
+
     def create(self, task: ImageTask) -> bool:
         with sqlite_transaction(self._connection, immediate=True):
             row = self._connection.execute(

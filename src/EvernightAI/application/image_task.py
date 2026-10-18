@@ -96,6 +96,11 @@ class ImageTaskApplication:
         )
         return self._recover_result(summary, principal_scope)
 
+    def delete(
+        self, task_id: str, *, principal_scope: PrincipalScope | None = None
+    ) -> None:
+        self._runtime.image_tasks.delete(task_id, principal_scope=principal_scope)
+
     def _recover_result(
         self, summary: ImageTaskSummary, scope: PrincipalScope | None
     ) -> ImageTaskSummary:
