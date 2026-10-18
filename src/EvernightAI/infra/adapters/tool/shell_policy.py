@@ -1,17 +1,16 @@
+import os
 import re
 import shlex
-import os
 from pathlib import PureWindowsPath
 
+from EvernightAI.infra.adapters.tool.shell_heredocs import (
+    ShellScript,
+    parse_quoted_heredocs,
+)
 from EvernightAI.infra.adapters.tool.shell_literals import (
     ShellDialect,
     literal_script_reason,
 )
-from EvernightAI.infra.adapters.tool.shell_heredocs import (
-    parse_quoted_heredocs,
-    ShellScript,
-)
-
 
 READ_COMMANDS = {
     "cat",

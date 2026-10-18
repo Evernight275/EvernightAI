@@ -5,7 +5,6 @@ import zlib
 
 from EvernightAI.core.error.base import ValidationError
 
-
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_REQUEST_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_REQUEST_IMAGES = 10

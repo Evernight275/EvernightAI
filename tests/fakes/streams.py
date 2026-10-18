@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterator
 from typing import Generic, TypeVar
 
-
 EventType = TypeVar("EventType")
 
 

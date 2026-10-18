@@ -11,6 +11,8 @@ from EvernightAI.application.image_task import ImageTaskApplication
 from EvernightAI.application.session import SessionApplication
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime, create_sqlite_runtime
+from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
+from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.image_task import ImageTaskStore
 from EvernightAI.core.error.image import (
     ImageTaskConflictError,
@@ -27,16 +29,14 @@ from EvernightAI.core.schema.image import (
 from EvernightAI.core.schema.image_task import ImageTask, ImageTaskSubmit
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
 from EvernightAI.core.schema.session import Session
-from EvernightAI.infra.adapters.images.tasks import SQLiteImageTaskStore
-from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
 from EvernightAI.infra.adapters.images.executor import SingleProcessImageTaskExecutor
-from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
-from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
+from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
+from EvernightAI.infra.adapters.images.tasks import SQLiteImageTaskStore
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice
 from EvernightAI.interface.http.schema import HttpApiKeyCredential
 from tests.test_image_editing import EditProvider
-from tests.test_image_generation import ImageProvider, PNG
+from tests.test_image_generation import PNG, ImageProvider
 
 
 def submission(**kwargs: Any) -> ImageTaskSubmit:
@@ -433,8 +433,9 @@ def test_task_pagination_and_renewed_lease_use_current_metadata(
 async def test_interruption_after_provider_response_retains_paid_result(
     tmp_path: Path,
 ) -> None:
-    from EvernightAI.core.schema.image import GeneratedImage, ImageGenerationResponse
     from pydantic import HttpUrl
+
+    from EvernightAI.core.schema.image import GeneratedImage, ImageGenerationResponse
 
     started = asyncio.Event()
 

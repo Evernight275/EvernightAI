@@ -26,7 +26,6 @@ from EvernightAI.infra.adapters.agent.sqlite import (
 )
 from tests.test_application_agent import FinalAnswerProvider, make_config
 
-
 RUN_ID = "crash-run"
 CRASH_EXIT_CODE = 70
 

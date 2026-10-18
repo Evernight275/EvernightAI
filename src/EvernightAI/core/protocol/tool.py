@@ -1,15 +1,16 @@
-from EvernightAI.core.schema.tool import (
-    ToolCall,
-    ToolCallResult,
-    ToolDefinition,
-    ToolSafetyDecision,
-    ToolAccessMode,
-    ToolPolicySummary,
-)
-from EvernightAI.core.schema.auth import PrincipalScope
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from EvernightAI.core.schema.auth import PrincipalScope
+from EvernightAI.core.schema.tool import (
+    ToolAccessMode,
+    ToolCall,
+    ToolCallResult,
+    ToolDefinition,
+    ToolPolicySummary,
+    ToolSafetyDecision,
+)
 
 ToolExecutorProtocol = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 ToolPreflightPolicy = Callable[

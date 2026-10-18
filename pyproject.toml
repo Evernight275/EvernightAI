@@ -39,6 +39,9 @@ include = ["EvernightAI*"]
 target-version = "py312"
 line-length = 88
 
+[tool.ruff.lint]
+extend-select = ["I", "PLC0414"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["workspaces", ".git", ".venv", "node_modules"]

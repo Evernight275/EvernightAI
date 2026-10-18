@@ -13,17 +13,17 @@ from jwt.exceptions import PyJWKClientError, PyJWTError
 from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.protocol.auth import AuthDeviceProtocol
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.interface.http.protocol import (
+    HttpAuthDeviceProtocol,
+    HttpLoginDeviceProtocol,
+    JwkClientProtocol,
+)
 from EvernightAI.interface.http.schema import (
     HttpApiKeyCredential,
     HttpLoginSession,
     HttpOAuthBearerCredential,
     HttpOAuthJwtConfig,
     HttpPasswordCredential,
-)
-from EvernightAI.interface.http.protocol import (
-    HttpAuthDeviceProtocol,
-    HttpLoginDeviceProtocol,
-    JwkClientProtocol,
 )
 
 

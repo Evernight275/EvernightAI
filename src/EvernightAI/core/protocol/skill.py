@@ -3,13 +3,12 @@ from typing import Protocol
 
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
-    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
+    SkillRenderRequest,
     SkillTemplateConfig,
     SkillTemplateUpdate,
 )
-
 
 SkillRendererProtocol = Callable[[SkillRenderRequest], Awaitable[RenderedSkill]]
 SkillTemplateFactoryProtocol = Callable[[SkillTemplateConfig], SkillRendererProtocol]

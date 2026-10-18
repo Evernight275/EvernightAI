@@ -18,7 +18,6 @@ from EvernightAI.core.schema.stream import (
     WebSocketMessageType,
 )
 
-
 WEBSOCKET_SEND_QUEUE_SIZE: Final = 100
 WEBSOCKET_HEARTBEAT_INTERVAL_SECONDS: Final = 30.0
 WEBSOCKET_HEARTBEAT_TIMEOUT_SECONDS: Final = 90.0

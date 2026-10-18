@@ -4,17 +4,36 @@ from datetime import datetime, timezone
 from time import perf_counter
 from uuid import uuid4
 
+from EvernightAI.application.agent_lifecycle import _agent_run_lifecycle
+from EvernightAI.application.agent_recovery import (
+    _latest_tool_execution_attempts,
+    _tool_call_can_resume,
+)
+from EvernightAI.application.agent_state import (
+    LOGGER,
+    AgentResumeMode,
+    AgentRunMetadata,
+    _aggregate_run_usage,
+    _owner_scope,
+    agent_resume_mode,
+    agent_run_can_resume,
+)
+from EvernightAI.application.chat_request import ChatRequestComposer
+from EvernightAI.application.image_attachments import resolve_image_references
+from EvernightAI.application.memory import (
+    write_memory_candidate,
+)
+from EvernightAI.core.domain.provider import merge_chat_usage
 from EvernightAI.core.error.agent import (
     AgentStateError,
 )
-from EvernightAI.core.error.tool import ToolExecutionError
 from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.skill import (
     SkillConflictError,
     SkillDisabledError,
     SkillNotFoundError,
 )
-from EvernightAI.core.domain.provider import merge_chat_usage
+from EvernightAI.core.error.tool import ToolExecutionError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
     AgentTraceStreamProtocol,
@@ -48,7 +67,6 @@ from EvernightAI.core.schema.content import (
 from EvernightAI.core.schema.memory import MemoryQuery
 from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
-from EvernightAI.core.schema.trace import TraceSubject
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolCall,
@@ -56,26 +74,7 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolSafetyDecision,
 )
-from EvernightAI.application.chat_request import ChatRequestComposer
-from EvernightAI.application.memory import (
-    write_memory_candidate,
-)
-from EvernightAI.application.image_attachments import resolve_image_references
-
-from EvernightAI.application.agent_state import (
-    AgentRunMetadata,
-    AgentResumeMode,
-    agent_resume_mode,
-    agent_run_can_resume,
-    LOGGER,
-    _owner_scope,
-    _aggregate_run_usage,
-)
-from EvernightAI.application.agent_lifecycle import _agent_run_lifecycle
-from EvernightAI.application.agent_recovery import (
-    _latest_tool_execution_attempts,
-    _tool_call_can_resume,
-)
+from EvernightAI.core.schema.trace import TraceSubject
 
 
 def _tool_error_payload(

@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime, create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedSkillInterface
 from EvernightAI.core.domain.skill import SkillManager, SkillRegister
-from EvernightAI.core.protocol.skill import SkillTemplateStoreProtocol
 from EvernightAI.core.error.auth import AuthPermissionDeniedError
 from EvernightAI.core.error.skill import (
     SkillConfigurationError,
@@ -16,6 +16,7 @@ from EvernightAI.core.error.skill import (
     SkillDisabledError,
     SkillInputError,
 )
+from EvernightAI.core.protocol.skill import SkillTemplateStoreProtocol
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.content import ChatRequest, ChatSkill
 from EvernightAI.core.schema.skill import (
@@ -25,9 +26,8 @@ from EvernightAI.core.schema.skill import (
     SkillTemplateUpdate,
 )
 from EvernightAI.core.schema.tool import ToolDefinition
-from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
-from EvernightAI.infra.adapters.skill.template import create_template_renderer
 from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
+from EvernightAI.infra.adapters.skill.template import create_template_renderer
 from EvernightAI.interface.http.app import create_http_app
 
 

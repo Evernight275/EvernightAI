@@ -1,8 +1,10 @@
-from EvernightAI.core.schema.base import EvernightAISchema
-from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from pydantic import Field, model_validator
 from enum import StrEnum
 from typing import Any
+
+from pydantic import Field, model_validator
+
+from EvernightAI.core.schema.base import EvernightAISchema
+from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 
 
 class MessageRole(StrEnum):

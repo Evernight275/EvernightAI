@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.infra.adapters.tool.restricted_filesystem import (
     RestrictedAppendTextFileTool,
     RestrictedApplyTextPatchTool,
@@ -13,9 +13,9 @@ from EvernightAI.infra.adapters.tool.restricted_filesystem import (
     RestrictedMakeDirectoryTool,
     RestrictedMovePathTool,
     RestrictedPathInfoTool,
-    RestrictedReadTextFileTool,
     RestrictedReadJsonFileTool,
     RestrictedReadTextFileLinesTool,
+    RestrictedReadTextFileTool,
     RestrictedSearchTextFilesTool,
     RestrictedWriteJsonFileTool,
     RestrictedWriteTextFileTool,

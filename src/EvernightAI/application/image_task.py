@@ -7,8 +7,8 @@ from EvernightAI.application.image import ImageApplication
 from EvernightAI.core.domain.image_task import same_submission
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.image import (
-    ImageRecordNotFoundError,
     ImageHistoryInputError,
+    ImageRecordNotFoundError,
     ImageTaskConflictError,
     ImageTaskNotFoundError,
 )

@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = PROJECT_ROOT / "src" / "EvernightAI"
 CORE_ROOT = PACKAGE_ROOT / "core"

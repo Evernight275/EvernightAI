@@ -24,13 +24,13 @@ from EvernightAI.core.error.provider import (
 )
 from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.schema.image import (
+    MAX_IMAGE_INPUT_BYTES,
+    MAX_IMAGE_INPUT_COUNT,
+    MAX_IMAGE_INPUT_TOTAL_BYTES,
     ImageEditInput,
     ImageEditRequest,
     ImageGenerationRecord,
     ImageGenerationResponse,
-    MAX_IMAGE_INPUT_BYTES,
-    MAX_IMAGE_INPUT_COUNT,
-    MAX_IMAGE_INPUT_TOTAL_BYTES,
 )
 from EvernightAI.core.schema.provider import (
     ProviderConfig,
@@ -46,7 +46,7 @@ from EvernightAI.infra.adapters.providers.openai_compatible.instance import (
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice
 from EvernightAI.interface.http.schema import HttpApiKeyCredential
-from tests.test_image_generation import ImageProvider, PNG
+from tests.test_image_generation import PNG, ImageProvider
 from tests.test_interface_http import make_runtime
 
 

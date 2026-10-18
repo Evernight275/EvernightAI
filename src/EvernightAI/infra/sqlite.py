@@ -1,13 +1,12 @@
+import json
+import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import sqlite3
 from threading import RLock
 from typing import Any
 from uuid import uuid4
-
 
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 

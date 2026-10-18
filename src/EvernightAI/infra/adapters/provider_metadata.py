@@ -2,7 +2,6 @@ from typing import Any
 
 from EvernightAI.core.error.chat import ChatInputError
 
-
 REASONING_EFFORT_METADATA_KEY = "reasoning_effort"
 REASONING_EFFORT_VALUES = {"low", "medium", "high"}
 TIMEOUT_SECONDS_METADATA_KEY = "timeout_seconds"

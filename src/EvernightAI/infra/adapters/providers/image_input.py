@@ -5,7 +5,6 @@ import re
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.schema.content import ContentPart
 
-
 _DATA_URI_PATTERN = re.compile(
     r"^data:(?P<mime_type>image/[a-zA-Z0-9.+-]+);base64,(?P<data>.+)$",
     re.DOTALL,

@@ -1,7 +1,9 @@
-from EvernightAI.core.schema.base import EvernightAISchema
-from typing import Any
 from enum import StrEnum
+from typing import Any
+
 from pydantic import ConfigDict, Field, model_validator
+
+from EvernightAI.core.schema.base import EvernightAISchema
 
 
 class ToolPermission(StrEnum):

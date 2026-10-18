@@ -15,9 +15,9 @@ from EvernightAI.core.domain.tool import (
 )
 from EvernightAI.core.domain.tool_policy import ToolPolicyStore
 from EvernightAI.core.error.tool import ToolPolicyError
-from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunStatus
 from EvernightAI.core.schema.auth import Principal, PrincipalScope
+from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.tool import (
     ToolAccessMode,
     ToolApprovalDecision,

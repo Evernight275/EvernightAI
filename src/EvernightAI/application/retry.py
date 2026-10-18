@@ -1,8 +1,8 @@
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import Content, MessageRole, MessageStatus
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.auth import PrincipalScope
 
 
 async def mark_retry_messages(

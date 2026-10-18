@@ -2,8 +2,8 @@ from datetime import datetime
 
 from pydantic import Field
 
-from EvernightAI.core.schema.auth import Principal, PrincipalType
 from EvernightAI.core.schema.agent import ToolExecutionResolution
+from EvernightAI.core.schema.auth import Principal, PrincipalType
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatRequest, ChatSkill, Content
 from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest

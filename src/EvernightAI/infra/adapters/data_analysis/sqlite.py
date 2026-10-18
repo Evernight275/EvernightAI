@@ -1,8 +1,8 @@
+import re
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-import re
-import sqlite3
 
 from EvernightAI.core.error.data_analysis import (
     DataAnalysisInputError,
@@ -17,7 +17,6 @@ from EvernightAI.core.schema.data_analysis import (
     DataStatisticsResult,
     DataStatisticsRow,
 )
-
 
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 

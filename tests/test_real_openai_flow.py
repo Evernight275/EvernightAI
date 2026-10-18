@@ -4,6 +4,7 @@ import pytest
 
 from EvernightAI.application.agent import AgentApplication
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
@@ -22,8 +23,6 @@ from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderType,
 )
-from EvernightAI.bootstrap.runtime import create_runtime
-
 
 RUN_REAL_OPENAI = os.getenv("EVERNIGHTAI_RUN_REAL_OPENAI") == "1"
 

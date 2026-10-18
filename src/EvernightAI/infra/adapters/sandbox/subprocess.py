@@ -18,8 +18,8 @@ from EvernightAI.core.schema.sandbox import (
     SandboxFilesystemMount,
     SandboxOutputStream,
 )
-from EvernightAI.infra.adapters.sandbox.process import terminate_process
 from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
+from EvernightAI.infra.adapters.sandbox.process import terminate_process
 
 
 class SubprocessSandboxExecutor(SandboxExecuteProtocol):

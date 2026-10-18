@@ -11,7 +11,6 @@ import pytest
 
 from EvernightAI.infra.adapters.agent.sqlite import SQLiteAgentRunStateRegister
 
-
 SERVER_SCRIPT = """
 import asyncio
 import sys

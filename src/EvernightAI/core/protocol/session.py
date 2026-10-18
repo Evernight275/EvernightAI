@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from EvernightAI.core.schema.session import Session, SessionStatus
 from EvernightAI.core.schema.auth import PrincipalScope
+from EvernightAI.core.schema.session import Session, SessionStatus
 
 
 class SessionRegisterProtocol(Protocol):

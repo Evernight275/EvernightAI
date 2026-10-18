@@ -4,9 +4,10 @@ from fastapi.testclient import TestClient
 
 from EvernightAI.bootstrap.http import create_app as create_http_app
 from EvernightAI.bootstrap.http import create_app_from_config
-from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.auth import AuthRequiredError
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
+from EvernightAI.entrypoint.server import _startup_info_lines
 from EvernightAI.interface.cli.schema import (
     AuthConfig,
     AuthUserConfig,
@@ -17,7 +18,6 @@ from EvernightAI.interface.cli.schema import (
     OAuthTokenPrincipalConfig,
     RuntimeConfig,
 )
-from EvernightAI.entrypoint.server import _startup_info_lines
 from EvernightAI.server import main as package_server_main
 
 

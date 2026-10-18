@@ -6,15 +6,14 @@ from EvernightAI.core.schema.provider import (
     ProviderConfig,
     ProviderConfigUpdate,
     ProviderConfigView,
-    ProviderTestRequest,
-    ProviderTestResult,
     ProviderInfo,
     ProviderModelCapability,
     ProviderModelConfig,
+    ProviderTestRequest,
+    ProviderTestResult,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.template import PROVIDER_CONFIG_EXAMPLES
-
 
 router = APIRouter(prefix="/providers", tags=["providers"])
 

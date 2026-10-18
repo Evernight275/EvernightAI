@@ -1,4 +1,3 @@
-from EvernightAI.core.schema.sandbox import SandboxExecutionResult
 from EvernightAI.core.error.base import (
     ConfigurationError,
     EvernightAIError,
@@ -6,6 +5,7 @@ from EvernightAI.core.error.base import (
     ResponseError,
     ValidationError,
 )
+from EvernightAI.core.schema.sandbox import SandboxExecutionResult
 
 
 class SandboxError(EvernightAIError):

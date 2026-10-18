@@ -3,7 +3,6 @@ from collections.abc import Awaitable, Callable
 from EvernightAI.core.error.provider import ProviderNotFoundError
 from EvernightAI.core.schema.provider import ProviderModelConfig
 
-
 ModelDiscovery = Callable[[], Awaitable[list[ProviderModelConfig]]]
 
 

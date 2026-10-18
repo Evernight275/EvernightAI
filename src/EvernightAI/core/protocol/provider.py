@@ -1,20 +1,21 @@
-from EvernightAI.core.protocol.stream import ChatStreamProtocol
-from EvernightAI.core.schema.content import ChatRequest, ChatResponse
-from EvernightAI.core.schema.provider import (
-    ProviderInfo,
-    ProviderConfig,
-    ProviderConfigUpdate,
-    ProviderConfigView,
-    ProviderModelCapability,
-    ProviderModelConfig,
-    ProviderType,
-)
 from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
+
+from EvernightAI.core.protocol.stream import ChatStreamProtocol
+from EvernightAI.core.schema.content import ChatRequest, ChatResponse
 from EvernightAI.core.schema.image import (
     ImageEditRequest,
     ImageGenerationRequest,
     ImageGenerationResponse,
+)
+from EvernightAI.core.schema.provider import (
+    ProviderConfig,
+    ProviderConfigUpdate,
+    ProviderConfigView,
+    ProviderInfo,
+    ProviderModelCapability,
+    ProviderModelConfig,
+    ProviderType,
 )
 
 

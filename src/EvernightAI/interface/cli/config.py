@@ -3,7 +3,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import ConfigDict, ValidationError as PydanticValidationError
+from pydantic import ConfigDict
+from pydantic import ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.data_analysis import (
@@ -22,11 +23,11 @@ from EvernightAI.interface.cli.schema import (
     DataAnalysisConfig,
     EvernightConfig,
     HttpConfig,
+    MemoryStrategyConfig,
     OAuthConfig,
     OAuthJwtConfig,
     OAuthTokenPrincipalConfig,
     PromptCacheConfig,
-    MemoryStrategyConfig,
     RuntimeConfig,
     SQLiteDataSourceConfig,
     ToolConfig,

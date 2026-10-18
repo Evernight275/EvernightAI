@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from EvernightAI.application.agent_state import _aggregate_run_usage
 from EvernightAI.core.error.agent import (
     AgentStateError,
 )
@@ -27,8 +28,6 @@ from EvernightAI.core.schema.agent import (
 from EvernightAI.core.schema.tool import (
     ToolReplayPolicy,
 )
-
-from EvernightAI.application.agent_state import _aggregate_run_usage
 
 
 @dataclass(frozen=True)

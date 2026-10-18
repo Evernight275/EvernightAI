@@ -1,5 +1,5 @@
-from collections.abc import Iterable
 import json
+from collections.abc import Iterable
 from typing import Any
 
 from openai.types.responses import Response, ResponseStreamEvent

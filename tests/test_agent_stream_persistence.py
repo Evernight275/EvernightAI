@@ -1,7 +1,7 @@
-from collections.abc import AsyncGenerator, AsyncIterator
-from pathlib import Path
 import subprocess
 import sys
+from collections.abc import AsyncGenerator, AsyncIterator
+from pathlib import Path
 from typing import cast
 
 import pytest

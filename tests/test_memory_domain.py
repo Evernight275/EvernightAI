@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime, timedelta, timezone
+
+import pytest
 from pydantic import ValidationError
 
 from EvernightAI.core.domain.memory import (
@@ -8,6 +9,7 @@ from EvernightAI.core.domain.memory import (
     MemoryManager,
     MemoryRegister,
 )
+from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunResult
 from EvernightAI.core.schema.content import (
     ChatResponse,
@@ -16,14 +18,13 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.error.memory import MemoryNotFoundError
 from EvernightAI.core.schema.memory import (
     MemoryItem,
     MemoryKind,
     MemoryQuery,
+    MemoryScope,
     MemoryScopeSelector,
     MemorySort,
-    MemoryScope,
 )
 
 

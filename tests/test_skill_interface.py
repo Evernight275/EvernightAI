@@ -10,9 +10,9 @@ from EvernightAI.core.schema.content import (
 )
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
-    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
+    SkillRenderRequest,
 )
 
 

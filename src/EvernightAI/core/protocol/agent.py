@@ -14,7 +14,6 @@ from EvernightAI.core.schema.agent import (
 )
 from EvernightAI.core.schema.auth import PrincipalScope
 
-
 AgentRunOperation = Callable[[], Awaitable[AgentRunState]]
 AgentRunStreamOperation = Callable[[], AsyncIterator[AgentTraceEvent]]
 

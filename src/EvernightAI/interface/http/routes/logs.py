@@ -5,7 +5,6 @@ from fastapi import APIRouter, Query, status
 from EvernightAI.core.schema.log import Log
 from EvernightAI.interface.log_store import RECENT_LOG_STORE
 
-
 router = APIRouter(prefix="/logs", tags=["logs"])
 
 

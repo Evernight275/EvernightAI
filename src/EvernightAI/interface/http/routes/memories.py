@@ -16,7 +16,6 @@ from EvernightAI.interface.http.template import (
     MEMORY_QUERY_EXAMPLES,
 )
 
-
 router = APIRouter(prefix="/memories", tags=["memories"])
 
 

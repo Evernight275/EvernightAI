@@ -7,7 +7,6 @@ from EvernightAI.core.schema.tool import (
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 
-
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 

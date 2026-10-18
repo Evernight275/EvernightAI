@@ -15,15 +15,16 @@ from EvernightAI.bootstrap.options import (
     ShellToolOptions,
 )
 from EvernightAI.bootstrap.runtime import (
-    create_sqlite_runtime,
     create_memory_strategy,
     create_memory_write_strategy,
+    create_sqlite_runtime,
 )
-from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevice
+from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.infra.adapters.api_key import SQLiteApiKeyRegister
 from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
 from EvernightAI.interface.http.app import create_http_app
@@ -31,17 +32,15 @@ from EvernightAI.interface.http.auth import (
     ApiKeyHttpAuthDevice,
     CompositeHttpAuthDevice,
     HttpApiKeyCredential,
-    HttpOAuthJwtConfig,
     HttpOAuthBearerCredential,
+    HttpOAuthJwtConfig,
     HttpPasswordCredential,
-    OAuthJwtBearerHttpAuthDevice,
-    OAuthBearerHttpAuthDevice,
-    PasswordLoginHttpAuthDevice,
     ManagedApiKeyHttpAuthDevice,
+    OAuthBearerHttpAuthDevice,
+    OAuthJwtBearerHttpAuthDevice,
+    PasswordLoginHttpAuthDevice,
 )
-from EvernightAI.infra.adapters.api_key import SQLiteApiKeyRegister
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
-
 
 DEFAULT_DATABASE_PATH = Path(".evernight") / "runtime.sqlite3"
 DEFAULT_HTTP_AUTH_PRINCIPAL_ID = "http-api-key"

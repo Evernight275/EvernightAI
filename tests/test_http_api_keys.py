@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.types import Scope, Receive, Send
+from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocketDisconnect
 
 from EvernightAI.bootstrap.config import _cli_principal

@@ -2,9 +2,9 @@ from pathlib import Path
 
 from EvernightAI.core.error.context import ContextNotFoundError, ContextStateError
 from EvernightAI.core.protocol.context import ContextRegisterProtocol
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import Content
 from EvernightAI.core.schema.context import Context
-from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.infra.sqlite import (
     SQLiteStoreConnection,
     sqlite_transaction,

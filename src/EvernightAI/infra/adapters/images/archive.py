@@ -1,9 +1,9 @@
 import asyncio
 import base64
-from collections.abc import Awaitable, Callable
-from ipaddress import ip_address, ip_network
 import logging
 import socket
+from collections.abc import Awaitable, Callable
+from ipaddress import ip_address, ip_network
 from time import monotonic
 
 import httpx
@@ -11,7 +11,6 @@ import httpx
 from EvernightAI.core.protocol.image import ImageArchiveProtocol
 from EvernightAI.core.schema.image import GeneratedImage, ImageGenerationResponse
 from EvernightAI.infra.adapters.images.bitmap import bitmap_mime
-
 
 LOGGER = logging.getLogger("EvernightAI.images")
 FAKE_IP_NETWORKS = (ip_network("198.18.0.0/15"), ip_network("2001:2::/48"))

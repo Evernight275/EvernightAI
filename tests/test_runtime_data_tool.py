@@ -2,8 +2,8 @@ import pytest
 
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.domain.tool import ToolManager
-from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.content import MessageRole
+from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.session import SessionStatus
 from EvernightAI.core.schema.tool import ToolCall
 from EvernightAI.infra.registrations.tool.runtime_data import (

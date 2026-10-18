@@ -7,7 +7,6 @@ from pydantic import Field, model_validator
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import ChatResponse, ChatSkill, ChatUsage, Content
 from EvernightAI.core.schema.memory import MemoryQuery
-from EvernightAI.core.schema.trace import TraceEvent
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
     ToolApprovalRequest,
@@ -16,6 +15,7 @@ from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolReplayPolicy,
 )
+from EvernightAI.core.schema.trace import TraceEvent
 
 
 class AgentStepType(StrEnum):

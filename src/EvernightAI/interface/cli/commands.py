@@ -6,9 +6,9 @@ from typing import Any, TypeVar
 from pydantic import ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
+from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunState
 from EvernightAI.core.schema.base import EvernightAISchema
-from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.content import (
     ChatRequest,
     Content,
@@ -28,7 +28,6 @@ from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.tool import ToolApprovalDecision, ToolApprovalStatus
 from EvernightAI.interface.cli.config import load_config
 from EvernightAI.interface.cli.schema import EvernightConfig
-
 
 SchemaT = TypeVar("SchemaT", bound=EvernightAISchema)
 

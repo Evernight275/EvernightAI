@@ -1,6 +1,6 @@
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-import logging
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
@@ -13,9 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from EvernightAI.core.error.base import EvernightAIError
 from EvernightAI.core.protocol.api_key import ApiKeyManagerProtocol
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
-from EvernightAI.core.schema.auth import Principal
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
-from EvernightAI.interface.http.routes.workspaces import router as workspaces_router
+from EvernightAI.core.schema.auth import Principal
 from EvernightAI.interface.http.errors import (
     handle_evernight_error,
     handle_request_validation_error,
@@ -32,9 +31,9 @@ from EvernightAI.interface.http.routes.contexts import router as contexts_router
 from EvernightAI.interface.http.routes.data_analysis import (
     router as data_analysis_router,
 )
+from EvernightAI.interface.http.routes.files import router as files_router
 from EvernightAI.interface.http.routes.health import router as health_router
 from EvernightAI.interface.http.routes.images import router as images_router
-from EvernightAI.interface.http.routes.files import router as files_router
 from EvernightAI.interface.http.routes.logs import router as logs_router
 from EvernightAI.interface.http.routes.memories import router as memories_router
 from EvernightAI.interface.http.routes.providers import router as providers_router
@@ -42,9 +41,9 @@ from EvernightAI.interface.http.routes.sessions import router as sessions_router
 from EvernightAI.interface.http.routes.skills import router as skills_router
 from EvernightAI.interface.http.routes.tools import router as tools_router
 from EvernightAI.interface.http.routes.websocket import router as websocket_router
+from EvernightAI.interface.http.routes.workspaces import router as workspaces_router
 from EvernightAI.interface.http.template import API_DESCRIPTION, OPENAPI_TAGS
 from EvernightAI.interface.http.websocket import WebSocketConnectionManager
-
 
 HTTP_BEARER_SECURITY_SCHEME = "EvernightBearerAuth"
 HTTP_HEADER_API_KEY_SECURITY_SCHEME = "EvernightApiKey"

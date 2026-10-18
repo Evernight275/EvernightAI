@@ -22,8 +22,8 @@ from EvernightAI.core.schema.data_analysis import (
     DataSort,
     DataSortDirection,
     DataSourceDefinition,
-    DataTimeRange,
     DataStatisticsRequest,
+    DataTimeRange,
 )
 from EvernightAI.infra.adapters.data_analysis.sqlite import (
     SQLiteDataStatisticsExecutor,

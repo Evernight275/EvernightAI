@@ -37,7 +37,6 @@ from EvernightAI.interface.http.websocket import (
     websocket_subprotocol_token,
 )
 
-
 router = APIRouter(tags=["websocket"])
 
 WEBSOCKET_CAPABILITIES = [

@@ -1,5 +1,5 @@
 from EvernightAI.core.error.auth import AuthPermissionDeniedError
-from EvernightAI.core.protocol.auth import AuthPolicyProtocol, AuthorizerProtocol
+from EvernightAI.core.protocol.auth import AuthorizerProtocol, AuthPolicyProtocol
 from EvernightAI.core.schema.auth import (
     AuthDecision,
     AuthDecisionStatus,

@@ -3,7 +3,6 @@ from typing import Literal
 
 from EvernightAI.infra.adapters.tool.shell_heredocs import parse_quoted_heredocs
 
-
 ShellDialect = Literal["posix", "cmd", "powershell"]
 
 

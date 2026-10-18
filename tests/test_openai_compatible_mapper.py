@@ -1,6 +1,14 @@
-import pytest
 from types import SimpleNamespace
 from typing import Any, cast
+
+import pytest
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from openai.types.chat.chat_completion_chunk import (
+    Choice,
+    ChoiceDelta,
+    ChoiceDeltaToolCall,
+    ChoiceDeltaToolCallFunction,
+)
 
 from EvernightAI.core.error.chat import ChatInputError
 from EvernightAI.core.error.provider import ProviderResponseError
@@ -23,13 +31,6 @@ from EvernightAI.infra.adapters.providers.openai_compatible.mapper import (
     to_openai_tool_call,
     to_openai_tool_calls,
     to_openai_tools,
-)
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
-from openai.types.chat.chat_completion_chunk import (
-    Choice,
-    ChoiceDelta,
-    ChoiceDeltaToolCall,
-    ChoiceDeltaToolCallFunction,
 )
 
 

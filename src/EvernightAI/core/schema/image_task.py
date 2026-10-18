@@ -7,7 +7,6 @@ from pydantic import ConfigDict, Field
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.image import ImageEditRequest, ImageGenerationRequest
 
-
 ImageTaskStatus = Literal["queued", "running", "succeeded", "failed", "interrupted"]
 
 

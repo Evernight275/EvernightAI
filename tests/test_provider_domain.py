@@ -1,6 +1,6 @@
-from collections.abc import AsyncIterator
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import cast
 
 import pytest

@@ -14,11 +14,10 @@ from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.template import (
     AGENT_RUN_STATE_RESPONSE_EXAMPLE,
     SESSION_AGENT_RUN_EXAMPLES,
-    SESSION_CHAT_RESPONSE_EXAMPLE,
     SESSION_CHAT_EXAMPLES,
+    SESSION_CHAT_RESPONSE_EXAMPLE,
     SESSION_EXAMPLES,
 )
-
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 

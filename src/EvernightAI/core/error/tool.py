@@ -1,11 +1,11 @@
 from EvernightAI.core.error.base import (
+    ConfigurationError,
     EvernightAIError,
-    ValidationError,
-    StateError,
+    NotFoundError,
     RequestError,
     ResponseError,
-    NotFoundError,
-    ConfigurationError,
+    StateError,
+    ValidationError,
 )
 
 

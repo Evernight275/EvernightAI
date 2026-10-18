@@ -1,7 +1,7 @@
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-import sys
-import os
 
 from EvernightAI.core.error.sandbox import SandboxConfigurationError
 

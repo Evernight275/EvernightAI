@@ -20,21 +20,20 @@ from EvernightAI.interface.http.schema import (
     ResumeAgentRunRequest,
     RetryAgentRunRequest,
 )
-from EvernightAI.interface.http.template import (
-    AGENT_RUN_CANCELED_RESPONSE_EXAMPLE,
-    AGENT_RUN_CONTROL_EXAMPLES,
-    AGENT_RUN_PAUSED_RESPONSE_EXAMPLE,
-    AGENT_RUN_STATE_RESPONSE_EXAMPLE,
-    AGENT_TRACE_SSE_EXAMPLE,
-    AGENT_RUN_EXAMPLES,
-    RESUME_AGENT_RUN_EXAMPLES,
-)
 from EvernightAI.interface.http.sse import (
     SSE_RESPONSE_HEADERS,
     SSEStreamingResponse,
     sse_response_body,
 )
-
+from EvernightAI.interface.http.template import (
+    AGENT_RUN_CANCELED_RESPONSE_EXAMPLE,
+    AGENT_RUN_CONTROL_EXAMPLES,
+    AGENT_RUN_EXAMPLES,
+    AGENT_RUN_PAUSED_RESPONSE_EXAMPLE,
+    AGENT_RUN_STATE_RESPONSE_EXAMPLE,
+    AGENT_TRACE_SSE_EXAMPLE,
+    RESUME_AGENT_RUN_EXAMPLES,
+)
 
 router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
 

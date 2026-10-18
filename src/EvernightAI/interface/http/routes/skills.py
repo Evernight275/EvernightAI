@@ -4,9 +4,9 @@ from fastapi import APIRouter, Body, Response, status
 
 from EvernightAI.core.schema.skill import (
     RenderedSkill,
-    SkillRenderRequest,
     SkillCapability,
     SkillDefinition,
+    SkillRenderRequest,
     SkillTemplateConfig,
     SkillTemplateUpdate,
 )
@@ -15,7 +15,6 @@ from EvernightAI.interface.http.schema import RenderSkillRequest
 from EvernightAI.interface.http.template import (
     RENDER_SKILL_EXAMPLES,
 )
-
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 

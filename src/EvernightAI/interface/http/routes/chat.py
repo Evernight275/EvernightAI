@@ -8,18 +8,17 @@ from EvernightAI.interface.http.schema import (
     ChatWithContextRequest,
     DirectChatRequest,
 )
-from EvernightAI.interface.http.template import (
-    CHAT_WITH_CONTEXT_EXAMPLES,
-    CHAT_RESPONSE_EXAMPLE,
-    CHAT_STREAM_ERROR_SSE_EXAMPLE,
-    DIRECT_CHAT_EXAMPLES,
-)
 from EvernightAI.interface.http.sse import (
     SSE_RESPONSE_HEADERS,
     SSEStreamingResponse,
     chat_stream_response_body_from,
 )
-
+from EvernightAI.interface.http.template import (
+    CHAT_RESPONSE_EXAMPLE,
+    CHAT_STREAM_ERROR_SSE_EXAMPLE,
+    CHAT_WITH_CONTEXT_EXAMPLES,
+    DIRECT_CHAT_EXAMPLES,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

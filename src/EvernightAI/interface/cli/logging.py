@@ -4,7 +4,6 @@ from typing import Any
 
 from EvernightAI.interface.log_store import install_recent_log_handler
 
-
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 ANSI_RESET = "\033[0m"

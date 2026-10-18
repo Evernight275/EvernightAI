@@ -3,6 +3,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from weakref import WeakKeyDictionary
 
+from EvernightAI.application.agent_recovery import (
+    _mark_started_executions_unknown,
+    inspect_agent_run_checkpoint,
+)
+from EvernightAI.application.agent_state import LOGGER
 from EvernightAI.core.error.agent import (
     AgentShutdownError,
 )
@@ -18,12 +23,6 @@ from EvernightAI.core.schema.agent import (
     AgentRunStatus,
     AgentTraceEvent,
     AgentTraceEventType,
-)
-
-from EvernightAI.application.agent_state import LOGGER
-from EvernightAI.application.agent_recovery import (
-    inspect_agent_run_checkpoint,
-    _mark_started_executions_unknown,
 )
 
 _AGENT_RUN_LIFECYCLES: WeakKeyDictionary[object, "_AgentRunLifecycle"] = (

@@ -35,7 +35,7 @@ from EvernightAI.infra.adapters.images.sqlite import SQLiteImageGenerationStore
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice
 from EvernightAI.interface.http.schema import HttpApiKeyCredential
-from tests.test_image_generation import ImageProvider, PNG, request
+from tests.test_image_generation import PNG, ImageProvider, request
 from tests.test_interface_http import make_runtime
 
 

@@ -85,9 +85,10 @@ def test_mask_size_mismatch_and_jpeg_first_input_are_rejected() -> None:
 
 @pytest.mark.asyncio
 async def test_sdk_sends_mask_and_ordered_references_without_model_discovery() -> None:
-    import httpx
     from email.parser import BytesParser
     from email.policy import default
+
+    import httpx
     from openai import AsyncOpenAI
 
     from EvernightAI.core.schema.provider import ProviderConfig, ProviderType

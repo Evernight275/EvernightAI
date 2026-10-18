@@ -11,7 +11,6 @@ from EvernightAI.core.protocol.image import (
 )
 from EvernightAI.core.schema.image_task import ImageTask
 
-
 LOGGER = logging.getLogger("EvernightAI.image_tasks")
 
 

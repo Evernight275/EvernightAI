@@ -1,8 +1,8 @@
+from EvernightAI.application.image_attachments import create_image_artifact
 from EvernightAI.core.protocol.file import FileInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.file import FileArtifactInfo
-from EvernightAI.application.image_attachments import create_image_artifact
 
 
 class FileApplication(FileInterfaceProtocol):

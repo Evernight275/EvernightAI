@@ -11,7 +11,6 @@ from EvernightAI.core.schema.data_analysis import (
     DataStatisticsResult,
 )
 
-
 DataStatisticsExecutorProtocol = Callable[
     [DataStatisticsRequest], Awaitable[DataStatisticsResult]
 ]

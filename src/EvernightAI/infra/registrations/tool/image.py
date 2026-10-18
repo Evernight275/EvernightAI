@@ -3,8 +3,8 @@ from EvernightAI.core.schema.image_tool import ImageToolRequest
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
-    ToolSafetyLevel,
     ToolReplayPolicy,
+    ToolSafetyLevel,
 )
 
 

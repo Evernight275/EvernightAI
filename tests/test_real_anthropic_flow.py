@@ -3,6 +3,7 @@ import os
 import pytest
 
 from EvernightAI.application.chat import ChatApplication
+from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.error.provider import ProviderUnavailableError
 from EvernightAI.core.schema.content import (
     ChatRequest,
@@ -12,8 +13,6 @@ from EvernightAI.core.schema.content import (
     MessageRole,
 )
 from EvernightAI.core.schema.provider import ProviderConfig, ProviderType
-from EvernightAI.bootstrap.runtime import create_runtime
-
 
 RUN_REAL_ANTHROPIC = os.getenv("EVERNIGHTAI_RUN_REAL_ANTHROPIC") == "1"
 

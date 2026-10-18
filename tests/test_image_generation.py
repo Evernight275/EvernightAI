@@ -48,7 +48,6 @@ from EvernightAI.interface.http.schema import HttpApiKeyCredential
 from tests.test_interface_http import make_runtime
 from tests.test_provider_domain import FakeProvider
 
-
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nimage").decode()
 
 

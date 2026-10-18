@@ -4,8 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.bootstrap.interface import create_interface
@@ -13,7 +13,7 @@ from EvernightAI.bootstrap.options import BuiltinToolOptions, FilesystemToolOpti
 from EvernightAI.bootstrap.runtime import create_sqlite_runtime
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
-from EvernightAI.core.domain.file import FileArtifactStore, MAX_FILE_ARTIFACT_BYTES
+from EvernightAI.core.domain.file import MAX_FILE_ARTIFACT_BYTES, FileArtifactStore
 from EvernightAI.core.error.base import ConflictError, NotFoundError, ValidationError
 from EvernightAI.core.error.tool import ToolExecutionError, ToolPolicyError
 from EvernightAI.core.schema.agent import AgentRunRequest, AgentRunStatus
@@ -33,9 +33,9 @@ from EvernightAI.infra.adapters.tool.file_artifacts import SQLiteFileArtifactSto
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import ApiKeyHttpAuthDevice
 from EvernightAI.interface.http.schema import HttpApiKeyCredential
+from tests.symlinks import requires_symlinks
 from tests.test_application_agent import ToolCallingProvider
 from tests.test_image_generation import PNG
-from tests.symlinks import requires_symlinks
 
 
 @pytest.fixture(params=["memory", "sqlite"])

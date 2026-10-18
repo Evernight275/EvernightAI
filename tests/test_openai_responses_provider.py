@@ -41,9 +41,9 @@ from EvernightAI.infra.adapters.providers.openai_responses.instance import (
     OpenAIResponsesProviderInstance,
 )
 from EvernightAI.infra.adapters.providers.openai_responses.mapper import (
+    OpenAIResponsesStreamNormalizer,
     from_openai_response,
     from_openai_response_stream_event,
-    OpenAIResponsesStreamNormalizer,
     to_openai_response_function_call,
     to_openai_response_input,
     to_openai_response_input_item,

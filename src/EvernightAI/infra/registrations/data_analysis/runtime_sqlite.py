@@ -1,5 +1,5 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from EvernightAI.core.protocol.data_analysis import DataAnalysisRegisterProtocol
 from EvernightAI.core.schema.data_analysis import (

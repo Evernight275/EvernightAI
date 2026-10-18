@@ -14,8 +14,8 @@ from EvernightAI.core.schema.image import (
     ImageGenerationResponse,
     ImageGenerationUsage,
 )
-from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.images.bitmap import bitmap_mime
+from EvernightAI.infra.adapters.provider_usage import token_count
 
 
 def image_generation_params(request: ImageGenerationRequest) -> dict[str, Any]:

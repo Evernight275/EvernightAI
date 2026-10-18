@@ -1,8 +1,13 @@
 from collections.abc import AsyncIterator
 
+from EvernightAI.application.chat_request import ChatRequestComposer
+from EvernightAI.application.image_attachments import resolve_image_references
+from EvernightAI.application.retry import mark_retry_messages
+from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
 from EvernightAI.core.protocol.interface import ChatInterfaceProtocol
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -12,7 +17,6 @@ from EvernightAI.core.schema.content import (
     ContentPartType,
     MessageRole,
 )
-from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (
     MemoryItem,
@@ -22,10 +26,6 @@ from EvernightAI.core.schema.memory import (
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
-from EvernightAI.application.chat_request import ChatRequestComposer
-from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request
-from EvernightAI.application.retry import mark_retry_messages
-from EvernightAI.application.image_attachments import resolve_image_references
 
 
 class ChatApplication(ChatInterfaceProtocol):

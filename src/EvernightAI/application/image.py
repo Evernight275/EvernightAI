@@ -9,14 +9,13 @@ from EvernightAI.core.error.image import (
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.image import (
-    ImageGenerationRecord,
     ImageEditRequest,
+    ImageGenerationRecord,
     ImageGenerationRequest,
     ImageGenerationResponse,
     ImageHistoryCursor,
     ImageHistoryPage,
 )
-
 
 LOGGER = logging.getLogger("EvernightAI.images")
 

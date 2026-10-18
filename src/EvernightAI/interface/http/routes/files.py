@@ -1,6 +1,5 @@
-from urllib.parse import quote
-
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
 
@@ -8,7 +7,6 @@ from EvernightAI.core.domain.image_attachment import MAX_UPLOAD_BYTES
 from EvernightAI.core.error.base import ValidationError
 from EvernightAI.core.schema.file import FileArtifactInfo
 from EvernightAI.interface.http.dependencies import InterfaceDependency
-
 
 router = APIRouter(prefix="/files", tags=["files"])
 

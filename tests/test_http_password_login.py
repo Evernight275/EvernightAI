@@ -1,9 +1,8 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-import asyncio
 from typing import Any
 
 import httpx
@@ -17,16 +16,16 @@ from EvernightAI.bootstrap.interface import create_interface
 from EvernightAI.bootstrap.runtime import create_runtime
 from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.error.base import ConfigurationError
+from EvernightAI.core.schema.agent import AgentTraceEvent, AgentTraceEventType
 from EvernightAI.core.schema.auth import Principal
+from EvernightAI.core.schema.stream import WebSocketMessage, WebSocketMessageType
 from EvernightAI.interface.cli.commands import redact_config
 from EvernightAI.interface.cli.config import parse_config
 from EvernightAI.interface.cli.schema import EvernightConfig
-from EvernightAI.core.schema.agent import AgentTraceEvent, AgentTraceEventType
-from EvernightAI.core.schema.stream import WebSocketMessage, WebSocketMessageType
 from EvernightAI.interface.http.app import create_http_app
 from EvernightAI.interface.http.auth import PasswordLoginHttpAuthDevice
-from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 from EvernightAI.interface.http.schema import HttpPasswordCredential
+from EvernightAI.interface.http.websocket import WebSocketConnectionManager
 
 
 def make_device(

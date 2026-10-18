@@ -17,7 +17,6 @@ from EvernightAI.interface.http.template import (
     DATA_STATISTICS_EXAMPLES,
 )
 
-
 router = APIRouter(prefix="/data-analysis", tags=["data-analysis"])
 
 

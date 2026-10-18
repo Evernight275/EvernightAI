@@ -1,11 +1,11 @@
 from typing import Protocol
 
+from EvernightAI.core.error.context import ContextStateError
+from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.content import ChatRequest, Content
 from EvernightAI.core.schema.context import Context, ContextWindow
-from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.memory import MemorySelection
 from EvernightAI.core.schema.tool import ToolDefinition
-from EvernightAI.core.error.context import ContextStateError
 
 
 class ContextRegisterProtocol(Protocol):

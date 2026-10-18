@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 import json
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from typing import Protocol, runtime_checkable
 
 from fastapi.responses import StreamingResponse
@@ -11,7 +11,6 @@ from EvernightAI.core.schema.stream import (
     ChatStreamEventType,
     SSEEvent,
 )
-
 
 SSE_RESPONSE_HEADERS = {
     "Cache-Control": "no-cache",

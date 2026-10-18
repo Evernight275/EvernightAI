@@ -18,8 +18,8 @@ from EvernightAI.core.schema.content import (
     Content,
     ContentPart,
     ContentPartType,
-    MessageStatus,
     MessageRole,
+    MessageStatus,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.memory import (

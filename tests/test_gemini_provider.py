@@ -4,9 +4,9 @@ import httpx
 import pytest
 
 from EvernightAI.core.error.chat import ChatInputError
-from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.error.provider import (
     ProviderNotFoundError,
+    ProviderResponseError,
     ProviderUnavailableError,
 )
 from EvernightAI.core.schema.content import (

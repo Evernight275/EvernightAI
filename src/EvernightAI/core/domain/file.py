@@ -5,7 +5,6 @@ from EvernightAI.core.protocol.file import FileArtifactStoreProtocol
 from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.file import FileArtifact
 
-
 MAX_FILE_ARTIFACT_BYTES = 20 * 1024 * 1024
 
 

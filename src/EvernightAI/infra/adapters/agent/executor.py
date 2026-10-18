@@ -12,8 +12,8 @@ from EvernightAI.core.error.agent import (
 from EvernightAI.core.protocol.agent import (
     AgentRunExecutorProtocol,
     AgentRunOperation,
-    AgentRunStreamOperation,
     AgentRunStateRegisterProtocol,
+    AgentRunStreamOperation,
 )
 from EvernightAI.core.schema.agent import AgentRunState, AgentTraceEvent
 

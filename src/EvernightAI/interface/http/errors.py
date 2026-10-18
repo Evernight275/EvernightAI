@@ -24,7 +24,6 @@ from EvernightAI.core.error.base import (
 )
 from EvernightAI.core.error.provider import ProviderUnavailableError
 
-
 LOGGER = logging.getLogger("EvernightAI.interface.http.errors")
 
 

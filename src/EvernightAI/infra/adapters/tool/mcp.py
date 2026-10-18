@@ -27,8 +27,10 @@ from mcp.types import (
     CallToolResult,
     ServerNotification,
     TextContent,
-    Tool as McpTool,
     ToolListChangedNotification,
+)
+from mcp.types import (
+    Tool as McpTool,
 )
 
 from EvernightAI.core.error.tool import (
@@ -48,7 +50,6 @@ from EvernightAI.core.schema.tool import (
     ToolPermission,
     ToolSafetyLevel,
 )
-
 
 LOGGER = logging.getLogger("EvernightAI.infra.tool.mcp")
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")

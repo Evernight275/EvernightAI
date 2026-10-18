@@ -1,9 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
+from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -12,15 +13,14 @@ from EvernightAI.core.schema.sandbox import (
     SandboxPolicy,
     SandboxResourceLimits,
 )
-from EvernightAI.core.protocol.tool import ToolExecutorProtocol, ToolPreflightPolicy
 from EvernightAI.core.schema.tool import (
     ToolDefinition,
     ToolPermission,
     ToolSafetyDecision,
     ToolSafetyLevel,
 )
-from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
+from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 
 
 class _ProjectAwareGitTool:

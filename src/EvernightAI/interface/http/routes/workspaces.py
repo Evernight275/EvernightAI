@@ -10,7 +10,6 @@ from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.workspace import WorkspaceDirectory, WorkspaceProject
 from EvernightAI.interface.http.protocol import HttpAuthDeviceProtocol
 
-
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 

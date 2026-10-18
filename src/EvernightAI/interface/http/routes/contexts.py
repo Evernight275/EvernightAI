@@ -11,7 +11,6 @@ from EvernightAI.interface.http.template import (
     CONTEXT_EXAMPLES,
 )
 
-
 router = APIRouter(prefix="/contexts", tags=["contexts"])
 
 

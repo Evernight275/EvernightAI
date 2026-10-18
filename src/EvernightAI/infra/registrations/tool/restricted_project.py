@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
 from EvernightAI.core.protocol.tool import ToolRegisterProtocol
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.infra.adapters.tool.restricted_project import (
     RestrictedProjectTaskTool,
 )

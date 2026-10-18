@@ -10,7 +10,6 @@ from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.image import ImageHistoryCursor
 from EvernightAI.core.schema.image_task import ImageTask, ImageTaskSummary
 
-
 MAX_ACTIVE_IMAGE_TASKS = 10
 
 

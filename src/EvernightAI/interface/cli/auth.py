@@ -1,5 +1,5 @@
-import os
 import hmac
+import os
 
 from EvernightAI.core.error.auth import AuthRequiredError
 from EvernightAI.core.protocol.auth import AuthDeviceProtocol

@@ -5,7 +5,6 @@ from pydantic import Field
 
 from EvernightAI.core.schema.base import EvernightAISchema
 
-
 TraceEventType = TypeVar("TraceEventType", bound=str)
 
 

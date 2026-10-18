@@ -14,7 +14,6 @@ from EvernightAI.interface.http.protocol import (
     HttpLoginDeviceProtocol,
 )
 
-
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 

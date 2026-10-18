@@ -1,22 +1,20 @@
 from fastapi import APIRouter, Query, Response
 
-from EvernightAI.core.schema.image_task import (
-    ImageTaskPage,
-    ImageTaskSubmit,
-    ImageTaskSummary,
-)
-
 from EvernightAI.core.schema.image import (
     ImageGenerationRecord,
     ImageGenerationResponse,
     ImageHistoryPage,
+)
+from EvernightAI.core.schema.image_task import (
+    ImageTaskPage,
+    ImageTaskSubmit,
+    ImageTaskSummary,
 )
 from EvernightAI.interface.http.dependencies import InterfaceDependency
 from EvernightAI.interface.http.schema import (
     DirectImageEditRequest,
     DirectImageGenerationRequest,
 )
-
 
 router = APIRouter(prefix="/images", tags=["images"])
 

@@ -1,14 +1,13 @@
 import os
-from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
 from EvernightAI.core.error.tool import ToolPolicyError
 from EvernightAI.infra.adapters.tool.shell_policy import inspected_commands
 from tests.test_shell_command_policy import call_for, manager_for
-
 
 SVG_TO_HTML = '''python - <<'PY'
 from pathlib import Path

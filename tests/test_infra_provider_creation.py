@@ -1,12 +1,38 @@
 from __future__ import annotations
 
 import sys
+from typing import Any, cast
 
 import pytest
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
-from typing import Any, cast
 
+from EvernightAI.bootstrap.options import (
+    BuiltinToolOptions,
+    FilesystemToolOptions,
+    ProjectToolOptions,
+    ShellToolOptions,
+)
+from EvernightAI.bootstrap.runtime import (
+    RuntimeKernel,
+    create_provider_factory,
+    create_runtime,
+    create_skill_manager,
+    create_sqlite_runtime,
+    register_builtin_tools,
+)
+from EvernightAI.core.domain.provider import ProviderManager
+from EvernightAI.core.domain.skill import SkillRegister
+from EvernightAI.core.domain.tool import ToolRegister
 from EvernightAI.core.error.provider import ProviderNotFoundError
+from EvernightAI.core.schema.agent import (
+    AgentRunRequest,
+    AgentRunState,
+    AgentRunStatus,
+    AgentStep,
+    AgentStepType,
+    AgentTraceEvent,
+    AgentTraceEventType,
+)
 from EvernightAI.core.schema.content import (
     ChatRequest,
     ChatResponse,
@@ -17,15 +43,6 @@ from EvernightAI.core.schema.content import (
     MessageRole,
     PromptCacheMode,
     PromptCachePolicy,
-)
-from EvernightAI.core.schema.agent import (
-    AgentRunRequest,
-    AgentRunState,
-    AgentRunStatus,
-    AgentStep,
-    AgentStepType,
-    AgentTraceEvent,
-    AgentTraceEventType,
 )
 from EvernightAI.core.schema.context import Context
 from EvernightAI.core.schema.data_analysis import (
@@ -44,30 +61,12 @@ from EvernightAI.core.schema.provider import (
 from EvernightAI.core.schema.session import Session
 from EvernightAI.core.schema.skill import SkillCapability, SkillRenderRequest
 from EvernightAI.core.schema.stream import ChatStreamEventType
-from EvernightAI.core.schema.tool import ToolCall
-from EvernightAI.core.schema.tool import ToolApprovalRequest
+from EvernightAI.core.schema.tool import ToolApprovalRequest, ToolCall
 from EvernightAI.infra.adapters.providers.openai_compatible.instance import (
     OpenAICompatibleProviderInstance,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
-from EvernightAI.core.domain.provider import ProviderManager
-from EvernightAI.core.domain.skill import SkillRegister
-from EvernightAI.core.domain.tool import ToolRegister
 from EvernightAI.infra.registrations.skill.echo import register_echo_skill
-from EvernightAI.bootstrap.options import (
-    BuiltinToolOptions,
-    FilesystemToolOptions,
-    ProjectToolOptions,
-    ShellToolOptions,
-)
-from EvernightAI.bootstrap.runtime import (
-    RuntimeKernel,
-    create_provider_factory,
-    create_runtime,
-    create_skill_manager,
-    create_sqlite_runtime,
-    register_builtin_tools,
-)
 
 
 def make_openai_config(*, discover_models: bool = False) -> ProviderConfig:

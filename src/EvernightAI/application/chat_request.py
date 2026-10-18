@@ -1,5 +1,5 @@
-from hashlib import sha256
 import json
+from hashlib import sha256
 
 from EvernightAI.application.memory import select_memories_for_request
 from EvernightAI.application.skill_prompt import compose_skill_prompted_chat_request

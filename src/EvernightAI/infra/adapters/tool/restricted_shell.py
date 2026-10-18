@@ -1,17 +1,16 @@
-import os
 import json
-from pathlib import Path
+import os
 import shlex
+from pathlib import Path
 from typing import Any
 
 from EvernightAI.core.error.tool import ToolInputError
 from EvernightAI.core.protocol.sandbox import SandboxExecuteProtocol
-from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
-from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.core.protocol.tool import (
     ToolExecutorProtocol,
     ToolPreflightPolicy,
 )
+from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
 from EvernightAI.core.schema.sandbox import (
     SandboxCommand,
     SandboxExecutionRequest,
@@ -28,13 +27,13 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyLevel,
 )
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
+from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.infra.adapters.tool.shell_policy import (
     approval_reason,
-    literal_command_reason,
-    inspected_commands,
     contains_deletion,
+    inspected_commands,
+    literal_command_reason,
 )
-
 
 SANDBOX_MOUNT_PATH = "/workspace"
 

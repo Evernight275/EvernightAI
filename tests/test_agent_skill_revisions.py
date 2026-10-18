@@ -1,6 +1,6 @@
+import json
 from collections.abc import Callable
 from pathlib import Path
-import json
 
 import pytest
 from fastapi.testclient import TestClient
