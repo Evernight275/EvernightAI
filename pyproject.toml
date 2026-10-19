@@ -83,3 +83,8 @@ exclude_also = [
 name = "pypi"
 url = "https://pypi.org/simple"
 default = true
+
+[dependency-groups]
+dev = [
+    "types-requests>=2.33.0.20261006",
+]
