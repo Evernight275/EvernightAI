@@ -35,3 +35,9 @@ class AgentRunCanceledError(AgentError, StateError):
     """Agent运行收到真实任务取消信号。"""
 
     pass
+
+
+class AgentRunLeaseLostError(AgentStateError):
+    """Agent运行失去执行租约，状态写入已被拒绝。"""
+
+    pass

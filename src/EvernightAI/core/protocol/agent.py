@@ -16,15 +16,24 @@ from EvernightAI.core.schema.auth import PrincipalScope
 
 AgentRunOperation = Callable[[], Awaitable[AgentRunState]]
 AgentRunStreamOperation = Callable[[], AsyncIterator[AgentTraceEvent]]
+AgentRunFailureHandler = Callable[[Exception], None]
 
 
 class AgentRunExecutorProtocol(Protocol):
+    """
+    Runs an operation while holding the run's execution lease.
+
+    `on_failure` records a failed or timed-out operation while the lease is still
+    held; it is skipped once the lease is lost.
+    """
+
     async def execute(
         self,
         run_id: str,
         operation: AgentRunOperation,
         *,
         timeout_seconds: float | None = None,
+        on_failure: AgentRunFailureHandler | None = None,
     ) -> AgentRunState: ...
 
     def cancel(self, run_id: str) -> bool: ...
@@ -35,6 +44,7 @@ class AgentRunExecutorProtocol(Protocol):
         operation: AgentRunStreamOperation,
         *,
         timeout_seconds: float | None = None,
+        on_failure: AgentRunFailureHandler | None = None,
     ) -> AsyncIterator[AgentTraceEvent]: ...
 
     async def close(self) -> None: ...

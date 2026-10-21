@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from EvernightAI.core.error.agent import AgentStateError
+from EvernightAI.core.error.agent import AgentRunLeaseLostError, AgentStateError
 from EvernightAI.core.protocol.agent import (
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
@@ -18,6 +18,7 @@ from EvernightAI.core.schema.agent import (
     ToolExecutionAttempt,
 )
 from EvernightAI.core.schema.auth import PrincipalScope
+from EvernightAI.infra.adapters.agent.lease import held_agent_run_lease
 from EvernightAI.infra.sqlite import (
     SQLiteStoreConnection,
     sqlite_transaction,
@@ -160,7 +161,32 @@ class SQLiteAgentRunStateRegister(AgentRunStateRegisterProtocol):
         """保存Agent运行状态快照"""
         _require_scope(state, principal_scope)
         now = _utc_now_text()
+        lease = held_agent_run_lease.get()
         with sqlite_transaction(self._connection, immediate=True):
+            if lease is not None and lease.run_id == state.run_id:
+                cursor = self._connection.execute(
+                    """
+                    UPDATE agent_run_states
+                    SET status = ?, context_id = ?, owner_id = ?, payload = ?,
+                        updated_at = ?
+                    WHERE run_id = ? AND lease_owner = ? AND lease_generation = ?
+                    """,
+                    (
+                        state.status.value,
+                        state.request.context_id,
+                        state.owner_id,
+                        state.model_dump_json(),
+                        now,
+                        state.run_id,
+                        lease.owner,
+                        lease.generation,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise AgentRunLeaseLostError(
+                        f"The agent run {state.run_id} lost its execution lease"
+                    )
+                return
             self._connection.execute(
                 """
                 INSERT INTO agent_run_states (

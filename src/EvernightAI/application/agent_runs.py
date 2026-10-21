@@ -29,6 +29,7 @@ from EvernightAI.core.error.agent import (
     AgentStateError,
 )
 from EvernightAI.core.protocol.agent import (
+    AgentRunFailureHandler,
     AgentRunStateRegisterProtocol,
     AgentTraceRegisterProtocol,
     ToolExecutionRegisterProtocol,
@@ -109,32 +110,16 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     principal_scope=principal_scope,
                 )
                 raise
-        try:
-            return await executor.execute(
-                state.run_id,
-                lambda: self._run_and_store(
-                    self._agent._run_agent_events(stored_request, state),
-                    state,
-                    principal_scope=principal_scope,
-                ),
-                timeout_seconds=request.timeout_seconds,
-            )
-        except AgentRunTimeoutError:
-            self._mark_interrupted(
-                state.run_id,
-                AgentPauseCause.TIMEOUT,
+        return await executor.execute(
+            state.run_id,
+            lambda: self._run_and_store(
+                self._agent._run_agent_events(stored_request, state),
+                state,
                 principal_scope=principal_scope,
-            )
-            raise
-        except AgentRunCanceledError:
-            raise
-        except Exception as exc:
-            self._mark_failed(
-                state.run_id,
-                exc,
-                principal_scope=principal_scope,
-            )
-            raise
+            ),
+            timeout_seconds=request.timeout_seconds,
+            on_failure=self._failure_recorder(state.run_id, principal_scope),
+        )
 
     async def resume(
         self,
@@ -159,32 +144,16 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
                     principal_scope=principal_scope,
                 )
                 raise
-        try:
-            return await executor.execute(
-                run_id,
-                lambda: self._run_and_store(
-                    self._agent._resume_agent_events(state, approvals),
-                    state,
-                    principal_scope=principal_scope,
-                ),
-                timeout_seconds=state.request.timeout_seconds,
-            )
-        except AgentRunTimeoutError:
-            self._mark_interrupted(
-                run_id,
-                AgentPauseCause.TIMEOUT,
+        return await executor.execute(
+            run_id,
+            lambda: self._run_and_store(
+                self._agent._resume_agent_events(state, approvals),
+                state,
                 principal_scope=principal_scope,
-            )
-            raise
-        except AgentRunCanceledError:
-            raise
-        except Exception as exc:
-            self._mark_failed(
-                run_id,
-                exc,
-                principal_scope=principal_scope,
-            )
-            raise
+            ),
+            timeout_seconds=state.request.timeout_seconds,
+            on_failure=self._failure_recorder(run_id, principal_scope),
+        )
 
     async def pause(
         self,
@@ -473,14 +442,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         executor = self._runtime.agent_run_executor
         if executor is not None:
             base_events = events
-            events = self._interrupt_timed_out_stream(
+            events = executor.stream(
                 state.run_id,
-                executor.stream(
-                    state.run_id,
-                    lambda: base_events,
-                    timeout_seconds=stored_request.timeout_seconds,
-                ),
-                principal_scope=principal_scope,
+                lambda: base_events,
+                timeout_seconds=stored_request.timeout_seconds,
+                on_failure=self._failure_recorder(state.run_id, principal_scope),
             )
             events = self._keep_stream_running(events)
         return _AgentTraceStream(events)
@@ -503,14 +469,11 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
         executor = self._runtime.agent_run_executor
         if executor is not None:
             base_events = events
-            events = self._interrupt_timed_out_stream(
+            events = executor.stream(
                 run_id,
-                executor.stream(
-                    run_id,
-                    lambda: base_events,
-                    timeout_seconds=state.request.timeout_seconds,
-                ),
-                principal_scope=principal_scope,
+                lambda: base_events,
+                timeout_seconds=state.request.timeout_seconds,
+                on_failure=self._failure_recorder(run_id, principal_scope),
             )
             events = self._keep_stream_running(events)
         return _AgentTraceStream(events)
@@ -1029,20 +992,21 @@ class AgentRunApplication(AgentRunInterfaceProtocol):
             principal_scope=principal_scope,
         )
 
-    async def _interrupt_timed_out_stream(
+    def _failure_recorder(
         self,
         run_id: str,
-        events: AsyncIterator[AgentTraceEvent],
-        *,
-        principal_scope: PrincipalScope | None = None,
-    ) -> AsyncIterator[AgentTraceEvent]:
-        try:
-            async for event in events:
-                yield event
-        except AgentRunTimeoutError:
-            self._mark_interrupted(
-                run_id,
-                AgentPauseCause.TIMEOUT,
-                principal_scope=principal_scope,
-            )
-            raise
+        principal_scope: PrincipalScope | None,
+    ) -> AgentRunFailureHandler:
+        """Record an executor-run failure while the executor still holds the lease."""
+
+        def record(error: Exception) -> None:
+            if isinstance(error, AgentRunTimeoutError):
+                self._mark_interrupted(
+                    run_id,
+                    AgentPauseCause.TIMEOUT,
+                    principal_scope=principal_scope,
+                )
+                return
+            self._mark_failed(run_id, error, principal_scope=principal_scope)
+
+        return record
