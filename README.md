@@ -391,6 +391,19 @@ Format Python source, tests, and examples with `ruff format src tests examples`.
 .\.venv\Scripts\pyright.exe
 ```
 
+Pytest automatically loads the project's terminal dashboard. It shows the Python
+version and selected test count, a live progress bar with the current test and
+result counts, compact failure tracebacks, and the five slowest tests (including
+setup and teardown). Colors follow pytest's `--color` setting. Redirected output
+uses progress checkpoints instead of terminal redraws; `-v` prints every result.
+Skipped tests retain their reasons, and pytest still controls results and exit
+codes.
+
+Use `--terminal-style=plain` for native pytest output. Explicit `--tb` and
+`--durations` options override the dashboard defaults; `--collect-only` also uses
+native output. The dashboard supports `-n` parallel runs and keeps ordinary output
+lines when using `-s` or live logging.
+
 ## Real Provider Smoke Test
 
 The real provider test verifies the full provider loop against an
