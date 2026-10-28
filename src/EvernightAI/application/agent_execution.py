@@ -24,6 +24,7 @@ from EvernightAI.application.memory import (
     write_memory_candidate,
 )
 from EvernightAI.core.domain.provider import merge_chat_usage
+from EvernightAI.core.domain.tool import tool_policy_rejection
 from EvernightAI.core.error.agent import (
     AgentStateError,
 )
@@ -33,7 +34,7 @@ from EvernightAI.core.error.skill import (
     SkillDisabledError,
     SkillNotFoundError,
 )
-from EvernightAI.core.error.tool import ToolExecutionError
+from EvernightAI.core.error.tool import ToolExecutionError, ToolPolicyError
 from EvernightAI.core.protocol.runtime import RuntimeProtocol
 from EvernightAI.core.protocol.stream import (
     AgentTraceStreamProtocol,
@@ -366,7 +367,9 @@ class AgentExecutionApplication:
                 state.remaining_tool_rounds,
                 approvals=self._tool_approvals_by_call_id(state.request.tool_approvals),
                 pending_tool_calls=remaining_tool_calls,
-                already_requested_approval_call_ids=set(),
+                already_requested_approval_call_ids=(
+                    self._requested_approval_call_ids(state)
+                ),
             ):
                 yield event
             return
@@ -499,9 +502,12 @@ class AgentExecutionApplication:
                             tool_call=call,
                         ),
                     )
+                rejection = self._policy_rejection(call, decision)
                 tool_started = perf_counter()
                 self._check_skill_revisions(state)
                 try:
+                    if rejection is not None:
+                        raise rejection
                     tool_result = await self._execute_tool_call(state, call)
                     self._log_tool_execution(
                         state,
@@ -675,6 +681,18 @@ class AgentExecutionApplication:
             )
         )
         state.usage = _aggregate_run_usage(state)
+
+    def _requested_approval_call_ids(self, state: AgentRunState) -> set[str]:
+        requested: set[str] = set()
+        for event in reversed(state.trace):
+            if event.event_type is AgentTraceEventType.CHAT_COMPLETED:
+                break
+            if (
+                event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED
+                and event.tool_call is not None
+            ):
+                requested.add(event.tool_call.tool_call_id)
+        return requested
 
     def _completed_tool_call_ids(self, state: AgentRunState) -> set[str]:
         return {
@@ -1180,6 +1198,19 @@ class AgentExecutionApplication:
                     "error_type": exc.__class__.__name__,
                 },
             )
+
+    def _policy_rejection(
+        self,
+        call: ToolCall,
+        decision: ToolSafetyDecision | None,
+    ) -> ToolPolicyError | None:
+        tool_name = self._tool_name(call)
+        if tool_name is None or decision is None or decision.allowed:
+            return None
+        # A failing policy check keeps the executor's original error.
+        if decision.metadata.get("safety_policy_error"):
+            return None
+        return tool_policy_rejection(tool_name, decision)
 
     def _should_pause_for_approval(
         self,

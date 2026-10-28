@@ -948,6 +948,11 @@ The retry state is persisted before the SSE response starts. A client may
 therefore cancel it immediately with
 `POST /agent-runs/run-retry-1/cancel`, including after the stream disconnects.
 
+A retry starts again from the source run's request. It does not reuse the
+source run's tool results, and its tool calls get new idempotency keys, so tools
+that already completed in the failed run may run again. Previous approval
+decisions are cleared, so tools that require approval ask again before running.
+
 ### Current authentication identity
 
 `GET /auth/me` validates the request credential using the configured authentication

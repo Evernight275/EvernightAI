@@ -311,10 +311,7 @@ class ToolManager(ToolManageProtocol):
         arguments = self._execution_arguments(call)
         decision = self.authorize(call)
         if not decision.allowed:
-            raise ToolPolicyError(
-                f"The tool {tool_name} call was rejected by policy",
-                detail=decision.reason,
-            )
+            raise tool_policy_rejection(tool_name, decision)
 
         tool = self._register.get(tool_name)
         idempotency_key = call.metadata.get("idempotency_key")
@@ -381,6 +378,16 @@ class ToolManager(ToolManageProtocol):
             raise ToolResultError(f"The tool {tool_name} result must be a dictionary")
         if not all(isinstance(key, str) for key in result):
             raise ToolResultError(f"The tool {tool_name} result keys must be strings")
+
+
+def tool_policy_rejection(
+    tool_name: str,
+    decision: ToolSafetyDecision,
+) -> ToolPolicyError:
+    return ToolPolicyError(
+        f"The tool {tool_name} call was rejected by policy",
+        detail=decision.reason,
+    )
 
 
 class BasicToolSafetyPolicy(ToolSafetyPolicyProtocol):

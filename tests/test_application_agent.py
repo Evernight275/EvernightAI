@@ -3433,6 +3433,133 @@ async def test_agent_run_manual_pause_does_not_repeat_completed_tool() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_run_manual_pause_does_not_repeat_approval_request() -> None:
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    app = AgentRunApplication(runtime)
+    stream = app.start_stream(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            metadata={"run_id": "run-approval-checkpoint"},
+        )
+    )
+    iterator = cast(AsyncGenerator[AgentTraceEvent, None], stream.__aiter__())
+
+    assert (await anext(iterator)).event_type is AgentTraceEventType.RUN_STARTED
+    assert (await anext(iterator)).event_type is AgentTraceEventType.CHAT_COMPLETED
+    assert (
+        await anext(iterator)
+    ).event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED
+    await app.pause("run-approval-checkpoint")
+    paused = await anext(iterator)
+    assert paused.metadata["checkpoint"] == "tool_approval_requested"
+
+    resumed_events = [
+        event
+        async for event in app.resume_stream(
+            "run-approval-checkpoint",
+            [
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.APPROVED,
+                )
+            ],
+        )
+    ]
+
+    assert [event.event_type for event in resumed_events] == [
+        AgentTraceEventType.TOOL_APPROVAL_DECIDED,
+        AgentTraceEventType.TOOL_STARTED,
+        AgentTraceEventType.TOOL_COMPLETED,
+        AgentTraceEventType.CHAT_COMPLETED,
+        AgentTraceEventType.RUN_STOPPED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_denied_tool_does_not_record_execution_attempt() -> None:
+    execution_register = InMemoryToolExecutionRegister()
+    executed: list[dict[str, object]] = []
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        executed.append(arguments)
+        return {"written": True}
+
+    runtime = make_runtime(
+        provider=SensitiveToolProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    state = await AgentRunApplication(runtime).start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write a file")],
+            tools=runtime.tools.list_tools(),
+            tool_approvals=[
+                ToolApprovalDecision(
+                    approval_id="tool-call-1:approval",
+                    tool_call_id="tool-call-1",
+                    status=ToolApprovalStatus.DENIED,
+                    reason="Denied by test",
+                )
+            ],
+            metadata={"run_id": "run-denied"},
+        )
+    )
+
+    failed = [
+        event
+        for event in state.trace
+        if event.event_type is AgentTraceEventType.TOOL_FAILED
+    ]
+    assert [event.error_type for event in failed] == ["ToolPolicyError"]
+    assert failed[0].error_message == "The tool write_file call was rejected by policy"
+    assert execution_register.list_attempts("run-denied") == []
+    assert executed == []
+    assert state.status is AgentRunStatus.FINISHED
+
+
+@pytest.mark.asyncio
 async def test_agent_tool_execution_ledger_persists_result_and_idempotency_key() -> (
     None
 ):
