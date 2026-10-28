@@ -919,6 +919,11 @@ curl -X POST http://127.0.0.1:8000/agent-runs/run-1/resume \
   }'
 ```
 
+Approval decisions apply to the paused model response only. The server records
+that response as the decision's `tool_round`, so a later response that reuses
+the same `tool_call_id` asks for approval again. Approvals sent with the start
+request apply to the first response.
+
 Agent state exposes `skill_revisions`, captured when execution starts. Resuming
 requires each selected skill to exist, remain enabled, and match that revision.
 A changed/recreated template returns `SkillConflictError` (HTTP 409), a disabled

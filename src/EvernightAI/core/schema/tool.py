@@ -118,6 +118,7 @@ class ToolApprovalDecision(EvernightAISchema):
     approval_id: str
     tool_call_id: str
     status: ToolApprovalStatus
+    tool_round: int | None = Field(default=None, ge=1)
     reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

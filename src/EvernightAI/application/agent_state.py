@@ -60,6 +60,28 @@ def _aggregate_run_usage(state: AgentRunState) -> ChatUsage | None:
     )
 
 
+def current_tool_round(state: AgentRunState) -> int:
+    """The 1-based model response whose tool calls the run is handling.
+
+    Providers may reuse tool_call_id values across responses, so tool
+    executions, approvals and completions are matched within one round.
+    """
+    return sum(step.step_type is AgentStepType.CHAT for step in state.steps)
+
+
+def current_round_completed_tool_call_ids(state: AgentRunState) -> set[str]:
+    completed: set[str] = set()
+    for step in reversed(state.steps):
+        if step.step_type is AgentStepType.CHAT:
+            break
+        if (
+            step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
+            and step.tool_call is not None
+        ):
+            completed.add(step.tool_call.tool_call_id)
+    return completed
+
+
 def _require_request_scope(
     request: AgentRunRequest,
     principal_scope: PrincipalScope | None,

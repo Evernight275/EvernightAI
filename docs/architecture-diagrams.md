@@ -548,7 +548,10 @@ flowchart TD
 This diagram summarizes control outcomes; tool calls in each round execute
 sequentially. A resumed run continues its saved checkpoint and remaining calls.
 Tool execution records preserve completed results, replay policies, and stable
-idempotency keys. Interrupted `STARTED` attempts become `UNKNOWN`; unknown
+idempotency keys. Providers may reuse a `tool_call_id` in later model
+responses, so execution records, approvals and completed calls are matched per
+`tool_round` (the 1-based model response within the run), and attempt numbers
+keep increasing across rounds. Interrupted `STARTED` attempts become `UNKNOWN`; unknown
 non-replayable operations require resolution before safe resumption. Context
 transcripts commit at loop completion/failure, and memory writes follow the
 configured memory-write strategy. With an executor configured, disconnecting an

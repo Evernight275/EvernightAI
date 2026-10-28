@@ -84,6 +84,7 @@ class ToolExecutionAttempt(EvernightAISchema):
     owner_id: str | None = None
     tool_call_id: str
     attempt: int = Field(ge=1)
+    tool_round: int | None = Field(default=None, ge=1)
     tool_name: str
     status: ToolExecutionStatus
     replay_policy: ToolReplayPolicy

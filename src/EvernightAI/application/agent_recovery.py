@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from EvernightAI.application.agent_state import _aggregate_run_usage
+from EvernightAI.application.agent_state import (
+    _aggregate_run_usage,
+    current_round_completed_tool_call_ids,
+    current_tool_round,
+)
 from EvernightAI.core.error.agent import (
     AgentStateError,
 )
@@ -78,12 +82,7 @@ def inspect_agent_run_checkpoint(
         return AgentRunRecoveryCheckpoint(eligible=True, name="run_started")
 
     response_tool_calls = list(state.response.message.tool_calls or [])
-    completed_tool_call_ids = {
-        step.tool_call.tool_call_id
-        for step in state.steps
-        if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
-        and step.tool_call is not None
-    }
+    completed_tool_call_ids = current_round_completed_tool_call_ids(state)
     incomplete_tool_calls = [
         call
         for call in response_tool_calls
@@ -102,7 +101,12 @@ def inspect_agent_run_checkpoint(
                 name="approval_pending",
             )
         if tool_executions is not None:
-            latest_attempts = _latest_tool_execution_attempts(tool_executions)
+            latest_attempts = _latest_tool_execution_attempts(
+                _round_tool_execution_attempts(
+                    tool_executions,
+                    current_tool_round(state),
+                )
+            )
             if all(
                 _tool_call_can_resume(call.tool_call_id, latest_attempts)
                 for call in incomplete_tool_calls
@@ -132,6 +136,33 @@ def _latest_tool_execution_attempts(
         if current is None or attempt.attempt > current.attempt:
             latest[attempt.tool_call_id] = attempt
     return latest
+
+
+def _round_tool_execution_attempts(
+    attempts: list[ToolExecutionAttempt],
+    tool_round: int,
+) -> list[ToolExecutionAttempt]:
+    # Attempts recorded before rounds were tracked match every round, so an
+    # interrupted legacy execution is never mistaken for one that never started.
+    return [attempt for attempt in attempts if attempt.tool_round in {None, tool_round}]
+
+
+def _next_tool_execution_attempt(
+    attempts: list[ToolExecutionAttempt],
+    tool_call_id: str,
+) -> int:
+    # Attempt numbers keep increasing across rounds that reuse a tool_call_id.
+    return (
+        max(
+            (
+                attempt.attempt
+                for attempt in attempts
+                if attempt.tool_call_id == tool_call_id
+            ),
+            default=0,
+        )
+        + 1
+    )
 
 
 def _tool_call_can_resume(

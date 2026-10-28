@@ -129,7 +129,7 @@ async def test_run_killed_during_tool_execution_recovers_after_restart(
         assert pause is not None
         assert pause.cause is AgentPauseCause.LEASE_EXPIRED
         assert unknown.status is ToolExecutionStatus.UNKNOWN
-        assert unknown.idempotency_key == f"{RUN_ID}:tool-call-1"
+        assert unknown.idempotency_key == f"{RUN_ID}:1:tool-call-1"
 
         if replay_policy is ToolReplayPolicy.SAFE:
             assert pause.checkpoint == "tool_replay_ready"

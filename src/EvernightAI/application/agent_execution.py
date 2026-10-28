@@ -7,6 +7,8 @@ from uuid import uuid4
 from EvernightAI.application.agent_lifecycle import _agent_run_lifecycle
 from EvernightAI.application.agent_recovery import (
     _latest_tool_execution_attempts,
+    _next_tool_execution_attempt,
+    _round_tool_execution_attempts,
     _tool_call_can_resume,
 )
 from EvernightAI.application.agent_state import (
@@ -17,6 +19,8 @@ from EvernightAI.application.agent_state import (
     _owner_scope,
     agent_resume_mode,
     agent_run_can_resume,
+    current_round_completed_tool_call_ids,
+    current_tool_round,
 )
 from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.image_attachments import resolve_image_references
@@ -263,7 +267,6 @@ class AgentExecutionApplication:
             state,
             response,
             request.max_tool_rounds,
-            self._tool_approvals_by_call_id(request.tool_approvals),
             already_requested_approval_call_ids=set(),
         ):
             yield event
@@ -285,6 +288,8 @@ class AgentExecutionApplication:
                     "tool_approvals": self._merge_tool_approvals(
                         state.request.tool_approvals,
                         approvals,
+                        # Before the first response, approvals apply to it.
+                        tool_round=max(current_tool_round(state), 1),
                     ),
                 }
             )
@@ -299,11 +304,13 @@ class AgentExecutionApplication:
         pending_approval_call_ids = {
             request.tool_call_id for request in state.pending_approval_requests
         }
+        tool_round = current_tool_round(state)
         merged_approvals = self._merge_tool_approvals(
             state.request.tool_approvals,
             approvals,
+            tool_round=tool_round,
         )
-        approvals_by_call_id = self._tool_approvals_by_call_id(merged_approvals)
+        approvals_by_call_id = self._round_tool_approvals(merged_approvals, tool_round)
         missing_approval_call_ids = [
             call_id
             for call_id in pending_approval_call_ids
@@ -331,7 +338,6 @@ class AgentExecutionApplication:
             state,
             state.response,
             state.remaining_tool_rounds,
-            approvals_by_call_id,
             pending_tool_calls=pending_tool_calls,
             already_requested_approval_call_ids=pending_approval_call_ids,
         ):
@@ -365,7 +371,6 @@ class AgentExecutionApplication:
                 state,
                 state.response,
                 state.remaining_tool_rounds,
-                approvals=self._tool_approvals_by_call_id(state.request.tool_approvals),
                 pending_tool_calls=remaining_tool_calls,
                 already_requested_approval_call_ids=(
                     self._requested_approval_call_ids(state)
@@ -378,7 +383,6 @@ class AgentExecutionApplication:
             async for event in self._continue_after_completed_tool_round(
                 state.request,
                 state,
-                approvals=self._tool_approvals_by_call_id(state.request.tool_approvals),
             ):
                 yield event
             return
@@ -388,7 +392,6 @@ class AgentExecutionApplication:
             state,
             state.response,
             state.remaining_tool_rounds,
-            approvals={},
             pending_tool_calls=[],
             already_requested_approval_call_ids=set(),
         ):
@@ -432,7 +435,6 @@ class AgentExecutionApplication:
         state: AgentRunState,
         response: ChatResponse,
         remaining_rounds: int,
-        approvals: dict[str, ToolApprovalDecision],
         *,
         already_requested_approval_call_ids: set[str],
         pending_tool_calls: list[ToolCall] | None = None,
@@ -445,6 +447,10 @@ class AgentExecutionApplication:
         )
         state.remaining_tool_rounds = remaining_rounds
         state.stop_reason = AgentStopReason.FINISHED
+        approvals = self._round_tool_approvals(
+            request.tool_approvals,
+            current_tool_round(state),
+        )
 
         while current_tool_calls and remaining_rounds > 0:
             state.remaining_tool_rounds = remaining_rounds
@@ -597,7 +603,6 @@ class AgentExecutionApplication:
                 request,
                 state,
                 remaining_tool_rounds=remaining_rounds,
-                approvals=approvals,
             ):
                 yield event
             return
@@ -628,7 +633,6 @@ class AgentExecutionApplication:
         request: AgentRunRequest,
         state: AgentRunState,
         *,
-        approvals: dict[str, ToolApprovalDecision],
         remaining_tool_rounds: int | None = None,
     ) -> AsyncIterator[AgentTraceEvent]:
         remaining_rounds = (
@@ -661,7 +665,6 @@ class AgentExecutionApplication:
             state,
             response,
             remaining_rounds,
-            approvals=approvals,
             already_requested_approval_call_ids=set(),
         ):
             yield event
@@ -695,12 +698,7 @@ class AgentExecutionApplication:
         return requested
 
     def _completed_tool_call_ids(self, state: AgentRunState) -> set[str]:
-        return {
-            step.tool_call.tool_call_id
-            for step in state.steps
-            if step.step_type in {AgentStepType.TOOL, AgentStepType.TOOL_ERROR}
-            and step.tool_call is not None
-        }
+        return current_round_completed_tool_call_ids(state)
 
     async def _execute_tool_call(
         self,
@@ -715,7 +713,10 @@ class AgentExecutionApplication:
             state.run_id,
             principal_scope=_owner_scope(state.owner_id),
         )
-        latest = _latest_tool_execution_attempts(attempts).get(call.tool_call_id)
+        tool_round = current_tool_round(state)
+        latest = _latest_tool_execution_attempts(
+            _round_tool_execution_attempts(attempts, tool_round)
+        ).get(call.tool_call_id)
         if latest is not None and latest.status is ToolExecutionStatus.COMPLETED:
             if latest.result is None:
                 raise AgentStateError(
@@ -746,7 +747,7 @@ class AgentExecutionApplication:
         idempotency_key = (
             latest.idempotency_key
             if latest is not None
-            else f"{state.run_id}:{call.tool_call_id}"
+            else f"{state.run_id}:{tool_round}:{call.tool_call_id}"
         )
         persisted_call = call.model_copy(
             update={
@@ -764,7 +765,8 @@ class AgentExecutionApplication:
                 run_id=state.run_id,
                 owner_id=state.owner_id,
                 tool_call_id=call.tool_call_id,
-                attempt=(latest.attempt + 1 if latest is not None else 1),
+                attempt=_next_tool_execution_attempt(attempts, call.tool_call_id),
+                tool_round=tool_round,
                 tool_name=tool_name,
                 status=ToolExecutionStatus.SCHEDULED,
                 replay_policy=tool.replay_policy,
@@ -1105,13 +1107,35 @@ class AgentExecutionApplication:
     ) -> dict[str, ToolApprovalDecision]:
         return {approval.tool_call_id: approval for approval in approvals}
 
+    def _round_tool_approvals(
+        self,
+        approvals: list[ToolApprovalDecision],
+        tool_round: int,
+    ) -> dict[str, ToolApprovalDecision]:
+        # Approvals without a round come with the run request, for its first response.
+        return self._tool_approvals_by_call_id(
+            [
+                approval
+                for approval in approvals
+                if (approval.tool_round or 1) == tool_round
+            ]
+        )
+
     def _merge_tool_approvals(
         self,
         existing: list[ToolApprovalDecision],
         new: list[ToolApprovalDecision],
+        *,
+        tool_round: int,
     ) -> list[ToolApprovalDecision]:
-        approvals = self._tool_approvals_by_call_id(existing)
-        approvals.update(self._tool_approvals_by_call_id(new))
+        approvals = {
+            (approval.tool_round or 1, approval.tool_call_id): approval
+            for approval in existing
+        }
+        for approval in new:
+            approvals[(tool_round, approval.tool_call_id)] = approval.model_copy(
+                update={"tool_round": tool_round}
+            )
         return list(approvals.values())
 
     def _available_tools(self, request: AgentRunRequest) -> list[ToolDefinition] | None:

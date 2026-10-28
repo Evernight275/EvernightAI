@@ -3605,9 +3605,173 @@ async def test_agent_tool_execution_ledger_persists_result_and_idempotency_key()
     assert len(attempts) == 1
     assert attempts[0].status is ToolExecutionStatus.COMPLETED
     assert attempts[0].result is not None
-    assert attempts[0].idempotency_key == "run-ledger:tool-call-1"
+    assert attempts[0].idempotency_key == "run-ledger:1:tool-call-1"
     assert received_arguments == [
-        {"left": 1, "right": 2, "request_id": "run-ledger:tool-call-1"}
+        {"left": 1, "right": 2, "request_id": "run-ledger:1:tool-call-1"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_executes_tool_call_id_reused_in_later_round() -> None:
+    execution_register = InMemoryToolExecutionRegister()
+    received_arguments: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        received_arguments.append(dict(arguments))
+        return {"result": arguments["left"]}
+
+    runtime = make_runtime(
+        provider=ReusedToolCallIdProvider(),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    state = await AgentRunApplication(runtime).start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add twice")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=2,
+            metadata={"run_id": "run-reused-id"},
+        )
+    )
+
+    assert state.status is AgentRunStatus.FINISHED
+    assert [arguments["left"] for arguments in received_arguments] == [1, 10]
+    completed = [
+        event.tool_result
+        for event in state.trace
+        if event.event_type is AgentTraceEventType.TOOL_COMPLETED
+    ]
+    assert [result.tool_call_result for result in completed if result is not None] == [
+        {"result": 1},
+        {"result": 10},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_keeps_reused_tool_call_id_pending_in_later_round() -> None:
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        return {"written": True}
+
+    runtime = make_runtime(
+        provider=ReusedToolCallIdProvider(second_tool_name="write_file"),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=InMemoryToolExecutionRegister(),
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    state = await AgentRunApplication(runtime).start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add, then write")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=2,
+            metadata={"run_id": "run-reused-id-pause"},
+        )
+    )
+
+    assert state.status is AgentRunStatus.PAUSED
+    checkpoint = inspect_agent_run_checkpoint(state)
+    assert checkpoint.name == "approval_pending"
+
+
+@pytest.mark.asyncio
+async def test_agent_approval_does_not_carry_over_to_reused_tool_call_id() -> None:
+    written: list[dict[str, object]] = []
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        written.append(dict(arguments))
+        return {"written": True}
+
+    runtime = make_runtime(
+        provider=ReusedToolCallIdProvider(
+            first_tool_name="write_file",
+            second_tool_name="write_file",
+        ),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=InMemoryToolExecutionRegister(),
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    application = AgentRunApplication(runtime)
+
+    state = await application.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Write twice")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=2,
+            metadata={"run_id": "run-reused-id-approval"},
+        )
+    )
+    assert state.status is AgentRunStatus.PAUSED
+    state = await application.resume(
+        state.run_id,
+        [
+            ToolApprovalDecision(
+                approval_id="call_0:approval",
+                tool_call_id="call_0",
+                status=ToolApprovalStatus.APPROVED,
+            )
+        ],
+    )
+
+    assert [arguments["left"] for arguments in written] == [1]
+    assert state.status is AgentRunStatus.PAUSED
+    assert [request.tool_call_id for request in state.pending_approval_requests] == [
+        "call_0"
     ]
 
 
@@ -4161,6 +4325,43 @@ class EndlessToolCallingProvider(ToolCallingProvider):
                         tool_call={
                             "name": "missing",
                             "arguments": {},
+                        },
+                    )
+                ],
+            ),
+            finish_reason="tool_calls",
+        )
+
+
+class ReusedToolCallIdProvider(ToolCallingProvider):
+    """Returns the same tool_call_id in every round, like some compatible backends."""
+
+    def __init__(
+        self,
+        first_tool_name: str = "add",
+        second_tool_name: str = "add",
+    ) -> None:
+        super().__init__()
+        self._tool_names = (first_tool_name, second_tool_name)
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        if len(self.requests) > 2:
+            return make_response("Done")
+        tool_name = self._tool_names[len(self.requests) - 1]
+        return ChatResponse(
+            model_id=request.model_id,
+            message=Content(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id="call_0",
+                        tool_call={
+                            "name": tool_name,
+                            "arguments": {
+                                "left": 1 if len(self.requests) == 1 else 10,
+                                "right": 2,
+                            },
                         },
                     )
                 ],
