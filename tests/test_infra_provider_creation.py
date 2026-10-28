@@ -23,7 +23,10 @@ from EvernightAI.bootstrap.runtime import (
 from EvernightAI.core.domain.provider import ProviderManager
 from EvernightAI.core.domain.skill import SkillRegister
 from EvernightAI.core.domain.tool import ToolRegister
-from EvernightAI.core.error.provider import ProviderNotFoundError
+from EvernightAI.core.error.provider import (
+    ProviderNotFoundError,
+    ProviderResponseError,
+)
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunState,
@@ -1013,6 +1016,7 @@ async def test_openai_instance_chat_stream_maps_chunks_to_chat_stream_events() -
     assert [event.event_type for event in events] == [
         ChatStreamEventType.MESSAGE_START,
         ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
     assert events[1].text_delta == "Hi"
@@ -1050,8 +1054,75 @@ async def test_openai_instance_chat_stream_allows_undeclared_model() -> None:
     assert [event.event_type for event in events] == [
         ChatStreamEventType.MESSAGE_START,
         ChatStreamEventType.MESSAGE_DELTA,
+        ChatStreamEventType.MESSAGE_COMPLETED,
         ChatStreamEventType.DONE,
     ]
+
+    await instance.close()
+
+
+def make_openai_chunk(
+    delta: dict[str, object],
+    finish_reason: str | None = None,
+) -> ChatCompletionChunk:
+    return ChatCompletionChunk(
+        id="chatcmpl-1",
+        choices=cast(
+            Any,
+            [{"delta": delta, "finish_reason": finish_reason, "index": 0}],
+        ),
+        created=123,
+        model="gpt-test",
+        object="chat.completion.chunk",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [make_openai_chunk({"role": "assistant", "content": "I'll write the fi"})],
+        [
+            make_openai_chunk({"role": "assistant", "content": "Writing"}),
+            make_openai_chunk(
+                {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {"name": "write_file", "arguments": "{"},
+                        }
+                    ]
+                }
+            ),
+        ],
+    ],
+    ids=["text", "tool_call"],
+)
+async def test_openai_instance_chat_stream_rejects_stream_without_finish_reason(
+    chunks: list[ChatCompletionChunk],
+) -> None:
+    instance = OpenAICompatibleProviderInstance(make_openai_config())
+    cast(Any, instance)._client = FakeClient(FakeCompletions(chunks))
+
+    stream = await instance.chat_stream(
+        ChatRequest(
+            model_id="gpt-test",
+            messages=[
+                Content(
+                    role=MessageRole.USER,
+                    content=[ContentPart(type=ContentPartType.TEXT, text="Hello")],
+                )
+            ],
+        )
+    )
+    events: list[ChatStreamEventType] = []
+    with pytest.raises(ProviderResponseError, match="without finish_reason"):
+        async for event in stream:
+            events.append(event.event_type)
+
+    assert ChatStreamEventType.DONE not in events
 
     await instance.close()
 
@@ -1153,33 +1224,19 @@ async def test_openai_instance_falls_back_to_declared_models_when_discovery_fail
 
 
 class FakeCompletions:
-    def __init__(self) -> None:
+    def __init__(self, stream_chunks: list[ChatCompletionChunk] | None = None) -> None:
         self.params: dict[str, object] | None = None
+        self._stream_chunks = stream_chunks
 
     async def create(self, **params: object) -> ChatCompletion | FakeOpenAIStream:
         self.params = params
         if params.get("stream") is True:
+            if self._stream_chunks is not None:
+                return FakeOpenAIStream(list(self._stream_chunks))
             return FakeOpenAIStream(
                 [
-                    ChatCompletionChunk(
-                        id="chatcmpl-1",
-                        choices=cast(
-                            Any,
-                            [
-                                {
-                                    "delta": {
-                                        "role": "assistant",
-                                        "content": "Hi",
-                                    },
-                                    "finish_reason": None,
-                                    "index": 0,
-                                }
-                            ],
-                        ),
-                        created=123,
-                        model="gpt-test",
-                        object="chat.completion.chunk",
-                    )
+                    make_openai_chunk({"role": "assistant", "content": "Hi"}),
+                    make_openai_chunk({}, finish_reason="stop"),
                 ]
             )
 

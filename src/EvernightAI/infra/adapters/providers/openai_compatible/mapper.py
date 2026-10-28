@@ -177,6 +177,7 @@ def from_openai_chat_completion(response: ChatCompletion) -> ChatResponse:
 class OpenAIChatStreamNormalizer:
     def __init__(self) -> None:
         self._tool_calls: dict[int, dict[str, Any]] = {}
+        self.is_complete = False
 
     def map_chunk(self, chunk: ChatCompletionChunk) -> list[ChatStreamEvent]:
         payload = chunk.model_dump(mode="json", exclude_none=True)
@@ -255,6 +256,8 @@ class OpenAIChatStreamNormalizer:
                 )
             )
 
+        if isinstance(finish_reason, str) and finish_reason:
+            self.is_complete = True
         if finish_reason == "tool_calls":
             events.extend(self._completed_tool_call_events(chunk, payload))
         elif isinstance(finish_reason, str) and finish_reason:

@@ -4,6 +4,7 @@ from typing import Any
 from openai import AsyncOpenAI, OpenAIError
 from openai.types.chat import ChatCompletionChunk
 
+from EvernightAI.core.error.provider import ProviderResponseError
 from EvernightAI.core.protocol.provider import ProviderInstanceProtocol
 from EvernightAI.core.protocol.stream import ChatStreamProtocol
 from EvernightAI.core.schema.content import ChatRequest, ChatResponse
@@ -189,4 +190,8 @@ class OpenAICompatibleChatStream:
         except OpenAIError as error:
             raise_openai_compatible_error(error)
 
+        if not self._normalizer.is_complete:
+            raise ProviderResponseError(
+                "OpenAI-compatible stream ended without finish_reason"
+            )
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
