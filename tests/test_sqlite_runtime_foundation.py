@@ -64,7 +64,11 @@ from EvernightAI.infra.adapters.providers.secrets import (
 )
 from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
-from EvernightAI.infra.sqlite import SQLiteMigrationRunner, connect_sqlite
+from EvernightAI.infra.sqlite import (
+    SQLiteConnection,
+    SQLiteMigrationRunner,
+    connect_sqlite,
+)
 
 
 def test_migration_runner_versions_schema_and_configures_connections(
@@ -94,6 +98,62 @@ def test_migration_runner_versions_schema_and_configures_connections(
         assert "idx_agent_trace_run_sequence" in indexes
     finally:
         connection.close()
+
+
+def _fail_wal_pragma_with_busy(
+    monkeypatch: pytest.MonkeyPatch,
+    failures: int,
+) -> list[SQLiteConnection]:
+    original_execute = SQLiteConnection.execute
+    original_close = SQLiteConnection.close
+    remaining = [failures]
+    closed: list[SQLiteConnection] = []
+
+    def execute(
+        self: SQLiteConnection,
+        sql: str,
+        parameters: object = (),
+    ) -> sqlite3.Cursor:
+        if sql == "PRAGMA journal_mode = WAL" and remaining[0] > 0:
+            remaining[0] -= 1
+            error = sqlite3.OperationalError("database is locked")
+            error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+            raise error
+        return original_execute(self, sql, parameters)
+
+    def close(self: SQLiteConnection) -> None:
+        closed.append(self)
+        original_close(self)
+
+    monkeypatch.setattr(SQLiteConnection, "execute", execute)
+    monkeypatch.setattr(SQLiteConnection, "close", close)
+    return closed
+
+
+def test_connect_sqlite_retries_busy_wal_pragma(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = _fail_wal_pragma_with_busy(monkeypatch, failures=2)
+
+    connection = connect_sqlite(tmp_path / "runtime.sqlite3")
+    try:
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
+        assert closed == []
+    finally:
+        connection.close()
+
+
+def test_connect_sqlite_closes_connection_when_wal_stays_busy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = _fail_wal_pragma_with_busy(monkeypatch, failures=1)
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        connect_sqlite(tmp_path / "runtime.sqlite3", busy_timeout_ms=0)
+
+    assert len(closed) == 1
 
 
 def test_sqlite_context_append_uses_revision_cas(tmp_path: Path) -> None:

@@ -5,10 +5,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
+from time import monotonic, sleep
 from typing import Any
 from uuid import uuid4
 
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
+_WAL_RETRY_SECONDS = 0.01
 
 
 class SQLiteConnection(sqlite3.Connection):
@@ -55,12 +57,30 @@ def connect_sqlite(
         check_same_thread=False,
         factory=SQLiteConnection,
     )
-    connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
-    connection.execute("PRAGMA foreign_keys = ON")
-    if path != ":memory:":
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = NORMAL")
+    try:
+        connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
+        connection.execute("PRAGMA foreign_keys = ON")
+        if path != ":memory:":
+            _enable_wal(connection, busy_timeout_ms)
+            connection.execute("PRAGMA synchronous = NORMAL")
+    except BaseException:
+        connection.close()
+        raise
     return connection
+
+
+def _enable_wal(connection: SQLiteConnection, busy_timeout_ms: int) -> None:
+    # Opening WAL can return SQLITE_BUSY without consulting the busy handler
+    # while another connection closes the database, notably on Windows.
+    deadline = monotonic() + busy_timeout_ms / 1_000
+    while True:
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if exc.sqlite_errorcode != sqlite3.SQLITE_BUSY or monotonic() >= deadline:
+                raise
+        sleep(_WAL_RETRY_SECONDS)
 
 
 class SQLiteStoreConnection:
