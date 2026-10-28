@@ -776,6 +776,97 @@ def test_skips_incomplete_streamed_tool_calls_on_completion() -> None:
     )
 
 
+def _unindexed_tool_call_chunk(call_id: str, name: str) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_construct(
+        id="chatcmpl-1",
+        choices=[
+            Choice.model_construct(
+                delta=ChoiceDelta.model_construct(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ChoiceDeltaToolCall.model_construct(
+                            id=call_id,
+                            type="function",
+                            function=ChoiceDeltaToolCallFunction.model_construct(
+                                name=name,
+                                arguments='{"city":"Paris"}',
+                            ),
+                        )
+                    ],
+                ),
+                finish_reason=None,
+                index=0,
+            )
+        ],
+        created=123,
+        model="gemini-test",
+        object="chat.completion.chunk",
+    )
+
+
+def _finish_chunk(finish_reason: str) -> ChatCompletionChunk:
+    return ChatCompletionChunk(
+        id="chatcmpl-1",
+        choices=cast(
+            Any,
+            [{"delta": {}, "finish_reason": finish_reason, "index": 0}],
+        ),
+        created=123,
+        model="gemini-test",
+        object="chat.completion.chunk",
+    )
+
+
+def test_completes_streamed_tool_calls_finished_with_stop() -> None:
+    normalizer = OpenAIChatStreamNormalizer()
+    chunks = [
+        _unindexed_tool_call_chunk("call-1", "get_weather"),
+        _unindexed_tool_call_chunk("call-2", "get_time"),
+        _finish_chunk("stop"),
+    ]
+
+    events = [event for chunk in chunks for event in normalizer.map_chunk(chunk)]
+    completed = [
+        event
+        for event in events
+        if event.event_type is ChatStreamEventType.TOOL_CALL_COMPLETED
+    ]
+
+    assert [event.tool_call for event in completed] == [
+        ToolCall(
+            tool_call_id="call-1",
+            tool_call={"name": "get_weather", "arguments": {"city": "Paris"}},
+        ),
+        ToolCall(
+            tool_call_id="call-2",
+            tool_call={"name": "get_time", "arguments": {"city": "Paris"}},
+        ),
+    ]
+    assert [event.finish_reason for event in completed] == ["stop", "stop"]
+    assert ChatStreamEventType.MESSAGE_COMPLETED not in [
+        event.event_type for event in events
+    ]
+    assert normalizer.is_complete
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
+def test_drops_streamed_tool_calls_on_truncating_finish(finish_reason: str) -> None:
+    normalizer = OpenAIChatStreamNormalizer()
+    chunks = [
+        _unindexed_tool_call_chunk("call-1", "get_weather"),
+        _finish_chunk(finish_reason),
+    ]
+
+    events = [event for chunk in chunks for event in normalizer.map_chunk(chunk)]
+
+    assert events[-1].event_type is ChatStreamEventType.MESSAGE_COMPLETED
+    assert events[-1].finish_reason == finish_reason
+    assert ChatStreamEventType.TOOL_CALL_COMPLETED not in [
+        event.event_type for event in events
+    ]
+
+
 def test_normalizer_falls_back_to_raw_event_for_empty_semantic_chunk() -> None:
     normalizer = OpenAIChatStreamNormalizer()
     chunk = ChatCompletionChunk(

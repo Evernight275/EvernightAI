@@ -26,6 +26,8 @@ from EvernightAI.core.schema.tool import ToolCall, ToolDefinition
 from EvernightAI.infra.adapters.provider_usage import token_count
 from EvernightAI.infra.adapters.providers.image_input import image_url
 
+_TRUNCATING_FINISH_REASONS = frozenset({"length", "content_filter"})
+
 
 def to_openai_messages(messages: Iterable[Content]) -> list[ChatCompletionMessageParam]:
     return [to_openai_message(message) for message in messages]
@@ -256,11 +258,20 @@ class OpenAIChatStreamNormalizer:
                 )
             )
 
-        if isinstance(finish_reason, str) and finish_reason:
-            self.is_complete = True
-        if finish_reason == "tool_calls":
-            events.extend(self._completed_tool_call_events(chunk, payload))
-        elif isinstance(finish_reason, str) and finish_reason:
+        if not isinstance(finish_reason, str) or not finish_reason:
+            return events
+
+        self.is_complete = True
+        # Some compatible endpoints, such as Gemini, finish streamed tool calls
+        # with "stop"; only truncating finishes may leave partial arguments.
+        tool_call_events = (
+            []
+            if finish_reason in _TRUNCATING_FINISH_REASONS
+            else self._completed_tool_call_events(chunk, payload, finish_reason)
+        )
+        if tool_call_events or finish_reason == "tool_calls":
+            events.extend(tool_call_events)
+        else:
             events.append(
                 ChatStreamEvent(
                     event_type=ChatStreamEventType.MESSAGE_COMPLETED,
@@ -346,6 +357,7 @@ class OpenAIChatStreamNormalizer:
         self,
         chunk: ChatCompletionChunk,
         payload: dict[str, Any],
+        finish_reason: str,
     ) -> list[ChatStreamEvent]:
         events: list[ChatStreamEvent] = []
         for index, call_state in sorted(self._tool_calls.items()):
@@ -361,7 +373,7 @@ class OpenAIChatStreamNormalizer:
                     tool_call_id=tool_call.tool_call_id,
                     tool_name=tool_call.tool_call.get("name"),
                     tool_call=tool_call,
-                    finish_reason="tool_calls",
+                    finish_reason=finish_reason,
                     raw_event="chat.completion.chunk",
                     raw_data=payload,
                     metadata={"tool_call_index": index},
