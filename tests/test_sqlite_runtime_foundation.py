@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -65,6 +66,7 @@ from EvernightAI.infra.adapters.providers.secrets import (
 from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.sqlite import (
+    DEFAULT_MIGRATIONS,
     SQLiteConnection,
     SQLiteMigrationRunner,
     connect_sqlite,
@@ -76,8 +78,8 @@ def test_migration_runner_versions_schema_and_configures_connections(
 ) -> None:
     database_path = tmp_path / "runtime.sqlite3"
 
-    assert SQLiteMigrationRunner(database_path).run() == 11
-    assert SQLiteMigrationRunner(database_path).run() == 11
+    assert SQLiteMigrationRunner(database_path).run() == 12
+    assert SQLiteMigrationRunner(database_path).run() == 12
 
     connection = connect_sqlite(database_path)
     try:
@@ -90,7 +92,7 @@ def test_migration_runner_versions_schema_and_configures_connections(
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )
         }
-        assert versions == [(version,) for version in range(1, 12)]
+        assert versions == [(version,) for version in range(1, 13)]
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
@@ -98,6 +100,148 @@ def test_migration_runner_versions_schema_and_configures_connections(
         assert "idx_agent_trace_run_sequence" in indexes
     finally:
         connection.close()
+
+
+def test_migration_backfills_legacy_tool_execution_rounds_from_run_steps(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "runtime.sqlite3"
+    SQLiteMigrationRunner(database_path, migrations=DEFAULT_MIGRATIONS[:11]).run()
+
+    def call(tool_call_id: str) -> ToolCall:
+        return ToolCall(
+            tool_call_id=tool_call_id,
+            tool_call={"name": "add", "arguments": {}},
+        )
+
+    def chat() -> AgentStep:
+        return AgentStep(
+            step_type=AgentStepType.CHAT,
+            response=ChatResponse(
+                model_id="model-1",
+                message=Content(role=MessageRole.ASSISTANT, content=[]),
+            ),
+        )
+
+    state = AgentRunState(
+        run_id="run-legacy",
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[Content(role=MessageRole.USER, content=[])],
+        ),
+        status=AgentRunStatus.PAUSED,
+        steps=[
+            chat(),
+            AgentStep(step_type=AgentStepType.TOOL, tool_call=call("completed")),
+            # Rejected before any attempt was recorded; it executes next round.
+            AgentStep(
+                step_type=AgentStepType.TOOL_ERROR,
+                tool_call=call("failed"),
+                error_type="ToolPolicyError",
+                error_message="denied",
+            ),
+            chat(),
+            AgentStep(
+                step_type=AgentStepType.TOOL_ERROR,
+                tool_call=call("failed"),
+                error_type="ToolExecutionError",
+                error_message="boom",
+            ),
+            # The legacy copy of the first result, reused for a repeated id.
+            AgentStep(step_type=AgentStepType.TOOL, tool_call=call("completed")),
+            chat(),
+        ],
+    )
+
+    def legacy(
+        tool_call_id: str,
+        attempt: int,
+        status: ToolExecutionStatus,
+        *,
+        tool_round: int | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+    ) -> dict[str, object]:
+        payload = ToolExecutionAttempt(
+            run_id="run-legacy",
+            tool_call_id=tool_call_id,
+            attempt=attempt,
+            tool_name="add",
+            status=status,
+            replay_policy=ToolReplayPolicy.SAFE,
+            idempotency_key=f"run-legacy:{tool_call_id}",
+            tool_call=call(tool_call_id),
+            created_at=datetime.now(timezone.utc),
+            tool_round=tool_round,
+            error_type=error_type,
+            error_message=error_message,
+        ).model_dump(mode="json")
+        if payload["tool_round"] is None:
+            del payload["tool_round"]
+        return payload
+
+    attempts = [
+        legacy("completed", 1, ToolExecutionStatus.COMPLETED),
+        legacy(
+            "failed",
+            1,
+            ToolExecutionStatus.FAILED,
+            error_type="ToolExecutionError",
+            error_message="boom",
+        ),
+        legacy("interrupted", 1, ToolExecutionStatus.UNKNOWN),
+        legacy("replayed", 1, ToolExecutionStatus.UNKNOWN),
+        legacy("replayed", 2, ToolExecutionStatus.COMPLETED, tool_round=2),
+    ]
+    connection = connect_sqlite(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO agent_run_states (run_id, payload) VALUES (?, ?)",
+            ("run-legacy", state.model_dump_json()),
+        )
+        for payload in attempts:
+            connection.execute(
+                """
+                INSERT INTO agent_tool_executions (
+                    run_id, tool_call_id, attempt, status, replay_policy,
+                    payload, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "run-legacy",
+                    payload["tool_call_id"],
+                    payload["attempt"],
+                    payload["status"],
+                    payload["replay_policy"],
+                    json.dumps(payload),
+                    payload["created_at"],
+                    payload["created_at"],
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert SQLiteMigrationRunner(database_path).run() == 12
+
+    register = SQLiteToolExecutionRegister(database_path)
+    try:
+        rounds = {
+            (attempt.tool_call_id, attempt.attempt): attempt.tool_round
+            for attempt in register.list_attempts("run-legacy")
+        }
+    finally:
+        register.close()
+    assert rounds == {
+        ("completed", 1): 1,
+        ("failed", 1): 2,
+        ("interrupted", 1): 3,
+        ("replayed", 1): 2,
+        ("replayed", 2): 2,
+    }
 
 
 def _fail_wal_pragma_with_busy(
@@ -639,6 +783,7 @@ async def test_sqlite_bootstrap_expires_lease_and_blocks_unsafe_tool_recovery(
             run_id="run-1",
             tool_call_id="call-1",
             attempt=1,
+            tool_round=1,
             tool_name="write_file",
             status=ToolExecutionStatus.STARTED,
             replay_policy=ToolReplayPolicy.NON_REPLAYABLE,

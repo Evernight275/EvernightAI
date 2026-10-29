@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from EvernightAI.application.agent_lifecycle import _agent_run_lifecycle
 from EvernightAI.application.agent_recovery import (
+    _has_unscoped_tool_execution,
     _latest_tool_execution_attempts,
     _next_tool_execution_attempt,
     _round_tool_execution_attempts,
@@ -543,6 +544,9 @@ class AgentExecutionApplication:
                             metadata={"duration_ms": duration_ms},
                         ),
                     )
+                except AgentStateError:
+                    # Ledger and run state failures stop the run; they are not tool errors.
+                    raise
                 except Exception as exc:
                     self._log_tool_execution(
                         state,
@@ -706,13 +710,18 @@ class AgentExecutionApplication:
         call: ToolCall,
     ) -> ToolCallResult:
         register = self._runtime.tool_execution_register
-        if register is None:
+        tool_name = self._tool_name(call)
+        if register is None or tool_name is None:
             return await self._runtime.tools.execute(call)
 
         attempts = register.list_attempts(
             state.run_id,
             principal_scope=_owner_scope(state.owner_id),
         )
+        if _has_unscoped_tool_execution(attempts, call.tool_call_id):
+            raise AgentStateError(
+                "Tool execution has a legacy attempt with an unknown round"
+            )
         tool_round = current_tool_round(state)
         latest = _latest_tool_execution_attempts(
             _round_tool_execution_attempts(attempts, tool_round)
@@ -740,9 +749,6 @@ class AgentExecutionApplication:
                 "Tool execution outcome is unknown and requires operator resolution"
             )
 
-        tool_name = self._tool_name(call)
-        if tool_name is None:
-            raise AgentStateError("Tool execution has no tool name")
         tool = self._runtime.tool_register.get(tool_name)
         idempotency_key = (
             latest.idempotency_key

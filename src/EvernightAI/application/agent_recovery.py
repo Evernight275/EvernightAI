@@ -108,7 +108,8 @@ def inspect_agent_run_checkpoint(
                 )
             )
             if all(
-                _tool_call_can_resume(call.tool_call_id, latest_attempts)
+                not _has_unscoped_tool_execution(tool_executions, call.tool_call_id)
+                and _tool_call_can_resume(call.tool_call_id, latest_attempts)
                 for call in incomplete_tool_calls
             ):
                 return AgentRunRecoveryCheckpoint(
@@ -142,9 +143,18 @@ def _round_tool_execution_attempts(
     attempts: list[ToolExecutionAttempt],
     tool_round: int,
 ) -> list[ToolExecutionAttempt]:
-    # Attempts recorded before rounds were tracked match every round, so an
-    # interrupted legacy execution is never mistaken for one that never started.
-    return [attempt for attempt in attempts if attempt.tool_round in {None, tool_round}]
+    return [attempt for attempt in attempts if attempt.tool_round == tool_round]
+
+
+def _has_unscoped_tool_execution(
+    attempts: list[ToolExecutionAttempt],
+    tool_call_id: str,
+) -> bool:
+    # A legacy attempt whose round could not be backfilled may belong to any round.
+    return any(
+        attempt.tool_round is None and attempt.tool_call_id == tool_call_id
+        for attempt in attempts
+    )
 
 
 def _next_tool_execution_attempt(

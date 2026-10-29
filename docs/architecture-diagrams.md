@@ -551,8 +551,12 @@ Tool execution records preserve completed results, replay policies, and stable
 idempotency keys. Providers may reuse a `tool_call_id` in later model
 responses, so execution records, approvals and completed calls are matched per
 `tool_round` (the 1-based model response within the run), and attempt numbers
-keep increasing across rounds. Interrupted `STARTED` attempts become `UNKNOWN`; unknown
-non-replayable operations require resolution before safe resumption. Context
+keep increasing across rounds. Records written before rounds were tracked get
+their round from the run's saved steps during migration; a record whose round
+cannot be determined stops the run instead of matching any round. Interrupted
+`STARTED` attempts become `UNKNOWN`; unknown non-replayable operations require
+resolution before safe resumption, and execution-ledger state errors stop the
+run rather than being reported to the model as tool errors. Context
 transcripts commit at loop completion/failure, and memory writes follow the
 configured memory-write strategy. With an executor configured, disconnecting an
 SSE consumer leaves the background run active until it stops, pauses, is canceled,

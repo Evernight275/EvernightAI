@@ -3776,6 +3776,184 @@ async def test_agent_approval_does_not_carry_over_to_reused_tool_call_id() -> No
 
 
 @pytest.mark.asyncio
+async def test_legacy_attempt_without_round_stops_run_before_reusing_result() -> None:
+    written: list[dict[str, object]] = []
+
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    async def write(arguments: dict[str, object]) -> dict[str, object]:
+        written.append(dict(arguments))
+        return {"written": True}
+
+    execution_register = InMemoryToolExecutionRegister()
+    runtime = make_runtime(
+        provider=ReusedToolCallIdProvider(second_tool_name="write_file"),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="write_file",
+            description="Write a file",
+            parameters_schema={"type": "object"},
+            permissions=[ToolPermission.FILESYSTEM, ToolPermission.WRITE],
+            safety_level=ToolSafetyLevel.SENSITIVE,
+        ),
+        write,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+    application = AgentRunApplication(runtime)
+    state = await application.start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add, then write")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=2,
+            metadata={"run_id": "run-legacy-round"},
+        )
+    )
+    assert state.status is AgentRunStatus.PAUSED
+    # A first-round attempt recorded before rounds were tracked.
+    for attempt in execution_register.list_attempts(state.run_id):
+        execution_register.save_attempt(attempt.model_copy(update={"tool_round": None}))
+
+    with pytest.raises(AgentStateError, match="unknown round"):
+        await application.resume(
+            state.run_id,
+            [
+                ToolApprovalDecision(
+                    approval_id="call_0:approval",
+                    tool_call_id="call_0",
+                    status=ToolApprovalStatus.APPROVED,
+                )
+            ],
+        )
+
+    state = application.get_state(state.run_id)
+    assert written == []
+    assert state.status is AgentRunStatus.FAILED
+    assert [
+        event.tool_result.tool_call_result
+        for event in state.trace
+        if event.event_type is AgentTraceEventType.TOOL_COMPLETED
+        and event.tool_result is not None
+    ] == [{"result": 3}]
+    assert not any(
+        event.event_type is AgentTraceEventType.TOOL_FAILED for event in state.trace
+    )
+
+
+def test_checkpoint_does_not_replay_tool_call_with_unscoped_attempt() -> None:
+    call = ToolCall(
+        tool_call_id="tool-call-1",
+        tool_call={"name": "add", "arguments": {"left": 1, "right": 2}},
+    )
+    response = ChatResponse(
+        model_id="model-1",
+        message=Content(role=MessageRole.ASSISTANT, tool_calls=[call]),
+        finish_reason="tool_calls",
+    )
+    state = AgentRunState(
+        run_id="run-unscoped",
+        request=AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("What is 1 + 2?")],
+        ),
+        status=AgentRunStatus.RUNNING,
+        response=response,
+        steps=[AgentStep(step_type=AgentStepType.CHAT, response=response)],
+        remaining_tool_rounds=1,
+    )
+    attempt = ToolExecutionAttempt(
+        run_id="run-unscoped",
+        tool_call_id="tool-call-1",
+        attempt=1,
+        tool_name="add",
+        status=ToolExecutionStatus.UNKNOWN,
+        replay_policy=ToolReplayPolicy.SAFE,
+        idempotency_key="run-unscoped:tool-call-1",
+        tool_call=call,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    scoped = inspect_agent_run_checkpoint(
+        state.model_copy(deep=True),
+        [],
+        [attempt.model_copy(update={"tool_round": 1})],
+    )
+    unscoped = inspect_agent_run_checkpoint(state, [], [attempt])
+
+    assert scoped.name == "tool_replay_ready"
+    assert unscoped.name == "tool_execution_incomplete"
+    assert not unscoped.eligible
+
+
+@pytest.mark.asyncio
+async def test_agent_reports_ledger_tool_call_without_name_as_tool_error() -> None:
+    async def add(arguments: dict[str, object]) -> dict[str, object]:
+        return {"result": 3}
+
+    execution_register = InMemoryToolExecutionRegister()
+    runtime = make_runtime(
+        provider=ReusedToolCallIdProvider(first_tool_name=""),
+        agent_state_register=InMemoryAgentRunStateRegister(),
+        agent_trace_register=InMemoryAgentTraceRegister(),
+        tool_execution_register=execution_register,
+    )
+    runtime.tool_register.register(
+        ToolDefinition(
+            name="add",
+            description="Add numbers",
+            parameters_schema={"type": "object"},
+        ),
+        add,
+    )
+    await runtime.contexts.create(Context(context_id="ctx-1"))
+    await runtime.providers.create(make_config())
+
+    state = await AgentRunApplication(runtime).start(
+        AgentRunRequest(
+            provider_id="provider-1",
+            context_id="ctx-1",
+            model_id="model-1",
+            messages=[make_message("Add")],
+            tools=runtime.tools.list_tools(),
+            max_tool_rounds=2,
+            metadata={"run_id": "run-no-tool-name"},
+        )
+    )
+
+    assert state.status is AgentRunStatus.FINISHED
+    assert [
+        (event.event_type, event.error_type)
+        for event in state.trace
+        if event.event_type
+        in {AgentTraceEventType.TOOL_COMPLETED, AgentTraceEventType.TOOL_FAILED}
+    ] == [
+        (AgentTraceEventType.TOOL_FAILED, "ToolInputError"),
+        (AgentTraceEventType.TOOL_COMPLETED, None),
+    ]
+    assert [
+        attempt.tool_round for attempt in execution_register.list_attempts(state.run_id)
+    ] == [2]
+
+
+@pytest.mark.asyncio
 async def test_agent_replays_safe_unknown_tool_as_new_attempt() -> None:
     execution_register = InMemoryToolExecutionRegister()
     state_register = InMemoryAgentRunStateRegister()
@@ -3840,6 +4018,7 @@ async def test_agent_replays_safe_unknown_tool_as_new_attempt() -> None:
             run_id="run-replay",
             tool_call_id="tool-call-1",
             attempt=1,
+            tool_round=1,
             tool_name="add",
             status=ToolExecutionStatus.UNKNOWN,
             replay_policy=ToolReplayPolicy.SAFE,
@@ -3930,6 +4109,7 @@ async def test_agent_operator_confirms_unknown_non_replayable_tool() -> None:
             run_id="run-unknown",
             tool_call_id="call-1",
             attempt=1,
+            tool_round=1,
             tool_name="write_file",
             status=ToolExecutionStatus.UNKNOWN,
             replay_policy=ToolReplayPolicy.NON_REPLAYABLE,

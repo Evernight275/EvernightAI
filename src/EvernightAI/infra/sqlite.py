@@ -514,6 +514,84 @@ def _add_agent_tool_execution_table(connection: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_tool_execution_rounds(connection: sqlite3.Connection) -> None:
+    legacy: dict[tuple[str, str], list[tuple[int, dict[str, Any]]]] = {}
+    later: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    rows = connection.execute(
+        "SELECT run_id, tool_call_id, attempt, payload FROM agent_tool_executions"
+    ).fetchall()
+    for run_id, tool_call_id, attempt, raw_payload in rows:
+        payload = json.loads(raw_payload)
+        key = (str(run_id), str(tool_call_id))
+        tool_round = payload.get("tool_round")
+        if tool_round is None:
+            legacy.setdefault(key, []).append((int(attempt), payload))
+        else:
+            later.setdefault(key, []).append((int(attempt), int(tool_round)))
+
+    for (run_id, tool_call_id), attempts in legacy.items():
+        row = connection.execute(
+            "SELECT payload FROM agent_run_states WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            continue
+        steps = json.loads(row[0]).get("steps") or []
+        tool_round = _legacy_tool_execution_round(
+            steps,
+            tool_call_id,
+            [payload for _, payload in attempts],
+            sorted(later.get((run_id, tool_call_id), [])),
+            max(attempt for attempt, _ in attempts),
+        )
+        if tool_round is None:
+            continue
+        for attempt, payload in attempts:
+            payload["tool_round"] = tool_round
+            connection.execute(
+                """
+                UPDATE agent_tool_executions SET payload = ?
+                WHERE run_id = ? AND tool_call_id = ? AND attempt = ?
+                """,
+                (json.dumps(payload), run_id, tool_call_id, attempt),
+            )
+
+
+def _legacy_tool_execution_round(
+    steps: list[dict[str, Any]],
+    tool_call_id: str,
+    attempts: list[dict[str, Any]],
+    later_attempts: list[tuple[int, int]],
+    last_legacy_attempt: int,
+) -> int | None:
+    # Before rounds were tracked, a call id with a finished attempt never got
+    # another one, so all legacy attempts of a call id share one round.
+    completed = any(attempt.get("status") == "completed" for attempt in attempts)
+    failures = {
+        (attempt.get("error_type"), attempt.get("error_message"))
+        for attempt in attempts
+        if attempt.get("status") == "failed"
+    }
+    tool_round = 0
+    for step in steps:
+        step_type = step.get("step_type")
+        if step_type == "chat":
+            tool_round += 1
+            continue
+        tool_call = step.get("tool_call") or {}
+        if tool_call.get("tool_call_id") != tool_call_id:
+            continue
+        if (step_type == "tool" and completed) or (
+            step_type == "tool_error"
+            and (step.get("error_type"), step.get("error_message")) in failures
+        ):
+            return tool_round
+    # An unfinished legacy attempt is replayed by the next one in its round.
+    for attempt, later_round in later_attempts:
+        if attempt > last_legacy_attempt:
+            return later_round
+    return tool_round or None
+
+
 def _add_skill_templates(connection: sqlite3.Connection) -> None:
     connection.execute(
         "CREATE TABLE IF NOT EXISTS skill_templates (name TEXT PRIMARY KEY, payload TEXT NOT NULL)"
@@ -614,4 +692,7 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(9, "add workspace projects", _add_workspace_projects),
     SQLiteMigration(10, "add displayed file snapshots", _add_file_artifacts),
     SQLiteMigration(11, "add generated authentication keys", _add_auth_api_keys),
+    SQLiteMigration(
+        12, "backfill tool execution rounds", _backfill_tool_execution_rounds
+    ),
 )
