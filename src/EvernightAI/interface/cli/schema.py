@@ -92,6 +92,11 @@ class ShellToolConfig(EvernightAISchema):
     is_need_approval: bool = True
     relaxed_approval: bool = False
     allowed_env_keys: list[str] | None = None
+    persistent_session: bool = True
+    background_processes: bool = True
+    max_background_processes: int = Field(default=4, gt=0)
+    background_lifetime_seconds: float = Field(default=3600.0, gt=0)
+    background_output_chars: int = Field(default=200_000, gt=0)
 
 
 class WebToolConfig(EvernightAISchema):

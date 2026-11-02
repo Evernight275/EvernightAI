@@ -469,3 +469,15 @@ async def test_serialized_command_array_executes_as_arguments(tmp_path):
     assert value["stdout"].splitlines()[0] == str(tmp_path)
     assert value["stdout"].splitlines()[-1] == "ready"
     assert value["shell_script"] is None
+
+
+@pytest.mark.parametrize("relaxed", [False, True])
+def test_changing_directory_needs_no_approval_but_what_follows_still_does(
+    relaxed: bool,
+) -> None:
+    from EvernightAI.infra.adapters.tool.shell_policy import approval_reason
+
+    assert approval_reason("cd src && ls", set(), relaxed=relaxed) is None
+    assert approval_reason("cd src && rm notes.txt", set(), relaxed=relaxed) == (
+        "Deleting files requires approval"
+    )

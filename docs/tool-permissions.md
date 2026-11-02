@@ -114,6 +114,58 @@ behavior: code inside interpreters still requires review of the complete script.
 Literal path checks do not constrain filesystem operations inside arbitrary
 Python or other programs.
 
+## Shell sessions
+
+Each `restricted_shell` call still starts a new process, but calls that belong to
+the same chat session (or, without one, the same agent run) share terminal state.
+On POSIX, after a script string finishes, its final directory and exported
+variables are recorded and applied to the next call, so `cd app`,
+`export STAGE=dev` or `. .venv/bin/activate` carry over. Argument arrays use the
+recorded state but do not change it. Aliases, functions, unexported variables and
+background jobs do not carry over. State is stored per owner in SQLite and
+survives a service restart. Calls without a session or run, such as direct tool
+API calls, keep the old one-shot behavior.
+
+Recorded state is validated before it is kept, whether the wrapper or the
+script wrote it:
+
+- The directory must stay inside the selected project root; otherwise the
+  previous directory is kept. A recorded directory that has disappeared falls
+  back to the root. The `cwd` argument is always relative to the root.
+- `allowed_env_keys`, when configured, limits recorded variables too.
+  Variables that change how every later command loads or runs (`LD_*`,
+  `DYLD_*`, `BASH_ENV`, `ENV`, `IFS`, `CDPATH`, `PROMPT_COMMAND`, `SHELLOPTS`,
+  `BASHOPTS`, exported functions) are never recorded. Inherited variables
+  cannot be unset.
+- `PATH` may only add directories inside the project root. A command name that
+  then resolves to a file in such a directory requires approval, even if the
+  name is trusted. With `relaxed_approval`, routine development commands such as
+  `pytest` from an activated virtualenv still run without approval.
+
+`cd` itself needs no approval; every command after it is inspected as before.
+The result's `session` field reports the current directory, the recorded
+variable names and anything that was ignored. Pass `reset_session: true` to
+start again from the root with a clean environment.
+
+## Background processes
+
+When `[tools.shell] background_processes` is enabled (the default),
+`shell_process_start` starts a long-running command such as a dev server,
+watcher or REPL and returns a `process_id` immediately. It uses the same command
+rules, approvals, sandbox and session directory/environment as
+`restricted_shell`. `shell_process_read` returns new output (each call continues
+where the previous read ended; `since` re-reads from an offset; `wait_seconds`
+waits up to 30 seconds), `shell_process_write` sends stdin, `shell_process_stop`
+stops the process and its children and `shell_process_list` shows the session's
+processes. Writing to anything other than a trusted read-only command, such as
+an interpreter, requires approval for each input.
+
+Processes belong to their owner and session, are limited by
+`max_background_processes` per owner, keep the most recent
+`background_output_chars` of output, and are stopped after
+`background_lifetime_seconds` and when the service stops. They are not
+persisted: after a restart their ids are no longer found.
+
 Working-directory validation, timeouts and output limits
 remain in effect. The `subprocess` backend runs as the host user and does not
 isolate filesystem access; use the `bubblewrap` backend when OS isolation is

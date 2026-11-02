@@ -85,6 +85,7 @@ from EvernightAI.core.protocol.session import (
     SessionManageProtocol,
     SessionRegisterProtocol,
 )
+from EvernightAI.core.protocol.shell import ShellSessionStoreProtocol
 from EvernightAI.core.protocol.skill import (
     SkillManageProtocol,
     SkillRegisterProtocol,
@@ -120,7 +121,11 @@ from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
 from EvernightAI.infra.adapters.skill.template import create_template_renderer
 from EvernightAI.infra.adapters.tool.file_artifacts import SQLiteFileArtifactStore
-from EvernightAI.infra.adapters.tool.sqlite import SQLiteToolPolicyStore
+from EvernightAI.infra.adapters.tool.shell_processes import ShellProcessManager
+from EvernightAI.infra.adapters.tool.sqlite import (
+    SQLiteShellSessionStore,
+    SQLiteToolPolicyStore,
+)
 from EvernightAI.infra.adapters.tool.workspace_directory import WorkspaceDirectoryStore
 from EvernightAI.infra.registrations.data_analysis.runtime_sqlite import (
     ensure_sqlite_runtime_data_analysis_views,
@@ -278,6 +283,8 @@ def register_builtin_tools(
     file_artifacts: FileArtifactStoreProtocol | None = None,
     workspace_directories: WorkspaceDirectoryProtocol | None = None,
     sandbox: SandboxExecuteProtocol | None = None,
+    shell_sessions: ShellSessionStoreProtocol | None = None,
+    shell_processes: ShellProcessManager | None = None,
 ) -> None:
     project_directories = options.project_directories
     if (filesystem := options.filesystem) is not None:
@@ -312,6 +319,8 @@ def register_builtin_tools(
             relaxed_approval=shell.relaxed_approval,
             allowed_env_keys=shell.allowed_env_keys,
             sandbox=sandbox,
+            session_store=shell_sessions if shell.persistent_session else None,
+            process_manager=shell_processes if shell.background_processes else None,
         )
 
     if (web := options.web) is not None:
@@ -450,12 +459,24 @@ def create_sqlite_runtime(
         sandbox = sandbox or SubprocessSandboxExecutor()
         tool_register = ToolRegister()
         file_artifacts = _opened(opened, SQLiteFileArtifactStore(database_path))
+        shell_processes = (
+            ShellProcessManager(
+                max_processes_per_owner=tools.shell.max_background_processes,
+                max_output_chars=tools.shell.background_output_chars,
+                lifetime_seconds=tools.shell.background_lifetime_seconds,
+            )
+            if tools.shell is not None and tools.shell.background_processes
+            else None
+        )
+        shell_sessions = _opened(opened, SQLiteShellSessionStore(database_path))
         register_builtin_tools(
             tool_register,
             tools,
             file_artifacts=file_artifacts,
             workspace_directories=workspace_directories,
             sandbox=sandbox,
+            shell_sessions=shell_sessions,
+            shell_processes=shell_processes,
         )
 
         agent_state_register: AgentRunStateRegisterProtocol | None = None
@@ -510,6 +531,9 @@ def create_sqlite_runtime(
                     )
 
         async def shutdown() -> None:
+            if shell_processes is not None:
+                await shell_processes.close()
+            shell_sessions.close()
             await recovery.close()
 
         runtime = _create_runtime(

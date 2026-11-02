@@ -678,6 +678,18 @@ def _add_auth_api_keys(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_shell_sessions(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS shell_sessions (
+            owner_key TEXT NOT NULL,
+            session_key TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at TEXT,
+            PRIMARY KEY(owner_key, session_key)
+        )
+    """)
+
+
 DEFAULT_MIGRATIONS = (
     SQLiteMigration(1, "create runtime tables", _create_runtime_tables),
     SQLiteMigration(2, "add queryable columns and indexes", _add_queryable_columns),
@@ -695,4 +707,5 @@ DEFAULT_MIGRATIONS = (
     SQLiteMigration(
         12, "backfill tool execution rounds", _backfill_tool_execution_rounds
     ),
+    SQLiteMigration(13, "add shell session state", _add_shell_sessions),
 )

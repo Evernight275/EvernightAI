@@ -132,8 +132,18 @@ is_need_approval = true
 # approval. Deletion, opaque scripts and blocked commands retain their rules.
 relaxed_approval = false
 # Ordinary commands may set environment variables; deletion commands may not.
-# Optional allowlist for the env argument (unset permits any key).
+# Optional allowlist for the env argument and recorded session variables
+# (unset permits any key).
 # allowed_env_keys = ["PYTHONPATH"]
+# Calls in one chat session share the directory and exported variables a
+# script ends with, like one terminal. See docs/tool-permissions.md.
+persistent_session = true
+# Long-running processes (dev servers, watchers, REPLs) through the
+# shell_process_* tools; same command rules and approvals as the shell.
+background_processes = true
+max_background_processes = 4
+background_lifetime_seconds = 3600.0
+background_output_chars = 200000
 
 [tools.web]
 # Keep disabled unless you intentionally want network tools exposed.

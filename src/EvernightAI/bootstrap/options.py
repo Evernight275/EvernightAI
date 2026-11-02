@@ -26,6 +26,12 @@ class ShellToolOptions:
     requires_approval: bool = True
     relaxed_approval: bool = False
     allowed_env_keys: set[str] | None = None
+    # Carry the directory and exported variables between calls of one session.
+    persistent_session: bool = True
+    background_processes: bool = True
+    max_background_processes: int = 4
+    background_lifetime_seconds: float = 3600.0
+    background_output_chars: int = 200_000
 
 
 @dataclass(frozen=True)

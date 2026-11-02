@@ -261,6 +261,11 @@ async def test_bootstrap_injects_shared_sandbox_into_process_tools(tmp_path) -> 
         assert isinstance(runtime.sandbox, SubprocessSandboxExecutor)
         assert [tool.name for tool in runtime.tools.list_tools()] == [
             "restricted_shell",
+            "shell_process_start",
+            "shell_process_read",
+            "shell_process_write",
+            "shell_process_stop",
+            "shell_process_list",
             "run_project_task",
             "generate_image",
         ]

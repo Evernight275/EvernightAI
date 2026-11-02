@@ -80,7 +80,14 @@ class SandboxCommand(EvernightAISchema):
     env: dict[str, str] = Field(default_factory=dict)
     stdin: str | None = None
     timeout_seconds: float | None = None
+    # Executors that support it expose a writable descriptor number in
+    # SANDBOX_SIDE_CHANNEL_FD_ENV and return what was written as side_channel.
+    side_channel: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+SANDBOX_SIDE_CHANNEL_FD_ENV = "EVERNIGHT_SIDE_CHANNEL_FD"
+SANDBOX_SIDE_CHANNEL_MAX_BYTES = 1_000_000
 
 
 class SandboxExecutionRequest(EvernightAISchema):
@@ -120,4 +127,6 @@ class SandboxExecutionResult(EvernightAISchema):
     events: list[SandboxOutputEvent] = Field(default_factory=list)
     timed_out: bool = False
     truncated: bool = False
+    # None when side_channel was not requested, unsupported or over its limit.
+    side_channel: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

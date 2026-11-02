@@ -14,8 +14,11 @@ from EvernightAI.core.error.sandbox import (
 from EvernightAI.core.protocol.sandbox import (
     SandboxExecuteProtocol,
     SandboxPolicyProtocol,
+    SandboxProcessProtocol,
+    SandboxSpawnProtocol,
 )
 from EvernightAI.core.schema.sandbox import (
+    SANDBOX_SIDE_CHANNEL_FD_ENV,
     SandboxExecutionRequest,
     SandboxExecutionResult,
     SandboxFilesystemAccess,
@@ -28,13 +31,17 @@ from EvernightAI.infra.adapters.sandbox.bubblewrap_policy import (
     resource_command,
 )
 from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
-from EvernightAI.infra.adapters.sandbox.process import terminate_process
+from EvernightAI.infra.adapters.sandbox.process import (
+    SideChannel,
+    SubprocessSandboxProcess,
+    terminate_process,
+)
 from EvernightAI.infra.adapters.sandbox.project_environment import (
     ProjectExecutionEnvironment,
 )
 
 
-class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
+class BubblewrapSandboxExecutor(SandboxExecuteProtocol, SandboxSpawnProtocol):
     def __init__(
         self,
         *,
@@ -54,57 +61,51 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         if self._bubblewrap_path is None:
             raise SandboxConfigurationError("The bwrap executable is not available")
         descriptors: list[int] = []
+        side_channel = SideChannel() if request.command.side_channel else None
         try:
-            return await self._execute(request, descriptors)
+            return await self._execute(request, descriptors, side_channel)
         finally:
             for descriptor in descriptors:
                 os.close(descriptor)
+            if side_channel is not None:
+                await side_channel.close()
+
+    async def spawn(self, request: SandboxExecutionRequest) -> SandboxProcessProtocol:
+        """启动 bubblewrap 沙盒进程，不等待其结束"""
+        if self._bubblewrap_path is None:
+            raise SandboxConfigurationError("The bwrap executable is not available")
+        descriptors: list[int] = []
+        try:
+            request, process_command = self._prepare(request, descriptors, None)
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *process_command,
+                    env=self._host_env(),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=os.name == "posix",
+                    pass_fds=descriptors,
+                )
+            except OSError as exc:
+                raise SandboxExecutionError(
+                    f"The command {request.command.command[0]} failed to start",
+                    cause=exc,
+                ) from exc
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+        return SubprocessSandboxProcess(
+            process, lifetime_seconds=request.command.timeout_seconds
+        )
 
     async def _execute(
         self,
         request: SandboxExecutionRequest,
         descriptors: list[int],
+        side_channel: SideChannel | None,
     ) -> SandboxExecutionResult:
-        # Each workspace is opened once; validation and the bind mounts then refer to
-        # that same directory even if its path is replaced afterwards.
-        mounts = self._open_mounts(request.policy.filesystem_mounts, descriptors)
-        self._runtime_policy.validate_mounts(mounts)
-        effective_policy = request.policy.model_copy(
-            update={
-                "filesystem_mounts": mounts,
-                "resource_limits": self._runtime_policy.effective_limits(
-                    request.policy.resource_limits
-                ),
-            }
-        )
-        if self._runtime_policy.workspace_root is not None:
-            effective_policy = effective_policy.model_copy(
-                update={"network_mode": self._runtime_policy.network_mode}
-            )
-        request = request.model_copy(
-            update={
-                "policy": effective_policy,
-                "command": request.command.model_copy(
-                    update={
-                        "timeout_seconds": min(
-                            request.command.timeout_seconds
-                            or effective_policy.resource_limits.timeout_seconds,
-                            effective_policy.resource_limits.timeout_seconds,
-                        )
-                    }
-                ),
-            }
-        )
-
-        decision = self._policy.authorize(request)
-        if not decision.allowed:
-            raise SandboxPolicyError(
-                "The sandbox execution was rejected by policy",
-                detail=decision.reason,
-            )
-
-        project = self._runtime_policy.project_environment(request)
-        process_command = self._bubblewrap_command(request, project, descriptors)
+        request, process_command = self._prepare(request, descriptors, side_channel)
         process: asyncio.subprocess.Process | None = None
         output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
         try:
@@ -119,8 +120,13 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
-                pass_fds=descriptors,
+                pass_fds=[
+                    *descriptors,
+                    *([side_channel.write_fd] if side_channel is not None else []),
+                ],
             )
+            if side_channel is not None:
+                side_channel.start()
             await asyncio.wait_for(
                 asyncio.gather(
                     self._write_stdin(process, request.command.stdin),
@@ -172,7 +178,64 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
             stderr=output.stderr,
             events=output.events,
             truncated=output.truncated,
+            side_channel=(
+                await side_channel.result() if side_channel is not None else None
+            ),
             metadata={"sandbox_backend": "bubblewrap"},
+        )
+
+    def _prepare(
+        self,
+        request: SandboxExecutionRequest,
+        descriptors: list[int],
+        side_channel: SideChannel | None,
+    ) -> tuple[SandboxExecutionRequest, list[str]]:
+        # Each workspace is opened once; validation and the bind mounts then refer to
+        # that same directory even if its path is replaced afterwards.
+        mounts = self._open_mounts(request.policy.filesystem_mounts, descriptors)
+        self._runtime_policy.validate_mounts(mounts)
+        effective_policy = request.policy.model_copy(
+            update={
+                "filesystem_mounts": mounts,
+                "resource_limits": self._runtime_policy.effective_limits(
+                    request.policy.resource_limits
+                ),
+            }
+        )
+        if self._runtime_policy.workspace_root is not None:
+            effective_policy = effective_policy.model_copy(
+                update={"network_mode": self._runtime_policy.network_mode}
+            )
+        request = request.model_copy(
+            update={
+                "policy": effective_policy,
+                "command": request.command.model_copy(
+                    update={
+                        "timeout_seconds": min(
+                            request.command.timeout_seconds
+                            or effective_policy.resource_limits.timeout_seconds,
+                            effective_policy.resource_limits.timeout_seconds,
+                        )
+                    }
+                ),
+            }
+        )
+
+        decision = self._policy.authorize(request)
+        if not decision.allowed:
+            raise SandboxPolicyError(
+                "The sandbox execution was rejected by policy",
+                detail=decision.reason,
+            )
+
+        project = self._runtime_policy.project_environment(request)
+        extra_env = (
+            {SANDBOX_SIDE_CHANNEL_FD_ENV: str(side_channel.write_fd)}
+            if side_channel is not None
+            else {}
+        )
+        return request, self._bubblewrap_command(
+            request, project, descriptors, extra_env
         )
 
     def _open_mounts(
@@ -205,6 +268,7 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
         request: SandboxExecutionRequest,
         project: ProjectExecutionEnvironment,
         descriptors: list[int],
+        extra_env: dict[str, str] | None = None,
     ) -> list[str]:
         bubblewrap_path = self._bubblewrap_path
         if bubblewrap_path is None:
@@ -245,7 +309,8 @@ class BubblewrapSandboxExecutor(SandboxExecuteProtocol):
                 request.policy.filesystem_mounts, descriptors
             )
         )
-        for key, value in self._sandbox_env(request, project).items():
+        env = {**self._sandbox_env(request, project), **(extra_env or {})}
+        for key, value in env.items():
             command.extend(["--setenv", key, value])
         if request.command.cwd is not None:
             command.extend(["--chdir", request.command.cwd])

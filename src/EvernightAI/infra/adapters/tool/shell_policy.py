@@ -13,6 +13,8 @@ from EvernightAI.infra.adapters.tool.shell_literals import (
 )
 
 READ_COMMANDS = {
+    # Changing directory runs nothing; every later command is still inspected.
+    "cd",
     "cat",
     "cut",
     "echo",
@@ -467,6 +469,11 @@ def approval_reason(
             continue
         return "Commands outside the trusted list require approval"
     return None
+
+
+def is_routine_command(parts: list[str]) -> bool:
+    """Development commands relaxed approval runs without asking."""
+    return _routine_command(parts)
 
 
 def _routine_command(parts: list[str]) -> bool:

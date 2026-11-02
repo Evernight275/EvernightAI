@@ -275,6 +275,11 @@ def _builtin_tool_options(config: EvernightConfig) -> BuiltinToolOptions:
                     if shell.allowed_env_keys is not None
                     else None
                 ),
+                persistent_session=shell.persistent_session,
+                background_processes=shell.background_processes,
+                max_background_processes=shell.max_background_processes,
+                background_lifetime_seconds=shell.background_lifetime_seconds,
+                background_output_chars=shell.background_output_chars,
             )
             if shell.enabled
             else None

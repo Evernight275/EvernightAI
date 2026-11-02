@@ -552,6 +552,11 @@ def test_create_runtime_from_config_registers_shell_tool_when_enabled(
             "write_json_file",
             "display_file",
             "restricted_shell",
+            "shell_process_start",
+            "shell_process_read",
+            "shell_process_write",
+            "shell_process_stop",
+            "shell_process_list",
             "generate_image",
         ]
     finally:

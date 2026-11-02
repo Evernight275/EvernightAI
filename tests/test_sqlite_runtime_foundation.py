@@ -78,8 +78,8 @@ def test_migration_runner_versions_schema_and_configures_connections(
 ) -> None:
     database_path = tmp_path / "runtime.sqlite3"
 
-    assert SQLiteMigrationRunner(database_path).run() == 12
-    assert SQLiteMigrationRunner(database_path).run() == 12
+    assert SQLiteMigrationRunner(database_path).run() == 13
+    assert SQLiteMigrationRunner(database_path).run() == 13
 
     connection = connect_sqlite(database_path)
     try:
@@ -92,7 +92,7 @@ def test_migration_runner_versions_schema_and_configures_connections(
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )
         }
-        assert versions == [(version,) for version in range(1, 13)]
+        assert versions == [(version,) for version in range(1, 14)]
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
@@ -225,7 +225,7 @@ def test_migration_backfills_legacy_tool_execution_rounds_from_run_steps(
     finally:
         connection.close()
 
-    assert SQLiteMigrationRunner(database_path).run() == 12
+    assert SQLiteMigrationRunner(database_path).run() == 13
 
     register = SQLiteToolExecutionRegister(database_path)
     try:

@@ -11,18 +11,25 @@ from EvernightAI.core.error.sandbox import (
 from EvernightAI.core.protocol.sandbox import (
     SandboxExecuteProtocol,
     SandboxPolicyProtocol,
+    SandboxProcessProtocol,
+    SandboxSpawnProtocol,
 )
 from EvernightAI.core.schema.sandbox import (
+    SANDBOX_SIDE_CHANNEL_FD_ENV,
     SandboxExecutionRequest,
     SandboxExecutionResult,
     SandboxFilesystemMount,
     SandboxOutputStream,
 )
 from EvernightAI.infra.adapters.sandbox.output import BoundedSandboxOutput
-from EvernightAI.infra.adapters.sandbox.process import terminate_process
+from EvernightAI.infra.adapters.sandbox.process import (
+    SideChannel,
+    SubprocessSandboxProcess,
+    terminate_process,
+)
 
 
-class SubprocessSandboxExecutor(SandboxExecuteProtocol):
+class SubprocessSandboxExecutor(SandboxExecuteProtocol, SandboxSpawnProtocol):
     def __init__(
         self,
         *,
@@ -35,6 +42,41 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
         request: SandboxExecutionRequest,
     ) -> SandboxExecutionResult:
         """执行沙盒命令"""
+        self._authorize(request)
+        side_channel = (
+            SideChannel()
+            if request.command.side_channel and os.name == "posix"
+            else None
+        )
+        try:
+            return await self._execute(request, side_channel)
+        finally:
+            if side_channel is not None:
+                await side_channel.close()
+
+    async def spawn(self, request: SandboxExecutionRequest) -> SandboxProcessProtocol:
+        """启动沙盒进程，不等待其结束"""
+        self._authorize(request)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *request.command.command,
+                cwd=self._resolve_cwd(request),
+                env=self._resolve_env(request),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+        except OSError as exc:
+            raise SandboxExecutionError(
+                f"The command {request.command.command[0]} failed to start",
+                cause=exc,
+            ) from exc
+        return SubprocessSandboxProcess(
+            process, lifetime_seconds=request.command.timeout_seconds
+        )
+
+    def _authorize(self, request: SandboxExecutionRequest) -> None:
         decision = self._policy.authorize(request)
         if not decision.allowed:
             raise SandboxPolicyError(
@@ -42,14 +84,22 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
                 detail=decision.reason,
             )
 
+    async def _execute(
+        self,
+        request: SandboxExecutionRequest,
+        side_channel: SideChannel | None,
+    ) -> SandboxExecutionResult:
         command = request.command.command
         process: asyncio.subprocess.Process | None = None
         output = BoundedSandboxOutput(request.policy.resource_limits.max_output_chars)
+        env = self._resolve_env(request)
+        if side_channel is not None:
+            env[SANDBOX_SIDE_CHANNEL_FD_ENV] = str(side_channel.write_fd)
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=self._resolve_cwd(request),
-                env=self._resolve_env(request),
+                env=env,
                 stdin=(
                     asyncio.subprocess.PIPE
                     if request.command.stdin is not None
@@ -58,7 +108,10 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
+                pass_fds=(side_channel.write_fd,) if side_channel is not None else (),
             )
+            if side_channel is not None:
+                side_channel.start()
             await asyncio.wait_for(
                 asyncio.gather(
                     self._write_stdin(process, request.command.stdin),
@@ -109,6 +162,9 @@ class SubprocessSandboxExecutor(SandboxExecuteProtocol):
             stderr=output.stderr,
             events=output.events,
             truncated=output.truncated,
+            side_channel=(
+                await side_channel.result() if side_channel is not None else None
+            ),
         )
 
     async def _write_stdin(
