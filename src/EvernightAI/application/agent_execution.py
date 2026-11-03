@@ -1392,32 +1392,14 @@ class AgentExecutionApplication:
             return f"Tool {tool_name} completed"
         if event.event_type is AgentTraceEventType.TOOL_FAILED:
             tool_name = self._event_tool_name(event)
-            error_type = event.error_type or "error"
-            return f"Tool {tool_name} failed with {error_type}"
+            return f"Tool {tool_name} failed with {event.error_type}"
         if event.event_type is AgentTraceEventType.TOOL_EXECUTION_RESOLVED:
-            action = event.metadata.get("resolution")
-            return (
-                f"Tool execution resolved: {action}"
-                if isinstance(action, str)
-                else "Tool execution resolved"
-            )
+            return f"Tool execution resolved: {event.metadata['resolution']}"
         if event.event_type is AgentTraceEventType.MEMORY_WRITTEN:
-            memory_id = event.metadata.get("memory_id")
-            if isinstance(memory_id, str) and memory_id:
-                return f"Memory {memory_id} written"
-            return "Memory written"
+            return f"Memory {event.metadata['memory_id']} written"
         if event.event_type is AgentTraceEventType.RUN_PAUSED:
-            reason = event.metadata.get("reason")
-            if isinstance(reason, str) and reason:
-                return f"Agent run paused: {reason}"
-            return "Agent run paused"
-        if event.event_type is AgentTraceEventType.RUN_STOPPED:
-            reason = event.metadata.get("reason")
-            if isinstance(reason, str) and reason:
-                return f"Agent run stopped: {reason}"
-            return "Agent run stopped"
-
-        return event.event_type.value
+            return f"Agent run paused: {event.metadata['reason']}"
+        return f"Agent run stopped: {event.metadata['reason']}"
 
     def _event_tool_name(self, event: AgentTraceEvent) -> str:
         if event.approval_request is not None:

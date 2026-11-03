@@ -172,29 +172,11 @@ def test_maps_tool_definition_to_chat_completion_tool_param() -> None:
             },
         },
     }
-
-
-def test_maps_tool_definitions_to_chat_completion_tool_params() -> None:
-    tools = [
-        ToolDefinition(name="read_file", description="Read a file"),
-        ToolDefinition(name="write_file", description="Write a file"),
-    ]
-
-    assert to_openai_tools(tools) == [
-        {
-            "type": "function",
-            "function": {
-                "name": "read_file",
-                "description": "Read a file",
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "write_file",
-                "description": "Write a file",
-            },
-        },
+    assert to_openai_tools(
+        [tool, ToolDefinition(name="noop", description="No-op")]
+    ) == [
+        to_openai_tool(tool),
+        {"type": "function", "function": {"name": "noop", "description": "No-op"}},
     ]
 
 

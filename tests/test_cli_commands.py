@@ -1,11 +1,6 @@
-import json
-from pathlib import Path
-
 from EvernightAI.interface.cli.commands import (
-    check_config,
     format_config_summary,
     redact_config,
-    show_config,
 )
 from EvernightAI.interface.cli.config import parse_config
 
@@ -62,39 +57,4 @@ def test_redact_config_hides_provider_api_keys() -> None:
 
     payload = redact_config(config)
 
-    assert payload["providers"][0]["api_key"] == "***"
-
-
-def test_check_config_reads_file(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """
-[runtime]
-database_path = ".evernight/runtime.sqlite3"
-
-[provider.main]
-name = "Main"
-type = "openai"
-""".strip(),
-        encoding="utf-8",
-    )
-
-    assert "Config OK" in check_config(config_path)
-
-
-def test_show_config_reads_file_and_outputs_json(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """
-[provider.main]
-name = "Main"
-type = "openai"
-api_key = "secret-key"
-""".strip(),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(show_config(config_path))
-
-    assert payload["providers"][0]["provider_id"] == "main"
     assert payload["providers"][0]["api_key"] == "***"

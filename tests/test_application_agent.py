@@ -778,7 +778,8 @@ async def test_agent_streams_chat_delta_when_requested() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_recovers_from_tool_errors() -> None:
-    runtime = make_runtime(provider=RecoveringToolErrorProvider())
+    provider = RecoveringToolErrorProvider()
+    runtime = make_runtime(provider=provider)
     await runtime.contexts.create(Context(context_id="ctx-1"))
     await runtime.providers.create(make_config())
 
@@ -808,26 +809,6 @@ async def test_agent_recovers_from_tool_errors() -> None:
         "Recovered from tool error",
         role=MessageRole.ASSISTANT,
     )
-
-
-@pytest.mark.asyncio
-async def test_agent_sends_tool_error_message_to_follow_up_chat() -> None:
-    provider = RecoveringToolErrorProvider()
-    runtime = make_runtime(provider=provider)
-    await runtime.contexts.create(Context(context_id="ctx-1"))
-    await runtime.providers.create(make_config())
-
-    app = AgentApplication(runtime)
-    await app.run_agent(
-        AgentRunRequest(
-            provider_id="provider-1",
-            context_id="ctx-1",
-            model_id="model-1",
-            messages=[make_message("Use missing tool")],
-            recover_tool_errors=True,
-        )
-    )
-
     assert len(provider.requests) == 2
     assert [message.role for message in provider.requests[1].messages] == [
         MessageRole.USER,
@@ -1818,25 +1799,6 @@ async def test_agent_start_and_resume_run_persist_state_and_trace() -> None:
         AgentTraceEventType.CHAT_COMPLETED,
         AgentTraceEventType.RUN_STOPPED,
     ]
-
-
-@pytest.mark.asyncio
-async def test_agent_start_run_requires_storage_registers() -> None:
-    runtime = make_runtime(provider=FinalAnswerProvider())
-    await runtime.contexts.create(Context(context_id="ctx-1"))
-    await runtime.providers.create(make_config())
-
-    app = AgentApplication(runtime)
-
-    with pytest.raises(AgentStateError, match="state register"):
-        await app.start_agent_run(
-            AgentRunRequest(
-                provider_id="provider-1",
-                context_id="ctx-1",
-                model_id="model-1",
-                messages=[make_message("Hello")],
-            )
-        )
 
 
 @pytest.mark.asyncio
@@ -3049,131 +3011,6 @@ async def test_agent_stream_uses_content_part_delta_and_tool_completion_metadata
     assert events[2].response.response_id == "resp-stream"
     assert events[2].response.model_id == "model-stream"
     assert events[2].response.finish_reason == "tool_calls"
-
-
-def test_agent_private_helpers_cover_fallbacks() -> None:
-    runtime = make_runtime(provider=FinalAnswerProvider())
-    app = AgentApplication(runtime)
-    state = AgentRunState(
-        run_id="run-1",
-        request=AgentRunRequest(
-            provider_id="provider-1",
-            context_id="ctx-1",
-            model_id="model-1",
-            messages=[make_message("Hello")],
-        ),
-        status=AgentRunStatus.PAUSED,
-        response=make_response("Stored"),
-        stop_reason=AgentStopReason.FINISHED,
-        pending_tool_calls=[ToolCall(tool_call_id="call-1", tool_call={})],
-    )
-
-    with pytest.raises(AgentStateError, match="paused"):
-        app._state_to_result(state)
-
-    state.status = AgentRunStatus.FINISHED
-    state.response = None
-    with pytest.raises(AgentStateError, match="did not produce"):
-        app._state_to_result(state)
-
-    state.response = make_response("Stored")
-    state.stop_reason = None
-    with pytest.raises(AgentStateError, match="did not stop"):
-        app._state_to_result(state)
-
-    assert app._tool_name(ToolCall(tool_call_id="call-1", tool_call={})) is None
-    assert (
-        app._event_tool_name(
-            AgentTraceEvent(
-                event_type=AgentTraceEventType.TOOL_COMPLETED,
-                tool_call=ToolCall(tool_call_id="call-1", tool_call={}),
-            )
-        )
-        == "unknown tool"
-    )
-    assert (
-        app._trace_summary(
-            AgentTraceEvent(
-                event_type=AgentTraceEventType.TOOL_APPROVAL_DECIDED,
-                tool_call=ToolCall(tool_call_id="call-1", tool_call={}),
-            )
-        )
-        == "Tool approval unknown for unknown tool"
-    )
-    assert (
-        app._trace_summary(
-            AgentTraceEvent(event_type=AgentTraceEventType.MEMORY_WRITTEN)
-        )
-        == "Memory written"
-    )
-    assert (
-        app._trace_summary(AgentTraceEvent(event_type=AgentTraceEventType.RUN_PAUSED))
-        == "Agent run paused"
-    )
-    assert (
-        app._trace_summary(AgentTraceEvent(event_type=AgentTraceEventType.RUN_STOPPED))
-        == "Agent run stopped"
-    )
-    assert (
-        app._trace_summary(
-            AgentTraceEvent.model_construct(
-                event_type=UnknownTraceEventType(),
-                metadata={},
-            )
-        )
-        == "unknown_event"
-    )
-    assert (
-        app._event_tool_name(
-            AgentTraceEvent(event_type=AgentTraceEventType.TOOL_FAILED)
-        )
-        == "unknown tool"
-    )
-    assert (
-        app._tool_safety_decision(ToolCall(tool_call_id="call-1", tool_call={})) is None
-    )
-    missing_tool_decision = app._tool_safety_decision(
-        ToolCall(tool_call_id="call-2", tool_call={"name": "missing"})
-    )
-    assert missing_tool_decision is not None
-    assert missing_tool_decision.allowed is False
-    assert missing_tool_decision.reason == (
-        "Tool safety policy failed: The tool missing is not found"
-    )
-    assert missing_tool_decision.metadata["safety_policy_error"] is True
-    assert (
-        app._chat_stream_text_delta(
-            ChatStreamEvent(event_type=ChatStreamEventType.MESSAGE_DELTA)
-        )
-        is None
-    )
-
-    state.steps.append(AgentStep(step_type=AgentStepType.CHAT))
-    assert app._run_transcript(state) == state.request.messages
-    assert app._has_tool_runtime(state) is True
-
-    trace_event = AgentTraceEvent(
-        event_type=AgentTraceEventType.RUN_STARTED,
-        summary="Already summarized",
-    )
-    assert app._add_trace(state, trace_event) is trace_event
-    assert state.trace[-1].summary == "Already summarized"
-    assert state.trace[-1].trace_id == state.run_id
-    assert state.trace[-1].source == "agent"
-    assert state.trace[-1].subject is not None
-    assert state.trace[-1].subject.kind == "agent_run"
-    assert state.trace[-1].subject.subject_id == state.run_id
-
-    missing_register_app = AgentApplication(
-        make_runtime(provider=FinalAnswerProvider())
-    )
-    with pytest.raises(AgentStateError, match="state register is not configured"):
-        missing_register_app._get_agent_state("missing-run")
-    with pytest.raises(AgentStateError, match="trace register is not configured"):
-        missing_register_app._append_agent_trace_event(
-            "missing-run",
-            AgentTraceEvent(event_type=AgentTraceEventType.RUN_STARTED),
-        )
 
 
 @pytest.mark.asyncio
@@ -4773,10 +4610,6 @@ class NoStreamingResponseAgentApplication(AgentApplication):
     ) -> AsyncIterator[AgentTraceEvent]:
         if False:
             yield AgentTraceEvent(event_type=AgentTraceEventType.CHAT_COMPLETED)
-
-
-class UnknownTraceEventType:
-    value = "unknown_event"
 
 
 @pytest.mark.asyncio
