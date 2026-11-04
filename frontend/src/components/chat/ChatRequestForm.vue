@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import ChatModelPicker from './ChatModelPicker.vue';
-import { ArrowUp, ImagePlus, Square, X } from '@lucide/vue';
+import { ArrowUp, Brain, ImagePlus, Square, X } from '@lucide/vue';
 import { ref, watch } from 'vue';
 import { useDialog } from '../common/dialog';
 import {
+  reasoningEffortOptions,
   useChatRequestForm,
   type ChatRequestFormEmits,
   type ChatRequestFormProps,
@@ -25,6 +26,7 @@ const {
   imageCapabilityUnsupported,
   providerId,
   modelId,
+  reasoningEffort,
   text,
   setTextarea,
   canSubmit,
@@ -153,6 +155,19 @@ watch(
               }
             "
           />
+          <label class="chat-reasoning-picker" title="思考程度">
+            <Brain :size="15" aria-hidden="true" />
+            <span class="sr-only">思考程度</span>
+            <select v-model="reasoningEffort" :disabled="providerDisabled">
+              <option
+                v-for="option in reasoningEffortOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
         </div>
 
         <button

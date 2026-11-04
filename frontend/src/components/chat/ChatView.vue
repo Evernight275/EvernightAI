@@ -64,6 +64,7 @@ const {
       <div class="chat-content">
         <ChatTranscript
           :entries="transcript"
+          :state="chatState"
           :tools="toolCatalog"
           :run-id="runId"
           :pending-approvals="pendingApprovals"

@@ -6,7 +6,8 @@ import type { ChatTranscriptEntry } from '../../domain/chat';
 import EmptyValue from '../common/EmptyValue.vue';
 import ChatMessage from './ChatMessage.vue';
 import ChatInlineTool from './ChatInlineTool.vue';
-import { useChatTranscript } from './chatTranscript';
+import { computed } from 'vue';
+import { chatWaitingLabel, useChatTranscript } from './chatTranscript';
 
 const props = defineProps<{
   entries: ChatTranscriptEntry[];
@@ -15,6 +16,7 @@ const props = defineProps<{
   approvalStatuses?: ApprovalStatuses;
   canApprove?: boolean;
   tools?: ToolDefinition[];
+  state?: string;
 }>();
 
 defineEmits<{ approve: [approvalId: string]; deny: [approvalId: string] }>();
@@ -32,6 +34,7 @@ function inlineApproval(entry: ChatTranscriptEntry) {
   );
   return { ...item, decided: item.decided || !props.canApprove };
 }
+const waitingLabel = computed(() => chatWaitingLabel(props.state || 'idle', props.entries));
 const { setEndMarker } = useChatTranscript(() => props.entries);
 </script>
 
@@ -62,6 +65,12 @@ const { setEndMarker } = useChatTranscript(() => props.entries);
           @deny="$emit('deny', $event)"
         />
         <ChatMessage v-else :entry="entry" />
+      </li>
+      <li v-if="waitingLabel">
+        <div class="chat-waiting" role="status" :aria-label="waitingLabel">
+          <span class="chat-waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="chat-waiting-label">{{ waitingLabel }}…</span>
+        </div>
       </li>
     </ol>
     <span :ref="setEndMarker" aria-hidden="true"></span>

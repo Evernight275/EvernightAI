@@ -20,6 +20,7 @@ from EvernightAI.infra.adapters.model_discovery import (
 )
 from EvernightAI.infra.adapters.provider_metadata import (
     max_output_tokens_from_metadata,
+    reasoning_effort_from_metadata,
     timeout_seconds_from_metadata,
 )
 from EvernightAI.infra.adapters.providers.anthropic.cache import (
@@ -31,6 +32,10 @@ from EvernightAI.infra.adapters.providers.anthropic.mapper import (
     to_anthropic_request,
 )
 from EvernightAI.infra.adapters.providers.sse import iter_sse_json
+
+DEFAULT_MAX_TOKENS = 4096
+# Thinking tokens count toward max_tokens, so a reasoning request needs more room.
+DEFAULT_THINKING_MAX_TOKENS = 16000
 
 
 class AnthropicProviderInstance(ProviderInstanceProtocol):
@@ -52,16 +57,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
-        payload = to_anthropic_request(
-            request.messages,
-            model.model_id,
-            request.tools,
-            max_output_tokens=max_output_tokens_from_metadata(
-                request.metadata, model.metadata, self.config.metadata
-            )
-            or 4096,
-        )
-        payload.update(anthropic_prompt_cache_params(request))
+        payload = self._payload(request, model)
 
         try:
             response = await self._client.post(
@@ -78,19 +74,7 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
-        payload = {
-            **to_anthropic_request(
-                request.messages,
-                model.model_id,
-                request.tools,
-                max_output_tokens=max_output_tokens_from_metadata(
-                    request.metadata, model.metadata, self.config.metadata
-                )
-                or 4096,
-            ),
-            **anthropic_prompt_cache_params(request),
-            "stream": True,
-        }
+        payload = {**self._payload(request, model), "stream": True}
         return AnthropicChatStream(
             self._client,
             "/v1/messages",
@@ -123,6 +107,25 @@ class AnthropicProviderInstance(ProviderInstanceProtocol):
 
     def _model_for_request(self, model_id: str) -> ProviderModelConfig:
         return self._models.get(model_id) or ProviderModelConfig(model_id=model_id)
+
+    def _payload(
+        self, request: ChatRequest, model: ProviderModelConfig
+    ) -> dict[str, Any]:
+        effort = reasoning_effort_from_metadata(request.metadata)
+        payload = to_anthropic_request(
+            request.messages,
+            model.model_id,
+            request.tools,
+            max_output_tokens=max_output_tokens_from_metadata(
+                request.metadata, model.metadata, self.config.metadata
+            )
+            or (DEFAULT_THINKING_MAX_TOKENS if effort else DEFAULT_MAX_TOKENS),
+        )
+        if effort is not None:
+            payload["thinking"] = {"type": "adaptive"}
+            payload["output_config"] = {"effort": effort}
+        payload.update(anthropic_prompt_cache_params(request))
+        return payload
 
     async def _list_remote_models(self) -> list[ProviderModelConfig]:
         response = await self._client.get("/v1/models")

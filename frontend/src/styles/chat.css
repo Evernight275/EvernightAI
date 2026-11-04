@@ -1444,6 +1444,27 @@ body,
 .chat-model-trigger svg {
   flex-shrink: 0;
 }
+.chat-reasoning-picker {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 10px;
+  border-radius: 18px;
+  color: #626262;
+  font-size: 13px;
+}
+.chat-reasoning-picker:hover {
+  background: var(--color-surface);
+}
+.chat-reasoning-picker select {
+  min-height: 0;
+  padding: 5px 22px 5px 2px;
+  border: 0;
+  background-color: transparent;
+  background-position: right 4px center;
+  background-size: 14px;
+}
 .chat-model-dialog {
   padding: 12px;
 }
@@ -1523,6 +1544,65 @@ body,
 @keyframes chat-stream-pulse {
   to {
     opacity: 0.3;
+  }
+}
+.chat-waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  animation: chat-fade-up 0.25s ease-out both;
+}
+.chat-waiting-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.chat-waiting-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: chat-waiting-bounce 1.2s ease-in-out infinite;
+}
+.chat-waiting-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.chat-waiting-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.chat-waiting-label {
+  background: linear-gradient(
+    90deg,
+    var(--color-muted) 0%,
+    var(--color-text) 50%,
+    var(--color-muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: chat-waiting-shimmer 2s linear infinite;
+}
+@keyframes chat-waiting-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+@keyframes chat-waiting-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
   }
 }
 @media (hover: none) {

@@ -648,3 +648,126 @@ async def test_output_limit_precedence_matches_chat_and_stream(
         assert len(payloads) == 2
     finally:
         await provider.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_type,model_id,metadata,expected",
+    [
+        (
+            ProviderType.ANTHROPIC,
+            "claude-test",
+            {"reasoning_effort": "high"},
+            {
+                "max_tokens": 16000,
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "high"},
+            },
+        ),
+        (
+            ProviderType.ANTHROPIC,
+            "claude-test",
+            {"reasoning_effort": "low", "max_output_tokens": 2048},
+            {
+                "max_tokens": 2048,
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "low"},
+            },
+        ),
+        (
+            ProviderType.ANTHROPIC,
+            "claude-test",
+            {"reasoning_effort": "extreme"},
+            {"max_tokens": 4096, "thinking": None, "output_config": None},
+        ),
+        (
+            ProviderType.GOOGLE,
+            "gemini-3-pro-preview",
+            {"reasoning_effort": "medium", "max_output_tokens": 2048},
+            {
+                "generationConfig": {
+                    "maxOutputTokens": 2048,
+                    "thinkingConfig": {"thinkingLevel": "MEDIUM"},
+                }
+            },
+        ),
+        (
+            ProviderType.GOOGLE,
+            "models/gemini-2.5-flash",
+            {"reasoning_effort": "high"},
+            {"generationConfig": {"thinkingConfig": {"thinkingBudget": 24576}}},
+        ),
+        (
+            ProviderType.GOOGLE,
+            "gemini-3-pro-preview",
+            {"reasoning_effort": "extreme"},
+            {"generationConfig": None},
+        ),
+        (
+            ProviderType.GOOGLE,
+            "gemini-3-pro-preview",
+            {"reasoning_effort": ["high"]},
+            {"generationConfig": None},
+        ),
+        (
+            ProviderType.ANTHROPIC,
+            "claude-test",
+            {"reasoning_effort": {"effort": "high"}},
+            {"max_tokens": 4096, "thinking": None, "output_config": None},
+        ),
+    ],
+)
+async def test_reasoning_effort_maps_to_native_thinking_controls(
+    provider_type: ProviderType,
+    model_id: str,
+    metadata: dict[str, object],
+    expected: dict[str, object],
+) -> None:
+    config = ProviderConfig(provider_id="test", name="Test", type=provider_type)
+    provider = (
+        AnthropicProviderInstance(config)
+        if provider_type is ProviderType.ANTHROPIC
+        else GeminiProviderInstance(config)
+    )
+    await provider._client.aclose()
+    payloads = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        if provider_type is ProviderType.GOOGLE:
+            response = {
+                "modelVersion": model_id,
+                "candidates": [
+                    {"finishReason": "STOP", "content": {"parts": [{"text": "OK"}]}}
+                ],
+            }
+            return (
+                httpx.Response(200, json=response)
+                if "streamGenerateContent" not in request.url.path
+                else httpx.Response(200, text=sse(None, response))
+            )
+        response = {"model": model_id, "content": [{"type": "text", "text": "OK"}]}
+        return (
+            httpx.Response(200, json=response)
+            if not payloads[-1].get("stream")
+            else httpx.Response(
+                200, text=anthropic_stream(response["content"], "end_turn")
+            )
+        )
+
+    provider._client = httpx.AsyncClient(
+        base_url="https://test.invalid", transport=httpx.MockTransport(handle)
+    )
+    try:
+        request = ChatRequest(
+            model_id=model_id, messages=[message("Hello")], metadata=metadata
+        )
+        await provider.chat(request)
+        stream = await provider.chat_stream(request)
+        _ = [event async for event in stream]
+        assert len(payloads) == 2
+        for payload in payloads:
+            assert {key: payload.get(key) for key in expected} == expected
+            assert "reasoning_effort" not in json.dumps(payload)
+    finally:
+        await provider.close()

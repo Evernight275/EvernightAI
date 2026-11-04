@@ -20,6 +20,7 @@ from EvernightAI.infra.adapters.model_discovery import (
 )
 from EvernightAI.infra.adapters.provider_metadata import (
     max_output_tokens_from_metadata,
+    reasoning_effort_from_metadata,
     timeout_seconds_from_metadata,
 )
 from EvernightAI.infra.adapters.providers.gemini.mapper import (
@@ -47,7 +48,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages, request.tools)
-        _set_output_limit(payload, request, model, self.config)
+        _set_generation_config(payload, request, model, self.config)
 
         try:
             response = await self._client.post(
@@ -65,7 +66,7 @@ class GeminiProviderInstance(ProviderInstanceProtocol):
     async def chat_stream(self, request: ChatRequest) -> ChatStreamProtocol:
         model = self._model_for_request(request.model_id)
         payload = to_gemini_request(request.messages, request.tools)
-        _set_output_limit(payload, request, model, self.config)
+        _set_generation_config(payload, request, model, self.config)
         return GeminiChatStream(
             self._client,
             f"/v1beta/models/{model.model_id}:streamGenerateContent",
@@ -165,14 +166,30 @@ class GeminiChatStream:
         yield ChatStreamEvent(event_type=ChatStreamEventType.DONE)
 
 
-def _set_output_limit(
+# Gemini 2.x only takes a token budget; thinkingLevel is rejected before Gemini 3.
+GEMINI_2_THINKING_BUDGETS = {"low": 1024, "medium": 8192, "high": 24576}
+
+
+def _set_generation_config(
     payload: dict[str, Any],
     request: ChatRequest,
     model: ProviderModelConfig,
     config: ProviderConfig,
 ) -> None:
+    generation_config: dict[str, Any] = {}
     value = max_output_tokens_from_metadata(
         request.metadata, model.metadata, config.metadata
     )
     if value is not None:
-        payload["generationConfig"] = {"maxOutputTokens": value}
+        generation_config["maxOutputTokens"] = value
+    effort = reasoning_effort_from_metadata(request.metadata)
+    if effort is not None:
+        generation_config["thinkingConfig"] = _thinking_config(model.model_id, effort)
+    if generation_config:
+        payload["generationConfig"] = generation_config
+
+
+def _thinking_config(model_id: str, effort: str) -> dict[str, Any]:
+    if model_id.removeprefix("models/").startswith("gemini-2."):
+        return {"thinkingBudget": GEMINI_2_THINKING_BUDGETS[effort]}
+    return {"thinkingLevel": effort.upper()}

@@ -37,6 +37,41 @@ export type ChatRequestFormEmits = {
 
 type ChatRequestFormEmit = (event: 'submit', submission: ChatSubmission) => void;
 
+export type ReasoningEffort = '' | 'low' | 'medium' | 'high';
+
+export const reasoningEffortOptions: { value: ReasoningEffort; label: string }[] = [
+  { value: '', label: '默认思考' },
+  { value: 'low', label: '低思考' },
+  { value: 'medium', label: '中思考' },
+  { value: 'high', label: '高思考' },
+];
+
+const reasoningEffortKey = 'evernight.reasoningEffort';
+
+function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return reasoningEffortOptions.some((option) => option.value === value);
+}
+
+function storedReasoningEffort(): ReasoningEffort {
+  try {
+    const value = localStorage.getItem(reasoningEffortKey);
+    return isReasoningEffort(value) ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+export function withReasoningEffort(
+  runOptions: Partial<AgentRunRequest> | undefined,
+  effort: ReasoningEffort,
+): Partial<AgentRunRequest> | undefined {
+  const metadata = { ...runOptions?.metadata };
+  delete metadata.reasoning_effort;
+  if (effort) metadata.reasoning_effort = effort;
+  if (!runOptions && !effort) return undefined;
+  return { ...runOptions, metadata };
+}
+
 export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatRequestFormEmit) {
   const providerId = ref('');
   const modelId = ref('');
@@ -50,6 +85,14 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
   const optionsJson = ref<string | null>(null);
   const draftNotice = ref('');
   const optionsError = ref('');
+  const reasoningEffort = ref<ReasoningEffort>(storedReasoningEffort());
+  watch(reasoningEffort, (value) => {
+    try {
+      localStorage.setItem(reasoningEffortKey, value);
+    } catch {
+      /* The selection still applies to this page. */
+    }
+  });
   const sessionKey = () => props.sessionId || props.contextId || 'new';
   const {
     attachments,
@@ -326,6 +369,7 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
           throw new Error('运行参数包含不支持的字段');
         runOptions = editableRunOptions(options as AgentRunRequest);
       }
+      runOptions = withReasoningEffort(runOptions, reasoningEffort.value);
     } catch (cause) {
       optionsError.value = cause instanceof Error ? cause.message : '请求参数无效';
       return;
@@ -497,6 +541,8 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
         (request.skills?.length || 0) > 1 ? JSON.stringify(request.skills, null, 2) : null;
       selectedSkill.value = skillList.value === null ? sourceSkill.value?.skill_name || '' : '';
       skillVariables.value = JSON.stringify(sourceSkill.value?.variables || {}, null, 2);
+      const effort = request.metadata?.reasoning_effort;
+      if (isReasoningEffort(effort)) reasoningEffort.value = effort;
       optionsJson.value = JSON.stringify(editableRunOptions(request), null, 2);
       workingDirectory.value = request.working_directory || undefined;
       optionsError.value = '';
@@ -548,6 +594,7 @@ export function useChatRequestForm(props: ChatRequestFormProps, emit: ChatReques
     },
     providerId,
     modelId,
+    reasoningEffort,
     models,
     text,
     canSubmit,

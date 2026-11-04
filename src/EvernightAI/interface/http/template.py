@@ -75,8 +75,8 @@ Common first flow:
 Most request bodies below show the smallest useful JSON first. Optional fields
 such as `skills`, `tools`, `memory_query`, and `metadata` are advanced controls.
 Provider-specific controls belong in `request.metadata`; for example,
-`reasoning_effort` accepts `low`, `medium`, or `high` for OpenAI-compatible
-providers that support it.
+`reasoning_effort` accepts `low`, `medium`, or `high`; each provider adapter
+translates it into that provider's native thinking control.
 """
 
 
@@ -446,7 +446,7 @@ DIRECT_CHAT_EXAMPLES = _openapi_examples(
         ),
         "withReasoningEffort": _example(
             summary="One-off chat with reasoning effort",
-            description="OpenAI-compatible providers receive `reasoning_effort` as a provider request parameter.",
+            description="Each provider adapter translates `reasoning_effort` into its native thinking control.",
             value=_direct_chat_request(
                 "Think carefully, then answer briefly.",
                 metadata={"reasoning_effort": "high"},

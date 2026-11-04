@@ -12,7 +12,8 @@ import ChatTranscript from '../src/components/chat/ChatTranscript.vue';
 import ChatView from '../src/components/chat/ChatView.vue';
 import { reconcileRunTranscript } from '../src/domain/chat';
 import { transcriptFromMessages, userEntry } from '../src/domain/chat';
-import { canSubmitChat } from '../src/components/chat/chatRequestForm';
+import { canSubmitChat, withReasoningEffort } from '../src/components/chat/chatRequestForm';
+import { chatWaitingLabel } from '../src/components/chat/chatTranscript';
 import type { AgentRunState } from '../src/api';
 
 describe('chat component composition', () => {
@@ -159,7 +160,9 @@ describe('chat component composition', () => {
     expect(html).toContain('model-1');
     expect(html).toContain('model-2');
     expect(html).toContain('aria-label="搜索模型"');
-    expect(html).not.toContain('<select');
+    expect(html.replace(/<label class="chat-reasoning-picker"[\s\S]*?<\/label>/, '')).not.toContain(
+      '<select',
+    );
   });
 
   it('keeps approval decisions visible before large tool arguments', async () => {
@@ -199,6 +202,71 @@ describe('chat component composition', () => {
     expect(approval.indexOf('拒绝')).toBeLessThan(approval.indexOf('查看调用参数'));
     expect(approval.indexOf('large.py')).toBeLessThan(approval.indexOf('查看调用参数'));
     expect(html).not.toContain('运行 ID');
+  });
+
+  it('offers reasoning effort for every provider type', async () => {
+    for (const type of ['openai', 'openai_responses', 'anthropic', 'google']) {
+      const html = await renderToString(
+        createSSRApp(ChatRequestForm, {
+          catalog: {
+            providers: [{ provider_id: 'main', name: 'Main', type }],
+            modelGroups: [
+              {
+                provider: { provider_id: 'main', name: 'Main', type },
+                models: [{ model_id: 'model-1' }],
+              },
+            ],
+          },
+          busy: false,
+          sessionReady: true,
+        }),
+      );
+      expect(html).toContain('class="chat-reasoning-picker"');
+      expect(html).toContain('高思考');
+    }
+  });
+
+  it('sets reasoning effort as the only source of run metadata effort', () => {
+    expect(withReasoningEffort(undefined, '')).toBeUndefined();
+    expect(withReasoningEffort(undefined, 'high')).toEqual({
+      metadata: { reasoning_effort: 'high' },
+    });
+    expect(
+      withReasoningEffort({ max_tool_rounds: 3, metadata: { reasoning_effort: 'low', a: 1 } }, ''),
+    ).toEqual({ max_tool_rounds: 3, metadata: { a: 1 } });
+    expect(
+      withReasoningEffort({ metadata: { reasoning_effort: 'low' } }, 'medium')?.metadata,
+    ).toEqual({ reasoning_effort: 'medium' });
+  });
+
+  it('shows a waiting indicator until the reply visibly starts', async () => {
+    const user = userEntry({ providerId: 'p', modelId: 'm', text: '你好' }, 0);
+    const streamed = {
+      entryId: 'stream-1',
+      role: 'assistant',
+      text: '你',
+      streaming: true,
+      content: { role: 'assistant', content: [] },
+    };
+    const tool = (status: 'pending' | 'running') => ({
+      ...streamed,
+      streaming: false,
+      toolActivity: { callId: 'c', name: 't', status, argumentsText: '{}' },
+    });
+
+    expect(chatWaitingLabel('preparing', [user])).toBe('正在发送');
+    expect(chatWaitingLabel('streaming', [user])).toBe('正在思考');
+    expect(chatWaitingLabel('streaming', [user, streamed])).toBeNull();
+    expect(chatWaitingLabel('streaming', [user, tool('running')])).toBeNull();
+    expect(chatWaitingLabel('streaming', [user, tool('pending')])).toBe('正在思考');
+    expect(chatWaitingLabel('idle', [user])).toBeNull();
+    expect(chatWaitingLabel('approvalRequired', [user])).toBeNull();
+
+    const html = await renderToString(
+      createSSRApp(ChatTranscript, { entries: [user], state: 'streaming' }),
+    );
+    expect(html).toContain('class="chat-waiting"');
+    expect(html).toContain('正在思考…');
   });
 
   it('shows pending approvals in the tool activity count', async () => {

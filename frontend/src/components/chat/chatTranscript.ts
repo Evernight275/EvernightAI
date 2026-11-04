@@ -1,6 +1,25 @@
 import { nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue';
 import type { ChatTranscriptEntry } from '../../domain/chat';
 
+const waitingLabels: Record<string, string> = {
+  preparing: '正在发送',
+  streaming: '正在思考',
+  evaluatingRun: '正在处理结果',
+  resuming: '正在继续运行',
+  retrying: '正在重试',
+  recovering: '正在恢复运行进度',
+};
+
+// The reply has not visibly started yet: no streamed text and no running tool to watch.
+export function chatWaitingLabel(state: string, entries: ChatTranscriptEntry[]): string | null {
+  const label = waitingLabels[state];
+  if (!label) return null;
+  const last = entries.at(-1);
+  if (last?.streaming && !last.toolActivity) return null;
+  if (last?.toolActivity?.status === 'running') return null;
+  return label;
+}
+
 export function useChatTranscript(entries: () => ChatTranscriptEntry[]) {
   const endMarker = ref<HTMLElement | null>(null);
   let scroller: HTMLElement | null = null;

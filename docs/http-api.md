@@ -277,13 +277,24 @@ Provider-specific controls belong in request `metadata`, not in the core
 `ChatRequest` fields. Unknown metadata stays inside EvernightAI and is not sent
 to the provider.
 
-OpenAI-compatible chat and OpenAI Responses adapters currently support:
+All provider adapters support:
 
-- `reasoning_effort`: `"low"`, `"medium"`, or `"high"`
+- `reasoning_effort`: `"low"`, `"medium"`, or `"high"`. Other values are
+  ignored and leave the provider's default thinking behavior unchanged.
 
-Responses maps this control to `reasoning.effort`; Chat Completions uses the
-top-level `reasoning_effort` field. Neither adapter adds an output token limit
-by default. Responses empty-output diagnostics include the upstream's
+Each adapter translates the control into the provider's native thinking field:
+
+- Chat Completions uses the top-level `reasoning_effort` field.
+- Responses uses `reasoning.effort`.
+- Anthropic enables `thinking: {"type": "adaptive"}` and sets
+  `output_config.effort`. Without an explicit `max_output_tokens`, the default
+  `max_tokens` rises from 4096 to 16000 because thinking tokens count toward it.
+- Gemini 3 and later use `generationConfig.thinkingConfig.thinkingLevel`
+  (`LOW`, `MEDIUM`, `HIGH`). Models named `gemini-2.*` only accept a token
+  budget, so `thinkingBudget` is set to 1024, 8192, or 24576.
+
+A model that does not support the requested control returns the provider's
+error. The OpenAI adapters do not add an output token limit by default. Responses empty-output diagnostics include the upstream's
 `max_output_tokens` when available; an unavailable limit remains `null`.
 
 Responses function tools explicitly use `strict: false` to preserve optional

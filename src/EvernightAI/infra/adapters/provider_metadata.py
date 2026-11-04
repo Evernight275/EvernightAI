@@ -18,13 +18,18 @@ def max_output_tokens_from_metadata(*sources: dict[str, Any]) -> int | None:
     return None
 
 
+def reasoning_effort_from_metadata(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get(REASONING_EFFORT_METADATA_KEY)
+    return value if isinstance(value, str) and value in REASONING_EFFORT_VALUES else None
+
+
 def provider_request_params_from_metadata(
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
 
-    reasoning_effort = metadata.get(REASONING_EFFORT_METADATA_KEY)
-    if reasoning_effort in REASONING_EFFORT_VALUES:
+    reasoning_effort = reasoning_effort_from_metadata(metadata)
+    if reasoning_effort is not None:
         params[REASONING_EFFORT_METADATA_KEY] = reasoning_effort
 
     timeout_seconds = timeout_seconds_from_metadata(metadata)
