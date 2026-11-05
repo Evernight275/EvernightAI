@@ -69,7 +69,7 @@ def test_array_targets_remain_literal_even_when_named_like_shell_commands(tmp_pa
         "rm $(pwd)/note.txt",
         "rm ./a{1,2}.txt",
         "rm ./a{1..2}.txt",
-        "cat <(pwd)",
+        "rm <(pwd)",
         "rm 'unterminated",
         "echo $(rm './literal.txt')",
         "env PATH=/untrusted rm note.txt",
@@ -248,6 +248,61 @@ def test_reported_test_command_has_no_extra_approval(tmp_path):
     )
     call.tool_call["arguments"]["timeout_seconds"] = 300
     assert manager_for(tmp_path, relaxed=True).authorize(call).allowed
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "git log $(git rev-parse HEAD)",
+        'echo "$(pwd)"',
+        "echo `pwd`",
+        "cat <(pwd)",
+        '"$VIRTUAL_ENV/bin/pytest" -q',
+        "export TOOL=pytest; $TOOL -q",
+        ["bash", "-lc", "echo $(pwd)"],
+        ["uv", "run", "sh", "-c", "echo `pwd`"],
+    ],
+)
+def test_hidden_commands_without_deletion_require_approval(tmp_path, script):
+    manager = manager_for(tmp_path, relaxed=True)
+    decision = manager.authorize(call_for(script))
+    assert not decision.allowed
+    assert decision.requires_approval
+    assert manager.authorize(call_for(script, approved=True)).allowed
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "echo \"$(rm -rf './build')\"",
+        "echo `rm note.txt`",
+        "TOOL=rm; $TOOL note.txt",
+        "find . -name '*.pyc' $(echo -delete)",
+    ],
+)
+def test_hidden_commands_naming_deletion_cannot_be_approved(tmp_path, script):
+    decision = manager_for(tmp_path, relaxed=True).authorize(
+        call_for(script, approved=True)
+    )
+    assert not decision.allowed
+    assert not decision.requires_approval
+
+
+def test_grouping_without_deletion_is_ordinary_shell(tmp_path):
+    manager = manager_for(tmp_path, relaxed=True)
+    assert manager.authorize(call_for("(cd src && ls)")).allowed
+    decision = manager.authorize(call_for("(cd src && rm ./note.txt)"))
+    assert not decision.allowed
+    assert decision.requires_approval
+
+
+def test_hidden_commands_cannot_bypass_command_blacklist(tmp_path):
+    manager = manager_for(tmp_path, relaxed=True, blocked={"git push"})
+    decision = manager.authorize(call_for('echo "$(git push)"', approved=True))
+    assert not decision.allowed
+    assert not decision.requires_approval
+    assert "blocked" in (decision.reason or "")
+    assert manager.authorize(call_for('echo "$(git status)"', approved=True)).allowed
 
 
 def test_environment_cannot_hide_a_deletion_executable(tmp_path):

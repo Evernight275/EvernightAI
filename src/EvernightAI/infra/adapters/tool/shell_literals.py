@@ -9,6 +9,12 @@ ShellDialect = Literal["posix", "cmd", "powershell"]
 def literal_script_reason(
     script: str, dialect: ShellDialect = "posix", *, strict_paths: bool = True
 ) -> str | None:
+    """Why a script is not literal enough to inspect.
+
+    Without strict_paths only syntax that can hide which commands run is
+    reported, as a reason for approval. Deletion uses strict_paths, which
+    forbids every expansion of its paths.
+    """
     if dialect == "posix":
         try:
             parsed = parse_quoted_heredocs(script)
@@ -40,7 +46,7 @@ def literal_script_reason(
         escape = "^" if dialect == "cmd" else "`" if dialect == "powershell" else "\\"
         if char == escape and (quote is None or dialect != "cmd"):
             if not following:
-                return "Incomplete shell escaping is forbidden"
+                return _hidden("Incomplete shell escaping", strict_paths)
             if dialect == "posix" and quote == '"' and following not in '$`"\\\n':
                 index += 1
                 continue
@@ -57,20 +63,20 @@ def literal_script_reason(
             continue
         if dialect != "cmd" and char == "$":
             if following == "(":
-                return "Command substitution is forbidden"
+                return _hidden("Command substitution", strict_paths)
             if strict_paths:
                 return "Environment and shell variable expansion is forbidden; quote or escape literal $"
         if dialect == "posix" and char == "`":
-            return "Command substitution is forbidden"
+            return _hidden("Command substitution", strict_paths)
         if quote is None:
-            if char in "()":
-                return "Shell grouping and computed arguments are forbidden"
             if char == "<" and following == "<":
                 return (
                     "Here-documents and here-strings are forbidden; use literal paths"
+                    if strict_paths
+                    else "Here-strings and unquoted here-documents require approval"
                 )
             if char in "<>" and following == "(":
-                return "Process substitution is forbidden; use literal paths"
+                return _hidden("Process substitution", strict_paths)
             if strict_paths and char in "*?[":
                 return "Wildcard expansion is forbidden; quote or escape literal filename characters"
             if strict_paths and dialect != "cmd" and char == "~" and word_start:
@@ -88,5 +94,9 @@ def literal_script_reason(
             word_start = char.isspace() or char in ";|&()<>=:"
         index += 1
     if quote is not None:
-        return "Unterminated shell quoting is forbidden"
+        return _hidden("Unterminated shell quoting", strict_paths)
     return None
+
+
+def _hidden(construct: str, strict: bool) -> str:
+    return f"{construct} is forbidden" if strict else f"{construct} requires approval"

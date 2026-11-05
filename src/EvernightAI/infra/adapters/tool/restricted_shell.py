@@ -32,9 +32,11 @@ from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecu
 from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.infra.adapters.tool.shell_policy import (
     approval_reason,
-    contains_deletion,
     inspected_commands,
     literal_command_reason,
+    may_delete,
+    mentions_command,
+    opaque_command_reason,
 )
 from EvernightAI.infra.adapters.tool.shell_session import (
     ShellSessionKey,
@@ -92,7 +94,9 @@ class RestrictedShellTool:
                 "are supported for ordinary commands. Deletion requires literal paths, "
                 "without variable or wildcard expansion. POSIX quoted here-documents "
                 "can supply literal stdin to a single foreground command; opaque "
-                "interpreter scripts still require approval. Suspicious commands require approval."
+                "interpreter scripts still require approval. Command substitution, "
+                "dynamic command names and other syntax that hides which commands "
+                "run require approval. Suspicious commands require approval."
                 + (
                     " Within a chat session or agent run, calls share one terminal "
                     "state: the directory a shell script ends in and the variables "
@@ -382,15 +386,22 @@ class RestrictedShellTool:
             commands = [command] if isinstance(command, list) else []
         if any(self._is_blocked_command(parts) for parts in commands):
             return "The command is blocked by a configured command rule"
+        rules = self._blocked_rules()
+        if (
+            rules
+            and opaque_command_reason(command) is not None
+            and mentions_command(command, rules)
+        ):
+            return "The command may run a command blocked by a configured command rule"
         return None
 
     def _is_blocked_command(self, command: list[str]) -> bool:
         return any(
-            parts and command[: len(parts)] == parts
-            for parts in (
-                self._parse_command_rule(rule) for rule in self._blocked_commands
-            )
+            parts and command[: len(parts)] == parts for parts in self._blocked_rules()
         )
+
+    def _blocked_rules(self) -> list[list[str]]:
+        return [self._parse_command_rule(rule) for rule in self._blocked_commands]
 
     def _process_command(self, command: list[str] | str) -> list[str]:
         if isinstance(command, list):
@@ -496,7 +507,7 @@ class RestrictedShellTool:
             for key, value in raw_env.items()
         ):
             raise ToolInputError("Environment keys and values must be valid strings")
-        if raw_env and contains_deletion(self._parse_command(arguments)):
+        if raw_env and may_delete(self._parse_command(arguments)):
             raise ToolInputError(
                 "Environment variable overrides are forbidden for deletion commands"
             )

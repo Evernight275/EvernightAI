@@ -85,6 +85,7 @@ WRITE_COMMANDS = {
 WRAPPERS = {"sudo", "env", "command", "exec", "nohup", "nice", "xargs"}
 SHELL_COMMANDS = {"bash", "sh", "dash", "zsh", "fish", "cmd", "powershell", "pwsh"}
 FIND_EXEC_ACTIONS = {"-exec", "-execdir", "-ok", "-okdir"}
+SHELL_SCRIPT_FLAGS = {"-c", "-lc", "-command", "/c", "--command"}
 
 
 def executable_name(value: str) -> str:
@@ -290,44 +291,139 @@ def contains_deletion(command: list[str] | str, *, depth: int = 0) -> bool:
     return False
 
 
+def opaque_command_reason(
+    command: list[str] | str, *, dialect: ShellDialect | None = None, depth: int = 0
+) -> str | None:
+    """Why a command hides what it runs from inspection, if it does."""
+    dialect = dialect or _default_dialect()
+    if depth > 16:
+        return "Nested shell commands exceed the inspection limit; approval is required"
+    if isinstance(command, str):
+        reason = literal_script_reason(command, dialect, strict_paths=False)
+        if reason is not None:
+            return reason
+    try:
+        commands = inspected_commands(command, ignore_redirections=True)
+    except (ValueError, RecursionError):
+        return "Shell syntax could not be inspected; approval is required"
+    if isinstance(command, str) and any(
+        _dynamic_name(parts[0], dialect) for parts in commands
+    ):
+        return "Dynamic command names require approval"
+    nested = [script for parts in commands for script in _shell_scripts(parts)]
+    if isinstance(command, str) and dialect == "posix":
+        nested.extend(
+            (body, "posix")
+            for body in _shell_heredoc_bodies(parse_quoted_heredocs(command))
+        )
+    for script, nested_dialect in nested:
+        reason = opaque_command_reason(
+            script, dialect=nested_dialect, depth=depth + 1
+        )
+        if reason is not None:
+            return reason
+    return None
+
+
+def may_delete(command: list[str] | str, *, dialect: ShellDialect | None = None) -> bool:
+    """Deletion is visible, or named anywhere in a command that hides what it runs."""
+    try:
+        inspected_commands(command, ignore_redirections=True)
+    except (ValueError, RecursionError):
+        return _mentions_deletion(command)
+    return contains_deletion(command) or (
+        opaque_command_reason(command, dialect=dialect) is not None
+        and _mentions_deletion(command)
+    )
+
+
+def mentions_command(command: list[str] | str, rules: list[list[str]]) -> bool:
+    """Whether the raw command text names any rule as a sequence of words."""
+    text = command if isinstance(command, str) else " ".join(command)
+    return any(
+        rule
+        and re.search(
+            r"(?<![\w.-])"
+            + r"\s+".join(re.escape(part) for part in rule)
+            + r"(?![\w-])",
+            text,
+            re.IGNORECASE,
+        )
+        for rule in rules
+    )
+
+
+def _mentions_deletion(command: list[str] | str) -> bool:
+    return mentions_command(
+        command, [[name] for name in sorted(DELETE_COMMANDS)] + [["-delete"]]
+    )
+
+
+def _default_dialect() -> ShellDialect:
+    return "cmd" if os.name == "nt" else "posix"
+
+
+def _dynamic_name(name: str, dialect: ShellDialect) -> bool:
+    return bool(
+        ("$" in name or dialect == "cmd" and re.search(r"%[^%]+%|![^!]+!", name))
+        and not re.match(r"^(?:\$(?:env:)?)?[A-Za-z_][A-Za-z_0-9]*=", name)
+    )
+
+
+def _shell_scripts(parts: list[str]) -> list[tuple[str, ShellDialect]]:
+    """Scripts passed to shells with -c and similar flags."""
+    if executable_name(parts[0]) not in SHELL_COMMANDS | WRAPPERS | {
+        "uv",
+        "find",
+        "busybox",
+    }:
+        return []
+    scripts: list[tuple[str, ShellDialect]] = []
+    for index, part in enumerate(parts):
+        shell = executable_name(part)
+        if shell not in SHELL_COMMANDS:
+            continue
+        for flag_index in range(index + 1, len(parts) - 1):
+            if parts[flag_index].lower() in SHELL_SCRIPT_FLAGS:
+                scripts.append(
+                    (
+                        parts[flag_index + 1],
+                        "cmd"
+                        if shell == "cmd"
+                        else "powershell"
+                        if shell in {"powershell", "pwsh"}
+                        else "posix",
+                    )
+                )
+                break
+    return scripts
+
+
 def literal_command_reason(
     command: list[str] | str, *, dialect: ShellDialect | None = None, depth: int = 0
 ) -> str | None:
-    dialect = dialect or ("cmd" if os.name == "nt" else "posix")
+    """Why a deleting command is rejected outright; other commands pass."""
+    dialect = dialect or _default_dialect()
     if depth > 16:
         return "Nested shell commands exceed the inspection limit"
-    deleting = contains_deletion(command)
+    if not may_delete(command, dialect=dialect):
+        return None
     if isinstance(command, str):
-        reason = literal_script_reason(command, dialect, strict_paths=deleting)
+        reason = literal_script_reason(command, dialect)
         if reason is not None:
             return reason
-        if dialect == "posix":
-            for body in _shell_heredoc_bodies(parse_quoted_heredocs(command)):
-                reason = literal_command_reason(body, dialect=dialect, depth=depth + 1)
-                if reason is not None:
-                    return reason
     try:
         commands = inspected_commands(command, ignore_redirections=True)
     except (ValueError, RecursionError):
         return "Shell syntax could not be inspected"
     for parts in commands:
         name = executable_name(parts[0])
-        if (
-            isinstance(command, str)
-            and (
-                "$" in parts[0]
-                or dialect == "cmd"
-                and re.search(r"%[^%]+%|![^!]+!", parts[0])
-            )
-            and not re.match(r"^(?:\$(?:env:)?)?[A-Za-z_][A-Za-z_0-9]*=", parts[0])
-        ):
+        if isinstance(command, str) and _dynamic_name(parts[0], dialect):
             return (
                 "Command names must be literal so deletion operations can be inspected"
             )
-        if (
-            deleting
-            and name in WRAPPERS
-            and any(re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", part) for part in parts[1:])
+        if name in WRAPPERS and any(
+            re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", part) for part in parts[1:]
         ):
             return "Environment variable assignments and overrides are forbidden"
         if name in {"find", "xargs"} and (
@@ -350,7 +446,7 @@ def literal_command_reason(
                 return "Deletion requires an explicit relative or absolute path"
         if name in DELETE_COMMANDS and any(not part for part in parts[1:]):
             return "Deletion paths must not be empty"
-        if deleting and (
+        if (
             name in {"env", "export", "set", "setenv", "unset"}
             or re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", parts[0])
         ):
@@ -367,39 +463,21 @@ def literal_command_reason(
             and "-literalpath" not in [part.lower() for part in parts[1:]]
         ):
             return "PowerShell deletion of special filenames requires -LiteralPath"
-        if name not in SHELL_COMMANDS | WRAPPERS | {"uv", "find", "busybox"}:
-            continue
-        for index, part in enumerate(parts):
-            shell = executable_name(part)
-            if shell not in SHELL_COMMANDS:
-                continue
-            for flag_index in range(index + 1, len(parts) - 1):
-                if parts[flag_index].lower() in {
-                    "-c",
-                    "-lc",
-                    "-command",
-                    "/c",
-                    "--command",
-                }:
-                    nested_dialect: ShellDialect = (
-                        "cmd"
-                        if shell == "cmd"
-                        else "powershell"
-                        if shell in {"powershell", "pwsh"}
-                        else "posix"
-                    )
-                    reason = literal_command_reason(
-                        parts[flag_index + 1], dialect=nested_dialect, depth=depth + 1
-                    )
-                    if reason is not None:
-                        return reason
-                    break
+        for script, nested_dialect in _shell_scripts(parts):
+            reason = literal_command_reason(
+                script, dialect=nested_dialect, depth=depth + 1
+            )
+            if reason is not None:
+                return reason
     return None
 
 
 def approval_reason(
     command: list[str] | str, trusted_commands: set[str], *, relaxed: bool = False
 ) -> str | None:
+    reason = opaque_command_reason(command)
+    if reason is not None:
+        return reason
     if isinstance(command, str):
         try:
             script = parse_quoted_heredocs(command).text

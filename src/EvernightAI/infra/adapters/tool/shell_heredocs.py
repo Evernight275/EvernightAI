@@ -84,7 +84,9 @@ def _headers(
             compound = True
         if line.startswith("<<", index):
             if line.startswith("<<<", index):
-                raise ValueError("Here-strings are forbidden; use a quoted here-document")
+                raise ValueError(
+                    "Here-strings cannot be inspected; use a quoted here-document"
+                )
             start = index
             index += 2
             strip_tabs = line[index : index + 1] == "-"

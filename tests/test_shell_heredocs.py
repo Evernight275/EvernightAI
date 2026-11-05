@@ -89,9 +89,9 @@ def test_quoted_heredoc_data_is_not_inspected_as_executable_shell(tmp_path, comm
     "command",
     [
         "cat <<TEXT\n$(rm *)\nTEXT\n",
-        "cat <<< 'text'",
-        "cat <<'TEXT'\nmissing delimiter\n",
-        "cat <<'TEXT'; echo done\ntext\nTEXT\n",
+        "cat <<< 'rm note.txt'",
+        "cat <<'TEXT'\nrm note.txt\n",
+        "cat <<'TEXT'; rm note.txt\ntext\nTEXT\n",
         "cat <<'TEXT' | sh\nrm *\nTEXT\n",
         "cat <<'TEXT' |\nsh\nrm *\nTEXT\n",
         "cat <<'TEXT' \\\n| sh\nrm *\nTEXT\n",
@@ -110,6 +110,24 @@ def test_heredocs_cannot_hide_deletion_or_unsupported_shell_syntax(tmp_path, com
     )
     assert not decision.allowed
     assert not decision.requires_approval
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<< 'text'",
+        "cat <<TEXT\n$HOME\nTEXT\n",
+        "cat <<'TEXT'\nmissing delimiter\n",
+        "cat <<'TEXT'; echo done\ntext\nTEXT\n",
+    ],
+)
+@pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
+def test_uninspectable_heredocs_without_deletion_require_approval(tmp_path, command):
+    manager = manager_for(tmp_path, relaxed=True)
+    decision = manager.authorize(call_for(command))
+    assert not decision.allowed
+    assert decision.requires_approval
+    assert manager.authorize(call_for(command, approved=True)).allowed
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
