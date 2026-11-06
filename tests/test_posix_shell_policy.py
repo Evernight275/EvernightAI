@@ -11,11 +11,11 @@ from EvernightAI.interface.cli.schema import EvernightConfig, ShellToolConfig
 def policy(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "EvernightAI.infra.adapters.tool.shell_policy.shutil.which",
-        lambda name, **kwargs: "/usr/bin/" + name,
+        lambda name, **kwargs: str(tmp_path.parent / "system-bin" / name),
     )
 
     def create(level="read_only", **kwargs):
-        return ShellCommandPolicy(root=tmp_path, level=level, **kwargs)
+        return ShellCommandPolicy(root=tmp_path, level=level, dialect="posix", **kwargs)
 
     return create
 

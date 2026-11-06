@@ -8,6 +8,19 @@ from EvernightAI.infra.adapters.tool.shell_policy import literal_command_reason
 from tests.test_shell_command_policy import call_for, manager_for
 
 
+@pytest.fixture(autouse=True)
+def posix_policy(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "EvernightAI.infra.adapters.tool.shell_policy._default_dialect",
+        lambda: "posix",
+    )
+    if os.name == "nt":
+        monkeypatch.setattr(
+            "EvernightAI.infra.adapters.tool.shell_policy.shutil.which",
+            lambda name, **kwargs: str(tmp_path.parent / "system-bin" / name),
+        )
+
+
 @pytest.mark.parametrize(
     "script",
     [

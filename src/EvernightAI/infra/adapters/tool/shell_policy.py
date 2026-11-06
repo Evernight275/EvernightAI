@@ -677,9 +677,18 @@ def _routine_command(parts: list[str]) -> bool:
     return False
 
 
+def _rule_parts(rule: str, dialect: ShellDialect) -> list[str]:
+    lexer = shlex.shlex(rule, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    if dialect != "posix":
+        lexer.escape = ""
+    return list(lexer)
+
+
 def _exact_rule(rule: str, command: list[str]) -> bool:
     try:
-        return shlex.split(rule) == command
+        return _rule_parts(rule, _default_dialect()) == command
     except ValueError:
         return False
 
@@ -847,7 +856,7 @@ class ShellCommandPolicy:
             return Decision("reject", "Shell nesting exceeds the inspection limit")
         if reason:
             return Decision("reject", reason)
-        rules = [shlex.split(rule) for rule in self.blocked]
+        rules = [_rule_parts(rule, self.dialect) for rule in self.blocked]
         commands = self.commands(command, depth=depth)
         if any(
             parts[: len(rule)] == rule for parts in commands for rule in rules if rule
@@ -908,7 +917,7 @@ class ShellCommandPolicy:
             return Decision(
                 "reject", "Environment keys are outside the configured allowed_env_keys"
             )
-        if may_delete(command) and (
+        if may_delete(command, dialect=self.dialect) and (
             keys or session_state is not None and session_state.env
         ):
             return Decision(

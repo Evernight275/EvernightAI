@@ -18,6 +18,19 @@ from EvernightAI.infra.registrations.tool.restricted_shell import (
 )
 
 
+@pytest.fixture(autouse=True)
+def posix_policy(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "EvernightAI.infra.adapters.tool.shell_policy._default_dialect",
+        lambda: "posix",
+    )
+    if os.name == "nt":
+        monkeypatch.setattr(
+            "EvernightAI.infra.adapters.tool.shell_policy.shutil.which",
+            lambda name, **kwargs: str(tmp_path.parent / "system-bin" / name),
+        )
+
+
 def manager_for(
     root: Path,
     *,

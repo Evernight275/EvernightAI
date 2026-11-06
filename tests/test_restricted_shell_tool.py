@@ -145,6 +145,27 @@ async def test_exact_rule_cannot_trust_arbitrary_arguments(tmp_path) -> None:
     assert result.tool_call_result["truncated"] is False
 
 
+@pytest.mark.parametrize(
+    "rule,command",
+    [
+        (r"C:\Python\python.exe", [r"C:\Python\python.exe", "--version"]),
+        (r"C:\Python\python.exe -c", [r"C:\Python\python.exe", "-c", "print(1)"]),
+        (
+            r'"C:\Program Files\Python\python.exe" -c',
+            [r"C:\Program Files\Python\python.exe", "-c", "print(1)"],
+        ),
+    ],
+)
+def test_windows_blocked_rules_preserve_literal_paths(tmp_path, rule, command):
+    from EvernightAI.infra.adapters.tool.shell_policy import ShellCommandPolicy
+
+    checker = ShellCommandPolicy(root=tmp_path, dialect="cmd", blocked_commands={rule})
+    result = checker.evaluate(command)
+    assert result.kind == "reject"
+    assert "is blocked" in (result.reason or "")
+    assert checker.evaluate(["python", "--version"]).kind == "allow"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("blocked_rule", "command", "requires_approval"),
