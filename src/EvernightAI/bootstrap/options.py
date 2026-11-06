@@ -24,7 +24,7 @@ class ShellToolOptions:
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
     requires_approval: bool = True
-    relaxed_approval: bool = False
+    approval_level: str = "read_only"
     allowed_env_keys: set[str] | None = None
     # Carry the directory and exported variables between calls of one session.
     persistent_session: bool = True

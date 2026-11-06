@@ -11,9 +11,8 @@ from EvernightAI.core.schema.auth import PrincipalScope
 from EvernightAI.core.schema.sandbox import SANDBOX_SIDE_CHANNEL_FD_ENV
 from EvernightAI.core.schema.shell import ShellSessionState
 from EvernightAI.infra.adapters.tool.shell_policy import (
+    ShellCommandPolicy,
     executable_name,
-    inspected_commands,
-    is_routine_command,
 )
 
 # Runs the model's script in the same shell that records where it ended up.
@@ -223,8 +222,6 @@ def session_path_shadow_reason(
     state: ShellSessionState,
     command: list[str] | str,
     root: Path,
-    *,
-    relaxed: bool,
 ) -> str | None:
     """Commands the session PATH resolves to project files need approval."""
     path = state.env.get("PATH")
@@ -237,7 +234,7 @@ def session_path_shadow_reason(
         if (relative := sandbox_relative(entry, root)) is not None
     ]
     try:
-        commands = inspected_commands(command, ignore_redirections=True)
+        commands = ShellCommandPolicy(root=root).commands(command)
     except (ValueError, RecursionError):
         commands = [command] if isinstance(command, list) else []
     for parts in commands:
@@ -245,8 +242,6 @@ def session_path_shadow_reason(
             continue
         name = parts[0]
         if not any(_is_executable(directory / name) for directory in added):
-            continue
-        if relaxed and is_routine_command(parts):
             continue
         return (
             f"{executable_name(name)} resolves through a PATH entry this shell "

@@ -9,7 +9,7 @@ from EvernightAI.core.error.tool import ToolPolicyError
 from EvernightAI.infra.adapters.tool.shell_policy import inspected_commands
 from tests.test_shell_command_policy import call_for, manager_for
 
-SVG_TO_HTML = '''python - <<'PY'
+SVG_TO_HTML = """python - <<'PY'
 from pathlib import Path
 import xml.etree.ElementTree as ET
 p = Path('pelican-cycling.svg')
@@ -21,7 +21,7 @@ ET.fromstring(s)
 Path('pelican-cycling.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>鹈鹕骑车</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#e9efe9}svg{display:block;width:min(960px,100vw);height:auto;border-radius:20px;box-shadow:0 16px 60px #294c5620}</style>' + s + '</html>')
 print('SVG XML validated; standalone HTML preview created.')
 PY
-'''
+"""
 
 
 @pytest.mark.parametrize(
@@ -52,9 +52,12 @@ def test_opaque_heredoc_scripts_require_approval_instead_of_hard_rejection(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="POSIX here-document syntax")
-async def test_svg_edit_and_html_generation_run_only_after_approval(tmp_path, monkeypatch):
+async def test_svg_edit_and_html_generation_run_only_after_approval(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv(
-        "PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
+        "PATH",
+        str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
     )
     source = tmp_path / "pelican-cycling.svg"
     original = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M-39 0H39" /></svg>'
@@ -82,7 +85,11 @@ async def test_svg_edit_and_html_generation_run_only_after_approval(tmp_path, mo
 )
 @pytest.mark.skipif(os.name != "posix", reason="POSIX shell dialect")
 def test_quoted_heredoc_data_is_not_inspected_as_executable_shell(tmp_path, command):
-    assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+    decision = manager_for(tmp_path, relaxed=True).authorize(call_for(command))
+    if "SECOND" in command:
+        assert decision.requires_approval
+    else:
+        assert decision.allowed
 
 
 @pytest.mark.parametrize(

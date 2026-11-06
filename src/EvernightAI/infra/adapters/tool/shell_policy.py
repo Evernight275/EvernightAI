@@ -1,8 +1,12 @@
 import os
 import re
 import shlex
-from pathlib import PureWindowsPath
+import shutil
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path, PureWindowsPath
 
+from EvernightAI.core.schema.shell import ShellSessionState
 from EvernightAI.infra.adapters.tool.shell_heredocs import (
     ShellScript,
     parse_quoted_heredocs,
@@ -11,6 +15,15 @@ from EvernightAI.infra.adapters.tool.shell_literals import (
     ShellDialect,
     literal_script_reason,
 )
+from EvernightAI.infra.adapters.tool.shell_specs import (
+    SPECS,
+    STDIN_CODE,
+    STDIN_SPECS,
+    SYSTEM_COMMANDS,
+    Effect,
+    arguments,
+)
+from EvernightAI.infra.adapters.tool.shell_syntax import Syntax, parse_script
 
 READ_COMMANDS = {
     # Changing directory runs nothing; every later command is still inspected.
@@ -317,15 +330,15 @@ def opaque_command_reason(
             for body in _shell_heredoc_bodies(parse_quoted_heredocs(command))
         )
     for script, nested_dialect in nested:
-        reason = opaque_command_reason(
-            script, dialect=nested_dialect, depth=depth + 1
-        )
+        reason = opaque_command_reason(script, dialect=nested_dialect, depth=depth + 1)
         if reason is not None:
             return reason
     return None
 
 
-def may_delete(command: list[str] | str, *, dialect: ShellDialect | None = None) -> bool:
+def may_delete(
+    command: list[str] | str, *, dialect: ShellDialect | None = None
+) -> bool:
     """Deletion is visible, or named anywhere in a command that hides what it runs."""
     try:
         inspected_commands(command, ignore_redirections=True)
@@ -446,9 +459,8 @@ def literal_command_reason(
                 return "Deletion requires an explicit relative or absolute path"
         if name in DELETE_COMMANDS and any(not part for part in parts[1:]):
             return "Deletion paths must not be empty"
-        if (
-            name in {"env", "export", "set", "setenv", "unset"}
-            or re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", parts[0])
+        if name in {"env", "export", "set", "setenv", "unset"} or re.match(
+            r"^[A-Za-z_][A-Za-z_0-9]*=", parts[0]
         ):
             return "Environment variable assignments and overrides are forbidden"
         if (
@@ -472,7 +484,7 @@ def literal_command_reason(
     return None
 
 
-def approval_reason(
+def _legacy_approval_reason(
     command: list[str] | str, trusted_commands: set[str], *, relaxed: bool = False
 ) -> str | None:
     reason = opaque_command_reason(command)
@@ -507,7 +519,15 @@ def approval_reason(
         if name == "find":
             if any(
                 part
-                in {"-delete", "-fprint", "-fprint0", "-fprintf", "-fls", "-ok", "-okdir"}
+                in {
+                    "-delete",
+                    "-fprint",
+                    "-fprint0",
+                    "-fprintf",
+                    "-fls",
+                    "-ok",
+                    "-okdir",
+                }
                 for part in parts[1:]
             ):
                 return "Writing or interactive find actions require approval"
@@ -515,7 +535,9 @@ def approval_reason(
             if nested_commands is None:
                 return "find execution actions could not be inspected; approval is required"
             for nested in nested_commands:
-                reason = approval_reason(nested, trusted_commands, relaxed=relaxed)
+                reason = _legacy_approval_reason(
+                    nested, trusted_commands, relaxed=relaxed
+                )
                 if reason is not None:
                     return reason
             continue
@@ -549,11 +571,6 @@ def approval_reason(
     return None
 
 
-def is_routine_command(parts: list[str]) -> bool:
-    """Development commands relaxed approval runs without asking."""
-    return _routine_command(parts)
-
-
 def _routine_command(parts: list[str]) -> bool:
     name = executable_name(parts[0])
     args = parts[1:]
@@ -563,7 +580,9 @@ def _routine_command(parts: list[str]) -> bool:
         return True
     if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", parts[0]) or name == "env":
         nested = unwrap_command(parts)
-        return not nested or approval_reason(nested, set(), relaxed=True) is None
+        return (
+            not nested or _legacy_approval_reason(nested, set(), relaxed=True) is None
+        )
     if name == "command" and args and args[0] in {"-v", "-V"}:
         return True
     if name in {"cp", "mv", "tee", "touch", "mkdir", "curl", "wget", "sort"}:
@@ -645,12 +664,15 @@ def _routine_command(parts: list[str]) -> bool:
                 "--",
             }:
                 nested = nested[1:]
-            return bool(nested) and approval_reason(nested, set(), relaxed=True) is None
+            return (
+                bool(nested)
+                and _legacy_approval_reason(nested, set(), relaxed=True) is None
+            )
     if name in SHELL_COMMANDS:
         return (
             len(args) >= 2
             and args[0].lower() in {"-c", "-lc", "-command", "/c", "--command"}
-            and approval_reason(args[1], set(), relaxed=True) is None
+            and _legacy_approval_reason(args[1], set(), relaxed=True) is None
         )
     return False
 
@@ -660,3 +682,574 @@ def _exact_rule(rule: str, command: list[str]) -> bool:
         return shlex.split(rule) == command
     except ValueError:
         return False
+
+
+# POSIX policy uses the syntax tree; the functions above retain Windows behavior.
+
+
+@dataclass(frozen=True)
+class Decision:
+    kind: str
+    reason: str | None = None
+    stdin_is_code: bool = True
+    effects: frozenset[Effect] = frozenset()
+
+
+def dangerous_env_key(key: str) -> bool:
+    key = key.upper()
+    return (
+        key
+        in {
+            "PATH",
+            "BASH_ENV",
+            "ENV",
+            "IFS",
+            "NODE_OPTIONS",
+            "CDPATH",
+            "SHELLOPTS",
+            "BASHOPTS",
+            "GLOBIGNORE",
+            "PROMPT_COMMAND",
+            "PS4",
+            "RUBYOPT",
+            "PERL5OPT",
+            "ZDOTDIR",
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "SHELL",
+            "PAGER",
+            "EDITOR",
+            "VISUAL",
+            "LESSOPEN",
+            "LESSCLOSE",
+            "PERL5LIB",
+            "RUBYLIB",
+            "BASH_LOADABLES_PATH",
+        }
+        or key.startswith(
+            (
+                "LD_",
+                "DYLD_",
+                "PYTHON",
+                "GIT_",
+                "BASH_FUNC_",
+                "NPM_CONFIG_",
+                "CARGO_",
+                "RUSTC_",
+            )
+        )
+        or key.endswith("_CONFIG_PATH")
+    )
+
+
+class ShellCommandPolicy:
+    def __init__(
+        self,
+        *,
+        level: str = "read_only",
+        trusted_commands: set[str] | None = None,
+        blocked_commands: set[str] | None = None,
+        root: Path,
+        dialect: ShellDialect | None = None,
+        allowed_env_keys: set[str] | None = None,
+        cwd: Path | None = None,
+    ) -> None:
+        if level not in {"read_only", "workspace_write", "trusted_dev"}:
+            raise ValueError("Unknown shell approval_level")
+        self.level = level
+        self.trusted = trusted_commands or set()
+        self.blocked = blocked_commands or set()
+        self.root = root.resolve()
+        self.cwd = cwd or self.root
+        self.dialect: ShellDialect = dialect or _default_dialect()
+        self.allowed_env_keys = allowed_env_keys
+
+    def commands(self, command: str | list[str], *, depth: int = 0) -> list[list[str]]:
+        if depth > 16:
+            return []
+        if self.dialect != "posix":
+            return inspected_commands(command, ignore_redirections=True)
+        result: list[list[str]] = []
+        tree = parse_script(command)
+        for body in tree.shell_bodies():
+            result.extend(self.commands(body, depth=depth + 1))
+        for item in tree.commands():
+            parts = [w.literal if w.literal is not None else w.raw for w in item.argv]
+            if not parts:
+                continue
+            result.append(parts)
+            nested = self._nested(parts)
+            if nested is not None:
+                result.extend(self.commands(nested, depth=depth + 1))
+        # Legacy discovery is retained only as an additional deny-side scanner.
+        # It never grants permission and also finds commands in opaque wrappers.
+        try:
+            for parts in inspected_commands(command, ignore_redirections=True):
+                if parts not in result:
+                    result.append(parts)
+        except (ValueError, RecursionError):
+            pass
+        return result
+
+    def _nested(self, parts: list[str]) -> str | list[str] | None:
+        if (
+            executable_name(parts[0]) in {"sh", "bash", "dash", "zsh"}
+            and len(parts) >= 3
+            and parts[1] in {"-c", "-lc"}
+        ):
+            return parts[2]
+        if parts[0] in {"env", "command", "exec", "nohup", "nice", "xargs"}:
+            nested = unwrap_command(parts)
+            return nested if nested != parts and nested else None
+        if parts[:2] == ["uv", "run"]:
+            index = 2
+            while index < len(parts) and parts[index] in {
+                "--active",
+                "--no-sync",
+                "--no-project",
+                "--frozen",
+                "--locked",
+                "--",
+            }:
+                index += 1
+            return parts[index:] or None
+        return None
+
+    def evaluate(
+        self,
+        command: str | list[str],
+        env: dict[str, str] | None = None,
+        session_state: ShellSessionState | None = None,
+        *,
+        depth: int = 0,
+    ) -> Decision:
+        if depth > 16:
+            return Decision("ask", "Nested shell commands exceed the inspection limit")
+        env = env or {}
+        syntax = parse_script(command) if self.dialect == "posix" else None
+        deletion_text = command
+        if isinstance(command, str) and self.dialect == "posix":
+            try:
+                deletion_text = parse_quoted_heredocs(command).text
+            except ValueError:
+                pass
+        if (
+            syntax is not None
+            and syntax.reasons()
+            and _mentions_deletion(deletion_text)
+        ):
+            return Decision(
+                "reject", "Opaque deletion cannot guarantee explicit literal paths"
+            )
+        try:
+            reason = literal_command_reason(command, dialect=self.dialect)
+        except RecursionError:
+            return Decision("reject", "Shell nesting exceeds the inspection limit")
+        if reason:
+            return Decision("reject", reason)
+        rules = [shlex.split(rule) for rule in self.blocked]
+        commands = self.commands(command, depth=depth)
+        if any(
+            parts[: len(rule)] == rule for parts in commands for rule in rules if rule
+        ) or (
+            (
+                syntax is not None
+                and bool(syntax.reasons())
+                or opaque_command_reason(command, dialect=self.dialect) is not None
+            )
+            and mentions_command(command, rules)
+        ):
+            return Decision(
+                "reject", "The command is blocked by a configured command rule"
+            )
+        if self.allowed_env_keys is not None and not set(env).issubset(
+            self.allowed_env_keys
+        ):
+            return Decision(
+                "reject", "Environment keys are outside the configured allowed_env_keys"
+            )
+        if env and may_delete(command, dialect=self.dialect):
+            return Decision(
+                "reject",
+                "Environment variable overrides are forbidden for deletion commands",
+            )
+        if any(dangerous_env_key(key) for key in env):
+            return Decision(
+                "ask",
+                "Environment changes command loading or interpretation; approval is required",
+            )
+        if self.dialect != "posix":
+            reason = _legacy_approval_reason(command, self.trusted)
+            return (
+                Decision("ask", reason)
+                if reason
+                else Decision("allow", stdin_is_code=False)
+            )
+        tree = syntax or parse_script(command)
+        keys = set(env)
+        for item in tree.commands():
+            keys.update(item.assignments)
+            parts = [w.literal or w.raw for w in item.argv]
+            if parts and parts[0] in {"export", "set", "unset"}:
+                keys.update(
+                    p.split("=", 1)[0] for p in parts[1:] if not p.startswith("-")
+                )
+            elif parts and parts[0] == "env":
+                for index, part in enumerate(parts[1:], 1):
+                    if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", part):
+                        keys.add(part.split("=", 1)[0])
+                    elif part.startswith("--unset="):
+                        keys.add(part.partition("=")[2])
+                    elif part in {"-u", "--unset"} and index + 1 < len(parts):
+                        keys.add(parts[index + 1])
+        if self.allowed_env_keys is not None and not keys.issubset(
+            self.allowed_env_keys
+        ):
+            return Decision(
+                "reject", "Environment keys are outside the configured allowed_env_keys"
+            )
+        if may_delete(command) and (
+            keys or session_state is not None and session_state.env
+        ):
+            return Decision(
+                "reject",
+                "Environment variable overrides are forbidden for deletion commands",
+            )
+        if any(
+            dangerous_env_key(key)
+            for key in keys | set(session_state.env if session_state else {})
+        ):
+            return Decision(
+                "ask",
+                "Environment changes command loading or interpretation; approval is required",
+            )
+        if tree.reasons():
+            return Decision("ask", tree.reasons()[0] + "; approval is required")
+        effects: set[Effect] = set()
+        rejections: list[Decision] = []
+        input_code = False
+        cwd = self.cwd
+
+        def writes(path: str) -> bool:
+            candidate = Path(path)
+            if (
+                str(candidate).startswith("/workspace/")
+                or str(candidate) == "/workspace"
+            ):
+                candidate = self.root / candidate.relative_to("/workspace")
+            return (cwd / candidate).resolve().is_relative_to(self.root)
+
+        def child_effects(nested: str | list[str]) -> set[Effect]:
+            nonlocal input_code
+            policy = ShellCommandPolicy(
+                level=self.level,
+                trusted_commands=self.trusted,
+                blocked_commands=self.blocked,
+                root=self.root,
+                dialect=self.dialect,
+                allowed_env_keys=self.allowed_env_keys,
+                cwd=cwd,
+            )
+            child = policy.evaluate(
+                nested, session_state=session_state, depth=depth + 1
+            )
+            input_code |= child.stdin_is_code
+            if child.kind == "reject":
+                rejections.append(child)
+            return set(child.effects) or (
+                {Effect.UNKNOWN} if child.kind != "allow" else {Effect.READ}
+            )
+
+        def inspect(node: Syntax) -> None:
+            nonlocal cwd, input_code
+            original_cwd = cwd
+            if "||" in node.operators and any(
+                cmd.argv and cmd.argv[0].literal == "cd" for cmd in node.commands()
+            ):
+                effects.add(Effect.UNKNOWN)
+            for operator, target in node.redirects:
+                if operator == "<":
+                    continue
+                effects.add(
+                    Effect.WORKSPACE_WRITE
+                    if target.literal is not None
+                    and not target.has_glob
+                    and writes(target.literal)
+                    else Effect.UNKNOWN
+                )
+            if node.argv:
+                parts = [w.literal for w in node.argv]
+                if parts[0] == "export" and all(
+                    "=" in w.raw and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", w.raw)
+                    for w in node.argv[1:]
+                ):
+                    effects.add(Effect.READ)
+                elif (
+                    parts[0] == "echo"
+                    and isinstance(command, str)
+                    and any(part is None for part in parts[1:])
+                ):
+                    effects.add(Effect.READ)
+                elif any(p is None for p in parts) or any(
+                    w.has_glob and not (parts[0] == "find" and w.literal == "{}")
+                    for w in node.argv
+                ):
+                    effects.add(Effect.UNKNOWN)
+                else:
+                    argv = [p for p in parts if p is not None]
+                    name = argv[0]
+                    capability = (
+                        STDIN_SPECS.get(name)
+                        or SPECS.get(" ".join(argv[:2]))
+                        or SPECS.get(name)
+                    )
+                    code = (
+                        capability.stdin_is_code
+                        if capability
+                        else name not in {"find", "command"}
+                    )
+                    input_code |= code
+                    if node.stdin and code:
+                        effects.add(Effect.UNKNOWN)
+                    if name in DELETE_COMMANDS:
+                        effects.add(Effect.DELETE)
+                    elif name in SYSTEM_COMMANDS:
+                        effects.add(Effect.SYSTEM)
+                    elif not self._base_executable(
+                        name, session_state, shell=isinstance(command, str), cwd=cwd
+                    ):
+                        effects.add(Effect.UNKNOWN)
+                    else:
+                        key = (
+                            " ".join(argv[:2]) if " ".join(argv[:2]) in SPECS else name
+                        )
+                        declaration = SPECS.get(key)
+                        args = argv[2:] if " " in key else argv[1:]
+                        if name in {"head", "tail"}:
+                            args = [
+                                piece
+                                for arg in args
+                                for piece in (
+                                    ["-n", arg[1:]]
+                                    if re.fullmatch(r"-\d+", arg)
+                                    else [arg]
+                                )
+                            ]
+                        positions = (
+                            arguments(declaration, args) if declaration else None
+                        )
+                        if declaration is not None and positions is not None:
+                            effect = declaration.effect
+                            targets: list[str] = []
+                            for position in declaration.write_positions:
+                                if position == -2:
+                                    targets.extend(positions)
+                                elif -len(positions) <= position < len(positions):
+                                    targets.append(positions[position])
+                            if (
+                                name in {"cp", "mv"}
+                                and positions
+                                and len(positions) > 1
+                            ):
+                                destination = cwd / positions[-1]
+                                if destination.is_dir():
+                                    targets.extend(
+                                        str(destination / Path(source).name)
+                                        for source in positions[:-1]
+                                    )
+                            if targets:
+                                effect = (
+                                    Effect.WORKSPACE_WRITE
+                                    if all(writes(p) for p in targets)
+                                    else Effect.UNKNOWN
+                                )
+                            effects.add(effect)
+                            if name == "cd":
+                                if len(positions) == 1 and writes(positions[0]):
+                                    cwd = (cwd / positions[0]).resolve()
+                                else:
+                                    effects.add(Effect.UNKNOWN)
+                        elif (
+                            len(argv) == 2
+                            and argv[1] in {"--version", "-V"}
+                            and name in STDIN_CODE
+                        ):
+                            effects.add(Effect.READ)
+                        elif (
+                            name == "uv"
+                            and argv[1:2] == ["run"]
+                            and self._nested(argv) is not None
+                        ):
+                            effects.add(Effect.PROJECT_CODE)
+                            effects.update(child_effects(self._nested(argv) or []))
+                        elif name in {"python", "python3"} and argv[1:3] == [
+                            "-m",
+                            "pytest",
+                        ]:
+                            effects.update(child_effects(["pytest", *argv[3:]]))
+                        elif (
+                            name == "env"
+                            and self._nested(argv)
+                            and all(
+                                "=" in arg and not arg.startswith("-")
+                                for arg in argv[
+                                    1 : len(argv) - len(self._nested(argv) or [])
+                                ]
+                            )
+                        ):
+                            effects.update(child_effects(self._nested(argv) or []))
+                        elif name == "sh" and len(argv) == 3 and argv[1] == "-c":
+                            effects.update(child_effects(argv[2]))
+                        elif name == "find":
+                            effects.update(self._find_effect(argv, child_effects))
+                            if node.stdin and input_code:
+                                effects.add(Effect.UNKNOWN)
+                        elif (
+                            name == "command"
+                            and len(argv) == 3
+                            and argv[1] in {"-v", "-V"}
+                        ):
+                            effects.add(Effect.READ)
+                        elif (
+                            self._wildcard(argv)
+                            and name
+                            not in DELETE_COMMANDS
+                            | (STDIN_CODE - {"uv"})
+                            | {"sudo", "git", "npm", "pnpm"}
+                            and not (name == "uv" and "publish" in argv)
+                        ):
+                            effects.add(Effect.READ)
+                        else:
+                            effects.add(Effect.UNKNOWN)
+                            nested = self._nested(argv)
+                            if nested is not None:
+                                effects.update(child_effects(nested))
+                    if "/" in name and (nested := self._nested(argv)) is not None:
+                        effects.update(child_effects(nested))
+            for child in node.children:
+                inspect(child)
+            if node.kind in {"subshell", "pipeline"}:
+                cwd = original_cwd
+
+        inspect(tree)
+        for body in tree.shell_bodies():
+            effects.update(child_effects(body))
+        if rejections:
+            return rejections[0]
+        allowed = {Effect.READ}
+        if self.level in {"workspace_write", "trusted_dev"}:
+            allowed.add(Effect.WORKSPACE_WRITE)
+        if self.level == "trusted_dev":
+            allowed.update({Effect.NETWORK, Effect.PROJECT_CODE})
+        denied = effects - allowed
+        if denied:
+            return Decision(
+                "ask",
+                "Shell effects require approval: " + ", ".join(sorted(denied)),
+                input_code,
+                frozenset(effects),
+            )
+        return Decision("allow", stdin_is_code=input_code, effects=frozenset(effects))
+
+    def _find_effect(
+        self, argv: list[str], child_effects: Callable[[list[str]], set[Effect]]
+    ) -> set[Effect]:
+        effects = {Effect.READ}
+        index = 1
+        while index < len(argv):
+            arg = argv[index]
+            if arg in {
+                "-name",
+                "-iname",
+                "-path",
+                "-ipath",
+                "-type",
+                "-maxdepth",
+                "-mindepth",
+            }:
+                index += 2
+                if index > len(argv):
+                    return {Effect.UNKNOWN}
+            elif arg in {
+                "-print",
+                "-print0",
+                "-empty",
+                "-readable",
+                "-writable",
+                "-executable",
+                "-o",
+                "-a",
+                "!",
+                "(",
+                ")",
+            }:
+                index += 1
+            elif arg in {"-exec", "-execdir"}:
+                start = index + 1
+                index = start
+                while index < len(argv) and argv[index] not in {";", "+"}:
+                    index += 1
+                if index == start or index == len(argv):
+                    return {Effect.UNKNOWN}
+                child = [
+                    "./discovered-file" if part == "{}" else part
+                    for part in argv[start:index]
+                ]
+                effects.update(child_effects(child))
+                index += 1
+            elif arg.startswith("-"):
+                return {Effect.UNKNOWN}
+            else:
+                index += 1
+        return effects
+
+    def _wildcard(self, argv: list[str]) -> bool:
+        return any(
+            rule.endswith(" *")
+            and argv[: len(prefix := shlex.split(rule[:-2]))] == prefix
+            for rule in self.trusted
+        )
+
+    def _base_executable(
+        self, name: str, state: ShellSessionState | None, *, shell: bool, cwd: Path
+    ) -> bool:
+        if "/" in name or "\\" in name:
+            return False
+        if shell and name in {
+            "cd",
+            "echo",
+            "printf",
+            "pwd",
+            "true",
+            "false",
+            "command",
+        }:
+            return True
+        for directory in [cwd, *cwd.parents]:
+            if not directory.is_relative_to(self.root):
+                break
+            candidate = directory / ".venv" / "bin" / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return False
+        base = os.environ.get("PATH", os.defpath)
+        resolved = shutil.which(name, path=base)
+        if (
+            resolved is None
+            or not Path(resolved).is_absolute()
+            or Path(resolved).is_relative_to(self.root)
+            or Path(resolved).resolve().is_relative_to(self.root)
+        ):
+            return False
+        if state and "PATH" in state.env:
+            for entry in state.env["PATH"].split(":"):
+                mapped = (
+                    self.root / entry.removeprefix("/workspace/")
+                    if entry.startswith("/workspace/")
+                    else Path(entry)
+                )
+                if (
+                    entry not in (state.base_path or base.split(":"))
+                    and (mapped / name).is_file()
+                ):
+                    return False
+        return True

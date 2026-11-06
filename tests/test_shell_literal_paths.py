@@ -183,8 +183,12 @@ async def test_preconfigured_environment_overrides_are_forbidden_for_deletion(tm
         "command -v rm",
     ],
 )
-def test_ordinary_commands_can_use_environment_and_path_expansion(tmp_path, script):
-    assert manager_for(tmp_path, relaxed=True).authorize(call_for(script)).allowed
+def test_environment_and_path_expansion_follow_declared_roles(tmp_path, script):
+    decision = manager_for(tmp_path, relaxed=True).authorize(call_for(script))
+    if script in {'export X=one; echo "$X"', "command -v rm"}:
+        assert decision.allowed
+    else:
+        assert decision.requires_approval
 
 
 @pytest.mark.parametrize(
@@ -238,7 +242,7 @@ def test_explicit_environment_allowlist_still_applies(tmp_path):
     )
 
 
-def test_reported_test_command_has_no_extra_approval(tmp_path):
+def test_project_test_with_dangerous_environment_requires_approval(tmp_path):
     call = call_for(
         [
             "bash",
@@ -247,7 +251,7 @@ def test_reported_test_command_has_no_extra_approval(tmp_path):
         ]
     )
     call.tool_call["arguments"]["timeout_seconds"] = 300
-    assert manager_for(tmp_path, relaxed=True).authorize(call).allowed
+    assert manager_for(tmp_path, relaxed=True).authorize(call).requires_approval
 
 
 @pytest.mark.parametrize(

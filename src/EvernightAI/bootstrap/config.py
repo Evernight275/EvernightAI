@@ -269,7 +269,7 @@ def _builtin_tool_options(config: EvernightConfig) -> BuiltinToolOptions:
                 timeout_seconds=shell.timeout_seconds,
                 max_output_chars=shell.max_output_chars,
                 requires_approval=shell.is_need_approval,
-                relaxed_approval=shell.relaxed_approval,
+                approval_level=shell.approval_level,
                 allowed_env_keys=(
                     set(shell.allowed_env_keys)
                     if shell.allowed_env_keys is not None

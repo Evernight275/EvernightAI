@@ -36,7 +36,7 @@ def manager_for(
         allowed_commands={"cat"},
         working_directory=root,
         requires_approval=False,
-        relaxed_approval=True,
+        approval_level="workspace_write",
         session_store=ShellSessionStore(),
         process_manager=processes,
     )
@@ -169,7 +169,7 @@ async def test_starting_follows_the_shell_command_rules(tmp_path) -> None:
     finally:
         await processes.close()
 
-    assert exc_info.value.detail == "Interpreters and command wrappers require approval"
+    assert "require approval" in (exc_info.value.detail or "")
     assert processes.list(_scope()) == []
 
 
@@ -298,7 +298,12 @@ async def test_input_to_a_shadowed_trusted_name_requires_approval(tmp_path) -> N
     shadow.chmod(0o755)
     manager, processes = manager_for(tmp_path)
     try:
-        await call(manager, "restricted_shell", command='export PATH="$PWD/bin:$PATH"')
+        await call(
+            manager,
+            "restricted_shell",
+            command='export PATH="$PWD/bin:$PATH"',
+            metadata={**SESSION, "approved": True},
+        )
         started = await call(
             manager,
             "shell_process_start",

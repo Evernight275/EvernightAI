@@ -32,7 +32,7 @@ def manager_for(
         blocked_commands=blocked,
         working_directory=root,
         requires_approval=False,
-        relaxed_approval=relaxed,
+        approval_level="workspace_write" if relaxed else "read_only",
         allowed_env_keys=env_keys,
     )
     return ToolManager(register)
@@ -96,7 +96,6 @@ def test_wildcard_deletion_cannot_be_approved(tmp_path, command):
         "uv run python --version",
         [sys.executable, "-c", "print('ok')"],
         ["some-new-command", "--help"],
-        "sh -c 'echo ok'",
     ],
 )
 def test_suspicious_commands_require_approval_even_when_tool_is_allowed(
@@ -229,8 +228,14 @@ def test_environment_overrides_for_deletion_cannot_be_approved(tmp_path):
         ["bash", "-lc", "mkdir output && echo hello > output/note.txt"],
     ],
 )
-def test_relaxed_mode_allows_routine_development_commands(tmp_path, command):
-    assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+def test_workspace_level_only_allows_declared_workspace_operations(tmp_path, command):
+    decision = manager_for(tmp_path, relaxed=True).authorize(call_for(command))
+    if isinstance(command, str) and (
+        command.startswith("mkdir ") or command.startswith("echo ")
+    ):
+        assert decision.allowed
+    else:
+        assert decision.requires_approval
 
 
 @pytest.mark.parametrize(
@@ -252,7 +257,11 @@ def test_relaxed_mode_allows_routine_development_commands(tmp_path, command):
     ],
 )
 def test_readonly_find_actions_and_chains_do_not_require_approval(tmp_path, command):
-    assert manager_for(tmp_path, relaxed=True).authorize(call_for(command)).allowed
+    decision = manager_for(tmp_path, relaxed=True).authorize(call_for(command))
+    if isinstance(command, str) and "$Q" in command:
+        assert decision.requires_approval
+    else:
+        assert decision.allowed
 
 
 @pytest.mark.parametrize(
@@ -304,7 +313,10 @@ async def test_readonly_find_execution_preserves_escaped_action_terminators(tmp_
     (tmp_path / "match.py").write_text("Depends\n")
     (tmp_path / "other.py").write_text("other\n")
     result = await manager_for(tmp_path, relaxed=True).execute(
-        call_for(r'''Q="Depends"; find . -name "*.py" -exec grep -l "$Q" {} \; | sort''')
+        call_for(
+            r"""Q="Depends"; find . -name "*.py" -exec grep -l "$Q" {} \; | sort""",
+            approved=True,
+        )
     )
     assert result.tool_call_result["returncode"] == 0
     assert result.tool_call_result["stdout"] == "./match.py\n"
@@ -401,14 +413,15 @@ async def test_runtime_configuration_enables_relaxed_command_approval(tmp_path):
                         "working_directory": str(tmp_path),
                         "allowed_commands": ["python", "uv"],
                         "is_need_approval": False,
-                        "relaxed_approval": True,
+                        "approval_level": "workspace_write",
                     }
                 },
             }
         )
     )
     try:
-        assert runtime.tools.authorize(call_for("uv sync")).allowed
+        assert runtime.tools.authorize(call_for("mkdir output")).allowed
+        assert runtime.tools.authorize(call_for("uv sync")).requires_approval
         deletion = runtime.tools.authorize(call_for("rm note.txt"))
         assert not deletion.allowed
         assert deletion.requires_approval
@@ -417,14 +430,12 @@ async def test_runtime_configuration_enables_relaxed_command_approval(tmp_path):
 
 
 @pytest.mark.parametrize("encoded", [False, True])
-def test_command_discovery_inside_login_shell_needs_no_extra_approval(
-    tmp_path, encoded
-):
+def test_login_shell_startup_requires_approval(tmp_path, encoded):
     command = ["bash", "-lc", "pwd; ls -la; which uv; uv --version"]
     decision = manager_for(tmp_path, relaxed=True).authorize(
         call_for(json.dumps(command) if encoded else command)
     )
-    assert decision.allowed
+    assert decision.requires_approval
 
 
 @pytest.mark.parametrize(
@@ -471,13 +482,12 @@ async def test_serialized_command_array_executes_as_arguments(tmp_path):
     assert value["shell_script"] is None
 
 
-@pytest.mark.parametrize("relaxed", [False, True])
+@pytest.mark.parametrize("level", ["read_only", "workspace_write", "trusted_dev"])
 def test_changing_directory_needs_no_approval_but_what_follows_still_does(
-    relaxed: bool,
+    tmp_path, level
 ) -> None:
-    from EvernightAI.infra.adapters.tool.shell_policy import approval_reason
+    from EvernightAI.infra.adapters.tool.shell_policy import ShellCommandPolicy
 
-    assert approval_reason("cd src && ls", set(), relaxed=relaxed) is None
-    assert approval_reason("cd src && rm notes.txt", set(), relaxed=relaxed) == (
-        "Deleting files requires approval"
-    )
+    checker = ShellCommandPolicy(root=tmp_path, level=level)
+    assert checker.evaluate("cd src && ls").kind == "allow"
+    assert checker.evaluate("cd src && rm notes.txt").kind == "ask"

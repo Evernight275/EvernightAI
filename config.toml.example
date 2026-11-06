@@ -118,7 +118,8 @@ allow_write = false
 [tools.shell]
 # Keep disabled unless you intentionally want shell tools exposed.
 enabled = false
-# Trusted commands; other commands require approval. Literal-path checks still apply.
+# Names do not trust arbitrary arguments: only declared command grammars are exempt.
+# A trailing wildcard (e.g. "uv *") trusts arbitrary arguments and can execute code.
 allowed_commands = ["python --version", "uv"]
 # Blocked rules win over allowed commands and are rejected before approval or
 # execution. A single executable blocks every argument; a multi-part entry
@@ -128,11 +129,15 @@ working_directory = "."
 timeout_seconds = 10.0
 max_output_chars = 12000
 is_need_approval = true
-# With is_need_approval = false, permit routine development commands without
-# approval. Deletion, opaque scripts and blocked commands retain their rules.
-relaxed_approval = false
+# With is_need_approval = false: read_only permits declared reads; workspace_write
+# also permits literal writes inside the root (best effort under subprocess).
+# trusted_dev also permits network/project code and REQUIRES bubblewrap.
+# Deletion, publishing, system operations and unknown/opaque syntax still ask.
+# Replaces removed relaxed_approval; old configurations must migrate.
+approval_level = "read_only"
 # Ordinary commands may set environment variables; deletion commands may not.
-# Optional allowlist for the env argument and recorded session variables
+# Optional hard allowlist for env arguments, inline/env/export/set assignments
+# and recorded session variables. Dangerous keys still require approval.
 # (unset permits any key).
 # allowed_env_keys = ["PYTHONPATH"]
 # Calls in one chat session share the directory and exported variables a

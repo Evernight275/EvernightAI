@@ -1352,7 +1352,7 @@ async def test_agent_suspicious_shell_pauses_then_executes_once(tmp_path) -> Non
     assert state.status is AgentRunStatus.PAUSED
     assert not (tmp_path / "note.txt").exists()
     approval = state.pending_approval_requests[0]
-    assert "redirection" in (approval.reason or "")
+    assert "WORKSPACE_WRITE" in (approval.reason or "")
     finished = await app.resume_agent_until_pause(
         state,
         [

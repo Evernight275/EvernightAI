@@ -39,7 +39,7 @@ async def test_restricted_shell_requires_approval(tmp_path) -> None:
             )
         )
 
-    assert exc_info.value.detail == "Interpreters and command wrappers require approval"
+    assert "require approval" in (exc_info.value.detail or "")
 
 
 @pytest.mark.asyncio
@@ -60,7 +60,7 @@ async def test_restricted_shell_can_disable_approval(tmp_path) -> None:
             tool_call={
                 "name": "restricted_shell",
                 "arguments": {
-                    "command": [sys.executable, "--version"],
+                    "command": ["python3", "--version"],
                 },
             },
         )
@@ -102,7 +102,7 @@ async def test_restricted_shell_runs_allowlisted_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
+async def test_exact_rule_cannot_trust_arbitrary_arguments(tmp_path) -> None:
     exact_rule = f"{sys.executable} --version"
     register = ToolRegister()
     register_restricted_shell_tool(
@@ -118,7 +118,7 @@ async def test_restricted_shell_supports_exact_command_rule(tmp_path) -> None:
             tool_call_id="call-1",
             tool_call={
                 "name": "restricted_shell",
-                "arguments": {"command": [sys.executable, "--version"]},
+                "arguments": {"command": ["python3", "--version"]},
             },
         )
     )

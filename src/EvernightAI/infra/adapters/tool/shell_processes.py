@@ -166,7 +166,7 @@ class ShellProcessManager:
             scope=scope,
             command=command,
             cwd=cwd,
-            trusted_input=shell.accepts_unapproved_input(arguments),
+            trusted_input=shell.accepts_unapproved_stdin(arguments),
             handle=handle,
             output=_OutputBuffer(self.max_output_chars),
             started_at=datetime.now(timezone.utc),

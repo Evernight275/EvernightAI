@@ -1,6 +1,6 @@
+import hashlib
 import json
 import os
-import shlex
 from pathlib import Path
 from typing import Any
 
@@ -28,21 +28,17 @@ from EvernightAI.core.schema.tool import (
     ToolSafetyDecision,
     ToolSafetyLevel,
 )
+from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.tool.project_roots import ProjectRootResolver
 from EvernightAI.infra.adapters.tool.shell_policy import (
-    approval_reason,
-    inspected_commands,
-    literal_command_reason,
+    ShellCommandPolicy,
     may_delete,
-    mentions_command,
-    opaque_command_reason,
 )
 from EvernightAI.infra.adapters.tool.shell_session import (
     ShellSessionKey,
     ShellSessionTracker,
     session_key,
-    session_path_shadow_reason,
     wrap_script,
 )
 
@@ -59,12 +55,19 @@ class RestrictedShellTool:
         timeout_seconds: float = 10.0,
         max_output_chars: int = 12000,
         requires_approval: bool = True,
-        relaxed_approval: bool = False,
+        approval_level: str = "read_only",
         allowed_env_keys: set[str] | None = None,
         sandbox: SandboxExecuteProtocol | None = None,
         workspace_directories: WorkspaceDirectoryProtocol | None = None,
         session_store: ShellSessionStoreProtocol | None = None,
     ) -> None:
+        if approval_level == "trusted_dev" and not isinstance(
+            sandbox, BubblewrapSandboxExecutor
+        ):
+            raise ValueError(
+                "trusted_dev approval_level requires the bubblewrap backend"
+            )
+        self._authorized_states: dict[str, str] = {}
         self._allowed_commands = allowed_commands
         self._blocked_commands = set(blocked_commands or ())
         self._working_directory = Path(working_directory).resolve()
@@ -74,7 +77,7 @@ class RestrictedShellTool:
         self._timeout_seconds = timeout_seconds
         self._max_output_chars = max_output_chars
         self._requires_approval = requires_approval
-        self._relaxed_approval = relaxed_approval
+        self._approval_level = approval_level
         self._allowed_env_keys = allowed_env_keys
         self._sandbox = sandbox or SubprocessSandboxExecutor()
         self._sessions = (
@@ -147,7 +150,7 @@ class RestrictedShellTool:
             metadata={
                 "allowed_commands": sorted(self._allowed_commands),
                 "blocked_commands": sorted(self._blocked_commands),
-                "relaxed_approval": self._relaxed_approval,
+                "approval_level": self._approval_level,
                 "working_directory": str(self._working_directory),
                 "supports_working_directory": True,
                 "timeout_seconds": self._timeout_seconds,
@@ -183,19 +186,22 @@ class RestrictedShellTool:
             self._parse_env(arguments)
         except ToolInputError as exc:
             return ToolSafetyDecision(allowed=False, reason=str(exc))
-        reason = self._command_rejection_reason(command)
-        if reason is not None:
-            return ToolSafetyDecision(allowed=False, reason=reason)
-        reason = approval_reason(
-            command, self._allowed_commands, relaxed=self._relaxed_approval
+        binding = self._binding_key(arguments)
+        if binding is not None and state is not None:
+            version = self._state_version(state)
+            previous = self._authorized_states.get(binding)
+            if previous is not None and previous != version:
+                return ToolSafetyDecision(
+                    allowed=False,
+                    reason="Shell session changed; request approval with a new tool call",
+                )
+            self._authorized_states[binding] = version
+        decision = self._policy(arguments, state).evaluate(
+            command, self._parse_env(arguments), state
         )
-        if reason is None and state is not None:
-            reason = session_path_shadow_reason(
-                state,
-                command,
-                self._selected_root(arguments),
-                relaxed=self._relaxed_approval,
-            )
+        if decision.kind == "reject":
+            return ToolSafetyDecision(allowed=False, reason=decision.reason)
+        reason = decision.reason if decision.kind == "ask" else None
         if reason is not None:
             metadata: dict[str, Any] = {"working_directory": str(cwd)}
             if state is not None:
@@ -213,9 +219,13 @@ class RestrictedShellTool:
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = self._parse_command(arguments)
-        reason = self._command_rejection_reason(command)
-        if reason is not None:
-            raise ToolInputError(reason)
+        session = self._session(arguments)
+        state = session[1] if session else None
+        decision = self._policy(arguments, state).evaluate(
+            command, self._parse_env(arguments), state
+        )
+        if decision.kind == "reject":
+            raise ToolInputError(decision.reason or "Shell command rejected")
         key = session_key(arguments) if self._sessions is not None else None
         if self._sessions is None or key is None:
             return await self._run(arguments, command, None, None)
@@ -230,11 +240,16 @@ class RestrictedShellTool:
     ) -> tuple[SandboxExecutionRequest, str]:
         """A sandbox request for a long-running command, and its cwd."""
         command = self._parse_command(arguments)
-        reason = self._command_rejection_reason(command)
-        if reason is not None:
-            raise ToolInputError(reason)
+        session = self._session(arguments)
+        state = session[1] if session else None
+        decision = self._policy(arguments, state).evaluate(
+            command, self._parse_env(arguments), state
+        )
+        if decision.kind == "reject":
+            raise ToolInputError(decision.reason or "Shell command rejected")
         session = self._session(arguments)
         state = session[1] if session is not None else None
+        self._check_state_version(arguments, state)
         process_command = self._process_command(command)
         root = self._selected_root(arguments)
         policy = self._sandbox_policy(process_command[0], root, lifetime_seconds)
@@ -257,17 +272,54 @@ class RestrictedShellTool:
     def parse_command(self, arguments: dict[str, Any]) -> list[str] | str:
         return self._parse_command(arguments)
 
-    def accepts_unapproved_input(self, arguments: dict[str, Any]) -> bool:
+    def accepts_unapproved_stdin(self, arguments: dict[str, Any]) -> bool:
         """Input to anything beyond a trusted command can run arbitrary code."""
         command = self._parse_command(arguments)
-        if approval_reason(command, self._allowed_commands) is not None:
-            return False
         session = self._session(arguments)
-        return session is None or (
-            session_path_shadow_reason(
-                session[1], command, self._selected_root(arguments), relaxed=False
+        state = session[1] if session else None
+        decision = self._policy(arguments, state).evaluate(
+            command, self._parse_env(arguments), state
+        )
+        return decision.kind == "allow" and not decision.stdin_is_code
+
+    def _binding_key(self, arguments: dict[str, Any]) -> str | None:
+        key = session_key(arguments)
+        context = arguments.get("_execution_context", {})
+        call_id = context.get("tool_call_id") if isinstance(context, dict) else None
+        if key is None or not isinstance(call_id, str):
+            return None
+        return json.dumps(
+            [key.owner_id, key.key, call_id, self._parse_command(arguments)],
+            sort_keys=True,
+        )
+
+    def _state_version(self, state: ShellSessionState) -> str:
+        return hashlib.sha256(
+            json.dumps([state.cwd, state.env], sort_keys=True).encode()
+        ).hexdigest()
+
+    def _check_state_version(
+        self, arguments: dict[str, Any], state: ShellSessionState | None
+    ) -> None:
+        binding = self._binding_key(arguments)
+        if binding is None or state is None:
+            return
+        previous = self._authorized_states.pop(binding, None)
+        if previous is not None and previous != self._state_version(state):
+            raise ToolInputError(
+                "Shell session changed before execution; request approval again"
             )
-            is None
+
+    def _policy(
+        self, arguments: dict[str, Any], state: ShellSessionState | None
+    ) -> ShellCommandPolicy:
+        return ShellCommandPolicy(
+            level=self._approval_level,
+            trusted_commands=self._allowed_commands,
+            blocked_commands=self._blocked_commands,
+            root=self._selected_root(arguments),
+            cwd=self._host_cwd(arguments, state),
+            allowed_env_keys=self._allowed_env_keys,
         )
 
     def _session(
@@ -292,6 +344,12 @@ class RestrictedShellTool:
         key: ShellSessionKey | None,
         state: ShellSessionState | None,
     ) -> dict[str, Any]:
+        self._check_state_version(arguments, state)
+        decision = self._policy(arguments, state).evaluate(
+            command, self._parse_env(arguments), state
+        )
+        if decision.kind == "reject":
+            raise ToolInputError(decision.reason or "Shell command rejected")
         root = self._selected_root(arguments)
         tracks_state = (
             state is not None and isinstance(command, str) and os.name != "nt"
@@ -376,53 +434,12 @@ class RestrictedShellTool:
             ),
         )
 
-    def _command_rejection_reason(self, command: list[str] | str) -> str | None:
-        reason = literal_command_reason(command)
-        if reason is not None:
-            return reason
-        try:
-            commands = inspected_commands(command, ignore_redirections=True)
-        except (ValueError, RecursionError):
-            commands = [command] if isinstance(command, list) else []
-        if any(self._is_blocked_command(parts) for parts in commands):
-            return "The command is blocked by a configured command rule"
-        rules = self._blocked_rules()
-        if (
-            rules
-            and opaque_command_reason(command) is not None
-            and mentions_command(command, rules)
-        ):
-            return "The command may run a command blocked by a configured command rule"
-        return None
-
-    def _is_blocked_command(self, command: list[str]) -> bool:
-        return any(
-            parts and command[: len(parts)] == parts for parts in self._blocked_rules()
-        )
-
-    def _blocked_rules(self) -> list[list[str]]:
-        return [self._parse_command_rule(rule) for rule in self._blocked_commands]
-
     def _process_command(self, command: list[str] | str) -> list[str]:
         if isinstance(command, list):
             return command
         if os.name == "nt":
             return ["cmd.exe", "/d", "/v:off", "/s", "/c", command]
         return ["/bin/sh", "-c", command]
-
-    def _parse_command_rule(self, rule: str) -> list[str]:
-        try:
-            parts = shlex.split(rule, posix=os.name != "nt")
-        except ValueError:
-            return []
-        if os.name == "nt":
-            return [self._strip_matching_quotes(part) for part in parts]
-        return parts
-
-    def _strip_matching_quotes(self, value: str) -> str:
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            return value[1:-1]
-        return value
 
     def _parse_command(self, arguments: dict[str, Any]) -> list[str] | str:
         command = arguments.get("command")

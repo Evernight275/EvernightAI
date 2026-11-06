@@ -54,28 +54,52 @@ Read-only `find` queries also run without additional approval. For `-exec` and
 rules, including quoted or escaped action terminators. File output and interactive
 `find` actions require approval; discovered deletion targets remain forbidden.
 
-Common read commands can run without additional approval. `allowed_commands`
-identifies trusted commands rather than an exhaustive executable allowlist.
-Commands outside that list require approval instead of automatic rejection.
-Deletion, file changes, network/system operations, interpreters, command wrappers,
-redirection and complex scripts also require approval,
-even when the tool's configured mode is `allow`. An `ask` policy still asks for
-every call; a `deny` policy blocks every call.
+On POSIX, tree-sitter-bash preserves pipelines, conditional chains, subshells,
+redirections and stdin sources. Commands run without additional approval only
+when their argument grammar is declared: unknown flags, extra positional
+arguments, dynamic names, parse errors and unsupported syntax require approval.
+For example, `uniq IN OUT` writes OUT, and `sort --compress-program=...` requires
+approval because it can execute another program. Functions, control structures,
+arithmetic, command/process substitution and unquoted heredocs remain opaque.
+Nested scripts are inspected up to depth 16. PowerShell/cmd string scripts retain
+the previous policy in this phase.
 
-To reduce command approvals, set `[tools.shell]` to `is_need_approval = false`
-and `relaxed_approval = true`. Routine file copying, moving, directory creation,
-redirection, HTTP downloads, Git status/add/commit/fetch/pull/push/clone, dependency
-installation, tests and builds then run without additional approval. Inspected
-shell chains and uv wrappers use the same rules for their nested commands.
-Deletion commands still require approval; wildcard and discovered deletion targets
-remain forbidden, and configured blocked commands still win. Arbitrary interpreter
-scripts, unfamiliar commands, package removal and Git clean/reset/rm retain
-approval. Explicit per-user `ask` and `deny` settings still apply. Restart the
-service after changing configuration.
+`allowed_commands` no longer trusts every argument of a named program. Bare
+names and exact rules cannot extend the declared grammar. An explicit trailing
+wildcard, such as `uv *`, trusts otherwise undeclared arguments and is a dangerous
+opt-in: it can authorize arbitrary program execution even at `read_only`.
+It does not override blocked rules, deletion checks, environment checks, opaque
+syntax, known publishing/system effects or executable-source checks. Prefer
+individual declared commands. Paths such as `./tool` and `bin/tool` always
+require approval. Declared programs must resolve through the base PATH outside
+the project; session-added directories never establish trust.
+
+Set `is_need_approval = false` to use the following `approval_level` exemptions:
+
+| Effect | read_only (default) | workspace_write | trusted_dev |
+|---|---|---|---|
+| Declared read operation | allow | allow | allow |
+| Literal write target inside project root | ask | allow | allow |
+| Network / project code (tests, builds, arbitrary project execution) | ask | ask | allow |
+| Publish / system / unknown / opaque | ask | ask | ask |
+| Delete with literal targets | ask | ask | ask |
+
+Effects accumulate across all children. `trusted_dev` permits arbitrary project
+code and requires the bubblewrap backend; configuration and assembly reject other
+backends. Workspace writes resolve symlinks before execution and must stay inside
+the root. This is best effort with subprocess: preflight cannot close TOCTOU races
+or provide OS isolation. Use bubblewrap for execution-time containment.
+`relaxed_approval` has been removed; old configuration fails with a migration
+message. An explicit `ask` policy still asks for every call; `deny` blocks all calls.
+Restart the service after changing configuration.
 
 Ordinary commands can use environment variables, `export`, inline assignments,
 `env`, and path expansion. The optional `env` argument sets string values for
-that invocation only; `allowed_env_keys`, when configured, limits its keys.
+that invocation only. The env argument, inline assignments, `env X=`, and
+`export`/`set` share the same checks. `allowed_env_keys` is a hard limit for all
+sources, including nested scripts. Dangerous keys (`LD_*`, `DYLD_*`, `PATH`,
+`BASH_ENV`, `ENV`, `IFS`, `PYTHON*`, `NODE_OPTIONS`, `*_CONFIG_PATH`, `GIT_*`,
+and other loader controls) require approval even in `trusted_dev`.
 For invocations containing deletion, environment overrides and assignments are
 forbidden, and deletion targets must be literal relative or absolute paths:
 variables, home expansion and unquoted wildcards remain rejected after approval.
@@ -139,10 +163,17 @@ script wrote it:
   cannot be unset.
 - `PATH` may only add directories inside the project root. A command name that
   then resolves to a file in such a directory requires approval, even if the
-  name is trusted. With `relaxed_approval`, routine development commands such as
-  `pytest` from an activated virtualenv still run without approval.
+  name is trusted. Changing PATH requires approval; later calls using a recorded
+  dangerous environment also require approval.
 
-`cd` itself needs no approval; every command after it is inspected as before.
+Approval is bound to the session cwd and an environment digest. If state changes
+while approval is pending, use a new tool call to request approval again. Execution
+rechecks the recorded state under the session lock. Digests and prompt content are
+not logged. Pending bindings currently live in the shell tool instance; durable
+approval binding across service restarts or multiple worker processes remains
+follow-up work.
+
+`cd` to a literal directory inside the root needs no approval; every command after it is inspected as before.
 The result's `session` field reports the current directory, the recorded
 variable names and anything that was ignored. Pass `reset_session: true` to
 start again from the root with a clean environment.
@@ -195,3 +226,10 @@ including MCP namespaces, retain their overrides when definitions are refreshed.
 `BasicToolSafetyPolicy` treats `None` as the default permission set and an explicit
 empty set as empty. Custom composition can therefore clear the blocked or
 approval-required categories without accidentally restoring defaults.
+
+On POSIX, feeding a shell or interpreter through a pipe, input redirection or
+heredoc requires approval, even in `trusted_dev`. Background stdin is exempt only
+when the starting command was exempt and its declared `stdin_is_code` capability
+is false; trusting a name or wildcard cannot grant stdin access to an interpreter.
+Some valid but unmodeled forms, including multiple heredocs and login-shell
+startup behavior, conservatively require approval.

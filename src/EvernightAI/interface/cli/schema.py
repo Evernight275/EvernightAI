@@ -90,13 +90,22 @@ class ShellToolConfig(EvernightAISchema):
     timeout_seconds: float = 10.0
     max_output_chars: int = 12000
     is_need_approval: bool = True
-    relaxed_approval: bool = False
+    approval_level: Literal["read_only", "workspace_write", "trusted_dev"] = "read_only"
     allowed_env_keys: list[str] | None = None
     persistent_session: bool = True
     background_processes: bool = True
     max_background_processes: int = Field(default=4, gt=0)
     background_lifetime_seconds: float = Field(default=3600.0, gt=0)
     background_output_chars: int = Field(default=200_000, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_approval(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "relaxed_approval" in value:
+            raise ValueError(
+                "relaxed_approval was removed; migrate to approval_level (read_only, workspace_write, trusted_dev)"
+            )
+        return value
 
 
 class WebToolConfig(EvernightAISchema):
@@ -269,6 +278,17 @@ class DataAnalysisConfig(EvernightAISchema):
 
 
 class EvernightConfig(EvernightAISchema):
+    @model_validator(mode="after")
+    def validate_shell_backend(self) -> "EvernightConfig":
+        if (
+            self.tools.shell.approval_level == "trusted_dev"
+            and self.runtime.sandbox_backend != SandboxBackend.BUBBLEWRAP
+        ):
+            raise ValueError(
+                "trusted_dev approval_level requires the bubblewrap backend"
+            )
+        return self
+
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     context_strategy: ContextStrategyConfig = Field(
         default_factory=ContextStrategyConfig

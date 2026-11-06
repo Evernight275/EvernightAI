@@ -116,6 +116,7 @@ from EvernightAI.infra.adapters.providers.secrets import (
     EnvironmentProviderSecretResolver,
 )
 from EvernightAI.infra.adapters.providers.sqlite import SQLiteProviderConfigStore
+from EvernightAI.infra.adapters.sandbox.bubblewrap import BubblewrapSandboxExecutor
 from EvernightAI.infra.adapters.sandbox.subprocess import SubprocessSandboxExecutor
 from EvernightAI.infra.adapters.session.sqlite import SQLiteSessionRegister
 from EvernightAI.infra.adapters.skill.sqlite import SQLiteSkillTemplateStore
@@ -307,6 +308,12 @@ def register_builtin_tools(
             )
 
     if (shell := options.shell) is not None:
+        if shell.approval_level == "trusted_dev" and not isinstance(
+            sandbox, BubblewrapSandboxExecutor
+        ):
+            raise ValueError(
+                "trusted_dev approval_level requires the bubblewrap backend"
+            )
         register_restricted_shell_tool(
             register,
             allowed_commands=shell.allowed_commands,
@@ -316,7 +323,7 @@ def register_builtin_tools(
             timeout_seconds=shell.timeout_seconds,
             max_output_chars=shell.max_output_chars,
             requires_approval=shell.requires_approval,
-            relaxed_approval=shell.relaxed_approval,
+            approval_level=shell.approval_level,
             allowed_env_keys=shell.allowed_env_keys,
             sandbox=sandbox,
             session_store=shell_sessions if shell.persistent_session else None,
