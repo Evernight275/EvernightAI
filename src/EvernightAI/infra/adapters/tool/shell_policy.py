@@ -1240,6 +1240,10 @@ class ShellCommandPolicy:
             candidate = directory / ".venv" / "bin" / name
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return False
+        for directory in (cwd, self.root):
+            candidate = directory / "node_modules" / ".bin" / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return False
         base = os.environ.get("PATH", os.defpath)
         resolved = shutil.which(name, path=base)
         if (

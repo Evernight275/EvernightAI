@@ -114,11 +114,14 @@ HTML tags and literal `$()` text do not become outer shell operations. Arbitrary
 Python scripts still require approval, and approval shows the original complete
 script. Input fed directly to a shell is also inspected as shell code. Blacklists
 and commands after the closing delimiter remain checked.
-Each here-document header must be one complete foreground command on a single
-line, with no pipeline or command chain; output redirection is supported. Further
-commands may follow the closing delimiter on subsequent lines. Unquoted
-delimiters, here-strings, malformed delimiters and deletion invocations containing
-here-documents remain forbidden even after approval.
+Literal here-documents with a single foreground command in the header are
+supported, including output redirection. Further commands may follow the closing
+delimiter on subsequent lines. Compound headers follow the normal syntax and
+command-effect checks. Unquoted delimiters, here-strings, and malformed or missing
+delimiters require approval at every approval level, unless another rule rejects
+the invocation. Approval does not make invalid syntax executable or add here-string
+support to `/bin/sh`. Deletion invocations containing here-documents or here-strings
+remain forbidden even after approval.
 
 Special characters in filenames must use the executing shell's literal syntax.
 For POSIX, `rm './a$*.txt'`, `rm ./a\$\*.txt`, or the argument array

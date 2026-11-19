@@ -150,6 +150,35 @@ async def test_subprocess_stop_terminates_descendants(tmp_path, stop):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stdout,stderr,truncated",
+    [("aaaaaa", "bbbbbb", True), ("aaaaaaaaaa", "b", True), ("aaaaa", "bbbbb", False)],
+)
+async def test_subprocess_event_truncation_sets_result_flag(
+    tmp_path, stdout, stderr, truncated
+):
+    (tmp_path / "nested").mkdir()
+    request = make_request(
+        host_path=str(tmp_path),
+        command=[
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.write({stdout!r}); sys.stderr.write({stderr!r})",
+        ],
+    )
+    request.policy.resource_limits.max_output_chars = 10
+
+    result = await SubprocessSandboxExecutor().execute(request)
+
+    assert result.stdout == stdout
+    assert result.stderr == stderr
+    assert sum(len(event.text) for event in result.events) == min(
+        len(stdout) + len(stderr), 10
+    )
+    assert result.truncated is truncated
+
+
+@pytest.mark.asyncio
 async def test_subprocess_timeout_keeps_output_collected_before_the_limit(tmp_path):
     (tmp_path / "nested").mkdir()
     request = make_request(

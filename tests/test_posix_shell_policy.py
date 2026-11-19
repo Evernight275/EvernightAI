@@ -41,6 +41,9 @@ def policy(tmp_path, monkeypatch):
         "cat <(pwd)",
         "echo $((1+1))",
         "cat <<EOF\n$HOME\nEOF",
+        "cat <<< hello",
+        "cat <<'EOF'\nhello",
+        'cat <<"EOF\nhello',
         "echo '",
         "cat code | sh",
         "sh < code",
@@ -51,6 +54,11 @@ def policy(tmp_path, monkeypatch):
 )
 def test_unknown_execution_and_publishing_always_ask(policy, level, command):
     assert policy(level).evaluate(command).kind == "ask"
+
+
+@pytest.mark.parametrize("level", ["read_only", "workspace_write", "trusted_dev"])
+def test_here_string_deletion_is_rejected(policy, level):
+    assert policy(level).evaluate("rm note.txt <<< hello").kind == "reject"
 
 
 @pytest.mark.parametrize(
@@ -226,6 +234,51 @@ def test_automatic_project_virtualenv_does_not_establish_trust(policy, tmp_path)
     executable.write_text("#!/bin/sh\nexec sh\n")
     executable.chmod(0o755)
     assert policy("trusted_dev").evaluate("cat").kind == "ask"
+
+
+@pytest.mark.parametrize("level", ["read_only", "workspace_write", "trusted_dev"])
+@pytest.mark.parametrize("location", [".", "app"])
+@pytest.mark.parametrize("command", ["cat", ["cat"]])
+def test_project_node_modules_shadow_requires_approval(
+    policy, tmp_path, level, location, command
+):
+    cwd = tmp_path / "app"
+    cwd.mkdir()
+    directory = tmp_path / location / "node_modules" / ".bin"
+    directory.mkdir(parents=True)
+    executable = directory / "cat"
+    executable.write_text("#!/bin/sh\nexec sh\n")
+    executable.chmod(0o755)
+
+    assert policy(level, cwd=cwd).evaluate(command).kind == "ask"
+
+
+@pytest.mark.parametrize("name,mode", [("other", 0o755), ("cat", 0o644)])
+def test_unrelated_node_modules_executable_preserves_command_effects(
+    policy, tmp_path, name, mode
+):
+    directory = tmp_path / "node_modules" / ".bin"
+    directory.mkdir(parents=True)
+    executable = directory / name
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(mode)
+
+    assert policy().evaluate("cat").kind == "allow"
+    checker = policy("trusted_dev")
+    assert checker.evaluate("uv run pytest -q").kind == "allow"
+    assert checker.evaluate("npm test").kind == "allow"
+
+
+def test_node_modules_outside_automatic_path_does_not_require_approval(policy, tmp_path):
+    cwd = tmp_path / "app" / "nested"
+    cwd.mkdir(parents=True)
+    directory = tmp_path / "app" / "node_modules" / ".bin"
+    directory.mkdir(parents=True)
+    executable = directory / "cat"
+    executable.write_text("#!/bin/sh\nexec sh\n")
+    executable.chmod(0o755)
+
+    assert policy(cwd=cwd).evaluate("cat").kind == "allow"
 
 
 def test_opaque_commands_still_expose_environment_for_hard_limits(policy):

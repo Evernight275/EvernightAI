@@ -30,8 +30,8 @@ class BoundedSandboxOutput:
         remaining = self.max_chars - len(current)
         setattr(self, stream.value, current + text[:remaining])
         truncated = len(text) > remaining
-        self.truncated = self.truncated or truncated
         event_remaining = self.max_chars - self._event_chars
+        self.truncated = self.truncated or truncated or len(text) > event_remaining
         if event_remaining > 0:
             visible = text[:event_remaining]
             self.events.append(
