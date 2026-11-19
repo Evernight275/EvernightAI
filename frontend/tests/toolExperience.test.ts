@@ -13,6 +13,20 @@ const call = {
 const request = { provider_id: 'p', model_id: 'm', context_id: 'ctx' };
 
 describe('tool execution experience', () => {
+  it('shows AI review reasons without changing the human approval state', () => {
+    const approval = approvalItem({
+      approval_id: 'a',
+      tool_call_id: 'c',
+      tool_name: 'restricted_shell',
+      metadata: { ai_review: { decision: 'human', risk: 'unknown', reason: 'Need context' } },
+    });
+    expect(approval.aiReviewReason).toBe('Need context');
+    expect(approval.decided).toBe(false);
+    expect(
+      approvalItem({ ...approval, metadata: { ai_review: 'invalid' } }).aiReviewReason,
+    ).toBeNull();
+  });
+
   it('searches literal text without modifying Unicode offsets or executing markup', () => {
     for (const [text, query, matches] of [
       ['Hello HELLO', 'hello', 2],

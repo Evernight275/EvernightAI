@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from EvernightAI.core.schema.approval import AIApprovalConfig
 from EvernightAI.core.schema.auth import PrincipalType
 from EvernightAI.core.schema.base import EvernightAISchema
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
@@ -294,6 +295,7 @@ class EvernightConfig(EvernightAISchema):
         default_factory=ContextStrategyConfig
     )
     prompt_cache: PromptCacheConfig = Field(default_factory=PromptCacheConfig)
+    ai_approval: AIApprovalConfig = Field(default_factory=AIApprovalConfig)
     memory_strategy: MemoryStrategyConfig = Field(default_factory=MemoryStrategyConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)

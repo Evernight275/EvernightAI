@@ -34,7 +34,8 @@ def _aggregate_run_usage(state: AgentRunState) -> ChatUsage | None:
     usages = [
         step.response.usage
         for step in state.steps
-        if step.step_type is AgentStepType.CHAT and step.response is not None
+        if step.step_type in {AgentStepType.CHAT, AgentStepType.APPROVAL}
+        and step.response is not None
     ]
     if not any(usage is not None for usage in usages):
         return None

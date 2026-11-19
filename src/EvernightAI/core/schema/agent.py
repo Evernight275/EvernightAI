@@ -23,6 +23,7 @@ class AgentStepType(StrEnum):
 
     START = "start"
     CHAT = "chat"
+    APPROVAL = "approval"
     TOOL = "tool"
     TOOL_ERROR = "tool_error"
     MEMORY_WRITE = "memory_write"
@@ -37,6 +38,7 @@ class AgentTraceEventType(StrEnum):
     CHAT_COMPLETED = "chat_completed"
     TOOL_APPROVAL_REQUESTED = "tool_approval_requested"
     TOOL_APPROVAL_DECIDED = "tool_approval_decided"
+    AI_APPROVAL_REVIEWED = "ai_approval_reviewed"
     TOOL_STARTED = "tool_started"
     TOOL_COMPLETED = "tool_completed"
     TOOL_FAILED = "tool_failed"

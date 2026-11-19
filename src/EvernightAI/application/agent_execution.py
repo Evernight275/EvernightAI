@@ -23,6 +23,7 @@ from EvernightAI.application.agent_state import (
     current_round_completed_tool_call_ids,
     current_tool_round,
 )
+from EvernightAI.application.ai_approval import review_shell_call
 from EvernightAI.application.chat_request import ChatRequestComposer
 from EvernightAI.application.image_attachments import resolve_image_references
 from EvernightAI.application.memory import (
@@ -75,6 +76,7 @@ from EvernightAI.core.schema.skill import SkillCapability
 from EvernightAI.core.schema.stream import ChatStreamEvent, ChatStreamEventType
 from EvernightAI.core.schema.tool import (
     ToolApprovalDecision,
+    ToolApprovalStatus,
     ToolCall,
     ToolCallResult,
     ToolDefinition,
@@ -473,6 +475,56 @@ class AgentExecutionApplication:
                     }
                 )
                 decision = self._tool_safety_decision(call)
+                if (
+                    self._runtime.ai_approval.enabled
+                    and self._tool_name(call)
+                    in {"restricted_shell", "shell_process_start"}
+                    and decision is not None
+                    and self._should_pause_for_approval(call, decision)
+                ):
+                    review, review_response = await review_shell_call(
+                        self._runtime.providers,
+                        self._runtime.ai_approval,
+                        request,
+                        call,
+                        decision,
+                    )
+                    review_metadata = review.model_dump(mode="json")
+                    event = self._add_trace(
+                        state,
+                        AgentTraceEvent(
+                            event_type=AgentTraceEventType.AI_APPROVAL_REVIEWED,
+                            tool_call=call,
+                            response=review_response,
+                            metadata=review_metadata,
+                        ),
+                    )
+                    state.steps.append(
+                        AgentStep(
+                            step_type=AgentStepType.APPROVAL,
+                            trace_event_id=event.event_id,
+                            response=review_response,
+                            tool_call=call,
+                            metadata=review_metadata,
+                        )
+                    )
+                    yield event
+                    if decision.approval_request is not None:
+                        decision.approval_request.metadata["ai_review"] = (
+                            review_metadata
+                        )
+                    if review.decision == "approve" and review.risk == "low":
+                        call = call.model_copy(
+                            update={
+                                "approval": ToolApprovalDecision(
+                                    approval_id=f"{call.tool_call_id}:approval",
+                                    tool_call_id=call.tool_call_id,
+                                    status=ToolApprovalStatus.APPROVED,
+                                    reason=review.reason,
+                                ),
+                            }
+                        )
+                        decision = self._tool_safety_decision(call)
                 include_approval_request = (
                     call.tool_call_id not in already_requested_approval_call_ids
                 )
@@ -1374,6 +1426,8 @@ class AgentExecutionApplication:
             return "Model response delta"
         if event.event_type is AgentTraceEventType.CHAT_COMPLETED:
             return "Model response received"
+        if event.event_type is AgentTraceEventType.AI_APPROVAL_REVIEWED:
+            return f"AI approval review: {event.metadata['decision']}"
         if event.event_type is AgentTraceEventType.TOOL_APPROVAL_REQUESTED:
             tool_name = self._event_tool_name(event)
             return f"Tool approval requested for {tool_name}"

@@ -231,6 +231,16 @@ def _restore_checkpoint_data(
                     message=event.message or event.response.message,
                 )
             )
+        elif event.event_type is AgentTraceEventType.AI_APPROVAL_REVIEWED:
+            state.steps.append(
+                AgentStep(
+                    step_type=AgentStepType.APPROVAL,
+                    trace_event_id=event.event_id,
+                    response=event.response,
+                    tool_call=event.tool_call,
+                    metadata=dict(event.metadata),
+                )
+            )
         elif event.event_type in {
             AgentTraceEventType.TOOL_COMPLETED,
             AgentTraceEventType.TOOL_FAILED,

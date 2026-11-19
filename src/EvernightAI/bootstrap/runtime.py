@@ -98,6 +98,7 @@ from EvernightAI.core.protocol.tool import (
     ToolSourceProtocol,
 )
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.core.schema.approval import AIApprovalConfig
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 from EvernightAI.core.schema.image_task import ImageTask
 from EvernightAI.infra.adapters.agent.executor import SingleProcessAgentRunExecutor
@@ -443,6 +444,7 @@ def create_sqlite_runtime(
     runtime_data_tools_enabled: bool = False,
     trace_retention_days: int | None = 30,
     trace_max_events: int | None = 100_000,
+    ai_approval: AIApprovalConfig | None = None,
     prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
     prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
     tool_sources: list[ToolSourceProtocol] | None = None,
@@ -573,6 +575,7 @@ def create_sqlite_runtime(
             context=context,
             prompt_cache_mode=prompt_cache_mode,
             prompt_cache_scope=prompt_cache_scope,
+            ai_approval=ai_approval,
         )
         recovery = DeferredAgentRunRecovery(runtime)
         return runtime
@@ -644,6 +647,7 @@ def _create_runtime(
     context: ContextStrategyOptions = ContextStrategyOptions(),
     prompt_cache_mode: PromptCacheMode = PromptCacheMode.PREFER_EXPLICIT,
     prompt_cache_scope: PromptCacheScope = PromptCacheScope.CONTEXT,
+    ai_approval: AIApprovalConfig | None = None,
 ) -> RuntimeKernel:
     provider_factory = create_provider_factory()
     providers = ProviderManager(
@@ -708,6 +712,7 @@ def _create_runtime(
         context_strategy=context_strategy,
         prompt_cache_mode=prompt_cache_mode,
         prompt_cache_scope=prompt_cache_scope,
+        ai_approval=ai_approval,
         data_analysis_register=data_analysis_register,
         data_analysis=data_analysis,
         memory_register=memory_register,

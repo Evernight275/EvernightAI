@@ -25,6 +25,7 @@ import { cancelForEditing, readRunDecisions, saveRunDecisions } from '../../runt
 import { authGeneration } from '../../runtime/workspaceRuntime';
 import RunSkillConflict from '../skills/RunSkillConflict.vue';
 import JsonCode from '../common/JsonCode.vue';
+import { aiApprovalReason } from '../chat/chatRequestStatus';
 const runStatusLabels: Record<string, string> = {
   pending: '等待中',
   running: '运行中',
@@ -277,6 +278,7 @@ onMounted(() => perform(load));
       >
         <h4>{{ approval.tool_name }}</h4>
         <p>{{ approval.permissions?.join('、') }} · {{ approval.safety_level }}</p>
+        <p v-if="aiApprovalReason(approval)">AI 审批转人工：{{ aiApprovalReason(approval) }}</p>
         <pre><JsonCode :source="JSON.stringify(approval.tool_call, null, 2)" /></pre>
         <label
           >审批决定<select

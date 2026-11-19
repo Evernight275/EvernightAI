@@ -10,7 +10,8 @@ import type {
   ToolReplayPolicy,
 } from './tools';
 
-export type AgentStepType = 'start' | 'chat' | 'tool' | 'tool_error' | 'memory_write' | 'stop';
+export type AgentStepType =
+  'start' | 'chat' | 'approval' | 'tool' | 'tool_error' | 'memory_write' | 'stop';
 
 export type AgentTraceEventType =
   | 'run_started'
@@ -18,6 +19,7 @@ export type AgentTraceEventType =
   | 'chat_completed'
   | 'tool_approval_requested'
   | 'tool_approval_decided'
+  | 'ai_approval_reviewed'
   | 'tool_started'
   | 'tool_completed'
   | 'tool_failed'
@@ -391,6 +393,7 @@ function isAgentTraceEventType(value: string): value is AgentTraceEventType {
     'chat_completed',
     'tool_approval_requested',
     'tool_approval_decided',
+    'ai_approval_reviewed',
     'tool_started',
     'tool_completed',
     'tool_failed',

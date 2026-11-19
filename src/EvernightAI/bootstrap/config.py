@@ -109,6 +109,7 @@ def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
             tool_sources=tool_sources,
             prompt_cache_mode=config.prompt_cache.mode,
             prompt_cache_scope=config.prompt_cache.scope,
+            ai_approval=config.ai_approval,
             configure_data_analysis=lambda register: register_configured_data_sources(
                 register, config
             ),

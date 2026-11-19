@@ -141,6 +141,39 @@ behavior: code inside interpreters still requires review of the complete script.
 Literal path checks do not constrain filesystem operations inside arbitrary
 Python or other programs.
 
+## AI approval
+
+Agent runs can ask an AI reviewer before pausing for human approval:
+
+```toml
+[ai_approval]
+enabled = true
+# Optional: use a separate registered provider/model for review.
+# provider_id = "review-provider"
+# model_id = "review-model"
+timeout_seconds = 20.0
+```
+
+Restart the service after changing configuration. This is disabled by default.
+Omitting the provider or model uses the current Agent request's corresponding
+value. The reviewer receives the current request's user text, full tool call,
+policy reason, working directory and session environment key names. These are
+sent to the selected model provider; no tools or conversation history are added.
+
+Only pending `restricted_shell` and `shell_process_start` approvals are reviewed.
+The AI must return a structured approval with low risk to allow execution.
+Uncertain, medium/high-risk, malformed, interrupted or failed reviews leave the
+existing human approval flow in place. The chat approval card shows the review
+reason. Explicit human decisions, hard command blocks and disabled tools keep
+their priority; direct tool API calls retain their existing behavior.
+
+The tool policy is checked again after the review and before execution, including
+shell session binding. Reviews never change tool permission settings. Every
+review is recorded as `ai_approval_reviewed` and its returned usage is included
+in the run total. Reviews do not consume Agent tool rounds or enter the main
+conversation. Approval results are not cached or reused for later calls or
+recovered execution; provider-side prompt caching may still occur.
+
 ## Shell sessions
 
 Each `restricted_shell` call still starts a new process, but calls that belong to

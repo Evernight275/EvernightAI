@@ -48,6 +48,7 @@ from EvernightAI.core.protocol.tool import (
     ToolSourceProtocol,
 )
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.core.schema.approval import AIApprovalConfig
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 
 
@@ -55,6 +56,9 @@ class RuntimeProtocol(Protocol):
     """
     运行时协议
     """
+
+    @property
+    def ai_approval(self) -> AIApprovalConfig: ...
 
     @property
     def file_artifacts(self) -> FileArtifactStoreProtocol: ...

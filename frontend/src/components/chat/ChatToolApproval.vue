@@ -25,6 +25,9 @@ defineEmits<{
       {{ approval.reason }}
     </p>
     <p class="chat-approval-permissions">权限：{{ approval.permissionsText }}</p>
+    <p v-if="approval.aiReviewReason" class="chat-approval-reason">
+      AI 审批转人工：{{ approval.aiReviewReason }}
+    </p>
     <p class="chat-approval-reason">批准仅适用于本次调用及下列参数，不会更改工具的默认权限。</p>
     <dl v-if="approval.targets.length" class="chat-approval-targets">
       <div v-for="target in approval.targets" :key="target.name">

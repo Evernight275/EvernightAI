@@ -61,6 +61,7 @@ from EvernightAI.core.protocol.tool import (
     ToolSourceProtocol,
 )
 from EvernightAI.core.protocol.workspace import WorkspaceDirectoryProtocol
+from EvernightAI.core.schema.approval import AIApprovalConfig
 from EvernightAI.core.schema.content import PromptCacheMode, PromptCacheScope
 
 LOGGER = logging.getLogger("EvernightAI.runtime")
@@ -107,8 +108,10 @@ class RuntimeKernel(RuntimeProtocol):
         sandbox: SandboxExecuteProtocol | None = None,
         startup_handlers: list[Callable[[], Awaitable[None]]] | None = None,
         shutdown_handlers: list[Callable[[], Awaitable[None]]] | None = None,
+        ai_approval: AIApprovalConfig | None = None,
     ) -> None:
         self._provider_factory = provider_factory
+        self._ai_approval = ai_approval or AIApprovalConfig()
         self._providers = providers
         self._provider_config_store = provider_config_store
         self._image_records = image_records or ImageGenerationStore()
@@ -149,6 +152,10 @@ class RuntimeKernel(RuntimeProtocol):
         self._agent_run_executor = agent_run_executor
         self._agent_trace_register = agent_trace_register
         self._tool_execution_register = tool_execution_register
+
+    @property
+    def ai_approval(self) -> AIApprovalConfig:
+        return self._ai_approval
 
     @property
     def file_artifacts(self) -> FileArtifactStoreProtocol:

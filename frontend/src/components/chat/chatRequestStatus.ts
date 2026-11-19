@@ -79,6 +79,7 @@ export type ChatApprovalItem = ToolApprovalRequest & {
   decisionText: string | null;
   decided: boolean;
   safetyLabel: string;
+  aiReviewReason?: string | null;
   targets: { name: string; value: string }[];
 };
 
@@ -89,6 +90,7 @@ export function approvalItem(
 ): ChatApprovalItem {
   return {
     ...approval,
+    aiReviewReason: aiApprovalReason(approval),
     toolCallText: JSON.stringify(approval.tool_call || {}, null, 2),
     permissionsText: approval.permissions?.join(', ') || '无',
     decisionText: status === 'approved' ? '已批准' : status === 'denied' ? '已拒绝' : null,
@@ -117,6 +119,13 @@ export function approvalItem(
       ...projectTaskTargets(approval, tool),
     ],
   };
+}
+
+export function aiApprovalReason(approval: ToolApprovalRequest): string | null {
+  const review = approval.metadata?.ai_review;
+  if (!review || typeof review !== 'object' || Array.isArray(review)) return null;
+  const reason = (review as Record<string, unknown>).reason;
+  return typeof reason === 'string' ? reason : null;
 }
 
 function projectTaskTargets(
