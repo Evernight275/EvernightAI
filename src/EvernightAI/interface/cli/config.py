@@ -7,6 +7,7 @@ from pydantic import ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
 from EvernightAI.core.error.base import ConfigurationError
+from EvernightAI.core.schema.approval import AIApprovalConfig
 from EvernightAI.core.schema.data_analysis import (
     DataFieldDefinition,
     DataMetricDefinition,
@@ -61,6 +62,7 @@ def parse_config(data: dict[str, Any]) -> EvernightConfig:
                 data.get("context_strategy", {})
             ),
             prompt_cache=PromptCacheConfig.model_validate(data.get("prompt_cache", {})),
+            ai_approval=AIApprovalConfig.model_validate(data.get("ai_approval", {})),
             memory_strategy=MemoryStrategyConfig.model_validate(data.get("memory_strategy", {})),
             http=HttpConfig.model_validate(data.get("http", {})),
             tools=ToolConfig.model_validate(data.get("tools", {})),

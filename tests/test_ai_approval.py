@@ -7,6 +7,7 @@ from EvernightAI.application.agent import AgentRunApplication
 from EvernightAI.application.agent_recovery import inspect_agent_run_checkpoint
 from EvernightAI.application.ai_approval import SYSTEM_PROMPT
 from EvernightAI.bootstrap.config import create_runtime_from_config
+from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.schema.agent import (
     AgentRunRequest,
     AgentRunStatus,
@@ -28,7 +29,7 @@ from EvernightAI.core.schema.tool import (
 from EvernightAI.infra.registrations.tool.restricted_shell import (
     register_restricted_shell_tool,
 )
-from EvernightAI.interface.cli.schema import EvernightConfig
+from EvernightAI.interface.cli.config import load_config, parse_config
 from tests.fakes.agent import InMemoryAgentRunStateRegister, InMemoryAgentTraceRegister
 from tests.test_application_agent import (
     ToolCallingProvider,
@@ -47,6 +48,7 @@ class ApprovalProvider(ToolCallingProvider):
         self.reviews = []
         self.main_calls = 0
         self.tool_rounds = 1
+        self.review_finish_reason = "stop"
 
     async def chat(self, request):
         self.requests.append(request)
@@ -71,7 +73,10 @@ class ApprovalProvider(ToolCallingProvider):
                 )
             )
             return make_response(text).model_copy(
-                update={"usage": ChatUsage(total_tokens=5)}
+                update={
+                    "finish_reason": self.review_finish_reason,
+                    "usage": ChatUsage(total_tokens=5),
+                }
             )
         self.main_calls += 1
         if self.main_calls <= self.tool_rounds:
@@ -133,8 +138,12 @@ async def setup_run(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_low_risk_review_executes_and_accounts_for_usage(tmp_path, stream):
+@pytest.mark.parametrize("finish_reason", ["stop", "completed", "end_turn", "STOP"])
+async def test_low_risk_review_executes_and_accounts_for_usage(
+    tmp_path, stream, finish_reason
+):
     runtime, provider, app, request = await setup_run(tmp_path)
+    provider.review_finish_reason = finish_reason
     try:
         if stream:
             request.metadata["run_id"] = "stream-review"
@@ -168,6 +177,25 @@ async def test_low_risk_review_executes_and_accounts_for_usage(tmp_path, stream)
         assert approval.approval_decision is not None
         assert approval.approval_decision.status is ToolApprovalStatus.APPROVED
         assert not state.request.tool_approvals
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "finish_reason", ["incomplete", "failed", "length", "MAX_TOKENS"]
+)
+async def test_non_successful_review_cannot_auto_approve(tmp_path, finish_reason):
+    runtime, provider, app, request = await setup_run(tmp_path)
+    provider.review_finish_reason = finish_reason
+    try:
+        state = await app.start(request)
+        assert state.status is AgentRunStatus.PAUSED
+        assert not (tmp_path / "result.txt").exists()
+        assert (
+            state.pending_approval_requests[0].metadata["ai_review"]["decision"]
+            == "human"
+        )
     finally:
         await runtime.close()
 
@@ -253,22 +281,33 @@ async def test_policy_is_rechecked_after_ai_review(tmp_path):
 @pytest.mark.asyncio
 async def test_ai_config_is_composed_without_initializing_storage(tmp_path):
     database = tmp_path / "runtime.sqlite3"
-    config = EvernightConfig.model_validate(
-        {
-            "runtime": {"database_path": str(database)},
-            "ai_approval": {
-                "enabled": True,
-                "provider_id": "reviewer",
-                "model_id": "review-model",
-            },
-        }
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"[runtime]\ndatabase_path = {json.dumps(str(database))}\n"
+        '[ai_approval]\nenabled = true\nprovider_id = "reviewer"\n'
+        'model_id = "review-model"\ntimeout_seconds = 12.0\n'
     )
+    config = load_config(config_path)
     runtime = create_runtime_from_config(config)
     try:
         assert runtime.ai_approval == config.ai_approval
+        assert runtime.ai_approval.enabled
+        assert runtime.ai_approval.provider_id == "reviewer"
+        assert runtime.ai_approval.model_id == "review-model"
+        assert runtime.ai_approval.timeout_seconds == 12.0
         assert not database.exists()
     finally:
         await runtime.close()
+
+
+@pytest.mark.parametrize("settings", [{"timeout_seconds": 0}, {"enabled": "invalid"}])
+def test_invalid_ai_approval_configuration_is_rejected(settings):
+    with pytest.raises(ConfigurationError, match="Invalid EvernightAI config"):
+        parse_config({"ai_approval": settings})
+
+
+def test_missing_ai_approval_configuration_stays_disabled():
+    assert not parse_config({}).ai_approval.enabled
 
 
 @pytest.mark.asyncio
