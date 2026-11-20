@@ -23,6 +23,7 @@ from EvernightAI.core.domain.context import (
     ContextManager,
     ContextOrganizer,
     ContextRegister,
+    ExtractiveContextSummarizer,
     SummarizingContextStrategy,
     TokenBudgetContextStrategy,
     WindowTrimmingContextStrategy,
@@ -374,11 +375,12 @@ def create_context_strategy(
         organizer or ContextOrganizer()
     )
     if options.enable_summary:
-        if options.summarizer is None:
-            raise ValueError("context summary requires a summarizer")
+        summarizer = options.summarizer
+        if summarizer is None:
+            summarizer = ExtractiveContextSummarizer()
         strategy = SummarizingContextStrategy(
             strategy,
-            options.summarizer,
+            summarizer,
             summarize_after_messages=options.summarize_after_messages,
             keep_recent_messages=options.keep_recent_messages,
         )

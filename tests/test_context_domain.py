@@ -5,6 +5,7 @@ from EvernightAI.core.domain.context import (
     ContextManager,
     ContextOrganizer,
     ContextRegister,
+    ExtractiveContextSummarizer,
     SummarizingContextStrategy,
     TokenBudgetContextStrategy,
     WindowTrimmingContextStrategy,
@@ -384,6 +385,29 @@ def test_token_budget_keeps_tool_protocol_groups_intact() -> None:
     assert request.messages == [tool_call, tool_result]
 
 
+def test_extractive_summary_limits_history_and_omits_image_data() -> None:
+    opening = Content(
+        role=MessageRole.USER,
+        content=[
+            ContentPart(type=ContentPartType.TEXT, text="Original request"),
+            ContentPart(type=ContentPartType.IMAGE, data="image-payload"),
+        ],
+    )
+    middle = [make_message(f"older #{index}") for index in range(30)]
+    latest = make_message("最新消息" + "长" * 10000 + "end-of-output")
+    summary = ExtractiveContextSummarizer().summarize([opening, *middle, latest])
+
+    assert summary.content and summary.content[0].text
+    excerpt = summary.content[0].text
+    assert "Original request [image omitted]" in excerpt
+    assert "older #29" in excerpt
+    assert "最新消息" in excerpt
+    assert "image-payload" not in excerpt
+    assert "end-of-output" not in excerpt
+    assert "older #10\n" not in excerpt
+    assert len(excerpt.splitlines()) <= 17
+
+
 def test_summarizing_strategy_uses_injected_summarizer() -> None:
     summarizer = _RecordingSummarizer()
     strategy = SummarizingContextStrategy(
@@ -425,7 +449,7 @@ def test_summarizing_strategy_keeps_recent_tool_group_intact() -> None:
         BasicContextStrategy(ContextOrganizer()),
         summarizer,
         summarize_after_messages=2,
-        keep_recent_messages=1,
+        keep_recent_messages=2,
     )
 
     request = strategy.compose_chat_request(
@@ -434,10 +458,33 @@ def test_summarizing_strategy_keeps_recent_tool_group_intact() -> None:
             messages=[make_message("old"), tool_call, tool_result],
         ),
         model_id="model-1",
+        messages=[make_message("current")],
     )
 
     assert summarizer.messages == [[make_message("old")]]
-    assert request.messages[1:] == [tool_call, tool_result]
+    assert request.messages[1:] == [tool_call, tool_result, make_message("current")]
+
+
+def test_summarizing_strategy_keeps_the_entire_current_agent_transcript() -> None:
+    summarizer = _RecordingSummarizer()
+    strategy = SummarizingContextStrategy(
+        BasicContextStrategy(ContextOrganizer()),
+        summarizer,
+        summarize_after_messages=2,
+        keep_recent_messages=1,
+    )
+    system = make_system_message("system instructions")
+    old = make_message("older message")
+    current = [make_message("current"), make_assistant_tool_call(), make_tool_message()]
+
+    request = strategy.compose_chat_request(
+        Context(context_id="ctx-1", messages=[system, old]),
+        model_id="model-1",
+        messages=current,
+    )
+
+    assert summarizer.messages == [[old]]
+    assert request.messages == [system, make_system_message("summary"), *current]
 
 
 def test_window_trimming_keeps_current_messages_even_when_over_limit() -> None:

@@ -539,6 +539,50 @@ class TokenBudgetContextStrategy(ContextStrategyProtocol):
         )
 
 
+class ExtractiveContextSummarizer(ContextSummarizerProtocol):
+    def summarize(self, messages: list[Content]) -> Content:
+        max_excerpts = 16
+        opening_excerpts = 2
+        excerpts = messages
+        if len(messages) > max_excerpts:
+            recent_excerpts = max_excerpts - opening_excerpts
+            excerpts = [*messages[:opening_excerpts], *messages[-recent_excerpts:]]
+
+        lines = [
+            "Earlier conversation excerpts for reference "
+            f"({len(excerpts)} of {len(messages)} messages)."
+        ]
+        for message in excerpts:
+            lines.append(f"- {message.role.value}: {self._excerpt(message)}")
+        return Content(
+            role=MessageRole.USER,
+            content=[ContentPart(type=ContentPartType.TEXT, text="\n".join(lines))],
+            metadata={"source": "context_summary"},
+        )
+
+    def _excerpt(self, message: Content) -> str:
+        max_chars = 240
+        parts: list[str] = []
+        for call in (message.tool_calls or [])[:3]:
+            name = call.tool_call.get("name")
+            if isinstance(name, str):
+                parts.append(f"[called {name[:max_chars]}]")
+        for part in (message.content or [])[:3]:
+            if part.type in {
+                ContentPartType.TEXT,
+                ContentPartType.CODE,
+                ContentPartType.TABLE,
+            }:
+                if part.text:
+                    parts.append(part.text.lstrip()[: max_chars + 1])
+            else:
+                parts.append(f"[{part.type.value} omitted]")
+        text = " ".join(" ".join(parts).split())
+        if len(text) > max_chars:
+            return f"{text[:max_chars].rstrip()}…"
+        return text or "[no text]"
+
+
 class SummarizingContextStrategy(ContextStrategyProtocol):
     def __init__(
         self,
@@ -581,16 +625,16 @@ class SummarizingContextStrategy(ContextStrategyProtocol):
         if len(remainder) <= self._keep_recent_messages:
             return request
         groups = _message_groups(remainder)
-        recent_groups = _tail_groups_by_message_count(
-            groups,
-            self._keep_recent_messages,
-        )
-        recent_group_count = len(recent_groups)
-        removed_groups = groups[:-recent_group_count] if recent_group_count else groups
-        removed = [message for group in removed_groups for message in group]
-        recent = [message for group in recent_groups for message in group]
-        if not removed:
+        split = _recent_group_start(groups, self._keep_recent_messages)
+        protected_ids = _protected_message_ids(messages)
+        for index, group in enumerate(groups[:split]):
+            if _group_contains_protected_message(group, protected_ids):
+                split = index
+                break
+        if split == 0:
             return request
+        removed = [message for group in groups[:split] for message in group]
+        recent = [message for group in groups[split:] for message in group]
         summary = self._summarizer.summarize(removed)
         return _with_context_strategy_metadata(
             request,
@@ -713,21 +757,13 @@ def _group_contains_protected_message(
     return any(id(message) in protected_ids for message in group)
 
 
-def _tail_groups_by_message_count(
-    groups: list[list[Content]],
-    max_items: int,
-) -> list[list[Content]]:
-    selected: list[list[Content]] = []
+def _recent_group_start(groups: list[list[Content]], max_items: int) -> int:
     count = 0
-    for group in reversed(groups):
-        if selected and count + len(group) > max_items:
-            break
-        selected.append(group)
-        count += len(group)
+    for index in reversed(range(len(groups))):
+        count += len(groups[index])
         if count >= max_items:
-            break
-    selected.reverse()
-    return selected
+            return index
+    return 0
 
 
 def _with_context_strategy_metadata(

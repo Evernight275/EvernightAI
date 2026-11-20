@@ -40,8 +40,8 @@ write = "basic"
 
 [context_strategy]
 # Optional model-visible window controls. Basic composition is always first.
-# Summary requires an application-provided summarizer; leave disabled unless
-# your runtime assembly injects one.
+# Enable summary to replace older history in the model request with local excerpts.
+# The original messages remain in storage.
 # max_messages = 80
 # max_tokens = 12000
 enable_summary = false

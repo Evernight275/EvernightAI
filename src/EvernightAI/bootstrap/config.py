@@ -25,7 +25,6 @@ from EvernightAI.core.domain.api_key import ApiKeyManager, ManagedApiKeyAuthDevi
 from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.runtime import RuntimeKernel
-from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.sandbox import SandboxConfigurationError
 from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.protocol.data_analysis import DataAnalysisRegisterProtocol
@@ -64,7 +63,6 @@ from EvernightAI.interface.cli.schema import (
 
 
 def create_runtime_from_config(config: EvernightConfig) -> RuntimeKernel:
-    _validate_context_strategy(config)
     tools = _builtin_tool_options(config)
     tool_sources = _configured_mcp_tool_sources(config)
     if config.runtime.sandbox_backend is SandboxBackend.BUBBLEWRAP:
@@ -401,14 +399,6 @@ def _required_secret(name: str, *, label: str) -> str:
     if value is None or value == "":
         raise ToolConfigurationError(f"{label} variable is not set: {name}")
     return value
-
-
-def _validate_context_strategy(config: EvernightConfig) -> None:
-    if config.context_strategy.enable_summary:
-        raise ConfigurationError(
-            "context_strategy.enable_summary requires a context summarizer, "
-            "which this runtime assembly does not provide"
-        )
 
 
 def _context_strategy_options(config: EvernightConfig) -> ContextStrategyOptions:

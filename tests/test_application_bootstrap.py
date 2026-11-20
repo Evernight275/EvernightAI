@@ -17,7 +17,6 @@ from EvernightAI.core.domain.auth import Authorizer, PermissionAuthPolicy
 from EvernightAI.core.domain.authorized_interface import AuthorizedEvernightInterface
 from EvernightAI.core.domain.interface import EvernightInterface
 from EvernightAI.core.error.auth import AuthRequiredError
-from EvernightAI.core.error.base import ConfigurationError
 from EvernightAI.core.error.tool import ToolConfigurationError
 from EvernightAI.core.protocol.interface import EvernightInterfaceProtocol
 from EvernightAI.core.schema.auth import Principal
@@ -300,18 +299,41 @@ def test_project_directories_are_shared_without_project_task_tool(tmp_path) -> N
     }
 
 
-def test_configured_context_summary_requires_summarizer(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_configured_context_summary_preserves_stored_history(tmp_path) -> None:
     config = parse_config(
         {
             "runtime": {"database_path": str(tmp_path / "runtime.sqlite3")},
-            "context_strategy": {"enable_summary": True},
+            "context_strategy": {
+                "enable_summary": True,
+                "summarize_after_messages": 3,
+                "keep_recent_messages": 2,
+            },
         }
     )
-
-    with pytest.raises(ConfigurationError, match="enable_summary"):
-        create_runtime_from_config(config)
-
+    runtime = create_runtime_from_config(config)
     assert not (tmp_path / "runtime.sqlite3").exists()
+    app = ChatApplication(runtime)
+    history = [_message("Set a budget"), _message("Use USD"), _message("Recent")]
+    context = Context(context_id="ctx-1", messages=history)
+    current = _message("Continue")
+    try:
+        await app.create_context(context)
+        short = await app.organize_chat_request("ctx-1", model_id="model-1")
+        request = await app.organize_chat_request(
+            "ctx-1", model_id="model-1", messages=[current]
+        )
+
+        assert short.messages == history
+        summary, *remaining = request.messages
+        assert summary.role is MessageRole.USER
+        assert summary.content and summary.content[0].text
+        assert "Set a budget" in summary.content[0].text
+        assert "Use USD" in summary.content[0].text
+        assert remaining == [history[-1], current]
+        assert (await app.get_context("ctx-1")).messages == history
+    finally:
+        await runtime.close()
 
 
 def _message(text: str) -> Content:
